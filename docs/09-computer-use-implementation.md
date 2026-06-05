@@ -2,6 +2,8 @@
 
 Computer Use is not a single tool. It is a governed action loop over browser, desktop, file/repo, code, and remote worker environments. Its implementation must preserve the Aetherion kernel invariants: Local Supervisor remains the trust root, Event Ledger remains the fact layer, and Tool Policy Proxy gates sensitive reads, data egress, and side-effectful actions.
 
+Computer Use is post-V1 scope. V1 is TUI-only and should prove the local kernel loop before browser extension, browser automation, IM delivery, cloud workers, or real connectors are introduced.
+
 ## Design Goals
 
 - Operate real user workflows across browser, local computer, files, repos, and sandboxed workers.
@@ -316,9 +318,9 @@ After each action:
 4. Decide continue, retry, rollback, ask, or stop.
 5. Emit verification event.
 
-## MVP Scope
+## Post-V1 MVP Scope
 
-Computer Use MVP should prove:
+Computer Use MVP should prove after the TUI kernel loop is stable:
 
 - One local file/repo read action.
 - One approval-gated local write action.

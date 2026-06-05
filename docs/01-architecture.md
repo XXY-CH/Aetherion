@@ -36,6 +36,8 @@ Memory OS       Capability OS        Proactive Engine
 
 This architecture is not a waterfall. It is a set of orthogonal planes coordinated by Local Supervisor and Event Plane. Memory, Capability, Proactive, Policy, Audit, and Verifier services are invoked repeatedly throughout the run lifecycle.
 
+V1 uses only the TUI client surface. GUI, browser extension, IM, mobile, API, and real connector surfaces are long-term targets, not first-version requirements.
+
 ## Orthogonality Rules
 
 Each subsystem owns one concern and communicates through explicit contracts.

@@ -15,12 +15,32 @@ Preserve these invariants:
 - Proactive behavior is an Opportunity Lifecycle with inhibition, not cron self-interruption.
 - Human-readable contracts are governance source of truth; indexes are rebuildable projections.
 
+## V1 Hard Scope
+
+V1 is TUI-first. Do not add GUI, mobile, real IM delivery, browser extension, browser automation, MCP/OAuth connectors, or cloud workers to the first runnable product.
+
+V1 should prove:
+
+- TUI command surface.
+- Contract validation.
+- Local workspace identity.
+- Event ledger append.
+- Tool request.
+- Policy decision.
+- Scoped lease.
+- Local file read/write through policy.
+- Observation and verification.
+- Trace replay reconstruction.
+
 ## Editing Rules
 
 - Do not describe Aetherion as a replacement OS.
 - Treat Aetherion as a codename until naming clearance.
 - Keep imported tools, skills, configs, MCP servers, hooks, and generated packages quarantined by default.
 - Prefer contract-first implementation: schema, example, fixture, minimal harness, then runtime expansion.
+- Use TypeScript for contract iteration and TUI seed work.
+- Reserve Rust for the future Local Supervisor authority boundary.
+- Keep Python in eval/research only; do not put Python in the authority path.
 - Do not let browser extension, IM, connector, cloud worker, generated package, or replay become a trust root.
 - Do not store raw secrets in examples, memory, logs, traces, schemas, or test fixtures.
 
@@ -39,6 +59,8 @@ Out of scope until explicit implementation phase:
 
 - Real browser automation.
 - Real IM delivery.
+- GUI desktop app.
+- Mobile app.
 - Real MCP/OAuth connectors.
 - Real memory retrieval or vector indexes.
 - Real vault/secret backend.

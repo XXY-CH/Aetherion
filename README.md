@@ -20,8 +20,9 @@ The best product bet is not "another agent that can use a computer." Aetherion's
 
 - Local Supervisor plus Policy Engine, Secret Vault, and Event Ledger is the root authority boundary.
 - TUI, GUI, browser extension, mobile, and IM are client surfaces. They do not grant authority directly.
+- V1 is TUI-only. GUI, mobile, IM, browser extension, browser automation, and real connectors are deliberately deferred.
 - Event Plane is the fact layer. Messages, approvals, tool calls, memory candidates, capability changes, and proactive opportunities become typed events in an append-only ledger.
-- Browser extension and browser operator are core execution surfaces, not optional integrations.
+- Browser extension and browser operator are core post-V1 execution surfaces, not optional long-term integrations.
 - OAuth, MCP, and connector layers expose user data and tools, but never bypass the Tool Policy Proxy.
 - Connector and execution adapters are sibling target families behind policy, not a simple upstream/downstream chain.
 - Chat, mobile, and IM channels are remote control and notification surfaces, not the root authority boundary.
@@ -29,7 +30,7 @@ The best product bet is not "another agent that can use a computer." Aetherion's
 - Capability Capsules are the governed internal ability unit. Skills are procedural knowledge and import formats, not unrestricted plugins.
 - Dreaming produces reviewable patches, not external actions.
 - Proactive behavior is an Opportunity Lifecycle, not an agent periodically deciding to interrupt the user.
-- Human-readable Markdown, YAML, and JSONL are source of truth. SQLite, vector, and graph stores are rebuildable projections.
+- Human-readable Markdown, YAML, and JSONL are the governance source of truth for events, state, memory, capability, and policy metadata. Large or sensitive payloads live in encrypted artifact stores referenced by human-readable manifests. SQLite, vector, graph, and search indexes are rebuildable projections.
 
 ## System Shape
 
@@ -77,18 +78,28 @@ Memory OS       Capability OS        Proactive Engine
 - [Positioning and Naming Risk](docs/07-positioning-and-naming.md)
 - [Innovation Thesis](docs/08-innovation-thesis.md)
 - [Computer Use Implementation](docs/09-computer-use-implementation.md)
+- [Technical Strategy](docs/10-technical-strategy.md)
 
 ## MVP Direction
 
-The first build should prove the smallest complete loop:
+The first build is TUI-only and should prove the smallest complete local kernel loop:
 
-1. Local desktop shell with project/workspace identity.
-2. Local Supervisor with Event Ledger and Tool Policy Proxy.
-3. One minimal IM channel and browser extension prototype.
-4. Browser operator with screenshot plus DOM-assisted actions.
-5. Raw event log plus memory cards.
-6. Capability Capsule registry with draft/test/publish states.
-7. Capability package scaffold with policy and tests.
+1. TUI command surface with project/workspace identity.
+2. Contract validation over schemas and examples.
+3. Event Ledger append.
+4. Tool request and policy decision.
+5. Scoped lease issuance.
+6. Local file read/write through policy.
+7. Observation, verification, and trace replay reconstruction.
+
+Explicitly not V1:
+
+- GUI desktop app.
+- Mobile app.
+- IM delivery.
+- Browser extension or browser automation.
+- MCP/OAuth/SaaS connectors.
+- Cloud workers.
 
 ## Contract Seed
 

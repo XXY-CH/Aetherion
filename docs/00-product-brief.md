@@ -43,10 +43,35 @@ But Aetherion should not inherit the common failure mode of these systems: mixin
 5. Let the user reach the agent from IM, mobile, browser, or desktop while preserving one clear authority boundary.
 6. Let every important action be reconstructed through logs, source references, decisions, approvals, and replay artifacts.
 
+## V1 Product Boundary
+
+V1 is TUI-only. The first product surface should be a terminal interface that proves the local kernel loop before any GUI, mobile, IM, browser extension, or connector surface is introduced.
+
+V1 must prove:
+
+- A local user can issue a command from the TUI.
+- The run is recorded as events.
+- Tool requests pass through policy.
+- Scoped leases gate local file access.
+- Approval-gated writes are explicit.
+- Observations and verification records are emitted.
+- Replay reconstructs the trace without repeating live side effects.
+
+Deferred from V1:
+
+- Tauri/React GUI.
+- Mobile companion.
+- IM delivery.
+- Browser extension.
+- Browser automation.
+- MCP/OAuth/SaaS connectors.
+- Cloud workers.
+
 ## Non-Goals
 
 - A pure cloud chatbot.
 - A single shared IM bot treated as a multi-user security boundary.
+- A V1 surface that spreads across GUI, mobile, IM, browser extension, and connectors before the TUI kernel loop is proven.
 - An ungoverned auto-plugin system where generated code immediately receives real user permissions.
 - A memory system that only stores embeddings without source, confidence, sensitivity, or deletion controls.
 - A computer-use loop that relies only on slow visual clicking when DOM, API, or connector access is available.
@@ -93,6 +118,6 @@ Agent-generated scaffolds become isolated packages with manifests, schemas, test
 
 ### Tool Policy Proxy
 
-No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can execute side-effectful actions directly. All such actions pass through the Tool Policy Proxy.
+No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can read sensitive resources, inject context, export data, or execute side-effectful actions directly. All such access and actions pass through the Tool Policy Proxy.
 
 The proxy also gates sensitive reads, observations, data egress, imports, exports, and context injection. Preventing writes is not enough if an agent can silently read secrets or leak private context.

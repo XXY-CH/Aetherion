@@ -20,9 +20,9 @@ Exit criteria:
 - A developer can identify which subsystem owns permissions, memory, skills, tools, and execution.
 - A developer can start scaffolding schemas and packages without guessing product intent.
 
-## Phase 1: Kernel Plus One Real Action
+## Phase 1: TUI Kernel Plus One Real Action
 
-Goal: create the root local authority boundary and prove one complete local run.
+Goal: create the TUI-first local kernel loop and prove one complete local run. This phase intentionally excludes GUI, mobile, IM, browser extension, browser automation, MCP/OAuth connectors, and cloud workers.
 
 Deliverables:
 
@@ -47,26 +47,26 @@ Exit criteria:
 - Event and action records can reconstruct the policy decision and result.
 - Replay means trace reconstruction, not live side-effect repetition.
 
-## Phase 2: Minimal User Connection
+## Phase 2: Rust Supervisor POC With TUI Client
 
-Goal: prove the harness can enter real user workflow early.
+Goal: move the root authority proof toward Rust without broadening product surfaces.
 
 Deliverables:
 
-- One IM adapter, such as Telegram or Slack.
-- Browser extension prototype in current-tab observe/read mode.
-- Device and channel identity mapping.
-- Local file/repo operator.
-- Basic connector import quarantine path.
-- Inbox/outbox model with idempotency.
+- Rust Local Supervisor POC.
+- JSON-RPC over stdio or local socket.
+- Workspace init.
+- Event append JSONL.
+- Simple policy evaluation.
+- Workspace-scoped file read/write through scoped leases.
+- TypeScript TUI client calling the supervisor.
 
 Exit criteria:
 
-- User can wake the agent remotely.
-- Browser extension can send structured page context to Local Supervisor.
-- IM cannot bypass Tool Policy Proxy.
-- Outbound IM messages go through outbox policy.
-- Imported config generates migration report and does not inherit trust.
+- TUI can call Rust supervisor for the same Phase 1 loop.
+- Supervisor remains the authority boundary.
+- TS harness/orchestrator cannot bypass supervisor policy.
+- No GUI, IM, browser extension, MCP/OAuth, or cloud worker is required.
 
 ## Phase 3: Memory OS MVP
 
@@ -90,7 +90,7 @@ Exit criteria:
 
 ## Phase 4: Computer Harness MVP
 
-Goal: combine browser, local computer, sandbox, and verifier loops under policy.
+Goal: combine browser, local computer, sandbox, and verifier loops under policy after the TUI kernel loop is proven. This is post-V1 scope.
 
 Deliverables:
 
@@ -172,7 +172,28 @@ Exit criteria:
 - Package cannot install until schema, tests, permission diff, sandbox, and approval pass.
 - Permission changes are visible between versions.
 
-## Phase 8: GUI and Broader Connectors
+## Phase 8: Minimal User Connection
+
+Goal: prove the harness can enter real user workflow after TUI-first authority and policy loops are stable.
+
+Deliverables:
+
+- One IM adapter, such as Telegram or Slack.
+- Browser extension prototype in current-tab observe/read mode.
+- Device and channel identity mapping.
+- Local file/repo operator.
+- Basic connector import quarantine path.
+- Inbox/outbox model with idempotency.
+
+Exit criteria:
+
+- User can wake the agent remotely.
+- Browser extension can send structured page context to Local Supervisor.
+- IM cannot bypass Tool Policy Proxy.
+- Outbound IM messages go through outbox policy.
+- Imported config generates migration report and does not inherit trust.
+
+## Phase 9: GUI and Broader Connectors
 
 Goal: mature the user-facing product once the kernel loop is proven.
 
