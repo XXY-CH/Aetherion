@@ -1,24 +1,25 @@
-# Skill and Scaffold OS
+# Capability and Scaffold OS
 
 ## Concepts
 
 | Concept | Meaning | Executable Code | Agent May Modify |
 | --- | --- | ---: | ---: |
 | Memory | Facts and interpretations about user, project, world, and task history | No | Yes, with trace |
-| Skill | Procedural knowledge for doing a class of tasks | Usually no | Yes, with versioning |
+| Skill | Procedural knowledge or imported skill document for doing a class of tasks | Usually no | Yes, with versioning |
 | Tool | Callable function, API, or system capability | Yes | Not directly auto-deployed |
 | Workflow | Orchestration of skills and tools | Sometimes | Yes, with tests |
 | Scaffold | Template for generating tools, workflows, apps, connectors, or UI | Yes | Yes, with review |
 | Capability Package | Installable isolated capability bundle | Yes | Generated, validated, approved |
+| Capability Capsule | Governed internal ability unit binding playbook, manifest, tool contract, permissions, tests, evals, policy, provenance, and rollback | Sometimes | Yes, through patch lifecycle |
 
-Skill is not plugin. Skill is knowledge. Tool is power. Permission belongs to the tool and execution boundary.
+Skill is not plugin. Skill is knowledge and an import compatibility surface. Tool is power. Permission belongs to the Tool Policy Proxy and execution boundary. Capability Capsule is the internal unit Aetherion should optimize around.
 
-## Skill Lifecycle
+## Capability Lifecycle
 
 ```text
 Observe task history
   -> Detect repeatable pattern
-  -> Draft skill
+  -> Draft capability patch
   -> Run synthetic tests
   -> Run replay tests from historical episodes
   -> Classify risk
@@ -30,12 +31,15 @@ Observe task history
   -> Upgrade or rollback
 ```
 
-## Skill Manifest
+## Capability Capsule Manifest
 
 ```yaml
-name: draft-investor-update
+id: draft-investor-update
+kind: capability_capsule
 version: 1.2.0
 description: Draft monthly investor updates from project notes, metrics, and recent decisions.
+playbook:
+  source: playbook.md
 when_to_use:
   - user asks for investor update
   - monthly reporting task is due
@@ -64,7 +68,12 @@ owner: user
 created_by: agent
 source_tasks:
   - task_abc
+provenance:
+  created_from_events:
+    - event_abc
 ```
+
+Skills imported from Hermes, agent skill repositories, or OpenClaw should be normalized into draft Capability Capsules and quarantined until policy checks pass.
 
 ## Capability Package
 
@@ -134,9 +143,21 @@ approval:
   upgrade: user_required_if_permissions_change
 ```
 
-## Deployment Gate
+## Deployment Gates
 
-Before installation or upgrade:
+Gate strength should scale with risk and permission delta.
+
+| Change Type | Gate |
+| --- | --- |
+| Playbook or document-only change | Schema, diff, source trace, optional review |
+| Memory patch | Source trace, confidence, conflict check, policy |
+| Workflow change | Schema, replay test, diff, approval if side effects change |
+| Tool code change | Full gate |
+| Permission expansion | Full gate plus explicit user approval |
+| Secret scope change | Full gate plus re-auth |
+| External package install | Quarantine plus full gate |
+
+Full gate before high-risk installation or upgrade:
 
 1. Validate manifest schema.
 2. Typecheck package.
@@ -146,7 +167,7 @@ Before installation or upgrade:
 6. Run static safety scan.
 7. Run sandbox trial.
 8. Generate approval card.
-9. Sign package.
+9. Sign package or capsule.
 10. Register rollback target.
 
 ## Scoring
@@ -163,4 +184,3 @@ Skills and packages should accumulate metrics:
 - Regression stability.
 
 Scores can suggest patches, but cannot bypass lifecycle gates.
-

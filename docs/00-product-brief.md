@@ -2,24 +2,26 @@
 
 ## Name
 
-Aetherion.
+Aetherion is the current codename.
 
 The name combines the feeling of an invisible medium with the idea of command and agency. It should feel like an intelligent substrate that can move across devices, tools, memories, and workflows.
 
+It should not be treated as the final public name yet. Supplied research indicates possible AI/agent-related collisions across GitHub, PyPI, trademarks, and an existing platform. The project should keep a naming-risk note until a proper clearance pass is complete. Candidate public names include Helmweaver, Vigil Loom, AegisForge, Northstar Runtime, Keelstone, Loomguard, and Argos Kernel.
+
 ## One Sentence
 
-Aetherion is a local-first Agent Operating System that connects a user's devices, data, permissions, memory, and tools into a safe, auditable, self-improving agent harness.
+Aetherion is a local-first Agent Harness Kernel that connects a user's devices, data, permissions, memory, tools, and messaging channels into a safe, auditable, self-improving agent runtime.
 
 ## Positioning
 
-Aetherion is not a single chatbot, workflow builder, IM bot, browser automation tool, or memory app. It is the orchestration layer that makes those capabilities work together under a coherent trust boundary.
+Aetherion is not a single chatbot, workflow builder, IM bot, browser automation tool, memory app, or replacement operating system. It is an OS-style harness kernel that makes those capabilities work together under a coherent trust boundary.
 
 The product should combine the useful ideas of:
 
 - Multi-channel gateways for user reachability.
 - Computer-use harnesses for real device operation.
-- Long-term memory trees for durable user understanding.
-- Self-improving skill systems for repeated task mastery.
+- Long-term memory systems for durable user understanding.
+- Governed capability evolution for repeated task mastery.
 - MCP and OAuth connectors for tool and data access.
 - Local-first desktop UX for user trust, approvals, and auditability.
 
@@ -51,9 +53,15 @@ But Aetherion should not inherit the common failure mode of these systems: mixin
 
 ## Differentiators
 
-### User Boundary Layer
+### Local Supervisor And User Boundary
 
-Aetherion's central product moat is not just more tools. It is a permission and trust layer that decides who is asking, where execution happens, what is being done, why it is being done, what risk it carries, and whether it changes long-term memory.
+Aetherion's central product moat is not just more tools. It is the Local Supervisor plus User Boundary Layer: a policy, vault, event-ledger, and approval system that decides who is asking, where execution happens, what is being done, why it is being done, what risk it carries, and whether it changes long-term memory or capabilities.
+
+The desktop app is a control surface. It is not the root authority by itself.
+
+### Event Plane
+
+The Event Plane is the product fact layer. Every message, tool call, approval, memory candidate, capability patch, computer action, proactive opportunity, and policy decision becomes a typed event in an append-only ledger. Memory, proactive behavior, audit, replay, and capability evolution are projections over this fact layer.
 
 ### Memory OS
 
@@ -67,11 +75,14 @@ Aetherion memory is a structured operating layer:
 - Context assembler.
 - Dreaming and simulation loops.
 
-### Governed Skill Evolution
+### Governed Capability Evolution
 
-Skills can be proposed, drafted, tested, published, scored, patched, and rolled back. A skill is procedural knowledge and does not automatically own permissions.
+Capability Capsules can be proposed, drafted, tested, published, scored, patched, quarantined, and rolled back. A skill is procedural knowledge or an import format; a Capability Capsule is the governed internal unit that binds playbook, manifest, tool contract, permissions, tests, evals, policy, provenance, and rollback.
 
 ### Capability Packages
 
 Agent-generated scaffolds become isolated packages with manifests, schemas, tests, policies, evals, approval UI, and deployment gates.
 
+### Tool Policy Proxy
+
+No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can execute side-effectful actions directly. All such actions pass through the Tool Policy Proxy.

@@ -1,6 +1,18 @@
 # User Boundary Layer
 
-The User Boundary Layer is Aetherion's primary safety and product boundary. It decides whether an agent may act, where it may act, which user authority it may use, and what must be recorded or approved.
+The User Boundary Layer is Aetherion's primary safety and product boundary. It sits under the Local Supervisor and decides whether an agent may act, where it may act, which user authority it may use, and what must be recorded or approved.
+
+The root authority boundary is:
+
+```text
+Local Supervisor
+  -> Policy Engine
+  -> Secret Vault
+  -> Event Ledger
+  -> Tool Policy Proxy
+```
+
+TUI, GUI, browser extension, mobile, and IM are client surfaces. They can request action and display approvals, but they are not the trust root.
 
 ## Boundary Questions
 
@@ -47,14 +59,44 @@ Every material action must answer six questions.
 
 ### Risk
 
+Risk is composed from:
+
+- Action type.
+- Target resource.
+- Data sensitivity.
+- Side effect.
+- Reversibility.
+- Audience.
+- Credential scope.
+- Runtime boundary.
+- Strength of user intent.
+
 | Level | Examples | Default Policy |
 | --- | --- | --- |
-| L0 | Search public web, summarize public page, inspect local non-sensitive metadata | Auto-execute with log |
-| L1 | Read calendar metadata, read email titles, list repository issues | Auto after first authorization |
-| L2 | Read email body, read Drive document, inspect private repository content | Scope-gated authorization |
-| L3 | Send Slack message, create Linear issue, edit Notion draft | Show action preview or diff first |
-| L4 | Send email, submit PR, run shell, modify files | Explicit approval required |
-| L5 | Payment, data deletion, permission changes, sensitive export | Strong confirmation or disabled automation |
+| L0 | Safe read or summarize of public data; inspect non-sensitive local metadata | Auto-execute with log; content is tainted |
+| L1 | Read calendar metadata, email titles, public issue metadata, run tests in empty sandbox | Auto after first authorization |
+| L2 | Read ordinary private content in approved scope, run repo lint/tests without broad home access | Scope-gated authorization |
+| L3 | Modify workspace file without publishing, draft Slack/Notion/Linear change, install package with constrained sandbox | Show action preview or diff first |
+| L4 | Send email, push commit, open PR, run shell with meaningful side effects, read sensitive attachments | Explicit approval required |
+| L5 | Payment, deletion, permission change, credential access, sensitive export, production database change, `curl | sh` style execution | Strong confirmation or disabled automation |
+
+Shell is not automatically one risk class. Running `pytest` in an empty sandbox differs from reading `$HOME/.ssh`, executing unknown install scripts, or mutating production data.
+
+Public web content can be read and summarized at L0, but it is tainted input. It cannot authorize tool calls, override user instructions, or trigger high-risk actions.
+
+Private content such as email bodies and Drive documents depends on sensitivity classification. Ordinary content may be L2 or L3; contracts, financial records, legal, HR, medical, source code, customer data, attachments, credential-like content, exports, and third-party-tool transfer can upgrade risk to L4 or L5.
+
+Data sensitivity classes:
+
+```text
+public
+internal
+private
+confidential
+secret
+regulated
+credential-like
+```
 
 ### Memory Impact
 
@@ -64,9 +106,9 @@ Every material action must answer six questions.
 - Does it change future automation policy?
 - Does it contain sensitive data that should be blocked from memory?
 
-## Permission Firewall
+## Tool Policy Proxy
 
-The Permission Firewall sits between agent intent and execution. It evaluates:
+The Tool Policy Proxy sits between agent intent and execution. It evaluates:
 
 - Actor identity.
 - Tool identity.
@@ -78,7 +120,7 @@ The Permission Firewall sits between agent intent and execution. It evaluates:
 - Memory policy.
 - Current trust state.
 
-No connector, skill, workflow, or generated package may bypass this layer.
+No connector, skill, workflow, MCP server, IM adapter, scaffold, or generated package may bypass this layer.
 
 ## Consent Ledger
 
@@ -111,4 +153,5 @@ memory_impact: none
 - High-risk actions must produce a readable preview before execution.
 - Memory writes should be policy-gated separately from tool execution.
 - Revocation should be granular by user, device, channel, connector, tool, skill, and package.
-
+- Imported configuration is a migration source, not trust inheritance.
+- Secrets are never stored in memory or logs as raw values.

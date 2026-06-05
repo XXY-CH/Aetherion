@@ -1,67 +1,83 @@
 # Aetherion
 
-Aetherion is a user-connected Agent Operating System: a local-first agent harness that can understand a user, operate real devices and tools, evolve skills, generate reusable capabilities, and keep every meaningful action auditable.
+Aetherion is the current project codename for a local-first Agent Harness Kernel: an auditable runtime for agent execution, memory, permissions, capabilities, scaffolds, proactive behavior, and user-connected workflows.
 
-The product goal is not a stronger chatbot. Aetherion should become the control plane between a user, their devices, their data, and autonomous agents.
+The product goal is not a stronger chatbot and not a replacement operating system. Aetherion should become the governed control plane between a user, their devices, their data, their tools, and autonomous agents.
+
+Public naming is not final. Supplied research indicates "Aetherion" has possible GitHub, package, trademark, and platform collisions in the AI/agent space, so it should remain a codename until a naming clearance pass is complete.
 
 ## Product Thesis
 
-Modern agents are limited less by model intelligence than by harness quality: permission boundaries, memory fidelity, tool governance, skill evolution, and real-world execution loops. Aetherion treats these as first-class operating system concerns.
+Modern agents are limited less by model intelligence than by harness quality: permission boundaries, event fidelity, memory provenance, tool governance, capability evolution, and real-world execution loops. Aetherion treats these as kernel-level runtime concerns.
 
 Core promise:
 
-> Let an agent safely understand the user, operate the computer, extend its own capabilities, and improve over time, while every permission, memory, skill, and action remains inspectable, reversible, and policy-controlled.
+> Let agents safely operate computers, tools, memory, messaging, and self-evolving capabilities under one human-governed, auditable boundary.
 
 ## First Principles
 
-- Local-first desktop app is the trust center, memory center, computer control console, and approval surface.
+- Local Supervisor plus Policy Engine, Secret Vault, and Event Ledger is the root authority boundary.
+- TUI, GUI, browser extension, mobile, and IM are client surfaces. They do not grant authority directly.
+- Event Plane is the fact layer. Messages, approvals, tool calls, memory candidates, capability changes, and proactive opportunities become typed events in an append-only ledger.
 - Browser extension and browser operator are core execution surfaces, not optional integrations.
-- OAuth, MCP, and connector layers expose user data and tools, but never bypass Aetherion's permission firewall.
+- OAuth, MCP, and connector layers expose user data and tools, but never bypass the Tool Policy Proxy.
 - Chat, mobile, and IM channels are remote control and notification surfaces, not the root authority boundary.
 - Memory is not just vector search. It is an auditable Memory OS with source events, memory cards, timelines, graphs, and context assembly.
-- Skills are procedural knowledge, not unrestricted plugins. Skills may evolve, but permissions stay in the tool and execution layers.
-- Scaffolded capabilities are isolated packages with manifests, tests, policies, approval UI, and rollback.
+- Capability Capsules are the governed internal ability unit. Skills are procedural knowledge and import formats, not unrestricted plugins.
+- Dreaming produces reviewable patches, not external actions.
+- Proactive behavior is an Opportunity Lifecycle, not an agent periodically deciding to interrupt the user.
+- Human-readable Markdown, YAML, and JSONL are source of truth. SQLite, vector, and graph stores are rebuildable projections.
 
 ## System Shape
 
 ```text
 -------------------------------------------------------------+
 | User Surfaces                                               |
-| Desktop App | Browser Extension | Mobile | IM | Web Console |
+| TUI | GUI | Browser Extension | Mobile | IM | Web Console |
 +-------------------------------------------------------------+
                               |
                               v
 +-------------------------------------------------------------+
-| User Boundary Layer                                         |
-| Identity | Device Pairing | OAuth Vault | Permission Firewall|
-| Consent Ledger | Approval UI | Trust Levels                  |
+| Local Supervisor                                            |
+| Policy Engine | Secret Vault | Event Ledger | Workspace Daemon|
 +-------------------------------------------------------------+
                               |
                               v
 +-------------------------------------------------------------+
-| Agent Harness Core                                          |
-| Planner | Context Assembler | Memory Resolver | Skill Resolver|
-| Tool Router | Computer Operator | Evaluator                  |
+| Event Plane / Append-only Ledger                            |
+| Typed Events | Taint | Retention | Redaction | Replay Anchors |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+| Context + Planning Plane                                    |
+| Planner | Context Assembler | Memory/Capability Resolver     |
 +-------------------------------------------------------------+
           |                    |                     |
           v                    v                     v
 +------------------+  +------------------+  +------------------+
-| Memory OS        |  | Skill OS         |  | Scaffold OS      |
-| Events | Cards   |  | Manifests | Evals|  | Capability Pkgs |
-| Graphs | Dreams  |  | Versions | Tests |  | Templates | Gate|
+| Memory OS        |  | Capability OS    |  | Scaffold OS      |
+| Cards | Graphs   |  | Capsules | Evals |  | Templates | Gate|
+| Dreams | Patches |  | Versions | Tests |  | Packages | Policy|
 +------------------+  +------------------+  +------------------+
           |                    |                     |
           +--------------------+---------------------+
                                |
                                v
 +-------------------------------------------------------------+
-| Execution Plane                                             |
-| Local Computer | Browser | Cloud VM | MCP | OAuth | Code     |
+| Tool Policy Proxy                                           |
+| Risk | Sensitivity | Permission Diff | Approval | Quarantine |
 +-------------------------------------------------------------+
                                |
                                v
 +-------------------------------------------------------------+
-| Logs, Audit, Replay, Rollback                               |
+| Connector + Execution Planes                                |
+| MCP/OAuth/IM Adapters | Local Computer | Browser | VM | Code  |
++-------------------------------------------------------------+
+                               |
+                               v
++-------------------------------------------------------------+
+| Verifier + Audit + Replay                                   |
 +-------------------------------------------------------------+
 ```
 
@@ -71,19 +87,19 @@ Core promise:
 - [Architecture](docs/01-architecture.md)
 - [User Boundary Layer](docs/02-user-boundary-layer.md)
 - [Memory OS](docs/03-memory-os.md)
-- [Skill and Scaffold OS](docs/04-skill-and-scaffold-os.md)
+- [Capability and Scaffold OS](docs/04-skill-and-scaffold-os.md)
 - [Audit and Data Contracts](docs/05-audit-and-data-contracts.md)
 - [Roadmap](docs/06-roadmap.md)
+- [Positioning and Naming Risk](docs/07-positioning-and-naming.md)
 
 ## MVP Direction
 
 The first build should prove the smallest complete loop:
 
 1. Local desktop shell with project/workspace identity.
-2. Browser operator with screenshot plus DOM-assisted actions.
-3. Permission firewall with risk levels and approval records.
-4. Raw event log plus memory cards.
-5. Skill manifest registry with draft/test/publish states.
-6. Capability package scaffold with policy and tests.
-7. One IM or mobile channel for remote wakeup and approval.
-
+2. Local Supervisor with Event Ledger and Tool Policy Proxy.
+3. One minimal IM channel and browser extension prototype.
+4. Browser operator with screenshot plus DOM-assisted actions.
+5. Raw event log plus memory cards.
+6. Capability Capsule registry with draft/test/publish states.
+7. Capability package scaffold with policy and tests.

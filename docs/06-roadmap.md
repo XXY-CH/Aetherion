@@ -20,28 +20,49 @@ Exit criteria:
 - A developer can identify which subsystem owns permissions, memory, skills, tools, and execution.
 - A developer can start scaffolding schemas and packages without guessing product intent.
 
-## Phase 1: Local-First Harness MVP
+## Phase 1: Local Supervisor Kernel
 
-Goal: create a local desktop-first loop with auditable file and browser operations.
+Goal: create the root local authority boundary before building broad agent behavior.
 
 Deliverables:
 
 - Workspace identity and local project registry.
-- Local event log.
-- Permission firewall with L0-L5 risk levels.
+- Local Supervisor daemon.
+- Append-only Event Ledger.
+- Tool Policy Proxy.
+- Secret Vault references.
+- Risk composition model.
 - Approval card model.
 - File operator.
-- Browser operator prototype with screenshot plus DOM inspection.
-- Basic context assembler.
+- Minimal TUI.
 
 Exit criteria:
 
 - User can issue a local task.
-- Agent can request or infer allowed local workspace actions.
+- Agent can request local workspace actions.
 - Agent can execute a reversible local action.
-- Event and action logs can reconstruct what happened.
+- Event and action records can reconstruct the policy decision and result.
 
-## Phase 2: Memory OS MVP
+## Phase 2: Minimal User Connection
+
+Goal: prove the harness can enter real user workflow early.
+
+Deliverables:
+
+- One IM adapter, such as Telegram or Slack.
+- Browser extension prototype.
+- Device and channel identity mapping.
+- Local file/repo operator.
+- Basic connector import quarantine path.
+
+Exit criteria:
+
+- User can wake the agent remotely.
+- Browser extension can send structured page context to Local Supervisor.
+- IM cannot bypass Tool Policy Proxy.
+- Imported config generates migration report and does not inherit trust.
+
+## Phase 3: Memory OS MVP
 
 Goal: make memory useful without turning it into an untraceable vector dump.
 
@@ -61,26 +82,68 @@ Exit criteria:
 - User can inspect and delete memory.
 - Context assembly can show why memory was selected.
 
-## Phase 3: Skill OS MVP
+## Phase 4: Computer Harness MVP
 
-Goal: turn repeated workflows into governed procedural knowledge.
+Goal: combine browser, local computer, sandbox, and verifier loops under policy.
 
 Deliverables:
 
-- Skill manifest schema.
-- Skill registry.
-- Draft, test, publish, deprecated states.
-- Replay test harness over historical episodes.
-- Skill scoring metrics.
+- DOM/CDP browser operator.
+- Screenshot fallback path.
+- Sandboxed browser runtime.
+- Tainted third-party content handling.
+- Verifier and replay anchors.
+- Risk upgrades for credentials, secrets, external sends, installs, and destructive actions.
 
 Exit criteria:
 
-- Agent can propose a skill candidate from repeated episodes.
-- Draft skill can be tested before use.
-- Published skill has version, source tasks, evals, risk, and rollback.
-- Skill cannot receive tool permissions directly.
+- Browser task can use DOM when available and screenshots when needed.
+- Public web content is tainted and cannot authorize actions.
+- High-impact actions require approval.
+- Computer-use trace can be replayed or summarized.
 
-## Phase 4: Scaffold OS and Capability Packages
+## Phase 5: Capability Capsule MVP
+
+Goal: turn repeated workflows into governed capabilities.
+
+Deliverables:
+
+- Capability Capsule manifest schema.
+- Skill importer compatibility layer.
+- Capability registry.
+- Draft, test, publish, deprecated states.
+- Replay test harness over historical episodes.
+- Capability scoring metrics.
+
+Exit criteria:
+
+- Agent can propose a capability patch from repeated episodes.
+- Draft capability can be tested before use.
+- Published capsule has version, source tasks, evals, risk, provenance, and rollback.
+- Capability cannot receive tool permissions directly.
+
+## Phase 6: Proactive Shadow Mode
+
+Goal: make proactive behavior measurable before letting it interrupt users.
+
+Deliverables:
+
+- Opportunity object schema.
+- Event correlation.
+- Salience scoring.
+- Attention budget.
+- Policy gate.
+- Intervention ladder.
+- Shadow-mode inbox.
+
+Exit criteria:
+
+- Proactive suggestions cite trigger, hypothesis, risk, and expiry.
+- Suggestions are queued before notifications by default.
+- User can disable or scope proactive sources.
+- All opportunities are auditable.
+
+## Phase 7: Scaffold OS and Capability Packages
 
 Goal: let the agent generate extensions while preserving engineering control.
 
@@ -100,43 +163,22 @@ Exit criteria:
 - Package cannot install until schema, tests, permission diff, sandbox, and approval pass.
 - Permission changes are visible between versions.
 
-## Phase 5: User Connection Layer
+## Phase 8: GUI and Broader Connectors
 
-Goal: connect real user surfaces without making them unsafe authority boundaries.
+Goal: mature the user-facing product once the kernel loop is proven.
 
 Deliverables:
 
-- Browser extension.
-- One IM gateway.
 - Mobile companion or lightweight approval surface.
 - OAuth connector runtime for a small integration set.
 - Device pairing.
 - Channel identity mapping.
+- GUI desktop console.
+- Broader connector catalog.
 
 Exit criteria:
 
 - User can wake the agent remotely.
 - User can approve high-risk action from another device.
-- Chat channel cannot bypass desktop/user boundary permissions.
+- Chat channel cannot bypass Local Supervisor or Tool Policy Proxy.
 - Connector authorization remains separate from agent action approval.
-
-## Phase 6: Proactive and Dreaming Loops
-
-Goal: make the agent useful between explicit prompts.
-
-Deliverables:
-
-- Event-driven proactive scheduler.
-- Priority policy.
-- Dreaming job runner.
-- Contradiction detection.
-- Skill candidate generation from dreams.
-- Memory staleness review.
-
-Exit criteria:
-
-- Proactive suggestions cite their trigger and reason.
-- Dreaming produces candidates, not direct external actions.
-- User can disable or scope proactive behavior.
-- All proactive actions are auditable.
-

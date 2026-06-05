@@ -3,11 +3,24 @@
 ## Audit Principles
 
 - Logs are human-readable and machine-parseable.
+- Every security-relevant decision, external side effect, permission change, memory change, capability change, and user-visible output can be reconstructed.
+- Low-value high-frequency observations may be sampled, summarized, or cleared according to retention policy.
 - Every material action has an actor, reason, input, output, risk level, and timestamp.
 - Every memory claim points back to source events.
-- Every skill and capability package has version history and rollback.
+- Every Capability Capsule and capability package has version history and rollback.
 - Every permission change has a diff and consent record.
 - Every proactive action explains its trigger.
+- Audit logs themselves are sensitive artifacts and need retention, redaction, encryption, and export-sanitization policies.
+
+## Source Of Truth
+
+Human-readable files are the durable source of truth:
+
+- Markdown for playbooks, decisions, reports, and human review.
+- YAML for manifests, policies, and migration reports.
+- JSONL for append-only event streams.
+
+SQLite, vector databases, graph indexes, and search indexes are rebuildable projections. Secrets are never stored in memory, logs, traces, or projections as raw values.
 
 ## Event Record
 
@@ -22,16 +35,50 @@ actor:
 channel:
   type: desktop | browser | im | mobile | api
   id: desktop_main
-event_type: user_message | tool_call | tool_result | approval | memory_candidate | skill_candidate
+event_type: user_message | tool_call | tool_result | approval | memory_candidate | capability_candidate | proactive_opportunity | policy_decision
 summary: "User requested initial Aetherion documentation."
 payload_ref: blobs/event_20260605_001.json
 sensitivity: low | medium | high
+taint:
+  source: user | trusted_system | connector | public_web | third_party_content
+  can_authorize_actions: false
 retention:
   ttl: 365d
   user_deletable: true
 policy:
   can_personalize: true
   can_train: false
+```
+
+## Proactive Opportunity
+
+```yaml
+id: opp_20260605_001
+source_events:
+  - event_123
+hypothesis: "A repeated failure pattern suggests this workflow should become a capability patch."
+proposed_intervention:
+  type: silent_update | inbox | digest | ask | draft | auto_act
+utility: 0.72
+urgency: 0.31
+confidence: 0.83
+interruption_cost: 0.44
+reversibility: high
+risk_class: L2
+expires_at: "2026-06-12T00:00:00+08:00"
+policy_decision: queue
+```
+
+Intervention ladder:
+
+```text
+silent memory update
+-> proactive inbox
+-> digest
+-> low-friction notification
+-> ask for permission
+-> draft action
+-> low-risk autonomous action
 ```
 
 ## Action Record
@@ -135,13 +182,14 @@ Aetherion/
     desktop/
     browser-extension/
     harness-core/
+    event-plane/
     memory-os/
-    skill-os/
+    capability-os/
     scaffold-os/
+    connector-plane/
     execution-plane/
   examples/
     capabilities/
     memory/
     audit/
 ```
-

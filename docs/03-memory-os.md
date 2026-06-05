@@ -10,13 +10,13 @@ Aetherion memory is an auditable operating system for user understanding, not a 
 - Track confidence, sensitivity, TTL, and contradictions.
 - Let the user inspect, edit, export, and delete memory.
 - Feed skill evolution without silently rewriting user truth.
-- Support dreaming and simulation for improvement.
+- Support event-driven dreaming and simulation for improvement.
 
 ## Layers
 
-### 1. Raw Event Log
+### 1. Event Ledger
 
-Immutable source events:
+The Event Ledger is owned by the Event Plane and acts as the immutable source of truth:
 
 - User messages.
 - Agent actions.
@@ -125,18 +125,37 @@ The Context Assembler chooses task-relevant context under token, privacy, and pe
 - Uncertainty and conflicts.
 - Source citations.
 
-## Dreaming Loop
+## Event-Driven Dreaming Pipeline
 
-Dreaming is a controlled simulation and consolidation loop. It can run after major tasks, during idle periods, or when repeated failure patterns appear.
+Dreaming is an event-driven consolidation pipeline. It is not a fixed idle cron and should not be framed as the agent periodically waking up to think.
+
+Semantic triggers include:
+
+- `task.completed`
+- `task.failed`
+- `user.corrected_agent`
+- `memory.contradiction.detected`
+- `capability.used_repeatedly`
+- `capability.failed_repeatedly`
+- `project.state_changed`
+- `context_budget_pressure`
+- `exact_deadline_arrived`
+- `machine_idle_with_queued_consolidation`
+
+Idle time can be an execution window, but it is not the semantic reason for dreaming.
 
 Dreaming may:
 
 - Compress raw episodes into memory cards.
 - Detect contradictions or stale assumptions.
-- Generate skill candidates.
+- Generate capability candidates.
 - Replay failed tasks in simulation.
 - Propose evals or regression tests.
 - Recommend user-model updates.
+- Generate memory patches.
+- Generate capability patches.
+- Generate policy suggestions.
+- Generate project graph updates.
 
 Dreaming must not:
 
@@ -144,5 +163,8 @@ Dreaming must not:
 - Change external systems.
 - Publish skills directly.
 - Upgrade permissions.
+- Read raw secret values.
+- Directly modify active memory, active capability, or policy.
 - Convert sensitive data into long-term memory without policy approval.
 
+Dreaming produces reviewable patches, not actions. Low-risk memory patches may be policy-auto-merged only if they are reversible, source-backed, conflict-checked, and fully traceable.
