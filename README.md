@@ -108,6 +108,9 @@ The repository now includes the first contract-first scaffold:
 - `schemas/`: JSON Schemas for Event, Tool Request, Policy Decision, Scoped Lease, Action Record, Observation Record, Verification Record, Consent Record, Permission Policy, Memory Card, Memory Candidate, Memory Patch, Context Pack, Capability Capsule, Capability Package, Proactive Opportunity, Replay Record, and Migration Report.
 - `examples/contracts/`: valid example JSON for every schema.
 - `packages/harness-core/`: a zero-dependency TypeScript seed that proves `user request -> policy decision -> local file read -> approval-gated local write -> verification -> event trace -> replay reconstruction`.
+- `packages/tui/`: V1 terminal surface for the same local kernel loop.
+- `packages/computer-use/`: post-V1 scaffold for policy-gated computer-use adapters.
+- `packages/connector-sdk/`: post-V1 scaffold for quarantined connector imports and policy-gated tool calls.
 
 Run verification:
 

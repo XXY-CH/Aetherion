@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test packages/harness-core/test/*.test.ts"
+    "test": "node --test packages/harness-core/test/*.test.ts packages/tui/test/*.test.ts packages/computer-use/test/*.test.ts packages/connector-sdk/test/*.test.ts",
+    "tui": "node packages/tui/src/cli.ts"
   },
   "engines": {
     "node": ">=25"
