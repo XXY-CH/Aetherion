@@ -1,0 +1,13 @@
+{
+  "id": "mem_preference_001",
+  "type": "preference",
+  "subject": "user_local",
+  "content": "User prefers direct conclusions followed by concrete verification evidence.",
+  "source_events": ["evt_user_message_001"],
+  "confidence": 0.86,
+  "sensitivity": "private",
+  "ttl": "180d",
+  "contradicts": [],
+  "allowed_contexts": ["planning", "reporting"],
+  "blocked_contexts": ["external_email_auto_send"]
+}

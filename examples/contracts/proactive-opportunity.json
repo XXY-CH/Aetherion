@@ -1,0 +1,19 @@
+{
+  "id": "opp_replay_fixture_001",
+  "source_events": ["evt_user_message_001"],
+  "hypothesis": "A repeated local file read flow may deserve a reusable capability capsule.",
+  "proposed_intervention": "inbox",
+  "utility": 0.64,
+  "urgency": 0.2,
+  "confidence": 0.78,
+  "interruption_cost": 0.4,
+  "reversibility": "high",
+  "risk_class": "L1",
+  "expires_at": "2026-06-12T00:00:00.000Z",
+  "policy_decision": "queue",
+  "inhibitors": {
+    "quiet_hours": false,
+    "source_tainted": false,
+    "goal_not_user_confirmed": false
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/permission-policy.schema.json",
+  "title": "PermissionPolicy",
+  "type": "object",
+  "required": ["id", "subject", "grants", "denies"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^perm_[A-Za-z0-9_-]+$" },
+    "subject": {
+      "type": "object",
+      "required": ["user_id", "workspace_id"],
+      "additionalProperties": false,
+      "properties": {
+        "user_id": { "type": "string" },
+        "workspace_id": { "type": "string" }
+      }
+    },
+    "grants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "denies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "required": ["tool", "actions", "scope"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string" },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "scope": { "type": "object", "additionalProperties": true },
+        "risk_max": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] }
+      }
+    }
+  }
+}

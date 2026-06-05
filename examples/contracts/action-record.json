@@ -1,0 +1,24 @@
+{
+  "id": "action_read_001",
+  "timestamp": "2026-06-05T20:00:01.000Z",
+  "run_id": "run_demo",
+  "requested_by": "user_local",
+  "executed_by": "agent.local",
+  "intent": "Read a workspace-scoped file",
+  "tool": {
+    "id": "filesystem.read",
+    "version": "0.1.0"
+  },
+  "risk_level": "L1",
+  "policy_decision_id": "policy_read_001",
+  "inputs": {
+    "path": "workspace://README.md"
+  },
+  "outputs": {
+    "artifact_ref": "artifact://run_demo/readme_excerpt"
+  },
+  "result": {
+    "status": "success",
+    "summary": "Read completed without side effects."
+  }
+}

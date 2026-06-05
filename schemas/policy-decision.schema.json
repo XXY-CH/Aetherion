@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/policy-decision.schema.json",
+  "title": "PolicyDecision",
+  "type": "object",
+  "required": ["id", "tool_request_id", "decision", "risk_level", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^policy_[A-Za-z0-9_-]+$" },
+    "tool_request_id": { "type": "string" },
+    "decision": { "type": "string", "enum": ["allow", "deny", "ask", "sandbox_only", "redact_then_allow"] },
+    "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "reason": { "type": "string" },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "scope": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

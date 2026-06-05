@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/capability-capsule.schema.json",
+  "title": "CapabilityCapsule",
+  "type": "object",
+  "required": ["id", "version", "description", "playbook", "permission_requirements", "tool_contracts", "risk_level", "lifecycle", "provenance"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^cap_[A-Za-z0-9_-]+$" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "playbook": { "type": "string" },
+    "permission_requirements": {
+      "type": "object",
+      "required": ["required_tools", "forbidden_tools"],
+      "additionalProperties": false,
+      "properties": {
+        "required_tools": { "type": "array", "items": { "type": "string" } },
+        "forbidden_tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tool_contracts": { "type": "array", "items": { "type": "string" } },
+    "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "lifecycle": { "type": "string", "enum": ["draft", "testing", "published", "deprecated", "quarantined"] },
+    "evals": { "type": "array", "items": { "type": "string" } },
+    "rollback": { "type": "string" },
+    "provenance": {
+      "type": "object",
+      "required": ["source_events"],
+      "additionalProperties": false,
+      "properties": {
+        "source_events": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

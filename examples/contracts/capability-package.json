@@ -1,0 +1,29 @@
+{
+  "id": "pkg_local_file_reader",
+  "type": "tool",
+  "version": "0.1.0",
+  "created_by": "agent.local",
+  "requires": {
+    "tools": ["filesystem.read"]
+  },
+  "risk": {
+    "read": "low",
+    "write": "none",
+    "external_effect": "none"
+  },
+  "allowed_actions": ["read_file"],
+  "forbidden_actions": ["write_file", "send_email"],
+  "runtime": {
+    "sandbox": "required",
+    "network": {
+      "allow_domains": []
+    }
+  },
+  "tests": {
+    "required": ["unit", "replay", "permission"]
+  },
+  "approval": {
+    "install": "user_required",
+    "upgrade": "user_required_if_permissions_change"
+  }
+}

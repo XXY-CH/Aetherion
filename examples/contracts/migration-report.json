@@ -1,0 +1,11 @@
+{
+  "id": "migration_openclaw_demo",
+  "source": "openclaw",
+  "imported": ["channels.telegram", "models.openai"],
+  "mapped_with_high_confidence": ["allowlist"],
+  "mapped_with_low_confidence": ["group_mention_policy"],
+  "quarantined": ["plugins", "hooks", "tools"],
+  "unsupported": ["legacy_field_x"],
+  "secrets": ["migrated_as_vault_ref"],
+  "requires_review": ["cron_jobs", "shell_tools"]
+}

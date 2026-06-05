@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/migration-report.schema.json",
+  "title": "MigrationReport",
+  "type": "object",
+  "required": ["id", "source", "imported", "mapped_with_high_confidence", "mapped_with_low_confidence", "quarantined", "unsupported", "secrets", "requires_review"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^migration_[A-Za-z0-9_-]+$" },
+    "source": { "type": "string" },
+    "imported": { "type": "array", "items": { "type": "string" } },
+    "mapped_with_high_confidence": { "type": "array", "items": { "type": "string" } },
+    "mapped_with_low_confidence": { "type": "array", "items": { "type": "string" } },
+    "quarantined": { "type": "array", "items": { "type": "string" } },
+    "unsupported": { "type": "array", "items": { "type": "string" } },
+    "secrets": { "type": "array", "items": { "type": "string" } },
+    "requires_review": { "type": "array", "items": { "type": "string" } }
+  }
+}

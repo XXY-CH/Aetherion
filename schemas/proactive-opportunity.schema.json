@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/proactive-opportunity.schema.json",
+  "title": "ProactiveOpportunity",
+  "type": "object",
+  "required": ["id", "source_events", "hypothesis", "proposed_intervention", "utility", "urgency", "confidence", "interruption_cost", "risk_class", "policy_decision", "inhibitors"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^opp_[A-Za-z0-9_-]+$" },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "hypothesis": { "type": "string" },
+    "proposed_intervention": { "type": "string", "enum": ["silent_update", "inbox", "digest", "ask", "draft", "auto_act"] },
+    "utility": { "type": "number", "minimum": 0, "maximum": 1 },
+    "urgency": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "interruption_cost": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reversibility": { "type": "string", "enum": ["high", "medium", "low"] },
+    "risk_class": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "policy_decision": { "type": "string", "enum": ["allow", "queue", "ask", "deny"] },
+    "inhibitors": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    }
+  }
+}

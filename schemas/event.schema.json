@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/event.schema.json",
+  "title": "Event",
+  "type": "object",
+  "required": ["id", "timestamp", "workspace_id", "run_id", "event_type", "actor", "summary", "sensitivity", "taint"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "workspace_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "run.started",
+        "user.message",
+        "tool.requested",
+        "policy.decided",
+        "tool.result",
+        "action.recorded",
+        "memory.candidate",
+        "capability.candidate",
+        "proactive.opportunity",
+        "replay.recorded",
+        "run.completed"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["user", "agent", "system", "connector", "worker"] },
+        "id": { "type": "string" }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "payload_ref": { "type": "string" },
+    "sensitivity": { "type": "string", "enum": ["public", "internal", "private", "confidential", "secret", "regulated", "credential-like"] },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["user", "trusted_system", "connector", "public_web", "third_party_content", "llm_output"] }
+        },
+        "can_authorize_actions": { "type": "boolean" }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ttl": { "type": "string" },
+        "user_deletable": { "type": "boolean" }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "policy_read_001",
+  "tool_request_id": "toolreq_read_001",
+  "decision": "allow",
+  "risk_level": "L1",
+  "reason": "Explicit user request for a workspace-scoped read.",
+  "lease": {
+    "id": "lease_read_001",
+    "expires_at": "2026-06-05T21:00:00.000Z",
+    "scope": {
+      "tools": ["filesystem.read"],
+      "paths": ["workspace://README.md"],
+      "egress": ["local_response"]
+    }
+  }
+}

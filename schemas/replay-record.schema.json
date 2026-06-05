@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/replay-record.schema.json",
+  "title": "ReplayRecord",
+  "type": "object",
+  "required": ["id", "run_id", "mode", "source_events", "live_side_effects", "result"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^replay_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "mode": { "type": "string", "enum": ["trace", "simulation", "live"] },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "fixture_ref": { "type": "string" },
+    "live_side_effects": {
+      "type": "object",
+      "required": ["allowed"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "approval_id": { "type": ["string", "null"] }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["status", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["passed", "failed", "partial"] },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

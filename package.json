@@ -1,0 +1,11 @@
+{
+  "name": "aetherion-contract-seed",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test packages/harness-core/test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=25"
+  }
+}

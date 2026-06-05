@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/capability-package.schema.json",
+  "title": "CapabilityPackage",
+  "type": "object",
+  "required": ["id", "type", "version", "created_by", "runtime", "tests", "approval"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^pkg_[A-Za-z0-9_-]+$" },
+    "type": { "type": "string", "enum": ["tool", "workflow", "skill", "connector"] },
+    "version": { "type": "string" },
+    "created_by": { "type": "string" },
+    "requires": { "type": "object", "additionalProperties": true },
+    "risk": { "type": "object", "additionalProperties": true },
+    "allowed_actions": { "type": "array", "items": { "type": "string" } },
+    "forbidden_actions": { "type": "array", "items": { "type": "string" } },
+    "runtime": {
+      "type": "object",
+      "required": ["sandbox"],
+      "additionalProperties": true,
+      "properties": {
+        "sandbox": { "type": "string", "enum": ["required", "optional", "forbidden"] }
+      }
+    },
+    "tests": { "type": "object", "additionalProperties": true },
+    "approval": { "type": "object", "additionalProperties": true }
+  }
+}

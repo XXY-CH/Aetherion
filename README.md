@@ -89,3 +89,17 @@ The first build should prove the smallest complete loop:
 5. Raw event log plus memory cards.
 6. Capability Capsule registry with draft/test/publish states.
 7. Capability package scaffold with policy and tests.
+
+## Contract Seed
+
+The repository now includes the first contract-first scaffold:
+
+- `schemas/`: JSON Schemas for Event, Tool Request, Policy Decision, Action Record, Permission Policy, Memory Card, Memory Candidate, Capability Capsule, Capability Package, Proactive Opportunity, Replay Record, and Migration Report.
+- `examples/contracts/`: valid example JSON for every schema.
+- `packages/harness-core/`: a zero-dependency TypeScript seed that proves `user request -> policy decision -> local file read -> event trace -> replay reconstruction`.
+
+Run verification:
+
+```sh
+npm test
+```

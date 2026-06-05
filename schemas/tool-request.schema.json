@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/tool-request.schema.json",
+  "title": "ToolRequest",
+  "type": "object",
+  "required": ["id", "run_id", "requested_by", "intent", "operation", "risk_inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^toolreq_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "requested_by": { "type": "string" },
+    "capability_ref": { "type": "string" },
+    "intent": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "object",
+      "required": ["verb", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "verb": { "type": "string", "enum": ["read", "observe", "write", "click", "type", "execute", "send", "delete", "export", "import"] },
+        "target": {
+          "type": "object",
+          "required": ["kind", "uri"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string" },
+            "uri": { "type": "string" },
+            "label": { "type": "string" }
+          }
+        },
+        "expected_effect": { "type": "string" }
+      }
+    },
+    "risk_inputs": {
+      "type": "object",
+      "required": ["action_type", "target_resource", "data_sensitivity", "side_effect", "reversibility", "runtime_boundary", "user_intent_strength", "taint_chain", "target_confidence", "blast_radius", "data_egress_destination"],
+      "additionalProperties": false,
+      "properties": {
+        "action_type": { "type": "string" },
+        "target_resource": { "type": "string" },
+        "data_sensitivity": { "type": "string" },
+        "side_effect": { "type": "string", "enum": ["none", "possible", "definite"] },
+        "reversibility": { "type": "string", "enum": ["high", "medium", "low"] },
+        "audience": { "type": "string" },
+        "credential_scope": { "type": "string" },
+        "runtime_boundary": { "type": "string" },
+        "user_intent_strength": { "type": "string", "enum": ["explicit", "implicit", "inferred", "none"] },
+        "taint_chain": { "type": "array", "items": { "type": "string" } },
+        "target_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "blast_radius": { "type": "string" },
+        "data_egress_destination": { "type": "string" }
+      }
+    }
+  }
+}

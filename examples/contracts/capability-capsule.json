@@ -1,0 +1,18 @@
+{
+  "id": "cap_local_file_read",
+  "version": "0.1.0",
+  "description": "Read a workspace-scoped file after policy approval.",
+  "playbook": "playbooks/local-file-read.md",
+  "permission_requirements": {
+    "required_tools": ["filesystem.read"],
+    "forbidden_tools": ["filesystem.write", "external.email.send"]
+  },
+  "tool_contracts": ["tool-request.schema.json", "policy-decision.schema.json"],
+  "risk_level": "L1",
+  "lifecycle": "draft",
+  "evals": ["local_file_read_trace_replay"],
+  "rollback": "none",
+  "provenance": {
+    "source_events": ["evt_user_message_001"]
+  }
+}

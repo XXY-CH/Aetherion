@@ -1,0 +1,15 @@
+{
+  "id": "replay_trace_001",
+  "run_id": "run_demo",
+  "mode": "trace",
+  "source_events": ["evt_user_message_001"],
+  "fixture_ref": "artifact://fixtures/run_demo",
+  "live_side_effects": {
+    "allowed": false,
+    "approval_id": null
+  },
+  "result": {
+    "status": "passed",
+    "summary": "Trace reconstructed without live external side effects."
+  }
+}

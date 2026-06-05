@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/memory-card.schema.json",
+  "title": "MemoryCard",
+  "type": "object",
+  "required": ["id", "type", "subject", "content", "source_events", "confidence", "sensitivity"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^mem_[A-Za-z0-9_-]+$" },
+    "type": { "type": "string", "enum": ["preference", "fact", "project", "relationship", "habit", "constraint"] },
+    "subject": { "type": "string" },
+    "content": { "type": "string" },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sensitivity": { "type": "string" },
+    "ttl": { "type": "string" },
+    "contradicts": { "type": "array", "items": { "type": "string" } },
+    "allowed_contexts": { "type": "array", "items": { "type": "string" } },
+    "blocked_contexts": { "type": "array", "items": { "type": "string" } }
+  }
+}

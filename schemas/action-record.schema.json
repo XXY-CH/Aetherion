@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/action-record.schema.json",
+  "title": "ActionRecord",
+  "type": "object",
+  "required": ["id", "timestamp", "run_id", "requested_by", "executed_by", "intent", "tool", "risk_level", "result"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^action_[A-Za-z0-9_-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "run_id": { "type": "string" },
+    "requested_by": { "type": "string" },
+    "executed_by": { "type": "string" },
+    "intent": { "type": "string" },
+    "tool": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "policy_decision_id": { "type": "string" },
+    "inputs": { "type": "object", "additionalProperties": true },
+    "outputs": { "type": "object", "additionalProperties": true },
+    "result": {
+      "type": "object",
+      "required": ["status", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["success", "failed", "blocked"] },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

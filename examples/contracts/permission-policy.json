@@ -1,0 +1,27 @@
+{
+  "id": "perm_demo_workspace",
+  "subject": {
+    "user_id": "user_local",
+    "workspace_id": "ws_demo"
+  },
+  "grants": [
+    {
+      "tool": "filesystem",
+      "actions": ["read"],
+      "scope": {
+        "paths": ["workspace://**"]
+      },
+      "risk_max": "L2"
+    }
+  ],
+  "denies": [
+    {
+      "tool": "filesystem",
+      "actions": ["read"],
+      "scope": {
+        "paths": ["home://.ssh/**", "workspace://.env"]
+      },
+      "risk_max": "L5"
+    }
+  ]
+}
