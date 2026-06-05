@@ -1,0 +1,26 @@
+{
+  "id": "ctx_run_demo",
+  "run_id": "run_demo",
+  "selected_memories": [
+    {
+      "id": "mem_preference_001",
+      "reason": "Matches current contract-first implementation task.",
+      "confidence": 0.86,
+      "source_events": ["evt_user_message_001"]
+    }
+  ],
+  "excluded_memories": [
+    {
+      "id": "mem_sensitive_001",
+      "reason": "Sensitive and not allowed for current egress boundary."
+    }
+  ],
+  "conflicts": [],
+  "active_leases": ["lease_run_demo_write"],
+  "capability_cards": ["cap_local_file_read"],
+  "token_budget": {
+    "memory_tokens": 1800,
+    "capability_tokens": 1200,
+    "task_tokens": 4000
+  }
+}

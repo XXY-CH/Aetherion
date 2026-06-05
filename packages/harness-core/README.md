@@ -10,6 +10,9 @@ Current scope:
 - Create a tool request for a workspace-scoped file read.
 - Produce a mock policy decision.
 - Execute a local file read through that policy decision.
+- Require explicit consent for a local file write.
+- Execute an approval-gated local file write through a scoped lease.
+- Verify the expected file effect.
 - Reconstruct a run trace without replaying live side effects.
 
 Out of scope:

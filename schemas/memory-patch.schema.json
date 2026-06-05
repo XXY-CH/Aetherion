@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/memory-patch.schema.json",
+  "title": "MemoryPatch",
+  "type": "object",
+  "required": ["id", "operation", "target_memory_id", "proposed_content", "evidence", "confidence", "sensitivity", "review"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^mempatch_[A-Za-z0-9_-]+$" },
+    "operation": { "type": "string", "enum": ["create", "update", "deprecate", "redact", "delete"] },
+    "target_memory_id": { "type": ["string", "null"] },
+    "proposed_content": { "type": "string" },
+    "evidence": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sensitivity": { "type": "string" },
+    "allowed_contexts": { "type": "array", "items": { "type": "string" } },
+    "blocked_contexts": { "type": "array", "items": { "type": "string" } },
+    "review": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "edited"] },
+        "reviewer": { "type": "string" }
+      }
+    }
+  }
+}

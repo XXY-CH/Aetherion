@@ -33,7 +33,7 @@ Allowed early implementation:
 - JSON Schemas for kernel contracts.
 - Example JSON documents for every schema.
 - Minimal harness-core package proving:
-  user request -> policy decision -> local file read -> event trace -> replay reconstruction.
+  user request -> policy decision -> local file read -> approval-gated local write -> verification -> event trace -> replay reconstruction.
 
 Out of scope until explicit implementation phase:
 

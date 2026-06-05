@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/scoped-lease.schema.json",
+  "title": "ScopedLease",
+  "type": "object",
+  "required": ["id", "issued_to", "issued_by", "expires_at", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^lease_[A-Za-z0-9_-]+$" },
+    "issued_to": { "type": "string" },
+    "issued_by": { "type": "string" },
+    "capability_ref": { "type": "string" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "scope": {
+      "type": "object",
+      "required": ["actions", "resources", "egress", "denied"],
+      "additionalProperties": false,
+      "properties": {
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "resources": { "type": "object", "additionalProperties": true },
+        "egress": {
+          "type": "object",
+          "required": ["allowed", "denied"],
+          "additionalProperties": false,
+          "properties": {
+            "allowed": { "type": "array", "items": { "type": "string" } },
+            "denied": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "denied": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

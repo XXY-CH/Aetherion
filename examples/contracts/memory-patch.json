@@ -1,0 +1,15 @@
+{
+  "id": "mempatch_preference_001",
+  "operation": "create",
+  "target_memory_id": null,
+  "proposed_content": "User prefers contract-first scaffolding once architecture documents stabilize.",
+  "evidence": ["evt_user_message_001"],
+  "confidence": 0.82,
+  "sensitivity": "private",
+  "allowed_contexts": ["planning", "architecture"],
+  "blocked_contexts": ["external_message_auto_send"],
+  "review": {
+    "status": "pending",
+    "reviewer": "policy"
+  }
+}

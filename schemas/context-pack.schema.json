@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/context-pack.schema.json",
+  "title": "ContextPack",
+  "type": "object",
+  "required": ["id", "run_id", "selected_memories", "excluded_memories", "conflicts", "active_leases", "capability_cards", "token_budget"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^ctx_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "selected_memories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason", "confidence", "source_events"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "reason": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "source_events": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "excluded_memories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "active_leases": { "type": "array", "items": { "type": "string" } },
+    "capability_cards": { "type": "array", "items": { "type": "string" } },
+    "token_budget": {
+      "type": "object",
+      "required": ["memory_tokens", "capability_tokens", "task_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "memory_tokens": { "type": "number" },
+        "capability_tokens": { "type": "number" },
+        "task_tokens": { "type": "number" }
+      }
+    }
+  }
+}

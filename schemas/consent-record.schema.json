@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/consent-record.schema.json",
+  "title": "ConsentRecord",
+  "type": "object",
+  "required": ["id", "user_id", "workspace_id", "tool_request_id", "decision", "risk_level", "approved_at", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^consent_[A-Za-z0-9_-]+$" },
+    "user_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "tool_request_id": { "type": "string" },
+    "decision": { "type": "string", "enum": ["approved", "denied"] },
+    "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": ["string", "null"], "format": "date-time" },
+    "scope": { "type": "object", "additionalProperties": true }
+  }
+}

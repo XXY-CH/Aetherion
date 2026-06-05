@@ -1,0 +1,10 @@
+{
+  "id": "verify_summary_file_001",
+  "run_id": "run_demo",
+  "action_id": "action_write_001",
+  "observation_id": "obs_summary_file_001",
+  "expected_effect": "SUMMARY.md should exist and contain a short README summary.",
+  "status": "passed",
+  "summary": "Verifier found the file and matched expected content.",
+  "unexpected_side_effects": []
+}

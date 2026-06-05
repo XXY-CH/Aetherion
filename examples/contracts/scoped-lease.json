@@ -1,0 +1,18 @@
+{
+  "id": "lease_run_demo_write",
+  "issued_to": "run_demo",
+  "issued_by": "policy_engine",
+  "capability_ref": "cap_local_file_write@0.1.0",
+  "expires_at": "2026-06-05T21:00:00.000Z",
+  "scope": {
+    "actions": ["read", "write"],
+    "resources": {
+      "paths": ["workspace://README.md", "workspace://SUMMARY.md"]
+    },
+    "egress": {
+      "allowed": ["local_artifact_store"],
+      "denied": ["external_email", "public_web", "third_party_mcp"]
+    },
+    "denied": ["read_home", "read_secrets", "push_commit", "external_send"]
+  }
+}

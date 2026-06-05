@@ -1,0 +1,14 @@
+{
+  "id": "obs_summary_file_001",
+  "run_id": "run_demo",
+  "action_id": "action_write_001",
+  "timestamp": "2026-06-05T20:00:02.000Z",
+  "observer": "filesystem.stat",
+  "summary": "SUMMARY.md exists in workspace after write action.",
+  "artifact_ref": "artifact://run_demo/summary_file_stat",
+  "sensitivity": "private",
+  "taint": {
+    "sources": ["trusted_system"],
+    "can_authorize_actions": false
+  }
+}

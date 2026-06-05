@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/verification-record.schema.json",
+  "title": "VerificationRecord",
+  "type": "object",
+  "required": ["id", "run_id", "action_id", "observation_id", "expected_effect", "status", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^verify_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "action_id": { "type": "string" },
+    "observation_id": { "type": "string" },
+    "expected_effect": { "type": "string" },
+    "status": { "type": "string", "enum": ["passed", "failed", "partial"] },
+    "summary": { "type": "string" },
+    "unexpected_side_effects": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "consent_write_summary_001",
+  "user_id": "user_local",
+  "workspace_id": "ws_demo",
+  "tool_request_id": "toolreq_write_001",
+  "decision": "approved",
+  "risk_level": "L3",
+  "approved_at": "2026-06-05T20:00:01.000Z",
+  "expires_at": null,
+  "scope": {
+    "actions": ["write"],
+    "paths": ["workspace://SUMMARY.md"]
+  }
+}

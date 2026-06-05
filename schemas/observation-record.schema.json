@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/observation-record.schema.json",
+  "title": "ObservationRecord",
+  "type": "object",
+  "required": ["id", "run_id", "action_id", "timestamp", "observer", "summary", "sensitivity", "taint"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^obs_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "action_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "observer": { "type": "string" },
+    "summary": { "type": "string" },
+    "artifact_ref": { "type": "string" },
+    "sensitivity": { "type": "string", "enum": ["public", "internal", "private", "confidential", "secret", "regulated", "credential-like"] },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "can_authorize_actions": { "type": "boolean" }
+      }
+    }
+  }
+}
