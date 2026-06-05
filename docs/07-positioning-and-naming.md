@@ -49,14 +49,14 @@ Hermes solves: "How does my agent learn skills?"
 
 OpenHuman solves: "How does my agent understand me?"
 
-Aetherion's intended product solves: "How can an agent safely, audibly, and evolvably act for me across devices, tools, memory, and workflows?"
+Aetherion's intended product solves: "How can an agent safely, auditably, and evolvably act for me across devices, tools, memory, and workflows?"
 
 ## Product Moat
 
-1. User Boundary Layer is a first-class kernel concern.
-2. Tool Policy Proxy is the only side-effect execution entry.
-3. Capability Capsule replaces ungoverned skills and plugins.
-4. Dreaming produces patches, not actions.
-5. Proactive is an Opportunity Lifecycle with salience, attention budget, and policy gate.
-6. Human-readable files are source of truth; indexes are rebuildable projections.
+1. Capability Capsule replaces ungoverned skills and plugins.
+2. Event-driven Proactive replaces cron-style proactive loops.
+3. Dreaming produces reviewable patches, not actions.
+4. Human-readable files are source of truth; indexes are rebuildable projections.
+5. User Boundary Layer is a first-class kernel concern.
+6. Tool Policy Proxy is the only side-effect execution entry.
 7. Import is migration, not trust inheritance.

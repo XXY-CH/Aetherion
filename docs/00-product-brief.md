@@ -38,7 +38,7 @@ But Aetherion should not inherit the common failure mode of these systems: mixin
 
 1. Let the user delegate real work across local apps, browsers, files, SaaS tools, and code repositories.
 2. Let the agent build an inspectable long-term model of user preferences, projects, constraints, and workflows.
-3. Let the agent turn repeated successful patterns into governed skills.
+3. Let the agent turn repeated successful patterns into governed Capability Capsules.
 4. Let the agent generate new capability packages without bypassing tests, policy, or user approval.
 5. Let the user reach the agent from IM, mobile, browser, or desktop while preserving one clear authority boundary.
 6. Let every important action be reconstructed through logs, source references, decisions, approvals, and replay artifacts.
@@ -52,6 +52,13 @@ But Aetherion should not inherit the common failure mode of these systems: mixin
 - A computer-use loop that relies only on slow visual clicking when DOM, API, or connector access is available.
 
 ## Differentiators
+
+The product is not worth building because it can operate a browser or terminal. That will become table stakes. The durable differentiation is four-part:
+
+- Capability Capsule replaces traditional Skill as the governed unit of ability.
+- Event-driven Proactive replaces cron-style self-interruption.
+- Dreaming produces reviewable patches instead of opaque introspection.
+- Human-readable source of truth plus rebuildable indexes creates trust and portability.
 
 ### Local Supervisor And User Boundary
 

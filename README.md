@@ -14,6 +14,8 @@ Core promise:
 
 > Let agents safely operate computers, tools, memory, messaging, and self-evolving capabilities under one human-governed, auditable boundary.
 
+The best product bet is not "another agent that can use a computer." Aetherion's distinctive bets are governed Capability Capsules, event-driven proactive behavior, Dreaming as reviewable patches, and human-readable source of truth with rebuildable indexes.
+
 ## First Principles
 
 - Local Supervisor plus Policy Engine, Secret Vault, and Event Ledger is the root authority boundary.
@@ -91,6 +93,7 @@ Core promise:
 - [Audit and Data Contracts](docs/05-audit-and-data-contracts.md)
 - [Roadmap](docs/06-roadmap.md)
 - [Positioning and Naming Risk](docs/07-positioning-and-naming.md)
+- [Innovation Thesis](docs/08-innovation-thesis.md)
 
 ## MVP Direction
 
