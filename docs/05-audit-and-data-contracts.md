@@ -22,6 +22,33 @@ Human-readable files are the durable source of truth:
 
 SQLite, vector databases, graph indexes, and search indexes are rebuildable projections. Secrets are never stored in memory, logs, traces, or projections as raw values.
 
+Human-readable files are the governance source of truth for events, state, memory, capability, and policy metadata. Large or sensitive payloads may be stored as encrypted artifacts referenced by human-readable manifests.
+
+## Ledger And Artifact Retention
+
+```yaml
+event_id: evt_123
+type: email.body.read
+actor: agent.local
+resource_ref: artifact://encrypted/email_body_abc
+sha256: "..."
+sensitivity: confidential
+retention: 30d
+redaction_status: active
+```
+
+When content is deleted or expires, the ledger appends a tombstone instead of rewriting history:
+
+```yaml
+event_id: evt_456
+type: artifact.redacted
+target: artifact://encrypted/email_body_abc
+reason: user_delete_request
+method: cryptographic_erasure
+```
+
+This preserves provenance while allowing sensitive payload destruction. Projections that depended on the artifact must either rebuild without it or mark the source as redacted.
+
 ## Event Record
 
 ```yaml
@@ -67,6 +94,16 @@ reversibility: high
 risk_class: L2
 expires_at: "2026-06-12T00:00:00+08:00"
 policy_decision: queue
+inhibitors:
+  user_in_meeting: false
+  quiet_hours: false
+  same_topic_recently_notified: true
+  user_ignored_similar_opportunity: false
+  confidence_below_threshold: false
+  action_not_reversible: false
+  source_tainted: true
+  goal_not_user_confirmed: false
+  channel_is_group_chat: false
 ```
 
 Intervention ladder:
@@ -79,6 +116,50 @@ silent memory update
 -> ask for permission
 -> draft action
 -> low-risk autonomous action
+```
+
+## Replay Record
+
+```yaml
+id: replay_123
+run_id: run_abc
+mode: trace | simulation | live
+source_events:
+  - event_123
+fixture_ref: artifact://fixture_abc
+live_side_effects:
+  allowed: false
+  approval_id: null
+result:
+  status: passed | failed | partial
+  summary: "Trace reconstructed without live tool calls."
+```
+
+Replay defaults to trace reconstruction or sandbox simulation. Live side-effect replay is disabled unless explicitly approved.
+
+## Migration Report
+
+```yaml
+id: migration_openclaw_20260605
+source: openclaw
+imported:
+  - channels.telegram
+  - models.openai
+mapped_with_high_confidence:
+  - allowlist
+mapped_with_low_confidence:
+  - group_mention_policy
+quarantined:
+  - plugins
+  - hooks
+  - tools
+unsupported:
+  - field_x
+secrets:
+  - migrated_as_vault_ref
+requires_review:
+  - cron_jobs
+  - shell_tools
 ```
 
 ## Action Record
@@ -188,6 +269,7 @@ Aetherion/
     scaffold-os/
     connector-plane/
     execution-plane/
+    computer-use/
   examples/
     capabilities/
     memory/

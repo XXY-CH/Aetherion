@@ -15,7 +15,7 @@ Capability Capsule =
   playbook
   manifest
   tool contract
-  permissions
+  permission requirements and constraints
   tests
   evals
   policy

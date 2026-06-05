@@ -10,9 +10,11 @@
 | Workflow | Orchestration of skills and tools | Sometimes | Yes, with tests |
 | Scaffold | Template for generating tools, workflows, apps, connectors, or UI | Yes | Yes, with review |
 | Capability Package | Installable isolated capability bundle | Yes | Generated, validated, approved |
-| Capability Capsule | Governed internal ability unit binding playbook, manifest, tool contract, permissions, tests, evals, policy, provenance, and rollback | Sometimes | Yes, through patch lifecycle |
+| Capability Capsule | Governed internal ability unit binding playbook, manifest, tool contract, permission requirements and constraints, tests, evals, policy, provenance, and rollback | Sometimes | Yes, through patch lifecycle |
 
 Skill is not plugin. Skill is knowledge and an import compatibility surface. Tool is power. Permission belongs to the Tool Policy Proxy and execution boundary. Capability Capsule is the internal unit Aetherion should optimize around.
+
+A Capability Capsule does not own permissions. It declares permission requirements, allowed tool contracts, and forbidden actions. Runtime grants are issued by policy as scoped leases.
 
 ## Capability Lifecycle
 
@@ -49,7 +51,7 @@ inputs:
   - recent_decisions
 outputs:
   - markdown_report
-permissions:
+permission_requirements:
   required_tools:
     - memory.search
     - docs.read
@@ -78,6 +80,8 @@ Skills imported from Hermes, agent skill repositories, or OpenClaw should be nor
 ## Capability Package
 
 Capability packages are Aetherion's extension unit.
+
+Generated package code must never run inside the Local Supervisor process. Capability package code runs in a separate process or sandbox with limited filesystem access, limited network access, no raw vault access, structured IPC, and resource limits. Local Supervisor owns policy, ledger, vault, and routing; it does not load untrusted dynamic code.
 
 ```text
 capability/

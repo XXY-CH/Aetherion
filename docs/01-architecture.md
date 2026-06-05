@@ -1,94 +1,40 @@
 # Architecture
 
-## Layered System
+## Orthogonal Planes
 
 ```text
-User Surfaces
-  - TUI
-  - GUI
-  - Browser Extension
-  - Mobile Companion
-  - Chat Gateways
-  - Web Console
-
+Client Surfaces
+  TUI / GUI / Browser Extension / IM / Mobile / API
+        |
+        v
+Ingress Gateways
+  normalize / authenticate / rate-limit / idempotency
+        |
+        v
 Local Supervisor
-  - Workspace Daemon
-  - Policy Engine
-  - Secret Vault
-  - Event Ledger
-
-User Boundary Layer
-  - Identity
-  - Device Pairing
-  - Consent Ledger
-  - Approval UI
-  - Trust Level Resolver
-  - Data Sensitivity Classifier
-
-Event Plane
-  - Typed Event Ingestion
-  - Append-only Ledger
-  - Taint Tracking
-  - Retention Policy
-  - Redaction Policy
-  - Replay Anchors
-
-Context and Planning Plane
-  - Planner
-  - Context Assembler
-  - Memory Resolver
-  - Capability Resolver
-  - Evaluator
-
-Memory OS
-  - Memory Cards
-  - Episodic Timeline
-  - Semantic Graph
-  - Project Graph
-  - User Model
-  - Retrieval and Compression
-  - Dreaming Patch Pipeline
-
-Capability OS
-  - Capability Capsule
-  - Skill Importer
-  - Capsule Drafting
-  - Capsule Testing
-  - Capsule Versioning
-  - Capsule Evaluation
-  - Capsule Rollback
-  - Capsule Marketplace
-
-Scaffold OS
-  - Capability Package Template
-  - Tool Template
-  - Connector Template
-  - Workflow Template
-  - Test Harness
-  - Security Policy
-  - Deployment Gate
-
-Tool Policy Proxy
-  - Risk Composition
-  - Permission Diff
-  - Policy Decision
-  - Approval Routing
-  - Quarantine
-
-Connector Plane
-  - MCP Client and Adapter
-  - OAuth Connector Runtime
-  - IM Adapters
-  - SaaS API Adapters
-
-Execution Plane
-  - Local Computer Use
-  - Local Browser
-  - Sandboxed Browser
-  - Cloud VM
-  - Code Runner
-  - File and Repo Operator
+  identity / policy / vault / event ledger / workspace daemon
+        |
+        v
+Agent Orchestrator
+  context assembler / planner / agent loop / verifier
+        |              |                    |
+        v              v                    v
+Memory OS       Capability OS        Proactive Engine
+        \              |                    /
+         \             v                   /
+          +---- Tool Access & Action Policy Proxy ----+
+                         |
+                         v
+        Connector Adapters + Execution Adapters
+                         |
+                         v
+        Observations / Results / Artifacts
+                         |
+                         v
+              Event Ledger + Projections
 ```
+
+This architecture is not a waterfall. It is a set of orthogonal planes coordinated by Local Supervisor and Event Plane. Memory, Capability, Proactive, Policy, Audit, and Verifier services are invoked repeatedly throughout the run lifecycle.
 
 ## Orthogonality Rules
 
@@ -100,12 +46,13 @@ Each subsystem owns one concern and communicates through explicit contracts.
 - Event Plane is the fact layer for memory, proactive behavior, audit, replay, and capability evolution.
 - Context and Planning Plane plans and routes. It does not persist unreviewed long-term claims directly.
 - Memory OS stores and retrieves user/project knowledge with sources and sensitivity metadata.
-- Capability OS stores governed Capability Capsules. Skills remain procedural knowledge and import formats.
+- Capability OS stores governed Capability Capsules. Skills remain procedural knowledge and import formats. Capsules declare permission requirements and constraints, but do not own runtime grants.
 - Scaffold OS generates and validates capability packages. It does not install them without deployment gates.
-- Tool Policy Proxy is the only side-effectful execution choke point.
+- Tool Access & Action Policy Proxy is the only access and action choke point. It gates sensitive reads, observations, context injection, exports, imports, and side-effectful writes.
 - Connector Plane adapts protocols and APIs. MCP and OAuth are connection mechanisms, not execution boundaries.
 - Execution Plane performs actions only through approved tool sessions and sandbox policies.
 - Audit system reconstructs security decisions, side effects, permission changes, memory changes, capability changes, and user-visible outputs.
+- Remote execution environments are delegated workers, not trust roots. They receive scoped work orders and cannot directly mutate memory, capability, policy, or vault state.
 
 ## Core Request Flow
 
@@ -119,8 +66,8 @@ User or event source
   -> Context Assembler
   -> Planner
   -> Capability Resolver
-  -> Tool Policy Proxy
-  -> Connector or Execution Plane
+  -> Tool Access & Action Policy Proxy
+  -> Connector Adapter or Execution Adapter
   -> Observation event
   -> Evaluator and verifier
   -> Memory or capability patch candidates
@@ -143,36 +90,56 @@ All important inputs and transitions enter as typed events:
 - Proactive opportunities.
 - Policy decisions.
 
-Low-value high-frequency observations may be sampled, summarized, or expired according to retention policy. Security decisions and side effects must remain reconstructable.
+Low-value high-frequency observations may be sampled, summarized, or expired according to retention policy. Security decisions, sensitive reads, data egress, and side effects must remain reconstructable.
 
-## Tool Policy Proxy
+Append-only does not mean retaining all raw content forever. The ledger stores durable envelopes, provenance, hashes, redaction markers, deletion tombstones, and artifact references. Sensitive payloads live in encrypted artifact stores with retention, redaction, and cryptographic erasure policies.
 
-No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can execute side-effectful actions directly. All such actions pass through Tool Policy Proxy.
+## Tool Access & Action Policy Proxy
+
+No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can directly read sensitive resources, inject data into context, export data, or execute side-effectful actions. All such access and actions pass through Tool Access & Action Policy Proxy.
 
 ```text
 Agent intent or capability request
-  -> Tool Policy Proxy
+  -> Tool Access & Action Policy Proxy
   -> risk composition
   -> sensitivity classification
+  -> taint propagation check
   -> permission diff
+  -> scoped lease issuance
   -> approval or denial
   -> adapter or execution call
   -> result event
 ```
 
-The proxy composes risk from action type, target resource, data sensitivity, side effect, reversibility, audience, credential scope, runtime boundary, and strength of user intent.
+The proxy composes risk from action type, target resource, data sensitivity, side effect, reversibility, audience, credential scope, runtime boundary, strength of user intent, taint chain, target confidence, blast radius, and data egress destination.
 
-## Connector Plane
+## Connector And Execution Adapters
 
-MCP, OAuth, IM, and SaaS adapters live in the Connector Plane.
+Connector Plane and Execution Plane are not upstream/downstream layers. They are adapter families behind Tool Access & Action Policy Proxy.
+
+Connector adapters expose external services:
+
+- MCP Adapter.
+- OAuth and SaaS Adapter.
+- IM Adapter.
+- Webhook Adapter.
+
+Execution adapters control compute environments:
+
+- Local Computer.
+- Browser Harness.
+- Sandbox Browser.
+- Cloud VM worker.
+- Code Runner.
+- File and Repo Operator.
 
 MCP is a protocol, not a security boundary. MCP tools can represent arbitrary code paths, so Aetherion must wrap them:
 
 ```text
 MCP Server
   -> Connector Adapter
-  -> Tool Policy Proxy
-  -> Execution Plane
+  -> Tool Access & Action Policy Proxy
+  -> Connector or Execution Adapter
 ```
 
 ## Proactive Flow
@@ -183,6 +150,7 @@ Event source
   -> opportunity object
   -> salience score
   -> attention budget check
+  -> inhibition layer
   -> policy gate
   -> intervention ladder
   -> audit and memory impact review
@@ -191,6 +159,8 @@ Event source
 Proactive behavior is an Opportunity Lifecycle. Aetherion does not wake up periodically to think. It reacts to meaningful state changes, scores opportunities, respects attention budgets, and chooses the least intrusive intervention.
 
 Timers are acceptable for exact deadlines and maintenance jobs, but product-visible initiative should usually originate from real events: new message, changed file, calendar window, failed task, user correction, stale memory, connector webhook, repeated capability use, repeated capability failure, or incomplete workflow.
+
+Proactive must have an inhibition layer. Quiet hours, meetings, group-chat context, low confidence, tainted sources, non-reversible action, ignored similar opportunities, or unconfirmed goals should suppress interruption even when salience is high. Shadow mode should record predicted interventions before delivery is enabled.
 
 ## Browser Operator
 
@@ -219,3 +189,5 @@ OAuth connector strategy:
 Imported configurations are migration inputs, not trusted active capabilities.
 
 OpenClaw, Hermes, MCP server, third-party skill, and connector imports should generate a migration report. Tools, plugins, hooks, cron jobs, unknown fields, and external packages default to quarantine until reviewed. Secrets should migrate only as vault references, never as copied plaintext.
+
+Migration reports should record high-confidence mappings, low-confidence mappings, quarantined items, unsupported fields, secrets migrated as vault references, and review-required items.

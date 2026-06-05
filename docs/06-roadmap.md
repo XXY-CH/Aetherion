@@ -20,9 +20,9 @@ Exit criteria:
 - A developer can identify which subsystem owns permissions, memory, skills, tools, and execution.
 - A developer can start scaffolding schemas and packages without guessing product intent.
 
-## Phase 1: Local Supervisor Kernel
+## Phase 1: Kernel Plus One Real Action
 
-Goal: create the root local authority boundary before building broad agent behavior.
+Goal: create the root local authority boundary and prove one complete local run.
 
 Deliverables:
 
@@ -35,13 +35,17 @@ Deliverables:
 - Approval card model.
 - File operator.
 - Minimal TUI.
+- One local file/repo read action.
+- One approval-gated local write action.
+- One run trace.
 
 Exit criteria:
 
 - User can issue a local task.
 - Agent can request local workspace actions.
-- Agent can execute a reversible local action.
+- Agent can execute a reversible local action through policy.
 - Event and action records can reconstruct the policy decision and result.
+- Replay means trace reconstruction, not live side-effect repetition.
 
 ## Phase 2: Minimal User Connection
 
@@ -50,21 +54,23 @@ Goal: prove the harness can enter real user workflow early.
 Deliverables:
 
 - One IM adapter, such as Telegram or Slack.
-- Browser extension prototype.
+- Browser extension prototype in current-tab observe/read mode.
 - Device and channel identity mapping.
 - Local file/repo operator.
 - Basic connector import quarantine path.
+- Inbox/outbox model with idempotency.
 
 Exit criteria:
 
 - User can wake the agent remotely.
 - Browser extension can send structured page context to Local Supervisor.
 - IM cannot bypass Tool Policy Proxy.
+- Outbound IM messages go through outbox policy.
 - Imported config generates migration report and does not inherit trust.
 
 ## Phase 3: Memory OS MVP
 
-Goal: make memory useful without turning it into an untraceable vector dump.
+Goal: make memory useful from real run traces without turning it into an untraceable vector dump.
 
 Deliverables:
 
@@ -91,9 +97,11 @@ Deliverables:
 - DOM/CDP browser operator.
 - Screenshot fallback path.
 - Sandboxed browser runtime.
+- Browser extension per-origin/current-tab permission model.
 - Tainted third-party content handling.
 - Verifier and replay anchors.
 - Risk upgrades for credentials, secrets, external sends, installs, and destructive actions.
+- Tool request and policy decision contracts.
 
 Exit criteria:
 
@@ -101,6 +109,7 @@ Exit criteria:
 - Public web content is tainted and cannot authorize actions.
 - High-impact actions require approval.
 - Computer-use trace can be replayed or summarized.
+- Sensitive reads and data egress are policy-gated.
 
 ## Phase 5: Capability Capsule MVP
 

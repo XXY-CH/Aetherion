@@ -139,7 +139,7 @@ Semantic triggers include:
 - `capability.failed_repeatedly`
 - `project.state_changed`
 - `context_budget_pressure`
-- `exact_deadline_arrived`
+- `memory.ttl.expired`
 - `machine_idle_with_queued_consolidation`
 
 Idle time can be an execution window, but it is not the semantic reason for dreaming.
@@ -168,3 +168,5 @@ Dreaming must not:
 - Convert sensitive data into long-term memory without policy approval.
 
 Dreaming produces reviewable patches, not actions. Low-risk memory patches may be policy-auto-merged only if they are reversible, source-backed, conflict-checked, and fully traceable.
+
+Dreaming and Proactive are separate systems. Dreaming consolidates traces into patches. Proactive decides whether and how to intervene with the user. Deadline, email, CI, PR, file, meeting, focus, and blocked-goal triggers usually belong to Proactive unless they are specifically reviewing stale memory or queued consolidation.

@@ -23,6 +23,7 @@ The best product bet is not "another agent that can use a computer." Aetherion's
 - Event Plane is the fact layer. Messages, approvals, tool calls, memory candidates, capability changes, and proactive opportunities become typed events in an append-only ledger.
 - Browser extension and browser operator are core execution surfaces, not optional integrations.
 - OAuth, MCP, and connector layers expose user data and tools, but never bypass the Tool Policy Proxy.
+- Connector and execution adapters are sibling target families behind policy, not a simple upstream/downstream chain.
 - Chat, mobile, and IM channels are remote control and notification surfaces, not the root authority boundary.
 - Memory is not just vector search. It is an auditable Memory OS with source events, memory cards, timelines, graphs, and context assembly.
 - Capability Capsules are the governed internal ability unit. Skills are procedural knowledge and import formats, not unrestricted plugins.
@@ -33,54 +34,35 @@ The best product bet is not "another agent that can use a computer." Aetherion's
 ## System Shape
 
 ```text
--------------------------------------------------------------+
-| User Surfaces                                               |
-| TUI | GUI | Browser Extension | Mobile | IM | Web Console |
-+-------------------------------------------------------------+
-                              |
-                              v
-+-------------------------------------------------------------+
-| Local Supervisor                                            |
-| Policy Engine | Secret Vault | Event Ledger | Workspace Daemon|
-+-------------------------------------------------------------+
-                              |
-                              v
-+-------------------------------------------------------------+
-| Event Plane / Append-only Ledger                            |
-| Typed Events | Taint | Retention | Redaction | Replay Anchors |
-+-------------------------------------------------------------+
-                              |
-                              v
-+-------------------------------------------------------------+
-| Context + Planning Plane                                    |
-| Planner | Context Assembler | Memory/Capability Resolver     |
-+-------------------------------------------------------------+
-          |                    |                     |
-          v                    v                     v
-+------------------+  +------------------+  +------------------+
-| Memory OS        |  | Capability OS    |  | Scaffold OS      |
-| Cards | Graphs   |  | Capsules | Evals |  | Templates | Gate|
-| Dreams | Patches |  | Versions | Tests |  | Packages | Policy|
-+------------------+  +------------------+  +------------------+
-          |                    |                     |
-          +--------------------+---------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Tool Policy Proxy                                           |
-| Risk | Sensitivity | Permission Diff | Approval | Quarantine |
-+-------------------------------------------------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Connector + Execution Planes                                |
-| MCP/OAuth/IM Adapters | Local Computer | Browser | VM | Code  |
-+-------------------------------------------------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Verifier + Audit + Replay                                   |
-+-------------------------------------------------------------+
+Client Surfaces
+  TUI / GUI / Browser Extension / IM / Mobile / API
+        |
+        v
+Ingress Gateways
+  normalize / authenticate / rate-limit / idempotency
+        |
+        v
+Local Supervisor
+  identity / policy / vault / event ledger / workspace daemon
+        |
+        v
+Agent Orchestrator
+  context assembler / planner / agent loop / verifier
+        |              |                    |
+        v              v                    v
+Memory OS       Capability OS        Proactive Engine
+        \              |                    /
+         \             v                   /
+          +---- Tool Access & Action Policy Proxy ----+
+                         |
+                         v
+        Connector Adapters + Execution Adapters
+                         |
+                         v
+        Observations / Results / Artifacts
+                         |
+                         v
+              Event Ledger + Projections
 ```
 
 ## Initial Documentation
@@ -94,6 +76,7 @@ The best product bet is not "another agent that can use a computer." Aetherion's
 - [Roadmap](docs/06-roadmap.md)
 - [Positioning and Naming Risk](docs/07-positioning-and-naming.md)
 - [Innovation Thesis](docs/08-innovation-thesis.md)
+- [Computer Use Implementation](docs/09-computer-use-implementation.md)
 
 ## MVP Direction
 

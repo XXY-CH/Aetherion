@@ -50,6 +50,7 @@ But Aetherion should not inherit the common failure mode of these systems: mixin
 - An ungoverned auto-plugin system where generated code immediately receives real user permissions.
 - A memory system that only stores embeddings without source, confidence, sensitivity, or deletion controls.
 - A computer-use loop that relies only on slow visual clicking when DOM, API, or connector access is available.
+- A browser extension, connector, or cloud worker that becomes a trust root.
 
 ## Differentiators
 
@@ -84,7 +85,7 @@ Aetherion memory is a structured operating layer:
 
 ### Governed Capability Evolution
 
-Capability Capsules can be proposed, drafted, tested, published, scored, patched, quarantined, and rolled back. A skill is procedural knowledge or an import format; a Capability Capsule is the governed internal unit that binds playbook, manifest, tool contract, permissions, tests, evals, policy, provenance, and rollback.
+Capability Capsules can be proposed, drafted, tested, published, scored, patched, quarantined, and rolled back. A skill is procedural knowledge or an import format; a Capability Capsule is the governed internal unit that binds playbook, manifest, tool contract, permission requirements and constraints, tests, evals, policy, provenance, and rollback.
 
 ### Capability Packages
 
@@ -93,3 +94,5 @@ Agent-generated scaffolds become isolated packages with manifests, schemas, test
 ### Tool Policy Proxy
 
 No agent, skill, connector, MCP server, IM adapter, scaffold, or generated package can execute side-effectful actions directly. All such actions pass through the Tool Policy Proxy.
+
+The proxy also gates sensitive reads, observations, data egress, imports, exports, and context injection. Preventing writes is not enough if an agent can silently read secrets or leak private context.

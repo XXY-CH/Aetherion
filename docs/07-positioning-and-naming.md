@@ -58,5 +58,5 @@ Aetherion's intended product solves: "How can an agent safely, auditably, and ev
 3. Dreaming produces reviewable patches, not actions.
 4. Human-readable files are source of truth; indexes are rebuildable projections.
 5. User Boundary Layer is a first-class kernel concern.
-6. Tool Policy Proxy is the only side-effect execution entry.
+6. Tool Policy Proxy is the only access and action entry for sensitive reads, data egress, and side effects.
 7. Import is migration, not trust inheritance.

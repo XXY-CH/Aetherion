@@ -40,6 +40,8 @@ Every material action must answer six questions.
 ### What
 
 - Read.
+- Observe.
+- Inject into context.
 - Write.
 - Send message.
 - Delete data.
@@ -47,6 +49,7 @@ Every material action must answer six questions.
 - Modify permissions.
 - Execute code.
 - Upload or download files.
+- Export or import data.
 
 ### Why
 
@@ -70,6 +73,10 @@ Risk is composed from:
 - Credential scope.
 - Runtime boundary.
 - Strength of user intent.
+- Taint chain.
+- Target identification confidence.
+- Blast radius.
+- Data egress destination.
 
 | Level | Examples | Default Policy |
 | --- | --- | --- |
@@ -108,19 +115,27 @@ credential-like
 
 ## Tool Policy Proxy
 
-The Tool Policy Proxy sits between agent intent and execution. It evaluates:
+The Tool Policy Proxy is the access and action choke point between agent intent and the outside world. It gates sensitive reads and observations as well as writes and other side effects. It evaluates:
 
 - Actor identity.
 - Tool identity.
 - Requested action.
 - Data scope.
+- Data sensitivity.
+- Taint chain.
+- Target confidence.
+- Blast radius.
+- Data egress destination.
 - Workspace and device.
 - Risk level.
 - Approval policy.
 - Memory policy.
 - Current trust state.
+- Runtime lease scope.
 
 No connector, skill, workflow, MCP server, IM adapter, scaffold, or generated package may bypass this layer.
+
+Runtime authorization is issued as scoped leases with time, resource, action, egress, and boundary limits. A Capability Capsule can declare requested permissions and constraints, but it never owns permission by itself.
 
 ## Consent Ledger
 
@@ -155,3 +170,5 @@ memory_impact: none
 - Revocation should be granular by user, device, channel, connector, tool, skill, and package.
 - Imported configuration is a migration source, not trust inheritance.
 - Secrets are never stored in memory or logs as raw values.
+- Sensitive reads are policy events even when they have no external side effect.
+- Tainted external content can inform summaries, but cannot justify authorization.
