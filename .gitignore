@@ -1,0 +1,102 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs and runtime state
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.tmp/
+
+# Node / frontend / desktop app
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+htmlcov/
+
+# Rust / native helpers
+target/
+
+# Go helpers
+bin/
+*.test
+
+# Databases, indexes, and local vaults
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.duckdb
+*.parquet
+vault/
+memory-vault/
+local-data/
+
+# Generated artifacts
+artifacts/
+reports/
+screenshots/
+playwright-report/
+test-results/
+
+# Package manager caches
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Docker and local deployment overrides
+docker-compose.override.yml
+.docker/
+
+# Aetherion local runtime state
+.aetherion/
+!.aetherion/README.md
+.omc/
+.omx/state/
+.omx/logs/
