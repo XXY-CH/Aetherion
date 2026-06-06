@@ -65,10 +65,13 @@ test("memory candidates can be derived from real run trace events", () => {
   assert.equal(timeline.id, "episode_run_trace_memory");
   assert.equal(timeline.user_intent, "Summarize a workspace file.");
   assert.deepEqual(timeline.source_events, ["evt_run_user", "evt_run_verification", "evt_run_completed"]);
-  assert.ok(timeline.regression_cases[0].includes("without live side effects"));
+  assert.equal(timeline.final_artifact, "unavailable");
+  assert.deepEqual(timeline.regression_cases, []);
 
   const userModel = createBasicUserModel([memory]);
   assert.deepEqual(userModel.source_memory_ids, ["mem_run_trace_memory_episode"]);
   assert.deepEqual(userModel.source_events, ["evt_run_user", "evt_run_verification", "evt_run_completed"]);
-  assert.ok(userModel.communication_style.prefers.includes("concrete verification evidence"));
+  assert.deepEqual(userModel.communication_style.prefers, []);
+  assert.equal(userModel.work_style.decision_pattern, "unknown");
+  assert.deepEqual(userModel.automation_policy.auto_execute, []);
 });

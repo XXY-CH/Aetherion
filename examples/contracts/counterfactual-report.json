@@ -4,6 +4,10 @@
   "change": "Deny the write approval.",
   "mode": "report",
   "live_side_effects_allowed": false,
-  "confidence": 0.8,
-  "summary": "The output file would not have been created."
+  "confidence": 0.4,
+  "summary": "Report-only counterfactual based on typed event-sequence projections; no causal outcome is asserted.",
+  "status": "partial",
+  "evidence": ["causal_policy_to_action"],
+  "assumptions": ["Typed event order is relevant to the proposed change."],
+  "unknowns": ["Unobserved state changes", "External effects", "Model and tool behavior under the proposed change"]
 }

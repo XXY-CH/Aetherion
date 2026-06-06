@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export type SupervisorRpcRequest = {
@@ -25,8 +25,9 @@ export type SupervisorRpcResponse = {
 
 export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpcRequest): Promise<SupervisorRpcResponse> {
   const binary = join(repoRoot, "target", "debug", "aetherion-supervisor");
-  const command = existsSync(binary) ? binary : "cargo";
-  const args = existsSync(binary) ? ["rpc"] : ["run", "--quiet", "--bin", "aetherion-supervisor", "--", "rpc"];
+  const binaryIsFresh = isSupervisorBinaryFresh(repoRoot, binary);
+  const command = binaryIsFresh ? binary : "cargo";
+  const args = binaryIsFresh ? ["rpc"] : ["run", "--quiet", "--bin", "aetherion-supervisor", "--", "rpc"];
   const child = spawn(command, args, {
     cwd: repoRoot,
     stdio: ["pipe", "pipe", "pipe"]
@@ -60,6 +61,18 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
   }
   return response;
+}
+
+function isSupervisorBinaryFresh(repoRoot: string, binary: string): boolean {
+  if (!existsSync(binary)) {
+    return false;
+  }
+  const binaryMtime = statSync(binary).mtimeMs;
+  return [
+    join(repoRoot, "crates", "supervisor", "Cargo.toml"),
+    join(repoRoot, "crates", "supervisor", "src", "lib.rs"),
+    join(repoRoot, "crates", "supervisor", "src", "main.rs")
+  ].every((source) => statSync(source).mtimeMs <= binaryMtime);
 }
 
 export function rpcResult<T extends Record<string, unknown>>(response: SupervisorRpcResponse): T {

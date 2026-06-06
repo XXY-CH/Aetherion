@@ -3,14 +3,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, counterfactualFromCheckpoint, isCausalEdge } from "../../causal-memory/src/index.ts";
-import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearse, rehearseFileWrite } from "../../sandbox/src/index.ts";
-import { createDraftCapsule, isCapsule, publishCapsule, requireCapsule, testCapsule } from "../../capability-os/src/index.ts";
+import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
+import { isCapsule, requireCapsule } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { findHibernation, hibernateRun, isHibernationRecord, markWaking, wakeRun } from "../../hibernation/src/index.ts";
 import { acceptPersonaAnchor, createPersonaReset, findPersonaAnchor, foldMemories, forkSoul, isPersonaAnchor, proposePersonaAnchor, rejectPersonaAnchor } from "../../soul/src/index.ts";
-import { consumeToolCall, createAgentContract, createDefaultBudget, findBudget, isCircuitBreaker, isResourceBudget } from "../../multiagent/src/index.ts";
+import { createAgentContract, findBudget, isResourceBudget } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
-import { appendEvent, callSupervisorRpc, createTraceReplayRecord, createWorkspace, eventRecord, isRegistryItem, loadRunManifest, readEvents, readRegistry, reconstructTrace, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -27,8 +27,13 @@ type CliOptions = {
   change?: string;
   content?: string;
   sourceEvent?: string;
+  confidence?: number;
   fromRun?: string;
   capsule?: string;
+  parentRun?: string;
+  childAgent?: string;
+  budget?: string;
+  agentId?: string;
   supervisor?: "typescript-seed" | "stdio";
 };
 
@@ -53,8 +58,11 @@ async function main(): Promise<void> {
     throw new Error(`Unknown command ${options.command}. Run "npm run ether -- help".`);
   }
 
-  const result = options.supervisor === "stdio"
-    ? await runSupervisorKernelLoop({
+  if (options.supervisor === "typescript-seed" && process.env.AETHERION_ALLOW_TYPESCRIPT_SEED !== "1") {
+    throw new Error("typescript-seed is test-only; set AETHERION_ALLOW_TYPESCRIPT_SEED=1 explicitly");
+  }
+  const result = options.supervisor === "typescript-seed"
+    ? await runLocalKernelLoop({
         repoRoot,
         workspaceRoot: options.workspace,
         inputPath: options.input,
@@ -62,7 +70,7 @@ async function main(): Promise<void> {
         approveWrite: options.approveWrite,
         summaryText: options.summary
       })
-    : await runLocalKernelLoop({
+    : await runSupervisorKernelLoop({
         repoRoot,
         workspaceRoot: options.workspace,
         inputPath: options.input,
@@ -138,12 +146,37 @@ function parseArgs(args: string[]): CliOptions {
         options.sourceEvent = requireValue(arg, next);
         index += 1;
         break;
+      case "--confidence": {
+        const confidence = Number(requireValue(arg, next));
+        if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+          throw new Error("--confidence must be a number between 0 and 1");
+        }
+        options.confidence = confidence;
+        index += 1;
+        break;
+      }
       case "--from-run":
         options.fromRun = requireValue(arg, next);
         index += 1;
         break;
       case "--capsule":
         options.capsule = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--parent-run":
+        options.parentRun = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--child-agent":
+        options.childAgent = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--budget":
+        options.budget = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--agent-id":
+        options.agentId = requireValue(arg, next);
         index += 1;
         break;
       case "--supervisor": {
@@ -168,7 +201,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--from-run", "--capsule", "--supervisor"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -216,13 +249,13 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       runCounterfactual(options);
       return true;
     case "sleep":
-      runSleep(options);
+      await runSleep(options);
       return true;
     case "wake":
       runWake(options);
       return true;
     case "anchors":
-      runAnchors(options);
+      await runAnchors(options);
       return true;
     case "persona":
       runPersona(options);
@@ -231,10 +264,10 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       runSoul(options);
       return true;
     case "agent":
-      runAgent(options);
+      await runAgent(options);
       return true;
     case "security":
-      runSecurity(options);
+      await runSecurity(options);
       return true;
     default:
       return false;
@@ -257,23 +290,30 @@ async function runMemory(options: CliOptions): Promise<void> {
   }
   if (options.topic === "candidates") {
     if (options.fromRun) {
-      const workspace = await createWorkspace(workspaceRoot, "ws_tui");
+      const workspace = await openWorkspace(workspaceRoot);
       const candidates = deriveMemoryCandidatesFromEvents(await readEvents(workspace), options.fromRun);
+      if (candidates.length === 0) {
+        throw new Error(`No memory candidates can be derived from run ${options.fromRun}`);
+      }
       printJson(candidates);
       return;
     }
+    if (!options.sourceEvent || options.content === undefined || options.confidence === undefined) {
+      throw new Error("memory candidates requires --from-run <run_id> or --source-event <event_id> --content <text> --confidence <0..1>");
+    }
+    await requireSourceEvent(workspaceRoot, options.sourceEvent);
     const candidate = createMemoryCandidate({
-      id: "memcand_tui_demo",
-      source_events: [options.sourceEvent ?? "evt_demo"],
-      candidate: { type: "preference", subject: "user", content: options.content ?? "Demo source-backed memory candidate." },
-      confidence: 0.75
+      id: `memcand_${sanitizePathSegment(options.sourceEvent)}`,
+      source_events: [options.sourceEvent],
+      candidate: { type: "preference", subject: "user", content: options.content },
+      confidence: options.confidence
     });
     printJson(candidate);
     return;
   }
   if (options.topic === "timeline") {
     const runId = options.target ?? options.input;
-    const workspace = await createWorkspace(workspaceRoot, "ws_tui");
+    const workspace = await openWorkspace(workspaceRoot);
     printJson(buildEpisodicTimeline(await readEvents(workspace), runId));
     return;
   }
@@ -285,25 +325,15 @@ async function runMemory(options: CliOptions): Promise<void> {
     return;
   }
   if (options.topic === "accept") {
-    const candidateId = options.target ?? "memcand_tui_demo";
+    const candidateId = requirePositional(options.target, "memory accept requires a candidate id");
     const candidates = readRegistry(workspaceRoot, "memory-candidates").filter(isMemoryCandidate);
-    const { candidate, card } = candidates.some((entry) => entry.id === candidateId)
-      ? acceptCandidateFromRegistry(candidates, candidateId)
-      : (() => {
-          const fallback = createMemoryCandidate({
-            id: candidateId,
-            source_events: [options.sourceEvent ?? "evt_demo"],
-            candidate: { type: "preference", subject: "user", content: options.content ?? "Accepted demo memory." },
-            confidence: 0.8
-          });
-          return { candidate: { ...fallback, review: { status: "accepted" as const } }, card: acceptMemoryCandidate(fallback) };
-        })();
+    const { candidate, card } = acceptCandidateFromRegistry(candidates, candidateId);
     upsertRegistryItem(workspaceRoot, "memory-candidates", candidate);
     printJson(card);
     return;
   }
   if (options.topic === "reject") {
-    const candidateId = options.target ?? "memcand_tui_demo";
+    const candidateId = requirePositional(options.target, "memory reject requires a candidate id");
     const candidate = readRegistry(workspaceRoot, "memory-candidates").filter(isMemoryCandidate).find((entry) => entry.id === candidateId);
     if (!candidate) {
       throw new Error(`Memory candidate ${candidateId} not found`);
@@ -312,7 +342,7 @@ async function runMemory(options: CliOptions): Promise<void> {
     return;
   }
   if (options.topic === "delete") {
-    const memoryId = options.target ?? "mem_tui_demo";
+    const memoryId = requirePositional(options.target, "memory delete requires a memory id");
     const memory = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard).find((entry) => entry.id === memoryId);
     if (!memory) {
       throw new Error(`Memory card ${memoryId} not found`);
@@ -320,7 +350,7 @@ async function runMemory(options: CliOptions): Promise<void> {
     printJson({ id: `tombstone_${memory.id}`, ...createMemoryDeleteTombstone(memory, "user_delete_request") });
     return;
   }
-  throw new Error("memory supports candidates, timeline, user-model, list, accept, reject, and delete in the local TUI seed");
+  throw new Error("memory supports candidates, timeline, user-model, list, accept, reject, and delete");
 }
 
 async function runContext(options: CliOptions): Promise<void> {
@@ -328,53 +358,54 @@ async function runContext(options: CliOptions): Promise<void> {
     throw new Error("context supports explain <run_id>");
   }
   const runId = options.target ?? options.input;
-  const workspace = await createWorkspace(resolve(options.workspace), "ws_tui");
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
   const events = await readEvents(workspace);
-  const selectedEvent = events.find((event) => event.run_id === runId)?.id ?? `evt_${runId}_synthetic`;
-  const registryMemories = readRegistry(resolve(options.workspace), "memory-cards").filter(isMemoryCard);
-  const memories = registryMemories.length > 0
-    ? registryMemories
-    : deriveMemoryCandidatesFromEvents(events, runId).map((candidate) => acceptMemoryCandidate(candidate));
-  const fallbackMemories = memories.length > 0 ? memories : [acceptMemoryCandidate(createMemoryCandidate({
-    id: `memcand_${runId}`,
-    source_events: [selectedEvent],
-    candidate: { type: "project", subject: runId, content: "Run has source-backed trace evidence." },
-    confidence: 0.7,
-    blocked_contexts: ["external_send"]
-  }))];
-  printJson(assembleContextPack(runId, fallbackMemories, "planning"));
+  if (!events.some((event) => event.run_id === runId)) {
+    throw new Error(`Run ${runId} has no ledger events`);
+  }
+  const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
+  printJson(assembleContextPack(runId, memories, "planning"));
 }
 
 async function runCheckpoint(options: CliOptions): Promise<void> {
   const runId = options.topic ?? options.input;
-  const workspace = await createWorkspace(resolve(options.workspace), "ws_tui");
+  const workspace = await openWorkspace(resolve(options.workspace));
   const events = (await readEvents(workspace)).filter((event) => event.run_id === runId);
   const event = events.at(-1);
-  printJson(createCheckpoint(runId, event?.id ?? `evt_${runId}_synthetic`, event?.event_hash));
+  if (!event) {
+    throw new Error(`Cannot checkpoint run ${runId}: no ledger events found`);
+  }
+  printJson(createCheckpoint(runId, event.id, event.event_hash));
 }
 
 function runBranch(options: CliOptions): void {
   const workspaceRoot = resolve(options.workspace);
-  const checkpointId = options.topic ?? "checkpoint_seed";
-  const checkpoint = findCheckpoint(readRegistry(workspaceRoot, "checkpoints").filter(isCheckpoint), checkpointId)
-    ?? { ...createCheckpoint("run_branch_seed", "evt_checkpoint_seed"), id: checkpointId };
+  const checkpointId = requirePositional(options.topic, "branch requires a checkpoint id");
+  const checkpoint = findCheckpoint(readRegistry(workspaceRoot, "checkpoints").filter(isCheckpoint), checkpointId);
+  if (!checkpoint) {
+    throw new Error(`Checkpoint ${checkpointId} not found`);
+  }
   printJson(createBranch(checkpoint));
 }
 
 async function runRehearsal(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
-  const branchId = options.topic ?? "branch_seed";
-  const branch = findBranch(readRegistry(workspaceRoot, "branches").filter(isBranch), branchId)
-    ?? { ...createBranch(createCheckpoint("run_rehearsal_seed", "evt_rehearsal_seed")), id: branchId };
-  const rehearsal = options.path
-    ? await rehearseFileWrite(workspaceRoot, branch, options.path, options.content ?? "")
-    : rehearse(branch, options.content ?? "Generated preview only.");
+  const branchId = requirePositional(options.topic, "rehearse requires a branch id");
+  const branch = findBranch(readRegistry(workspaceRoot, "branches").filter(isBranch), branchId);
+  if (!branch) {
+    throw new Error(`Branch ${branchId} not found`);
+  }
+  if (!options.path || options.content === undefined) {
+    throw new Error("rehearse requires --path <workspace-file> and --content <proposed-contents>");
+  }
+  const rehearsal = await rehearseFileWrite(workspaceRoot, branch, options.path, options.content);
   printJson(rehearsal);
 }
 
 async function runApproveRehearsal(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
-  const rehearsalId = options.topic ?? "rehearsal_seed";
+  const rehearsalId = requirePositional(options.topic, "approve-rehearsal requires a rehearsal id");
   const rehearsal = readRegistry(workspaceRoot, "rehearsals").filter(isRehearsal).find((entry) => entry.id === rehearsalId);
   if (!rehearsal) {
     throw new Error(`Rehearsal ${rehearsalId} not found`);
@@ -387,8 +418,11 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   if (!checkpoint) {
     throw new Error(`Checkpoint ${branch.checkpoint_id} not found`);
   }
+  if (rehearsal.operation !== "file.write") {
+    throw new Error(`Rehearsal ${rehearsal.id} has no implemented live operation`);
+  }
 
-  const workspace = await createWorkspace(workspaceRoot, "ws_tui");
+  const workspace = await openWorkspace(workspaceRoot);
   const policyEventId = `evt_${sanitizePathSegment(rehearsal.id)}_policy_recheck`;
   const liveActionEventId = `evt_${sanitizePathSegment(rehearsal.id)}_live_action`;
   let newLeaseId: string | undefined;
@@ -414,14 +448,14 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
     if (policyResult.decision !== "allow" || typeof policyResult.lease_id !== "string" || !policyResult.lease_id) {
       throw new Error(`Fresh supervisor policy did not allow rehearsal ${rehearsal.id}`);
     }
-    newLeaseId = policyResult.lease_id;
+    const preflightLeaseId = policyResult.lease_id;
     await appendEvent(repoRoot, workspace, eventRecord({
       id: policyEventId,
       workspace_id: workspace.id,
       run_id: checkpoint.run_id,
       event_type: "policy.decided",
       actor: { type: "system", id: "tool_policy_proxy" },
-      summary: `Rust supervisor issued fresh lease ${newLeaseId} for rehearsal ${rehearsal.id}; no prior authority was reused.`
+      summary: `Rust supervisor preflight allowed rehearsal ${rehearsal.id} with fresh lease ${preflightLeaseId}; no prior authority was reused.`
     }));
     const writeResult = rpcResult(await callSupervisorRpc(repoRoot, {
       id: `rpc_${rehearsal.id}_live_write`,
@@ -433,6 +467,10 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
       approved: true,
       contents: proposedContents
     }));
+    if (writeResult.written !== true || writeResult.decision !== "allow" || typeof writeResult.lease_id !== "string" || !writeResult.lease_id) {
+      throw new Error(`Rust supervisor did not return a lease-backed write result for ${rehearsal.id}`);
+    }
+    newLeaseId = writeResult.lease_id;
     realSideEffectExecuted = writeResult.written === true;
     verificationStatus = readFileSync(targetPath, "utf8") === proposedContents ? "passed" : "failed";
     if (!realSideEffectExecuted || verificationStatus !== "passed") {
@@ -470,53 +508,68 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
 
 function runCapsule(options: CliOptions): void {
   const workspaceRoot = resolve(options.workspace);
-  const capsuleId = options.target ?? options.capsule ?? "cap_tui_demo";
   const capsules = readRegistry(workspaceRoot, "capsules").filter(isCapsule);
-  const capsule = capsules.find((entry) => entry.id === capsuleId) ?? createDraftCapsule(capsuleId);
   if (options.topic === "list" || !options.topic) {
-    printJson(capsules.length > 0 ? capsules : [capsule]);
+    printJson(capsules);
     return;
   }
   if (options.topic === "inspect") {
-    printJson(requireCapsule(capsules.length > 0 ? capsules : [capsule], capsuleId));
+    const capsuleId = requirePositional(options.target ?? options.capsule, "capsule inspect requires a capsule id");
+    printJson(requireCapsule(capsules, capsuleId));
     return;
   }
-  if (options.topic === "test") {
-    printJson(testCapsule(capsule));
-    return;
-  }
-  if (options.topic === "publish") {
-    printJson(publishCapsule(capsule.replay_tests_passed ? capsule : testCapsule(capsule)));
-    return;
-  }
-  throw new Error("capsule supports list, inspect, test, publish");
+  throw new Error("capsule test/publish are unavailable until the real replay and sandbox trial runner is implemented");
 }
 
 async function runWhy(options: CliOptions): Promise<void> {
   const runId = options.topic ?? options.input;
-  const workspace = await createWorkspace(resolve(options.workspace), "ws_tui");
+  const workspace = await openWorkspace(resolve(options.workspace));
   const events = (await readEvents(workspace)).filter((event) => event.run_id === runId);
+  if (events.length === 0) {
+    throw new Error(`Run ${runId} has no ledger events`);
+  }
   const edges = buildCausalEdges(events);
   upsertRegistryItems(resolve(options.workspace), "causal-edges", edges);
   printJson({ id: `why_${runId}`, run_id: runId, edges });
 }
 
 function runCounterfactual(options: CliOptions): void {
-  const checkpointId = options.topic ?? "checkpoint_tui";
-  const edges = readRegistry(resolve(options.workspace), "causal-edges").filter(isCausalEdge);
-  printJson(counterfactualFromCheckpoint(checkpointId, options.change ?? "No live-side-effect change supplied.", edges));
+  const workspaceRoot = resolve(options.workspace);
+  const checkpointId = requirePositional(options.topic, "counterfactual requires a checkpoint id");
+  const checkpoint = findCheckpoint(readRegistry(workspaceRoot, "checkpoints").filter(isCheckpoint), checkpointId);
+  if (!checkpoint) {
+    throw new Error(`Checkpoint ${checkpointId} not found`);
+  }
+  if (!options.change) {
+    throw new Error("counterfactual requires --change <description>");
+  }
+  const edges = readRegistry(workspaceRoot, "causal-edges").filter(isCausalEdge);
+  printJson(counterfactualFromCheckpoint(checkpointId, checkpoint.event_id, options.change, edges));
 }
 
-function runSleep(options: CliOptions): void {
+async function runSleep(options: CliOptions): Promise<void> {
   const runId = options.topic ?? options.input;
-  printJson(hibernateRun(runId, `ctx_${runId}_minimal`));
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
+  const manifest = await loadRunManifest(workspace, runId).catch(() => undefined);
+  if (!manifest) {
+    throw new Error(`Cannot hibernate unknown run ${runId}`);
+  }
+  const contextPackId = `ctx_${runId}`;
+  const contextPack = readRegistry(workspaceRoot, "context-packs").find((entry) => entry.id === contextPackId);
+  if (!contextPack) {
+    throw new Error(`Cannot hibernate run ${runId}: context pack ${contextPackId} not found`);
+  }
+  printJson(hibernateRun(runId, contextPackId));
 }
 
 function runWake(options: CliOptions): void {
   const workspaceRoot = resolve(options.workspace);
-  const hibernationId = options.topic ?? "hibernate_run_wake_seed";
-  const hibernation = findHibernation(readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord), hibernationId)
-    ?? { ...hibernateRun("run_wake_seed", "ctx_wake_seed"), id: hibernationId };
+  const hibernationId = requirePositional(options.topic, "wake requires a hibernation id");
+  const hibernation = findHibernation(readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord), hibernationId);
+  if (!hibernation) {
+    throw new Error(`Hibernation ${hibernationId} not found`);
+  }
   const trigger = wakeRun(hibernation, "manual");
   if (trigger.status === "queued") {
     upsertRegistryItem(workspaceRoot, "hibernations", markWaking(hibernation));
@@ -524,18 +577,22 @@ function runWake(options: CliOptions): void {
   printJson(trigger);
 }
 
-function runAnchors(options: CliOptions): void {
+async function runAnchors(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   if (options.topic === "list") {
     printJson(readRegistry(workspaceRoot, "persona-anchors"));
     return;
   }
   if (options.topic === "propose") {
+    if (!options.sourceEvent || options.content === undefined || options.confidence === undefined) {
+      throw new Error("anchors propose requires --source-event <event_id> --content <text> --confidence <0..1>");
+    }
+    await requireSourceEvent(workspaceRoot, options.sourceEvent);
     printJson(proposePersonaAnchor({
-      id: "anchor_tui_proposed",
-      content: options.content ?? "User prefers source-backed concise answers.",
-      source_events: [options.sourceEvent ?? "evt_anchor_source"],
-      confidence: 0.8,
+      id: `anchor_${sanitizePathSegment(options.sourceEvent)}`,
+      content: options.content,
+      source_events: [options.sourceEvent],
+      confidence: options.confidence,
       ttl: "180d",
       allowed_contexts: ["planning", "coding"],
       blocked_contexts: ["external_auto_send"]
@@ -543,7 +600,7 @@ function runAnchors(options: CliOptions): void {
     return;
   }
   if (options.topic === "accept" || options.topic === "reject") {
-    const anchorId = options.target ?? "anchor_tui_proposed";
+    const anchorId = requirePositional(options.target, `anchors ${options.topic} requires an anchor id`);
     const anchor = findPersonaAnchor(readRegistry(workspaceRoot, "persona-anchors").filter(isPersonaAnchor), anchorId);
     if (!anchor) {
       throw new Error(`Persona anchor ${anchorId} not found`);
@@ -565,39 +622,64 @@ function runPersona(options: CliOptions): void {
 
 function runSoul(options: CliOptions): void {
   if (options.topic !== "fork") {
-    throw new Error("soul supports fork --from <checkpoint> through positional checkpoint in this seed");
+    throw new Error("soul supports fork <checkpoint_id> --agent-id <new_agent_id>");
   }
   const workspaceRoot = resolve(options.workspace);
-  const checkpointId = options.target ?? "checkpoint_tui";
+  const checkpointId = requirePositional(options.target, "soul fork requires a checkpoint id");
+  const newAgentId = requirePositional(options.agentId, "soul fork requires --agent-id <new_agent_id>");
   const checkpoint = findCheckpoint(readRegistry(workspaceRoot, "checkpoints").filter(isCheckpoint), checkpointId);
   if (!checkpoint) {
     throw new Error(`Checkpoint ${checkpointId} not found`);
   }
-  printJson(forkSoul(checkpoint.id, "agent_tui_fork"));
+  printJson(forkSoul(checkpoint.id, newAgentId));
 }
 
-function runAgent(options: CliOptions): void {
+async function runAgent(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
-  const budgetId = options.target ?? "budget_tui_child";
-  const existingBudget = findBudget(readRegistry(workspaceRoot, "resource-budgets").filter(isResourceBudget), budgetId);
-  const budget = existingBudget ?? createDefaultBudget(budgetId);
-  const contract = createAgentContract("run_tui_parent", "agent_tui_child", options.content ?? "Local bounded child task.", budget, [options.capsule ?? "cap_local_docs_read"]);
-  const afterOneCall = consumeToolCall(budget);
-  upsertRegistryItem(workspaceRoot, "resource-budgets", isCircuitBreaker(afterOneCall) ? budget : afterOneCall);
-  if (isCircuitBreaker(afterOneCall)) {
-    upsertRegistryItem(workspaceRoot, "circuit-breakers", afterOneCall);
+  if (options.topic !== "contract") {
+    throw new Error("agent supports contract");
   }
-  printJson({ contract, after_one_tool_call: afterOneCall });
+  const parentRunId = requirePositional(options.parentRun, "agent contract requires --parent-run <run_id>");
+  const childAgentId = requirePositional(options.childAgent, "agent contract requires --child-agent <agent_id>");
+  const budgetId = requirePositional(options.budget, "agent contract requires --budget <budget_id>");
+  const task = requirePositional(options.content, "agent contract requires --content <task>");
+  const capsuleId = requirePositional(options.capsule, "agent contract requires --capsule <capsule_id>");
+  const workspace = await openWorkspace(workspaceRoot);
+  await loadRunManifest(workspace, parentRunId).catch(() => {
+    throw new Error(`Parent run ${parentRunId} not found`);
+  });
+  const existingBudget = findBudget(readRegistry(workspaceRoot, "resource-budgets").filter(isResourceBudget), budgetId);
+  if (!existingBudget) {
+    throw new Error(`Resource budget ${budgetId} not found`);
+  }
+  const capsule = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === capsuleId);
+  if (!capsule || capsule.lifecycle !== "published") {
+    throw new Error(`Published capsule ${capsuleId} not found`);
+  }
+  printJson(createAgentContract(parentRunId, childAgentId, task, existingBudget, [capsuleId]));
 }
 
-function runSecurity(options: CliOptions): void {
+async function runSecurity(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   if (options.topic === "scan") {
-    printJson(detectPoisoning(options.sourceEvent ?? "evt_tainted", options.content ?? ""));
+    if (!options.sourceEvent || options.content === undefined) {
+      throw new Error("security scan requires --source-event <event_id> and --content <text>");
+    }
+    await requireSourceEvent(workspaceRoot, options.sourceEvent);
+    const signal = detectPoisoning(options.sourceEvent, options.content);
+    if (!signal) {
+      console.log(JSON.stringify({
+        source_event_id: options.sourceEvent,
+        status: "no_signal",
+        can_authorize_actions: false
+      }, null, 2));
+      return;
+    }
+    printJson(signal);
     return;
   }
   if (options.topic === "ack") {
-    const signalId = options.target ?? "poison_evt_tainted";
+    const signalId = requirePositional(options.target, "security ack requires a signal id");
     const signal = readRegistry(workspaceRoot, "poisoning-signals").filter(isPoisoningSignal).find((entry) => entry.id === signalId);
     if (!signal) {
       throw new Error(`Poisoning signal ${signalId} not found`);
@@ -731,7 +813,7 @@ async function printTrace(options: CliOptions): Promise<void> {
   if (!runId.startsWith("run_")) {
     throw new Error(`${options.command} requires a run id as the first argument`);
   }
-  const workspace = await createWorkspace(resolve(options.workspace), "ws_tui");
+  const workspace = await openWorkspace(resolve(options.workspace));
   const trace = await reconstructTrace(workspace, runId);
   if (options.command === "replay") {
     const replayRecord = await createTraceReplayRecord(workspace, runId);
@@ -766,6 +848,27 @@ function requireValue(flag: string, value: string | undefined): string {
     throw new Error(`${flag} requires a value`);
   }
   return value;
+}
+
+function requirePositional(value: string | undefined, message: string): string {
+  if (!value) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+async function openWorkspace(workspaceRoot: string) {
+  return (await loadWorkspaceFromRegistry(workspaceRoot)).workspace;
+}
+
+async function requireSourceEvent(workspaceRoot: string, eventId: string): Promise<void> {
+  const exists = await openWorkspace(workspaceRoot)
+    .then(readEvents)
+    .then((events) => events.some((event) => event.id === eventId))
+    .catch(() => false);
+  if (!exists) {
+    throw new Error(`Source event ${eventId} not found`);
+  }
 }
 
 function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): void {
@@ -803,7 +906,7 @@ Usage:
   npm run ether -- replay <run_id> --workspace <path>
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- import --from openclaw --path <dir> --dry-run
-  npm run ether -- memory candidates --source-event <event> --content <text>
+  npm run ether -- memory candidates --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- memory candidates --from-run <run_id> --workspace <path>
   npm run ether -- memory timeline <run_id> --workspace <path>
   npm run ether -- memory user-model --workspace <path>
@@ -813,27 +916,28 @@ Usage:
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>
   npm run ether -- approve-rehearsal <rehearsal_id> --workspace <path>
   npm run ether -- capsule list
+  npm run ether -- capsule inspect <capsule_id>
   npm run ether -- why <run_id> --workspace <path>
   npm run ether -- counterfactual <checkpoint_id> --change <text>
   npm run ether -- sleep <run_id>
   npm run ether -- wake <hibernation_id>
-  npm run ether -- anchors propose --source-event <event> --content <text>
+  npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- persona reset <branch>
-  npm run ether -- soul fork <checkpoint_id>
-  npm run ether -- agent contract --capsule <capsule_id>
-  npm run ether -- security scan --content <text>
+  npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id>
+  npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --content <task>
+  npm run ether -- security scan --source-event <event_id> --content <text>
 
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   import                 Phase 4 dry-run migration report
-  memory/context         Phase 3 Memory OS seed surfaces
-  checkpoint/branch/rehearse Phase 5 sandbox and time-travel seed surfaces
-  capsule                Phase 6 Capability Capsule seed surfaces
+  memory/context         Phase 3 source-backed Memory OS surfaces
+  checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
+  capsule                Phase 6 contract inspection only; execution is unavailable
   why/counterfactual     Phase 7 causal memory report surfaces
-  sleep/wake             Phase 8 hibernation seed surfaces
-  anchors/persona/soul   Phase 9 persona and soul fork seed surfaces
-  agent                  Phase 10 bounded child-agent contract surface
-  security               Phase 11 poisoning detection surface
+  sleep/wake             Phase 8 evidence-backed hibernation records
+  anchors/persona/soul   Phase 9 evidence-backed persona and soul fork records
+  agent                  Phase 10 contract creation only; no child execution
+  security               Phase 11 signature-based poisoning detection
   help                   Show this help
 
 Options:

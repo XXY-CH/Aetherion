@@ -3,7 +3,7 @@
   "$id": "https://aetherion.local/schemas/soul-fork.schema.json",
   "title": "SoulFork",
   "type": "object",
-  "required": ["id", "source_checkpoint_id", "new_agent_id", "inherits_history_refs", "inherits_live_authority", "policy_id"],
+  "required": ["id", "source_checkpoint_id", "new_agent_id", "inherits_history_refs", "inherits_live_authority", "policy_id", "status"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^soulfork_[A-Za-z0-9_-]+$" },
@@ -11,6 +11,7 @@
     "new_agent_id": { "type": "string" },
     "inherits_history_refs": { "type": "boolean" },
     "inherits_live_authority": { "type": "boolean" },
-    "policy_id": { "type": "string" }
+    "policy_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["proposed"] }
   }
 }

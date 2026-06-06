@@ -7,27 +7,27 @@ Current scope:
 - Run a workspace-scoped local read.
 - Ask/require explicit write approval through `--approve-write`.
 - Write a summary file through scoped policy.
-- Optionally route `run --supervisor stdio` through the Rust supervisor POC instead of the TypeScript seed policy path.
+- Route `run` through the Rust supervisor POC by default. The TypeScript seed policy path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - Emit events to `.aetherion/events/events.jsonl`.
-- Print seed event hash-chain status and head pointers in `run`, `replay`, and `trace` output.
+- Print Rust or test-seed event hash-chain status and head pointers in `run`, `replay`, and `trace` output.
 - Write `.aetherion/workspace.json` and `.aetherion/runs/<run_id>.json`.
 - Compose and validate risk records plus approval cards before writes.
 - Verify the expected file effect.
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
-- Expose local-only Ether seed commands for later phases: migration dry-run, memory/context explain, checkpoint/branch/rehearsal, capsule lifecycle, causal why/counterfactual reports, hibernation wakeup, persona/soul fork, multi-agent budget contract, and poisoning scan.
+- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, capsule contract inspection, causal why/counterfactual reports, hibernation records, persona/soul records, multi-agent contracts, and poisoning scan.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
-- Use registries for seed lifecycle transitions: memory candidate accept/reject, capsule test/publish, and hibernation wake state updates.
+- Use registries for evidence-backed lifecycle transitions such as memory candidate accept/reject and hibernation wake state updates.
 - Use registries for sandbox checkpoint/branch/rehearsal, causal edge/counterfactual reports, child-agent resource budgets/circuit breakers, and poisoning signal acknowledgement.
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
 - Approve rehearsals through `approve-rehearsal`, which requests a fresh Rust supervisor policy decision/lease, performs the write, verifies exact content, and appends new policy/action events without inheriting prior authority.
 - Use registries for persona anchor proposal/accept/reject, persona reset records, and checkpoint-backed soul forks that never inherit live authority.
 
-These later-phase commands are intentionally local seed surfaces. They do not connect real IM, take over webhooks, run imported skills, install capsules, or execute external side effects.
+Later-phase contract commands do not connect real IM, take over webhooks, run imported skills, install capsules, or execute external side effects. They fail when required ledger or registry evidence is absent.
 
 Rust supervisor mode:
 

@@ -3,7 +3,7 @@
   "$id": "https://aetherion.local/schemas/causal-edge.schema.json",
   "title": "CausalEdge",
   "type": "object",
-  "required": ["id", "from_event", "to_event", "relation", "confidence", "source_events"],
+  "required": ["id", "from_event", "to_event", "relation", "confidence", "source_events", "projection_basis"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^causal_[A-Za-z0-9_-]+$" },
@@ -11,6 +11,7 @@
     "to_event": { "type": "string" },
     "relation": { "type": "string" },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "projection_basis": { "type": "string", "enum": ["typed_event_sequence"] }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "aetherion-contract-seed",
+  "name": "aetherion-kernel",
   "private": true,
   "type": "module",
   "scripts": {

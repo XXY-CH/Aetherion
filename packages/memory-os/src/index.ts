@@ -81,6 +81,7 @@ export type MemorySourceEvent = {
   event_type: string;
   summary: string;
   sensitivity?: string;
+  payload_ref?: string;
 };
 
 export function createMemoryCandidate(input: Omit<MemoryCandidate, "review">): MemoryCandidate {
@@ -139,7 +140,7 @@ export function buildEpisodicTimeline(events: MemorySourceEvent[], runId: string
     throw new Error(`No source events found for ${runId}`);
   }
   const userIntent = runEvents.find((event) => event.event_type === "user.message")?.summary ?? "No explicit user intent event recorded.";
-  const finalArtifact = runEvents.findLast((event) => event.event_type === "verification.recorded" || event.event_type === "run.completed")?.summary ?? "No final artifact recorded.";
+  const finalArtifact = runEvents.findLast((event) => event.payload_ref)?.payload_ref ?? "unavailable";
   return {
     id: `episode_${sanitizeId(runId)}`,
     run_id: runId,
@@ -154,9 +155,7 @@ export function buildEpisodicTimeline(events: MemorySourceEvent[], runId: string
     user_corrections: runEvents.filter((event) => /correction|corrected/i.test(`${event.event_type} ${event.summary}`)).map((event) => event.id),
     final_artifact: finalArtifact,
     skill_candidates: [],
-    regression_cases: runEvents.some((event) => event.event_type === "verification.recorded")
-      ? [`Replay ${runId} must preserve verification evidence without live side effects.`]
-      : []
+    regression_cases: []
   };
 }
 
@@ -168,16 +167,16 @@ export function createBasicUserModel(memories: MemoryCard[]): UserModel {
     source_events: [...new Set(sourceMemories.flatMap((memory) => memory.source_events))],
     communication_style: {
       prefers: inferPreferredCommunication(sourceMemories),
-      dislikes: ["generic advice", "unverified completion claims"]
+      dislikes: inferDislikedCommunication(sourceMemories)
     },
     work_style: {
-      decision_pattern: "Start from architecture, then iterate through MVP loops.",
-      risk_tolerance: "medium_high",
-      approval_preference: "Ask before irreversible external effects."
+      decision_pattern: inferExplicitValue(sourceMemories, ["decision pattern", "workflow"], "unknown"),
+      risk_tolerance: inferExplicitValue(sourceMemories, ["risk tolerance"], "unknown"),
+      approval_preference: inferExplicitValue(sourceMemories, ["approval", "permission"], "unknown")
     },
     automation_policy: {
-      auto_execute: ["summarize local documents", "draft plans", "run reversible tests"],
-      require_approval: ["send external messages", "commit or publish changes", "modify paid services"]
+      auto_execute: inferPolicyItems(sourceMemories, "auto"),
+      require_approval: inferPolicyItems(sourceMemories, "approval")
     }
   };
 }
@@ -186,7 +185,6 @@ export function acceptMemoryCandidate(candidate: MemoryCandidate): MemoryCard {
   if (candidate.source_events.length === 0) {
     throw new Error("Accepted memory must cite source events");
   }
-  candidate.review.status = "accepted";
   return {
     id: candidate.id.replace(/^memcand_/, "mem_"),
     type: candidate.candidate.type,
@@ -305,7 +303,7 @@ function inferToolsUsed(events: MemorySourceEvent[]): string[] {
 }
 
 function inferPreferredCommunication(memories: MemoryCard[]): string[] {
-  const preferences = new Set(["direct conclusions", "concrete verification evidence", "compact status updates"]);
+  const preferences = new Set<string>();
   for (const memory of memories) {
     const content = memory.content.toLowerCase();
     if (content.includes("direct")) preferences.add("direct answers");
@@ -313,4 +311,25 @@ function inferPreferredCommunication(memories: MemoryCard[]): string[] {
     if (content.includes("compact") || content.includes("concise")) preferences.add("concise updates");
   }
   return [...preferences];
+}
+
+function inferDislikedCommunication(memories: MemoryCard[]): string[] {
+  const dislikes = new Set<string>();
+  for (const memory of memories) {
+    const content = memory.content.toLowerCase();
+    if (content.includes("dislike") || content.includes("avoid") || content.includes("不要")) {
+      dislikes.add(memory.content);
+    }
+  }
+  return [...dislikes];
+}
+
+function inferExplicitValue(memories: MemoryCard[], markers: string[], fallback: string): string {
+  return memories.find((memory) => markers.some((marker) => memory.content.toLowerCase().includes(marker)))?.content ?? fallback;
+}
+
+function inferPolicyItems(memories: MemoryCard[], marker: string): string[] {
+  return memories
+    .filter((memory) => memory.content.toLowerCase().includes(marker))
+    .map((memory) => memory.content);
 }

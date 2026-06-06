@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { Workspace } from "./ledger.ts";
 import { validateAgainstSchema } from "./schema.ts";
 
@@ -29,6 +30,11 @@ export function workspaceRegistryPath(workspace: Workspace): string {
 
 export function runManifestPath(workspace: Workspace, runId: string): string {
   return join(workspace.root, ".aetherion", "runs", `${runId}.json`);
+}
+
+export function workspaceIdForRoot(root: string): string {
+  const digest = createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
+  return `ws_${digest}`;
 }
 
 export async function writeWorkspaceRegistry(repoRoot: string, workspace: Workspace, authority: WorkspaceRegistry["authority"]): Promise<WorkspaceRegistry> {
@@ -62,6 +68,24 @@ export async function createRunManifest(repoRoot: string, workspace: Workspace, 
 
 export async function loadRunManifest(workspace: Workspace, runId: string): Promise<RunManifest> {
   return JSON.parse(await readFile(runManifestPath(workspace, runId), "utf8")) as RunManifest;
+}
+
+export async function loadWorkspaceFromRegistry(root: string): Promise<{ workspace: Workspace; registry: WorkspaceRegistry }> {
+  const resolvedRoot = resolve(root);
+  const path = join(resolvedRoot, ".aetherion", "workspace.json");
+  const registry = JSON.parse(await readFile(path, "utf8")) as WorkspaceRegistry;
+  if (registry.root !== resolvedRoot) {
+    throw new Error(`Workspace registry root mismatch: ${registry.root}`);
+  }
+  return {
+    registry,
+    workspace: {
+      root: resolvedRoot,
+      id: registry.id,
+      ledgerPath: registry.ledger_path,
+      runtimeDir: registry.runtime_dir
+    }
+  };
 }
 
 export async function recordRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, eventId: string): Promise<RunManifest> {

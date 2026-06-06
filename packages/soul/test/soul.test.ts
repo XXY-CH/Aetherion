@@ -23,5 +23,7 @@ test("persona anchors require evidence and soul forks never inherit live authori
   });
   assert.equal(anchor.review_status, "pending");
   assert.deepEqual(foldMemories(["memcand_a"], "mem_style", 0.8).folded_from, ["memcand_a"]);
-  assert.equal(forkSoul("checkpoint_a", "agent_branch").inherits_live_authority, false);
+  const fork = forkSoul("checkpoint_a", "agent_branch");
+  assert.equal(fork.inherits_live_authority, false);
+  assert.equal(fork.status, "proposed");
 });

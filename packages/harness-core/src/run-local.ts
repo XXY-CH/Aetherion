@@ -11,7 +11,7 @@ import {
   approveWriteWithConsent,
   createFileReadRequest,
   createFileWriteRequest,
-  mockPolicyDecision,
+  evaluateSeedPolicy,
   type ConsentRecord,
   type PolicyDecision,
   type ToolRequest
@@ -28,6 +28,7 @@ import {
   completeRunManifest,
   createRunManifest,
   recordRunEvent,
+  workspaceIdForRoot,
   writeWorkspaceRegistry,
   type RunManifest,
   type WorkspaceRegistry
@@ -65,10 +66,10 @@ export type LocalKernelRunResult = {
 
 export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<LocalKernelRunResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
-  const workspace = await createWorkspace(workspaceRoot, input.workspaceId ?? "ws_tui");
+  const workspace = await createWorkspace(workspaceRoot, input.workspaceId ?? workspaceIdForRoot(workspaceRoot));
   const workspaceRegistry = await writeWorkspaceRegistry(input.repoRoot, workspace, "typescript-seed");
   const runId = input.runId ?? `run_${Date.now()}`;
-  const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "TUI local kernel loop");
+  const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "Ether test-only local kernel loop");
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);
   await mkdir(dirname(outputPath), { recursive: true });
@@ -78,8 +79,8 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     workspace_id: workspace.id,
     run_id: runId,
     event_type: "user.message",
-    actor: { type: "user", id: "user_tui" },
-    summary: `TUI requested local summary from ${input.inputPath} to ${input.outputPath}.`,
+    actor: { type: "user", id: "user_local" },
+    summary: `Ether requested local summary from ${input.inputPath} to ${input.outputPath}.`,
     taint: { sources: ["user"], can_authorize_actions: true }
   }));
 
@@ -92,11 +93,11 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     workspace_id: workspace.id,
     run_id: runId,
     event_type: "tool.requested",
-    actor: { type: "agent", id: "tui.orchestrator" },
+    actor: { type: "agent", id: "ether.test_orchestrator" },
     summary: "Requested workspace file read."
   }));
 
-  const readDecision = mockPolicyDecision(workspaceRoot, readRequest);
+  const readDecision = evaluateSeedPolicy(workspaceRoot, readRequest);
   await assertValid(input.repoRoot, "policy-decision.schema.json", readDecision);
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_read_policy`,
@@ -121,7 +122,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   await assertValid(input.repoRoot, "tool-request.schema.json", writeRequest);
   const writeRisk = composeRisk(writeRequest);
   await assertValid(input.repoRoot, "risk-composition.schema.json", writeRisk);
-  const writePreDecision = mockPolicyDecision(workspaceRoot, writeRequest);
+  const writePreDecision = evaluateSeedPolicy(workspaceRoot, writeRequest);
   const approvalCard = createApprovalCard(writeRequest, writePreDecision);
   await assertValid(input.repoRoot, "approval-card.schema.json", approvalCard);
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
@@ -144,7 +145,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
       workspace_id: workspace.id,
       run_id: runId,
       event_type: "run.completed",
-      actor: { type: "system", id: "tui.orchestrator" },
+      actor: { type: "system", id: "ether.test_orchestrator" },
       summary: "Run stopped before write because approval was not provided."
     }));
     await completeRunManifest(input.repoRoot, workspace, runManifest, "blocked");
@@ -166,7 +167,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   consent = {
     id: `consent_${runId}_write`,
-    user_id: "user_tui",
+    user_id: "user_local",
     workspace_id: workspace.id,
     tool_request_id: writeRequest.id,
     decision: "approved",
@@ -184,8 +185,8 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     workspace_id: workspace.id,
     run_id: runId,
     event_type: "consent.recorded",
-    actor: { type: "user", id: "user_tui" },
-    summary: "TUI user approved workspace-scoped write.",
+    actor: { type: "user", id: "user_local" },
+    summary: "Ether user approved workspace-scoped write.",
     taint: { sources: ["user"], can_authorize_actions: true }
   }));
 
@@ -240,8 +241,8 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     workspace_id: workspace.id,
     run_id: runId,
     event_type: "run.completed",
-    actor: { type: "system", id: "tui.orchestrator" },
-    summary: "TUI local kernel loop completed."
+    actor: { type: "system", id: "ether.test_orchestrator" },
+    summary: "Ether test-only local kernel loop completed."
   }));
   await completeRunManifest(input.repoRoot, workspace, runManifest, "completed");
 

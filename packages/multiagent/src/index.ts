@@ -56,10 +56,6 @@ export function assertCapsuleAllowed(contract: AgentContract, capsuleId: string)
   }
 }
 
-export function createDefaultBudget(id = "budget_tui_child"): ResourceBudget {
-  return { id, token_budget: 1000, tool_call_budget: 1, risk_budget: "L2", lease_budget: 1, on_exhaustion: "stop" };
-}
-
 export function findBudget(budgets: ResourceBudget[], id: string): ResourceBudget | undefined {
   return budgets.find((budget) => budget.id === id);
 }

@@ -2,7 +2,8 @@
   "id": "causal_policy_to_action",
   "from_event": "evt_run_example_write_policy",
   "to_event": "evt_run_example_write_action",
-  "relation": "authorized",
-  "confidence": 0.95,
-  "source_events": ["evt_run_example_write_policy", "evt_run_example_write_action"]
+  "relation": "allow_decision_precedes_action",
+  "confidence": 0.55,
+  "source_events": ["evt_run_example_write_policy", "evt_run_example_write_action"],
+  "projection_basis": "typed_event_sequence"
 }

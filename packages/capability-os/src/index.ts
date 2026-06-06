@@ -42,13 +42,6 @@ export function recordCapsuleScore(capsule: Capsule, key: keyof Capsule["scoring
   return { ...capsule, scoring: { ...capsule.scoring, [key]: capsule.scoring[key] + 1 } };
 }
 
-export function testCapsule(capsule: Capsule): Capsule {
-  if (capsule.lifecycle !== "draft" && capsule.lifecycle !== "tested") {
-    throw new Error(`Capsule ${capsule.id} cannot be tested from lifecycle ${capsule.lifecycle}`);
-  }
-  return { ...capsule, lifecycle: "tested", replay_tests_passed: true };
-}
-
 export function findCapsule(capsules: Capsule[], id: string): Capsule | undefined {
   return capsules.find((capsule) => capsule.id === id);
 }

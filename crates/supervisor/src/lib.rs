@@ -59,6 +59,17 @@ pub struct Consent {
     pub approved: bool,
 }
 
+struct EventHashInput<'a> {
+    event_id: &'a str,
+    timestamp: &'a str,
+    workspace_id: &'a str,
+    run_id: &'a str,
+    event_type: &'a str,
+    summary: &'a str,
+    parent_event_id: Option<&'a str>,
+    parent_event_hash: Option<&'a str>,
+}
+
 pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Result<Workspace> {
     let root = root.as_ref().to_path_buf();
     let ledger_path = root.join(".aetherion").join("events").join("events.jsonl");
@@ -76,6 +87,38 @@ pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Resu
     })
 }
 
+pub fn write_workspace_registry(workspace: &Workspace) -> io::Result<PathBuf> {
+    let registry_path = workspace.root.join(".aetherion").join("workspace.json");
+    let runtime_dir = workspace.root.join(".aetherion");
+    if registry_path.exists() {
+        let existing = fs::read_to_string(&registry_path)?;
+        let existing_id = json_string_field(&existing, "id");
+        let existing_root = json_string_field(&existing, "root");
+        let workspace_root = workspace.root.to_string_lossy();
+        if existing_id.as_deref() == Some(&workspace.id)
+            && existing_root.as_deref() == Some(workspace_root.as_ref())
+        {
+            return Ok(registry_path);
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "workspace registry identity mismatch",
+        ));
+    }
+    fs::write(
+        &registry_path,
+        format!(
+            "{{\n  \"id\": \"{}\",\n  \"root\": \"{}\",\n  \"created_at\": \"unix-ms-{}\",\n  \"authority\": \"rust-supervisor\",\n  \"runtime_dir\": \"{}\",\n  \"ledger_path\": \"{}\"\n}}\n",
+            escape_json(&workspace.id),
+            escape_json(&workspace.root.display().to_string()),
+            now_millis(),
+            escape_json(&runtime_dir.display().to_string()),
+            escape_json(&workspace.ledger_path.display().to_string())
+        ),
+    )?;
+    Ok(registry_path)
+}
+
 pub fn append_event(
     workspace: &Workspace,
     event_type: &str,
@@ -88,19 +131,56 @@ pub fn append_event(
         sanitize_id(event_type),
         now_nanos()
     );
+    let timestamp = format!("unix-ms-{}", now_millis());
+    let previous = fs::read_to_string(&workspace.ledger_path)
+        .ok()
+        .and_then(|contents| {
+            contents
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .map(str::to_string)
+        });
+    let parent_event_id = previous
+        .as_deref()
+        .and_then(|line| json_string_field(line, "id"));
+    let parent_event_hash = previous
+        .as_deref()
+        .and_then(|line| json_string_field(line, "event_hash"));
+    let canonical = canonical_event_json(&EventHashInput {
+        event_id: &event_id,
+        timestamp: &timestamp,
+        workspace_id: &workspace.id,
+        run_id,
+        event_type,
+        summary,
+        parent_event_id: parent_event_id.as_deref(),
+        parent_event_hash: parent_event_hash.as_deref(),
+    });
+    let event_hash = format!("sha256:{}", sha256_hex(canonical.as_bytes()));
+    let parent_fields = match (parent_event_id, parent_event_hash) {
+        (Some(parent_id), Some(parent_hash)) => format!(
+            ",\"parent_event_id\":\"{}\",\"parent_event_hash\":\"{}\"",
+            escape_json(&parent_id),
+            escape_json(&parent_hash)
+        ),
+        _ => String::new(),
+    };
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&workspace.ledger_path)?;
     writeln!(
         file,
-        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
+        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\"{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
         escape_json(&event_id),
-        escape_json(&format!("unix-ms-{}", now_millis())),
+        escape_json(&timestamp),
         escape_json(&workspace.id),
         escape_json(run_id),
         escape_json(event_type),
-        escape_json(summary)
+        escape_json(summary),
+        parent_fields,
+        event_hash
     )?;
     Ok(event_id)
 }
@@ -316,6 +396,135 @@ fn sanitize_id(value: &str) -> String {
         .collect()
 }
 
+fn canonical_event_json(input: &EventHashInput<'_>) -> String {
+    let mut fields = vec![
+        "\"actor\":{\"id\":\"local_supervisor\",\"type\":\"system\"}".to_string(),
+        format!("\"event_type\":\"{}\"", escape_json(input.event_type)),
+        format!("\"id\":\"{}\"", escape_json(input.event_id)),
+    ];
+    if let (Some(parent_id), Some(parent_hash)) = (input.parent_event_id, input.parent_event_hash) {
+        fields.push(format!(
+            "\"parent_event_hash\":\"{}\"",
+            escape_json(parent_hash)
+        ));
+        fields.push(format!(
+            "\"parent_event_id\":\"{}\"",
+            escape_json(parent_id)
+        ));
+    }
+    fields.extend([
+        format!("\"run_id\":\"{}\"", escape_json(input.run_id)),
+        "\"sensitivity\":\"private\"".to_string(),
+        format!("\"summary\":\"{}\"", escape_json(input.summary)),
+        "\"taint\":{\"can_authorize_actions\":false,\"sources\":[\"trusted_system\"]}".to_string(),
+        format!("\"timestamp\":\"{}\"", escape_json(input.timestamp)),
+        format!("\"workspace_id\":\"{}\"", escape_json(input.workspace_id)),
+    ]);
+    format!("{{{}}}", fields.join(","))
+}
+
+fn json_string_field(line: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{}\":\"", key);
+    let start = line.find(&needle)? + needle.len();
+    let mut value = String::new();
+    let mut escaped = false;
+    for character in line[start..].chars() {
+        if escaped {
+            match character {
+                '"' => value.push('"'),
+                '\\' => value.push('\\'),
+                'n' => value.push('\n'),
+                'r' => value.push('\r'),
+                't' => value.push('\t'),
+                other => value.push(other),
+            }
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            return Some(value);
+        } else {
+            value.push(character);
+        }
+    }
+    None
+}
+
+fn sha256_hex(input: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut data = input.to_vec();
+    let bit_len = (data.len() as u64) * 8;
+    data.push(0x80);
+    while data.len() % 64 != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&bit_len.to_be_bytes());
+    let mut h = [
+        0x6a09e667u32,
+        0xbb67ae85,
+        0x3c6ef372,
+        0xa54ff53a,
+        0x510e527f,
+        0x9b05688c,
+        0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    for chunk in data.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for (index, word) in chunk.chunks_exact(4).enumerate() {
+            w[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        }
+        for index in 16..64 {
+            let s0 = w[index - 15].rotate_right(7)
+                ^ w[index - 15].rotate_right(18)
+                ^ (w[index - 15] >> 3);
+            let s1 = w[index - 2].rotate_right(17)
+                ^ w[index - 2].rotate_right(19)
+                ^ (w[index - 2] >> 10);
+            w[index] = w[index - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[index - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for index in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[index])
+                .wrapping_add(w[index]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        for (target, value) in h.iter_mut().zip([a, b, c, d, e, f, g, hh]) {
+            *target = target.wrapping_add(value);
+        }
+    }
+    h.iter().map(|value| format!("{value:08x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +534,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aetherion-supervisor-{}", now_millis()));
         fs::create_dir_all(&root).unwrap();
         let workspace = init_workspace(&root, "ws_rust_test").unwrap();
+        let registry_path = write_workspace_registry(&workspace).unwrap();
         let run_id = "run_rust_test";
         let read_path = root.join("README.md");
         let write_path = root.join("SUMMARY.md");
@@ -381,11 +591,16 @@ mod tests {
         let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
         assert!(ledger.contains("run.started"));
         assert!(ledger.contains("run.completed"));
+        assert!(ledger.contains("\"event_hash\":\"sha256:"));
+        assert!(ledger.contains("\"parent_event_hash\":\"sha256:"));
+        let registry = fs::read_to_string(registry_path).unwrap();
+        assert!(registry.contains("\"authority\": \"rust-supervisor\""));
     }
 
     #[test]
     fn supervisor_rejects_wrong_path_and_expired_lease() {
-        let root = std::env::temp_dir().join(format!("aetherion-supervisor-negative-{}", now_millis()));
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-negative-{}", now_millis()));
         fs::create_dir_all(&root).unwrap();
         let workspace = init_workspace(&root, "ws_rust_negative").unwrap();
         let run_id = "run_rust_negative";
@@ -402,5 +617,13 @@ mod tests {
 
         decision.lease.as_mut().unwrap().expires_at_millis = 1;
         assert!(read_with_lease(&request, &decision).is_err());
+    }
+
+    #[test]
+    fn sha256_matches_standard_vector() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

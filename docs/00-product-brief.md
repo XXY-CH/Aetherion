@@ -8,6 +8,12 @@ The name combines the feeling of an invisible medium with the idea of command an
 
 It should not be treated as the final public name yet. Supplied research indicates possible AI/agent-related collisions across GitHub, PyPI, trademarks, and an existing platform. The project should keep a naming-risk note until a proper clearance pass is complete. Candidate public names include Helmweaver, Vigil Loom, AegisForge, Northstar Runtime, Keelstone, Loomguard, and Argos Kernel.
 
+## Project Icon
+
+The canonical project icon is [`assets/aetherion-icon.png`](../assets/aetherion-icon.png). It is a 1254 by 1254 PNG and should be used without recoloring, cropping, overlays, or embedded text.
+
+The icon identifies the current Aetherion codename project. It does not remove the naming-clearance requirement or establish a final public trademark.
+
 ## One Sentence
 
 Aetherion is a local-first Agent Harness Kernel that connects a user's devices, data, permissions, memory, tools, and messaging channels into a safe, auditable, self-improving agent runtime.

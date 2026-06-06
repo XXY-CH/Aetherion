@@ -4,5 +4,6 @@
   "new_agent_id": "agent_research_branch",
   "inherits_history_refs": true,
   "inherits_live_authority": false,
-  "policy_id": "policy_research_branch"
+  "policy_id": "policy_research_branch",
+  "status": "proposed"
 }

@@ -1,6 +1,6 @@
 use aetherion_supervisor::{
     append_event, evaluate_policy, file_read_request, file_write_request, init_workspace,
-    read_with_lease, write_with_lease, Consent, Decision,
+    read_with_lease, write_with_lease, write_workspace_registry, Consent, Decision,
 };
 use std::env;
 use std::io::{self, BufRead};
@@ -68,23 +68,42 @@ fn run_rpc() -> Result<(), String> {
 fn handle_rpc_line(line: &str) -> String {
     let id = string_field(line, "id").unwrap_or_else(|| "rpc".to_string());
     let method = string_field(line, "method").unwrap_or_default();
-    let workspace_root = string_field(line, "workspace_root").unwrap_or_else(|| ".".to_string());
-    let workspace_id = string_field(line, "workspace_id").unwrap_or_else(|| "ws_rpc".to_string());
-    let run_id = string_field(line, "run_id").unwrap_or_else(|| "run_rpc".to_string());
+    let workspace_root = match required_string_field(line, "workspace_root") {
+        Ok(value) => value,
+        Err(error) => return error_response(&id, &error),
+    };
+    let workspace_id = match required_string_field(line, "workspace_id") {
+        Ok(value) => value,
+        Err(error) => return error_response(&id, &error),
+    };
+    let run_id = match required_string_field(line, "run_id") {
+        Ok(value) => value,
+        Err(error) => return error_response(&id, &error),
+    };
 
     let response = match method.as_str() {
         "workspace.init" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => format!(
-                "{{\"workspace_id\":\"{}\",\"ledger_path\":\"{}\"}}",
-                escape(&workspace.id),
-                escape(&workspace.ledger_path.display().to_string())
-            ),
+            Ok(workspace) => match write_workspace_registry(&workspace) {
+                Ok(registry_path) => format!(
+                    "{{\"workspace_id\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\"}}",
+                    escape(&workspace.id),
+                    escape(&workspace.ledger_path.display().to_string()),
+                    escape(&registry_path.display().to_string())
+                ),
+                Err(error) => return error_response(&id, &error.to_string()),
+            },
             Err(error) => return error_response(&id, &error.to_string()),
         },
         "event.append" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let event_type = string_field(line, "event_type").unwrap_or_else(|| "rpc.event".to_string());
-                let summary = string_field(line, "summary").unwrap_or_else(|| "RPC event".to_string());
+                let event_type = match required_string_field(line, "event_type") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
+                let summary = match required_string_field(line, "summary") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
                 match append_event(&workspace, &event_type, &run_id, &summary) {
                     Ok(event_id) => format!(
                         "{{\"appended\":true,\"event_id\":\"{}\"}}",
@@ -97,8 +116,17 @@ fn handle_rpc_line(line: &str) -> String {
         },
         "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let path = PathBuf::from(string_field(line, "path").unwrap_or_else(|| workspace_root.clone()));
-                let verb = string_field(line, "verb").unwrap_or_else(|| "read".to_string());
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                let verb = match required_string_field(line, "verb") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
+                if verb != "read" && verb != "write" {
+                    return error_response(&id, "verb must be read or write");
+                }
                 let request = if verb == "write" {
                     file_write_request(&run_id, path)
                 } else {
@@ -118,14 +146,17 @@ fn handle_rpc_line(line: &str) -> String {
                     escape(&decision.request_id),
                     decision_name(&decision.decision),
                     decision.risk_level,
-                    escape(&decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
+                    escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
                 )
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
         "file.read" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let path = PathBuf::from(string_field(line, "path").unwrap_or_else(|| workspace_root.clone()));
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
                 let request = file_read_request(&run_id, path);
                 let decision = evaluate_policy(&workspace, &request, None);
                 match read_with_lease(&request, &decision) {
@@ -137,8 +168,14 @@ fn handle_rpc_line(line: &str) -> String {
         },
         "file.write" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let path = PathBuf::from(string_field(line, "path").unwrap_or_else(|| workspace_root.clone()));
-                let contents = string_field(line, "contents").unwrap_or_default();
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                let contents = match required_string_field(line, "contents") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
                 let request = file_write_request(&run_id, path);
                 let consent = Consent {
                     request_id: request.id.clone(),
@@ -146,7 +183,11 @@ fn handle_rpc_line(line: &str) -> String {
                 };
                 let decision = evaluate_policy(&workspace, &request, Some(&consent));
                 match write_with_lease(&request, &decision, &contents) {
-                    Ok(()) => "{\"written\":true}".to_string(),
+                    Ok(()) => format!(
+                        "{{\"written\":true,\"request_id\":\"{}\",\"decision\":\"allow\",\"risk_level\":\"L3\",\"lease_id\":\"{}\"}}",
+                        escape(&request.id),
+                        escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
+                    ),
                     Err(error) => return error_response(&id, &error.to_string()),
                 }
             }
@@ -156,7 +197,17 @@ fn handle_rpc_line(line: &str) -> String {
         _ => return error_response(&id, "unsupported method"),
     };
 
-    format!("{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"result\":{}}}", escape(&id), response)
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"result\":{}}}",
+        escape(&id),
+        response
+    )
+}
+
+fn required_string_field(line: &str, key: &str) -> Result<String, String> {
+    string_field(line, key)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("missing required string field {key}"))
 }
 
 fn string_field(line: &str, key: &str) -> Option<String> {

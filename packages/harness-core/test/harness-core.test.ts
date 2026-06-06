@@ -12,7 +12,7 @@ import {
   createWorkspace,
   eventRecord,
   readEvents,
-  mockPolicyDecision,
+  evaluateSeedPolicy,
   primeSchemaCache,
   readLocalFileThroughPolicy,
   reconstructTrace,
@@ -111,7 +111,7 @@ test("user request -> policy decision -> local file read/write -> verification -
     summary: "Requested workspace file read."
   }));
 
-  const decision = mockPolicyDecision(root, request);
+  const decision = evaluateSeedPolicy(root, request);
   const decisionValidation = await validateAgainstSchema(repoRoot, "policy-decision.schema.json", decision);
   assert.equal(decisionValidation.valid, true, decisionValidation.errors.join("; "));
   assert.equal(decision.decision, "allow");
@@ -141,7 +141,7 @@ test("user request -> policy decision -> local file read/write -> verification -
   const writeRequest = createFileWriteRequest(runId, summaryPath);
   const writeRequestValidation = await validateAgainstSchema(repoRoot, "tool-request.schema.json", writeRequest);
   assert.equal(writeRequestValidation.valid, true, writeRequestValidation.errors.join("; "));
-  const writePreDecision = mockPolicyDecision(root, writeRequest);
+  const writePreDecision = evaluateSeedPolicy(root, writeRequest);
   assert.equal(writePreDecision.decision, "ask");
 
   await appendEvent(repoRoot, workspace, eventRecord({
@@ -308,7 +308,7 @@ test("workspace boundary denies paths outside the workspace", async () => {
   await writeFile(outsidePath, "secret\n");
 
   const request = createFileReadRequest("run_outside", outsidePath);
-  const decision = mockPolicyDecision(root, request);
+  const decision = evaluateSeedPolicy(root, request);
   assert.equal(decision.decision, "deny");
 });
 

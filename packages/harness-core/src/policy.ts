@@ -126,7 +126,7 @@ export function createFileWriteRequest(runId: string, path: string): ToolRequest
   };
 }
 
-export function mockPolicyDecision(workspaceRoot: string, request: ToolRequest): PolicyDecision {
+export function evaluateSeedPolicy(workspaceRoot: string, request: ToolRequest): PolicyDecision {
   const targetPath = request.operation.target.uri.replace("file://", "");
   const resolvedWorkspace = resolve(workspaceRoot);
   const resolvedTarget = resolve(targetPath);

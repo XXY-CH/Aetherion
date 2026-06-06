@@ -25,13 +25,15 @@ export type SoulFork = {
   inherits_history_refs: true;
   inherits_live_authority: false;
   policy_id: string;
+  status: "proposed";
 };
 
 export type PersonaReset = {
   id: string;
   branch: string;
-  business_memory_retained: true;
-  style_anchors_switched: true;
+  status: "proposed";
+  business_memory_retention_planned: true;
+  style_anchor_switch_planned: true;
   source_anchor_ids: string[];
 };
 
@@ -77,7 +79,8 @@ export function forkSoul(checkpointId: string, newAgentId: string): SoulFork {
     new_agent_id: newAgentId,
     inherits_history_refs: true,
     inherits_live_authority: false,
-    policy_id: `policy_${newAgentId}`
+    policy_id: `policy_${newAgentId}`,
+    status: "proposed"
   };
 }
 
@@ -85,8 +88,9 @@ export function createPersonaReset(branch: string, anchors: PersonaAnchor[]): Pe
   return {
     id: `persona_reset_${branch}`.replace(/[^A-Za-z0-9_-]/g, "_"),
     branch,
-    business_memory_retained: true,
-    style_anchors_switched: true,
+    status: "proposed",
+    business_memory_retention_planned: true,
+    style_anchor_switch_planned: true,
     source_anchor_ids: anchors.filter((anchor) => anchor.review_status === "accepted").map((anchor) => anchor.id)
   };
 }
