@@ -100,3 +100,25 @@ docker-compose.override.yml
 .omc/
 .omx/state/
 .omx/logs/
+
+# ── GSD baseline (auto-generated) ──
+.gsd
+.gsd-id
+.mcp.json
+.bg-shell/
+nul
+nul.*
+con
+con.*
+prn
+prn.*
+aux
+aux.*
+com[1-9]
+com[1-9].*
+lpt[1-9]
+lpt[1-9].*
+.vscode/
+*.code-workspace
+*.pyc
+vendor/
