@@ -1,0 +1,20 @@
+{
+  "mode": "yolo",
+  "granularity": "coarse",
+  "parallelization": true,
+  "commit_docs": true,
+  "model_profile": "inherit",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": false,
+    "auto_advance": false
+  },
+  "planning": {
+    "runtime": "codex",
+    "instruction_file": "AGENTS.md",
+    "source": "manual-gsd-new-project-fallback",
+    "reason": "gsd-sdk was unavailable in the current shell; artifacts were initialized from existing Aetherion docs."
+  }
+}
