@@ -212,3 +212,30 @@ Exit criteria:
 - User can approve high-risk action from another device.
 - Chat channel cannot bypass Local Supervisor or Tool Policy Proxy.
 - Connector authorization remains separate from agent action approval.
+
+## Future Track: Migration And Runtime Economics
+
+Goal: absorb OpenClaw/Hermes users and explore advanced agent-system capabilities without weakening the TUI-first authority boundary.
+
+Reference:
+
+- [Migration and Runtime Economics](11-migration-and-runtime-economics.md)
+
+Candidate deliverables:
+
+- OpenClaw/Hermes migration reports.
+- Quarantined Legacy Capsule import.
+- Batched vector-memory upgrade into source-backed Memory Candidates.
+- Resource budgets on scoped leases.
+- Event folding, compression, and projection rebuild rules.
+- Event-ledger branching and checkpoint strategy.
+- Agent hibernation and event-driven wakeup.
+- Zero-trust multi-agent task contracts.
+- Local observability projections.
+
+Exit criteria:
+
+- Imported tools, skills, tokens, memories, and connector configs never inherit authority.
+- Migration produces reviewable reports and draft capsules, not trusted runtime powers.
+- Cost controls exist for CPU, memory, I/O, storage, token use, and realtime rendering.
+- Advanced features remain projections, patches, or gated leases unless explicitly approved by policy.

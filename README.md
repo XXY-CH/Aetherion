@@ -79,6 +79,7 @@ Memory OS       Capability OS        Proactive Engine
 - [Innovation Thesis](docs/08-innovation-thesis.md)
 - [Computer Use Implementation](docs/09-computer-use-implementation.md)
 - [Technical Strategy](docs/10-technical-strategy.md)
+- [Migration and Runtime Economics](docs/11-migration-and-runtime-economics.md)
 
 ## MVP Direction
 
