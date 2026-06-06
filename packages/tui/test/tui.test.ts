@@ -172,13 +172,33 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(branchRecord.source_event_id, checkpointRecord.event_id);
   assert.equal(branchRecord.source_event_hash, checkpointRecord.event_hash);
   assert.equal(branchRecord.head_event_hash, checkpointRecord.event_hash);
-  const rehearsal = await execFileAsync(process.execPath, [cliPath, "rehearse", branchRecord.id, "--workspace", workspace, "--content", "preview"]);
-  const rehearsalRecord = JSON.parse(rehearsal.stdout) as { id: string; branch_id: string; real_workspace_mutated: boolean };
+  await writeFile(join(workspace, "PHASE.md"), "original phase\n");
+  const proposedPhase = "approved phase\nwith \"quoted\" evidence\n";
+  const rehearsal = await execFileAsync(process.execPath, [
+    cliPath,
+    "rehearse",
+    branchRecord.id,
+    "--workspace",
+    workspace,
+    "--path",
+    "PHASE.md",
+    "--content",
+    proposedPhase
+  ]);
+  const rehearsalRecord = JSON.parse(rehearsal.stdout) as { id: string; branch_id: string; real_workspace_mutated: boolean; sandbox_path: string; target_path: string };
   assert.equal(rehearsalRecord.branch_id, branchRecord.id);
+  assert.equal(rehearsalRecord.real_workspace_mutated, false);
+  assert.equal(rehearsalRecord.target_path, "PHASE.md");
+  assert.equal(await readFile(join(workspace, "PHASE.md"), "utf8"), "original phase\n");
+  assert.equal(await readFile(join(workspace, rehearsalRecord.sandbox_path), "utf8"), proposedPhase);
   const approval = await execFileAsync(process.execPath, [cliPath, "approve-rehearsal", rehearsalRecord.id, "--workspace", workspace]);
-  const approvalRecord = JSON.parse(approval.stdout) as { fresh_policy_evaluated: boolean; inherited_authority: boolean; policy_event_id: string; live_action_event_id: string };
+  const approvalRecord = JSON.parse(approval.stdout) as { fresh_policy_evaluated: boolean; inherited_authority: boolean; policy_event_id: string; live_action_event_id: string; new_lease_id: string; real_side_effect_executed: boolean; verification_status: string };
   assert.equal(approvalRecord.fresh_policy_evaluated, true);
   assert.equal(approvalRecord.inherited_authority, false);
+  assert.match(approvalRecord.new_lease_id, /^lease_.*_write_/);
+  assert.equal(approvalRecord.real_side_effect_executed, true);
+  assert.equal(approvalRecord.verification_status, "passed");
+  assert.equal(await readFile(join(workspace, "PHASE.md"), "utf8"), proposedPhase);
   const approvedBranches = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "branches.json"), "utf8")) as Array<{ id: string; status: string }>;
   assert.equal(approvedBranches.find((entry) => entry.id === branchRecord.id)?.status, "approved");
   const ledgerAfterApproval = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");

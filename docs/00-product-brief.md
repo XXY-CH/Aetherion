@@ -12,6 +12,10 @@ It should not be treated as the final public name yet. Supplied research indicat
 
 Aetherion is a local-first Agent Harness Kernel that connects a user's devices, data, permissions, memory, tools, and messaging channels into a safe, auditable, self-improving agent runtime.
 
+## Command Surface
+
+The V1 terminal interface is named **Ether**. User-facing commands use `ether` (for example, `npm run ether -- run ...`); "TUI" describes the terminal interaction model and is not the command name.
+
 ## Positioning
 
 Aetherion is not a single chatbot, workflow builder, IM bot, browser automation tool, memory app, or replacement operating system. It is an OS-style harness kernel that makes those capabilities work together under a coherent trust boundary.

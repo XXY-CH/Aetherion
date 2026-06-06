@@ -86,7 +86,7 @@ pub fn append_event(
         "evt_{}_{}_{}",
         sanitize_id(run_id),
         sanitize_id(event_type),
-        now_millis()
+        now_nanos()
     );
     let mut file = OpenOptions::new()
         .create(true)
@@ -146,7 +146,7 @@ pub fn evaluate_policy(
             risk_level: RiskLevel::L1,
             reason: "Explicit workspace-scoped read allowed".to_string(),
             lease: Some(ScopedLease {
-                id: format!("lease_{}_read", request.run_id),
+                id: format!("lease_{}_read_{}", request.run_id, now_nanos()),
                 run_id: request.run_id.clone(),
                 expires_at_millis: now_millis() + 300_000,
                 actions: vec!["read".to_string()],
@@ -163,7 +163,7 @@ pub fn evaluate_policy(
                     risk_level: RiskLevel::L3,
                     reason: "Explicit consent approved workspace-scoped write".to_string(),
                     lease: Some(ScopedLease {
-                        id: format!("lease_{}_write", request.run_id),
+                        id: format!("lease_{}_write_{}", request.run_id, now_nanos()),
                         run_id: request.run_id.clone(),
                         expires_at_millis: now_millis() + 300_000,
                         actions: vec!["write".to_string()],
@@ -288,6 +288,13 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
+fn now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+}
+
 fn escape_json(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -347,7 +354,12 @@ mod tests {
             approved: true,
         };
         let write_decision = evaluate_policy(&workspace, &write_request, Some(&consent));
+        let second_write_decision = evaluate_policy(&workspace, &write_request, Some(&consent));
         assert_eq!(write_decision.decision, Decision::Allow);
+        assert_ne!(
+            write_decision.lease.as_ref().unwrap().id,
+            second_write_decision.lease.as_ref().unwrap().id
+        );
         write_with_lease(
             &write_request,
             &write_decision,

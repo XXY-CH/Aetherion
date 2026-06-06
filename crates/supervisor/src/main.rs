@@ -162,9 +162,45 @@ fn handle_rpc_line(line: &str) -> String {
 fn string_field(line: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\":\"", key);
     let start = line.find(&needle)? + needle.len();
-    let rest = &line[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let mut value = String::new();
+    let mut escaped = false;
+    let mut unicode_digits = String::new();
+    let mut unicode_remaining = 0;
+
+    for character in line[start..].chars() {
+        if unicode_remaining > 0 {
+            unicode_digits.push(character);
+            unicode_remaining -= 1;
+            if unicode_remaining == 0 {
+                let codepoint = u32::from_str_radix(&unicode_digits, 16).ok()?;
+                value.push(char::from_u32(codepoint)?);
+                unicode_digits.clear();
+            }
+            continue;
+        }
+        if escaped {
+            match character {
+                '"' => value.push('"'),
+                '\\' => value.push('\\'),
+                '/' => value.push('/'),
+                'b' => value.push('\u{0008}'),
+                'f' => value.push('\u{000C}'),
+                'n' => value.push('\n'),
+                'r' => value.push('\r'),
+                't' => value.push('\t'),
+                'u' => unicode_remaining = 4,
+                _ => return None,
+            }
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' => escaped = true,
+            '"' => return Some(value),
+            _ => value.push(character),
+        }
+    }
+    None
 }
 
 fn bool_field(line: &str, key: &str) -> bool {
@@ -193,4 +229,33 @@ fn escape(value: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn rpc_file_write_decodes_json_string_contents() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-json-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("SUMMARY.md");
+        let request = format!(
+            "{{\"id\":\"rpc_write\",\"method\":\"file.write\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_rpc_test\",\"run_id\":\"run_rpc_test\",\"path\":\"{}\",\"approved\":true,\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&target.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"written\":true"));
+        assert_eq!(
+            fs::read_to_string(target).unwrap(),
+            "line one\nline \"two\"\n"
+        );
+    }
 }

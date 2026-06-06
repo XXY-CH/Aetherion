@@ -11,6 +11,11 @@
     "mode": { "type": "string", "enum": ["diff", "draft", "plan", "simulation"] },
     "real_workspace_mutated": { "type": "boolean" },
     "result": { "type": "string" },
-    "approval_required": { "type": "boolean" }
+    "approval_required": { "type": "boolean" },
+    "operation": { "type": "string", "enum": ["file.write"] },
+    "target_path": { "type": "string" },
+    "sandbox_path": { "type": "string" },
+    "original_sha256": { "type": "string" },
+    "proposed_sha256": { "type": "string" }
   }
 }

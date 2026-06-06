@@ -3,6 +3,11 @@
   "branch_id": "branch_run_example_alt_prompt",
   "mode": "diff",
   "real_workspace_mutated": false,
-  "result": "Generated a preview diff only.",
-  "approval_required": true
+  "result": "--- a/PHASE.md\n+++ b/PHASE.md\n@@ sandbox rehearsal @@\n-old\n+new",
+  "approval_required": true,
+  "operation": "file.write",
+  "target_path": "PHASE.md",
+  "sandbox_path": ".aetherion/sandboxes/branch_run_example_alt_prompt/workspace/PHASE.md",
+  "original_sha256": "sha256:original",
+  "proposed_sha256": "sha256:proposed"
 }

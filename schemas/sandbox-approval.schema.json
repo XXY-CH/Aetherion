@@ -13,6 +13,10 @@
     "inherited_authority": { "type": "boolean" },
     "policy_event_id": { "type": "string" },
     "live_action_event_id": { "type": "string" },
-    "status": { "type": "string", "enum": ["approved", "denied"] }
+    "status": { "type": "string", "enum": ["approved", "denied"] },
+    "target_path": { "type": "string" },
+    "new_lease_id": { "type": "string" },
+    "real_side_effect_executed": { "type": "boolean" },
+    "verification_status": { "type": "string", "enum": ["passed", "failed"] }
   }
 }

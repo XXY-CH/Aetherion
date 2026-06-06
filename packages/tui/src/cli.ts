@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, counterfactualFromCheckpoint, isCausalEdge } from "../../causal-memory/src/index.ts";
-import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearse } from "../../sandbox/src/index.ts";
+import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearse, rehearseFileWrite } from "../../sandbox/src/index.ts";
 import { createDraftCapsule, isCapsule, publishCapsule, requireCapsule, testCapsule } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { findHibernation, hibernateRun, isHibernationRecord, markWaking, wakeRun } from "../../hibernation/src/index.ts";
 import { acceptPersonaAnchor, createPersonaReset, findPersonaAnchor, foldMemories, forkSoul, isPersonaAnchor, proposePersonaAnchor, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { consumeToolCall, createAgentContract, createDefaultBudget, findBudget, isCircuitBreaker, isResourceBudget } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
-import { appendEvent, createTraceReplayRecord, createWorkspace, eventRecord, isRegistryItem, loadRunManifest, readEvents, readRegistry, reconstructTrace, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, createTraceReplayRecord, createWorkspace, eventRecord, isRegistryItem, loadRunManifest, readEvents, readRegistry, reconstructTrace, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -201,7 +201,7 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       runBranch(options);
       return true;
     case "rehearse":
-      runRehearsal(options);
+      await runRehearsal(options);
       return true;
     case "approve-rehearsal":
       await runApproveRehearsal(options);
@@ -361,12 +361,15 @@ function runBranch(options: CliOptions): void {
   printJson(createBranch(checkpoint));
 }
 
-function runRehearsal(options: CliOptions): void {
+async function runRehearsal(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   const branchId = options.topic ?? "branch_seed";
   const branch = findBranch(readRegistry(workspaceRoot, "branches").filter(isBranch), branchId)
     ?? { ...createBranch(createCheckpoint("run_rehearsal_seed", "evt_rehearsal_seed")), id: branchId };
-  printJson(rehearse(branch, options.content ?? "Generated preview only."));
+  const rehearsal = options.path
+    ? await rehearseFileWrite(workspaceRoot, branch, options.path, options.content ?? "")
+    : rehearse(branch, options.content ?? "Generated preview only.");
+  printJson(rehearsal);
 }
 
 async function runApproveRehearsal(options: CliOptions): Promise<void> {
@@ -388,14 +391,63 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   const workspace = await createWorkspace(workspaceRoot, "ws_tui");
   const policyEventId = `evt_${sanitizePathSegment(rehearsal.id)}_policy_recheck`;
   const liveActionEventId = `evt_${sanitizePathSegment(rehearsal.id)}_live_action`;
-  await appendEvent(repoRoot, workspace, eventRecord({
-    id: policyEventId,
-    workspace_id: workspace.id,
-    run_id: checkpoint.run_id,
-    event_type: "policy.decided",
-    actor: { type: "system", id: "tool_policy_proxy" },
-    summary: `Fresh policy evaluation approved rehearsal ${rehearsal.id}; no prior lease or authority was reused.`
-  }));
+  let newLeaseId: string | undefined;
+  let verificationStatus: "passed" | "failed" | undefined;
+  let realSideEffectExecuted = false;
+
+  if (rehearsal.operation === "file.write") {
+    if (!rehearsal.target_path || !rehearsal.sandbox_path) {
+      throw new Error(`File rehearsal ${rehearsal.id} is missing target or sandbox path`);
+    }
+    const targetPath = resolve(workspaceRoot, rehearsal.target_path);
+    const proposedContents = readFileSync(resolve(workspaceRoot, rehearsal.sandbox_path), "utf8");
+    const policyResult = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${rehearsal.id}_fresh_policy`,
+      method: "tool.evaluate",
+      workspace_root: workspaceRoot,
+      workspace_id: workspace.id,
+      run_id: checkpoint.run_id,
+      path: targetPath,
+      verb: "write",
+      approved: true
+    }));
+    if (policyResult.decision !== "allow" || typeof policyResult.lease_id !== "string" || !policyResult.lease_id) {
+      throw new Error(`Fresh supervisor policy did not allow rehearsal ${rehearsal.id}`);
+    }
+    newLeaseId = policyResult.lease_id;
+    await appendEvent(repoRoot, workspace, eventRecord({
+      id: policyEventId,
+      workspace_id: workspace.id,
+      run_id: checkpoint.run_id,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "tool_policy_proxy" },
+      summary: `Rust supervisor issued fresh lease ${newLeaseId} for rehearsal ${rehearsal.id}; no prior authority was reused.`
+    }));
+    const writeResult = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${rehearsal.id}_live_write`,
+      method: "file.write",
+      workspace_root: workspaceRoot,
+      workspace_id: workspace.id,
+      run_id: checkpoint.run_id,
+      path: targetPath,
+      approved: true,
+      contents: proposedContents
+    }));
+    realSideEffectExecuted = writeResult.written === true;
+    verificationStatus = readFileSync(targetPath, "utf8") === proposedContents ? "passed" : "failed";
+    if (!realSideEffectExecuted || verificationStatus !== "passed") {
+      throw new Error(`Approved rehearsal ${rehearsal.id} failed file verification`);
+    }
+  } else {
+    await appendEvent(repoRoot, workspace, eventRecord({
+      id: policyEventId,
+      workspace_id: workspace.id,
+      run_id: checkpoint.run_id,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "tool_policy_proxy" },
+      summary: `Fresh policy evaluation approved rehearsal ${rehearsal.id}; no prior lease or authority was reused.`
+    }));
+  }
   await appendEvent(repoRoot, workspace, eventRecord({
     id: liveActionEventId,
     workspace_id: workspace.id,
@@ -406,6 +458,12 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   }));
 
   const approved = approveRehearsal(rehearsal, branch, policyEventId, liveActionEventId);
+  if (rehearsal.operation === "file.write") {
+    approved.approval.target_path = rehearsal.target_path;
+    approved.approval.new_lease_id = newLeaseId;
+    approved.approval.real_side_effect_executed = realSideEffectExecuted;
+    approved.approval.verification_status = verificationStatus;
+  }
   upsertRegistryItem(workspaceRoot, "branches", approved.branch);
   printJson(approved.approval);
 }
@@ -752,7 +810,7 @@ Usage:
   npm run ether -- context explain <run_id> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>
-  npm run ether -- rehearse <branch_id> --content <preview>
+  npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>
   npm run ether -- approve-rehearsal <rehearsal_id> --workspace <path>
   npm run ether -- capsule list
   npm run ether -- why <run_id> --workspace <path>

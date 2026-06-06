@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 27 passing tests.
-- `cargo test`: 2 passing Rust tests.
+- `npm test`: 28 passing tests.
+- `cargo test`: 3 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -21,7 +21,7 @@ Verification from the latest pass:
 | 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; Ether CLI `run --supervisor stdio`. | Rust unit tests for wrong-path and expired lease rejection; Ether CLI integration test for Rust stdio Phase 1 loop. | POC implemented. Not production supervisor yet. |
 | 3. Memory OS MVP | Grow memory from source events, not opaque vector state. | `packages/memory-os/src/index.ts`; `deriveMemoryCandidatesFromEvents`; `buildEpisodicTimeline`; `createBasicUserModel`; memory candidate/card/context pack/timeline/user-model schemas/examples; TUI `memory candidates --from-run`, `memory timeline`, `memory user-model`, memory accept/reject/list, and `context explain` with registries. | Memory OS tests require source events and trace-derived candidates; TUI tests derive candidates from a real run, accept one into the memory registry, and select it in context explain. | MVP trace-derived candidate path implemented. Timeline/user-model seed implemented; extraction remains narrow. |
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
-| 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, rehearsal, and later approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; checkpoint/branch event id/hash pointers. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, and rehearsal does not mutate real workspace; Ether integration verifies fresh policy and new action events after approval. | Approval/event lifecycle seed implemented. Real temp workspace/git worktree execution pending. |
+| 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
 | 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; extended capsule behavior in tests; TUI capsule list/inspect/test/publish. | Capsule tests block publish without replay tests and permission approval. | Contract seed implemented. Legacy adapter runtime pending. |
 | 7. Causal Memory and Counterfactual | Build causal edges from event ledger and produce why/counterfactual reports without live actions. | `packages/causal-memory/src/index.ts`; causal edge and counterfactual schemas/examples; TUI why/counterfactual. | Tests require source event citations and forbid live side effects. | Contract seed implemented. Graph/SQLite projection pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, wake via local triggers with policy recheck. | `packages/hibernation/src/index.ts`; hibernation and wakeup schemas/examples; TUI sleep/wake/sleepers-adjacent registry path. | Hibernation tests assert active leases are not retained and wake requires policy recheck. | Contract seed implemented. File/deadline trigger runner pending. |
@@ -51,7 +51,7 @@ Correction from review:
 
 - This is not the final production Event Ledger. Per `docs/10-technical-strategy.md`, the production hash-chain authority still belongs in the Rust Local Supervisor/Event Ledger core.
 - Current Rust supervisor stdio POC appends auditable JSONL events, but it does not yet emit the same hash-chain fields. Treat that as a Phase 2 hardening gap, not a completed Git-like event system.
-- Branching currently preserves checkpoint identity and hash pointers only; it does not yet create temp workspace/git worktree rehearsals or branch-specific event append streams.
+- Branching preserves checkpoint identity and hash pointers and can create an Aetherion-managed temp file workspace under `.aetherion/sandboxes/`; it does not yet create Git worktrees or branch-specific event append streams.
 
 ## Phase 5 Review Notes
 
@@ -63,16 +63,19 @@ Matched source docs:
 
 Implemented correspondence:
 
-- `rehearse` produces a preview with `real_workspace_mutated=false` and `approval_required=true`.
+- `rehearse --path <workspace-file>` validates the target stays inside the workspace and outside `.aetherion/`, writes proposed content only under `.aetherion/sandboxes/<branch>/workspace/`, and records a reviewable diff plus original/proposed SHA-256 values.
+- The real workspace file remains unchanged until explicit approval; the rehearsal records `real_workspace_mutated=false` and `approval_required=true`.
 - `approve-rehearsal` resolves the persisted rehearsal, branch, and checkpoint before proceeding.
-- Approval appends a fresh `policy.decided` event and a separate new `action.recorded` event to the source run.
-- `SandboxApproval` records `fresh_policy_evaluated=true` and `inherited_authority=false`; the branch transitions from `sandbox` to `approved`.
+- File approval asks the Rust supervisor for a fresh write policy decision and nonce-bearing lease; the Rust `file.write` boundary reevaluates policy and performs the live operation.
+- Ether verifies exact live file contents before appending the separate new `action.recorded` event.
+- `SandboxApproval` records `fresh_policy_evaluated=true`, `inherited_authority=false`, the fresh lease id, side-effect status, and verification status; the branch transitions from `sandbox` to `approved`.
 
 Correction and remaining boundary:
 
-- The current action event records promotion of an approved rehearsal; it does not yet execute a real file diff in a temp workspace or git worktree.
-- A production implementation must perform fresh Local Supervisor policy evaluation and issue a new scoped lease immediately before the real operation.
-- The current TypeScript seed proves lifecycle/audit semantics only; it must not be treated as authority-bearing execution.
+- The current temp workspace is an Aetherion-owned file mirror, not a Git worktree. It proves local file isolation and promotion but not repository-level merge/conflict behavior.
+- Only local file writes are implemented. Database, email, connector, and other external side effects still need target-specific rehearsal and compensating-action contracts.
+- TypeScript remains the Ether orchestrator and audit client. Rust owns the policy/write boundary for approved file rehearsal, but the supervisor is still a POC rather than the production authority daemon.
+- Approval records the explicitly requested fresh lease while `file.write` reevaluates and issues its own fresh operation lease. Production RPC should make this lease handoff explicit rather than relying on two evaluations.
 
 ## Phase 2 Review Notes
 

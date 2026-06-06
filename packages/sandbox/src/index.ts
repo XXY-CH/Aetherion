@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
+
 export type EventCheckpoint = {
   id: string;
   run_id: string;
@@ -27,6 +31,11 @@ export type SandboxRehearsal = {
   real_workspace_mutated: false;
   result: string;
   approval_required: boolean;
+  operation?: "file.write";
+  target_path?: string;
+  sandbox_path?: string;
+  original_sha256?: string;
+  proposed_sha256?: string;
 };
 
 export type SandboxApproval = {
@@ -38,6 +47,10 @@ export type SandboxApproval = {
   policy_event_id: string;
   live_action_event_id: string;
   status: "approved" | "denied";
+  target_path?: string;
+  new_lease_id?: string;
+  real_side_effect_executed?: boolean;
+  verification_status?: "passed" | "failed";
 };
 
 export function createCheckpoint(runId: string, eventId: string, eventHash?: string): EventCheckpoint {
@@ -74,6 +87,37 @@ export function rehearse(branch: LedgerBranch, result: string): SandboxRehearsal
     real_workspace_mutated: false,
     result,
     approval_required: true
+  };
+}
+
+export async function rehearseFileWrite(
+  workspaceRoot: string,
+  branch: LedgerBranch,
+  targetPath: string,
+  proposedContents: string
+): Promise<SandboxRehearsal> {
+  const relativeTarget = assertWorkspaceRelativePath(workspaceRoot, targetPath);
+  const realTarget = resolve(workspaceRoot, relativeTarget);
+  const sandboxRelative = `.aetherion/sandboxes/${sanitizePath(branch.id)}/workspace/${relativeTarget}`;
+  const sandboxTarget = resolve(workspaceRoot, sandboxRelative);
+  const originalContents = await readFile(realTarget, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  });
+  await mkdir(dirname(sandboxTarget), { recursive: true });
+  await writeFile(sandboxTarget, proposedContents, "utf8");
+  return {
+    id: `rehearsal_${branch.id}`,
+    branch_id: branch.id,
+    mode: "diff",
+    real_workspace_mutated: false,
+    result: renderFileDiff(relativeTarget, originalContents, proposedContents),
+    approval_required: true,
+    operation: "file.write",
+    target_path: relativeTarget,
+    sandbox_path: sandboxRelative,
+    original_sha256: sha256(originalContents),
+    proposed_sha256: sha256(proposedContents)
   };
 }
 
@@ -149,6 +193,40 @@ export function isRehearsal(value: unknown): value is SandboxRehearsal {
     && value.approval_required === true;
 }
 
+export function assertWorkspaceRelativePath(workspaceRoot: string, targetPath: string): string {
+  const resolvedRoot = resolve(workspaceRoot);
+  const resolvedTarget = resolve(resolvedRoot, targetPath);
+  const relativeTarget = relative(resolvedRoot, resolvedTarget);
+  if (!relativeTarget || relativeTarget === ".") {
+    throw new Error("Sandbox target must be a file path inside the workspace");
+  }
+  if (relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
+    throw new Error("Sandbox target is outside workspace boundary");
+  }
+  if (relativeTarget === ".aetherion" || relativeTarget.startsWith(`.aetherion/`)) {
+    throw new Error("Sandbox target cannot modify Aetherion runtime state");
+  }
+  return relativeTarget;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sha256(contents: string): string {
+  return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+function sanitizePath(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]+/g, "_");
+}
+
+function renderFileDiff(targetPath: string, originalContents: string, proposedContents: string): string {
+  return [
+    `--- a/${targetPath}`,
+    `+++ b/${targetPath}`,
+    "@@ sandbox rehearsal @@",
+    ...originalContents.split(/\r?\n/).filter(Boolean).map((line) => `-${line}`),
+    ...proposedContents.split(/\r?\n/).filter(Boolean).map((line) => `+${line}`)
+  ].join("\n");
 }

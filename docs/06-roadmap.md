@@ -22,7 +22,7 @@ Exit criteria:
 
 ## Phase 1: TUI Kernel Plus One Real Action
 
-Goal: create the TUI-first local kernel loop and prove one complete local run. This phase intentionally excludes GUI, mobile, IM, browser extension, browser automation, MCP/OAuth connectors, and cloud workers.
+Goal: create the TUI-first local kernel loop, exposed through the `ether` command, and prove one complete local run. "TUI" names the interface type; Ether is the user-facing command. This phase intentionally excludes GUI, mobile, IM, browser extension, browser automation, MCP/OAuth connectors, and cloud workers.
 
 Deliverables:
 
@@ -34,7 +34,7 @@ Deliverables:
 - Risk composition model.
 - Approval card model.
 - File operator.
-- Minimal TUI.
+- Minimal Ether terminal client.
 - One local file/repo read action.
 - One approval-gated local write action.
 - One run trace.
@@ -47,7 +47,7 @@ Exit criteria:
 - Event and action records can reconstruct the policy decision and result.
 - Replay means trace reconstruction, not live side-effect repetition.
 
-## Phase 2: Rust Supervisor POC With TUI Client
+## Phase 2: Rust Supervisor POC With Ether Client
 
 Goal: move the root authority proof toward Rust without broadening product surfaces.
 
