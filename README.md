@@ -111,9 +111,11 @@ The repository now includes the first contract-first scaffold:
 - `packages/tui/`: V1 terminal surface for the same local kernel loop.
 - `packages/computer-use/`: post-V1 scaffold for policy-gated computer-use adapters.
 - `packages/connector-sdk/`: post-V1 scaffold for quarantined connector imports and policy-gated tool calls.
+- `crates/supervisor/`: Rust POC for the future Local Supervisor authority boundary: workspace init, JSONL event append, deterministic local file policy, scoped leases, and lease-gated local file read/write.
 
 Run verification:
 
 ```sh
 npm test
+cargo test
 ```

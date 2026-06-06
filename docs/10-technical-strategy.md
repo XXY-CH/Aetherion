@@ -113,6 +113,18 @@ Later:
 - Separate artifact channels for screenshots, DOM snapshots, large logs, and encrypted payloads.
 - Avoid gRPC until auditability, inspectability, and local debugging needs are clearly satisfied.
 
+## Current Rust POC
+
+`crates/supervisor/` is the first Rust authority-boundary proof of concept. It is intentionally small and dependency-free:
+
+- Initialize a local workspace ledger under `.aetherion/events/events.jsonl`.
+- Append human-readable JSONL events.
+- Evaluate deterministic workspace-local read/write policy.
+- Require explicit consent before workspace writes receive a scoped lease.
+- Execute local file read/write only through an allowed scoped lease.
+
+This crate is not yet the production supervisor. It does not implement a vault, hash-chain ledger, JSON-RPC server, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
+
 ## Storage Strategy
 
 Governance source of truth:
