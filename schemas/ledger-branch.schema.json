@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/ledger-branch.schema.json",
+  "title": "LedgerBranch",
+  "type": "object",
+  "required": ["id", "checkpoint_id", "created_at", "inherits_authority", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^branch_[A-Za-z0-9_-]+$" },
+    "checkpoint_id": { "type": "string" },
+    "source_event_id": { "type": "string" },
+    "source_event_hash": { "type": "string" },
+    "head_event_id": { "type": "string" },
+    "head_event_hash": { "type": "string" },
+    "created_at": { "type": "string" },
+    "inherits_authority": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["sandbox", "approved", "discarded"] }
+  }
+}

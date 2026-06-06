@@ -37,6 +37,7 @@ pub struct ToolRequest {
 pub struct ScopedLease {
     pub id: String,
     pub run_id: String,
+    pub expires_at_millis: u128,
     pub actions: Vec<String>,
     pub paths: Vec<PathBuf>,
     pub denied: Vec<String>,
@@ -80,20 +81,28 @@ pub fn append_event(
     event_type: &str,
     run_id: &str,
     summary: &str,
-) -> io::Result<()> {
+) -> io::Result<String> {
+    let event_id = format!(
+        "evt_{}_{}_{}",
+        sanitize_id(run_id),
+        sanitize_id(event_type),
+        now_millis()
+    );
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&workspace.ledger_path)?;
     writeln!(
         file,
-        "{{\"timestamp\":{},\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"summary\":\"{}\"}}",
-        now_millis(),
+        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
+        escape_json(&event_id),
+        escape_json(&format!("unix-ms-{}", now_millis())),
         escape_json(&workspace.id),
         escape_json(run_id),
         escape_json(event_type),
         escape_json(summary)
-    )
+    )?;
+    Ok(event_id)
 }
 
 pub fn file_read_request(run_id: &str, path: impl AsRef<Path>) -> ToolRequest {
@@ -139,6 +148,7 @@ pub fn evaluate_policy(
             lease: Some(ScopedLease {
                 id: format!("lease_{}_read", request.run_id),
                 run_id: request.run_id.clone(),
+                expires_at_millis: now_millis() + 300_000,
                 actions: vec!["read".to_string()],
                 paths: vec![resolved_path],
                 denied: vec!["read_home".to_string(), "read_secrets".to_string()],
@@ -155,6 +165,7 @@ pub fn evaluate_policy(
                     lease: Some(ScopedLease {
                         id: format!("lease_{}_write", request.run_id),
                         run_id: request.run_id.clone(),
+                        expires_at_millis: now_millis() + 300_000,
                         actions: vec!["write".to_string()],
                         paths: vec![resolved_path],
                         denied: vec![
@@ -213,6 +224,12 @@ fn assert_lease(request: &ToolRequest, decision: &PolicyDecision, action: &str) 
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "lease action mismatch",
+        ));
+    }
+    if lease.expires_at_millis <= now_millis() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "lease expired",
         ));
     }
     let request_path = if request.path.exists() {
@@ -279,6 +296,19 @@ fn escape_json(value: &str) -> String {
         .replace('\r', "\\r")
 }
 
+fn sanitize_id(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,5 +369,26 @@ mod tests {
         let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
         assert!(ledger.contains("run.started"));
         assert!(ledger.contains("run.completed"));
+    }
+
+    #[test]
+    fn supervisor_rejects_wrong_path_and_expired_lease() {
+        let root = std::env::temp_dir().join(format!("aetherion-supervisor-negative-{}", now_millis()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_negative").unwrap();
+        let run_id = "run_rust_negative";
+        let path = root.join("README.md");
+        let other = root.join("OTHER.md");
+        fs::write(&path, "fixture").unwrap();
+        fs::write(&other, "other").unwrap();
+
+        let request = file_read_request(run_id, &path);
+        let mut decision = evaluate_policy(&workspace, &request, None);
+        let mut wrong_request = request.clone();
+        wrong_request.path = other;
+        assert!(read_with_lease(&wrong_request, &decision).is_err());
+
+        decision.lease.as_mut().unwrap().expires_at_millis = 1;
+        assert!(read_with_lease(&request, &decision).is_err());
     }
 }

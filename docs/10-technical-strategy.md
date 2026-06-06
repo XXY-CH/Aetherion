@@ -106,7 +106,7 @@ Phase 1:
 
 Phase 2:
 
-- JSON-RPC over stdio, Unix socket, or named pipe between the TypeScript TUI/orchestrator and Rust Local Supervisor.
+- JSON-RPC over stdio, Unix socket, or named pipe between the TypeScript TUI/orchestrator and Rust Local Supervisor. The current POC uses stdio.
 
 Later:
 
@@ -122,8 +122,9 @@ Later:
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
 - Execute local file read/write only through an allowed scoped lease.
+- Expose a minimal stdio RPC command used by the TypeScript Ether CLI `run --supervisor stdio` path.
 
-This crate is not yet the production supervisor. It does not implement a vault, hash-chain ledger, JSON-RPC server, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
+This crate is not yet the production supervisor. It does not implement a vault, hash-chain ledger, long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
 
 ## Storage Strategy
 

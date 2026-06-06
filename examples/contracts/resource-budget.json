@@ -1,0 +1,8 @@
+{
+  "id": "budget_search_child",
+  "token_budget": 20000,
+  "tool_call_budget": 20,
+  "risk_budget": "L2",
+  "lease_budget": 2,
+  "on_exhaustion": "stop"
+}

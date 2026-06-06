@@ -1,0 +1,9 @@
+{
+  "id": "contract_parent_search_child",
+  "parent_run_id": "run_parent",
+  "child_agent_id": "agent_search",
+  "task": "Search local project docs only.",
+  "resource_budget_id": "budget_search_child",
+  "allowed_capsules": ["cap_local_docs_read@0.1.0"],
+  "completion_evidence_required": true
+}

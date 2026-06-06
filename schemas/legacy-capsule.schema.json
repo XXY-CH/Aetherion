@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/legacy-capsule.schema.json",
+  "title": "LegacyCapsule",
+  "type": "object",
+  "required": ["id", "source", "lifecycle", "sandbox_required", "permissions_inherited", "review_required"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^legacy_[A-Za-z0-9_-]+$" },
+    "source": { "type": "string" },
+    "lifecycle": { "type": "string", "enum": ["quarantined", "draft", "tested", "deprecated"] },
+    "sandbox_required": { "type": "boolean" },
+    "permissions_inherited": { "type": "boolean" },
+    "review_required": { "type": "array", "items": { "type": "string" } }
+  }
+}

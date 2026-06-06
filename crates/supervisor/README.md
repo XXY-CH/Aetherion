@@ -9,6 +9,8 @@ Current scope:
 - Evaluate a tiny deterministic local file policy.
 - Issue scoped leases for workspace-local reads and approval-gated writes.
 - Execute workspace-scoped file read/write through leases.
+- Reject expired leases and wrong-path lease reuse.
+- Expose a minimal stdio JSON-RPC POC for workspace init, event append, policy evaluation, lease issuance, file read/write, and trace replay.
 
 Out of scope:
 

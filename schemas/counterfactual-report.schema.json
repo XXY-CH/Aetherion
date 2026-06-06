@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/counterfactual-report.schema.json",
+  "title": "CounterfactualReport",
+  "type": "object",
+  "required": ["id", "checkpoint_id", "change", "mode", "live_side_effects_allowed", "confidence", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^counterfactual_[A-Za-z0-9_-]+$" },
+    "checkpoint_id": { "type": "string" },
+    "change": { "type": "string" },
+    "mode": { "type": "string", "enum": ["report", "eval", "patch_proposal"] },
+    "live_side_effects_allowed": { "type": "boolean" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "summary": { "type": "string" }
+  }
+}

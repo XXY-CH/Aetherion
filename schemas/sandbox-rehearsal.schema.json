@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/sandbox-rehearsal.schema.json",
+  "title": "SandboxRehearsal",
+  "type": "object",
+  "required": ["id", "branch_id", "mode", "real_workspace_mutated", "result"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^rehearsal_[A-Za-z0-9_-]+$" },
+    "branch_id": { "type": "string" },
+    "mode": { "type": "string", "enum": ["diff", "draft", "plan", "simulation"] },
+    "real_workspace_mutated": { "type": "boolean" },
+    "result": { "type": "string" },
+    "approval_required": { "type": "boolean" }
+  }
+}

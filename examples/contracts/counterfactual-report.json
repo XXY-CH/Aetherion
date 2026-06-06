@@ -1,0 +1,9 @@
+{
+  "id": "counterfactual_run_example_no_write",
+  "checkpoint_id": "checkpoint_run_example_before_write",
+  "change": "Deny the write approval.",
+  "mode": "report",
+  "live_side_effects_allowed": false,
+  "confidence": 0.8,
+  "summary": "The output file would not have been created."
+}

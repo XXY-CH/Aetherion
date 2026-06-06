@@ -1,0 +1,8 @@
+{
+  "id": "rehearsal_run_example_diff",
+  "branch_id": "branch_run_example_alt_prompt",
+  "mode": "diff",
+  "real_workspace_mutated": false,
+  "result": "Generated a preview diff only.",
+  "approval_required": true
+}

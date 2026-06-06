@@ -1,0 +1,7 @@
+{
+  "id": "migration_plan_openclaw_dry_run",
+  "source": "openclaw",
+  "mode": "dry_run",
+  "steps": ["scan_config", "redact_secrets", "quarantine_skills", "write_report"],
+  "authority_policy": "report_only"
+}

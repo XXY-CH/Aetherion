@@ -1,11 +1,16 @@
 {
   "id": "migration_openclaw_demo",
   "source": "openclaw",
+  "import_mode": "dry_run",
+  "confidence": 0.76,
   "imported": ["channels.telegram", "models.openai"],
   "mapped_with_high_confidence": ["allowlist"],
   "mapped_with_low_confidence": ["group_mention_policy"],
   "quarantined": ["plugins", "hooks", "tools"],
   "unsupported": ["legacy_field_x"],
   "secrets": ["migrated_as_vault_ref"],
-  "requires_review": ["cron_jobs", "shell_tools"]
+  "vault_ref_placeholders": ["vault://pending/openclaw/telegram_bot_token"],
+  "requires_review": ["cron_jobs", "shell_tools"],
+  "review_required_reason": "Imported automation can request side effects and must not inherit trust.",
+  "reversible_actions": ["discard_report", "delete_vault_ref_placeholders"]
 }

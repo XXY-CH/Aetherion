@@ -40,6 +40,9 @@
     },
     "summary": { "type": "string", "minLength": 1 },
     "payload_ref": { "type": "string" },
+    "parent_event_id": { "type": "string" },
+    "parent_event_hash": { "type": "string" },
+    "event_hash": { "type": "string" },
     "sensitivity": { "type": "string", "enum": ["public", "internal", "private", "confidential", "secret", "regulated", "credential-like"] },
     "taint": {
       "type": "object",

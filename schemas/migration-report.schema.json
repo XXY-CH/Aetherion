@@ -3,17 +3,22 @@
   "$id": "https://aetherion.local/schemas/migration-report.schema.json",
   "title": "MigrationReport",
   "type": "object",
-  "required": ["id", "source", "imported", "mapped_with_high_confidence", "mapped_with_low_confidence", "quarantined", "unsupported", "secrets", "requires_review"],
+  "required": ["id", "source", "import_mode", "confidence", "imported", "mapped_with_high_confidence", "mapped_with_low_confidence", "quarantined", "unsupported", "secrets", "vault_ref_placeholders", "requires_review", "reversible_actions"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^migration_[A-Za-z0-9_-]+$" },
     "source": { "type": "string" },
+    "import_mode": { "type": "string", "enum": ["dry_run", "apply"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
     "imported": { "type": "array", "items": { "type": "string" } },
     "mapped_with_high_confidence": { "type": "array", "items": { "type": "string" } },
     "mapped_with_low_confidence": { "type": "array", "items": { "type": "string" } },
     "quarantined": { "type": "array", "items": { "type": "string" } },
     "unsupported": { "type": "array", "items": { "type": "string" } },
     "secrets": { "type": "array", "items": { "type": "string" } },
-    "requires_review": { "type": "array", "items": { "type": "string" } }
+    "vault_ref_placeholders": { "type": "array", "items": { "type": "string" } },
+    "requires_review": { "type": "array", "items": { "type": "string" } },
+    "review_required_reason": { "type": "string" },
+    "reversible_actions": { "type": "array", "items": { "type": "string" } }
   }
 }

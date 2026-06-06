@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/sandbox-approval.schema.json",
+  "title": "SandboxApproval",
+  "type": "object",
+  "required": ["id", "rehearsal_id", "branch_id", "fresh_policy_evaluated", "inherited_authority", "policy_event_id", "live_action_event_id", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^sandbox_approval_[A-Za-z0-9_-]+$" },
+    "rehearsal_id": { "type": "string" },
+    "branch_id": { "type": "string" },
+    "fresh_policy_evaluated": { "type": "boolean" },
+    "inherited_authority": { "type": "boolean" },
+    "policy_event_id": { "type": "string" },
+    "live_action_event_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["approved", "denied"] }
+  }
+}

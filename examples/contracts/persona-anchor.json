@@ -1,0 +1,11 @@
+{
+  "id": "anchor_direct_evidence",
+  "content": "User prefers direct conclusions with concrete evidence.",
+  "source_events": ["evt_user_corrected_style"],
+  "confidence": 0.88,
+  "ttl": "180d",
+  "allowed_contexts": ["planning", "coding"],
+  "blocked_contexts": ["external_auto_send"],
+  "review_status": "pending",
+  "sensitivity": "private"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "user_model_local",
+  "source_memory_ids": ["mem_preference_001"],
+  "source_events": ["evt_user_message_001"],
+  "communication_style": {
+    "prefers": ["direct conclusions", "concrete verification evidence", "compact status updates"],
+    "dislikes": ["generic advice", "unverified completion claims"]
+  },
+  "work_style": {
+    "decision_pattern": "Start from architecture, then iterate through MVP loops.",
+    "risk_tolerance": "medium_high",
+    "approval_preference": "Ask before irreversible external effects."
+  },
+  "automation_policy": {
+    "auto_execute": ["summarize local documents", "draft plans", "run reversible tests"],
+    "require_approval": ["send external messages", "commit or publish changes", "modify paid services"]
+  }
+}

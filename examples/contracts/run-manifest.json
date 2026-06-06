@@ -1,0 +1,10 @@
+{
+  "id": "run_example",
+  "workspace_id": "ws_default",
+  "started_at": "2026-06-06T00:00:00.000Z",
+  "completed_at": null,
+  "status": "running",
+  "entry_surface": "tui",
+  "event_ids": ["evt_run_example_user_message"],
+  "summary": "Example TUI kernel run."
+}

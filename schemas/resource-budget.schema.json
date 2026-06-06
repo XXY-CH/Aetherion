@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/resource-budget.schema.json",
+  "title": "ResourceBudget",
+  "type": "object",
+  "required": ["id", "token_budget", "tool_call_budget", "risk_budget", "lease_budget", "on_exhaustion"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^budget_[A-Za-z0-9_-]+$" },
+    "token_budget": { "type": "number", "minimum": 0 },
+    "tool_call_budget": { "type": "number", "minimum": 0 },
+    "risk_budget": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "lease_budget": { "type": "number", "minimum": 0 },
+    "on_exhaustion": { "type": "string", "enum": ["stop", "queue", "ask"] }
+  }
+}

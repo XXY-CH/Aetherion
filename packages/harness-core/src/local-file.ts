@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { assertLeaseActive } from "./lease.ts";
 import type { PolicyDecision, ToolRequest } from "./policy.ts";
 
 export type FileReadResult = {
@@ -11,6 +12,7 @@ export async function readLocalFileThroughPolicy(request: ToolRequest, decision:
   if (decision.decision !== "allow") {
     throw new Error(`Policy did not allow request ${request.id}: ${decision.reason}`);
   }
+  assertLeaseActive(decision);
   if (!decision.lease?.scope || !Array.isArray(decision.lease.scope.paths)) {
     throw new Error(`Policy decision ${decision.id} did not issue a file path lease`);
   }
@@ -31,6 +33,7 @@ export async function writeLocalFileThroughPolicy(request: ToolRequest, decision
   if (decision.decision !== "allow") {
     throw new Error(`Policy did not allow request ${request.id}: ${decision.reason}`);
   }
+  assertLeaseActive(decision);
   if (!decision.lease?.scope || !Array.isArray(decision.lease.scope.paths)) {
     throw new Error(`Policy decision ${decision.id} did not issue a file path lease`);
   }

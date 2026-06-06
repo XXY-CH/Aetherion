@@ -8,13 +8,16 @@ import {
   approveWriteWithConsent,
   createFileReadRequest,
   createFileWriteRequest,
+  createTraceReplayRecord,
   createWorkspace,
   eventRecord,
+  readEvents,
   mockPolicyDecision,
   primeSchemaCache,
   readLocalFileThroughPolicy,
   reconstructTrace,
   validateAgainstSchema,
+  verifyEventHashChain,
   verifyFileContains,
   writeLocalFileThroughPolicy
 } from "../src/index.ts";
@@ -39,7 +42,31 @@ const schemaExamplePairs = [
   ["capability-package.schema.json", "capability-package.json"],
   ["proactive-opportunity.schema.json", "proactive-opportunity.json"],
   ["replay-record.schema.json", "replay-record.json"],
-  ["migration-report.schema.json", "migration-report.json"]
+  ["migration-report.schema.json", "migration-report.json"],
+  ["workspace-registry.schema.json", "workspace-registry.json"],
+  ["run-manifest.schema.json", "run-manifest.json"],
+  ["risk-composition.schema.json", "risk-composition.json"],
+  ["approval-card.schema.json", "approval-card.json"],
+  ["migration-plan.schema.json", "migration-plan.json"],
+  ["legacy-capsule.schema.json", "legacy-capsule.json"],
+  ["event-checkpoint.schema.json", "event-checkpoint.json"],
+  ["ledger-branch.schema.json", "ledger-branch.json"],
+  ["sandbox-rehearsal.schema.json", "sandbox-rehearsal.json"],
+  ["sandbox-approval.schema.json", "sandbox-approval.json"],
+  ["causal-edge.schema.json", "causal-edge.json"],
+  ["counterfactual-report.schema.json", "counterfactual-report.json"],
+  ["hibernation-record.schema.json", "hibernation-record.json"],
+  ["wakeup-trigger.schema.json", "wakeup-trigger.json"],
+  ["memory-fold.schema.json", "memory-fold.json"],
+  ["episodic-timeline.schema.json", "episodic-timeline.json"],
+  ["user-model.schema.json", "user-model.json"],
+  ["persona-anchor.schema.json", "persona-anchor.json"],
+  ["soul-fork.schema.json", "soul-fork.json"],
+  ["inheritance-policy.schema.json", "inheritance-policy.json"],
+  ["agent-contract.schema.json", "agent-contract.json"],
+  ["resource-budget.schema.json", "resource-budget.json"],
+  ["circuit-breaker.schema.json", "circuit-breaker.json"],
+  ["poisoning-signal.schema.json", "poisoning-signal.json"]
 ] as const;
 
 test("contract examples validate against seed JSON schemas", async () => {
@@ -220,6 +247,8 @@ test("user request -> policy decision -> local file read/write -> verification -
 
   const trace = await reconstructTrace(workspace, runId);
   assert.equal(trace.live_side_effects_replayed, false);
+  assert.equal(trace.chain_valid, true);
+  assert.equal(trace.head_event_id, "evt_contract_run_completed");
   assert.deepEqual(trace.event_types, [
     "user.message",
     "tool.requested",
@@ -233,4 +262,71 @@ test("user request -> policy decision -> local file read/write -> verification -
     "verification.recorded",
     "run.completed"
   ]);
+  const events = await readEvents(workspace);
+  assert.ok(events[0].event_hash?.startsWith("sha256:"));
+  assert.equal(events[1].parent_event_id, events[0].id);
+  assert.equal(events[1].parent_event_hash, events[0].event_hash);
+  assert.equal(verifyEventHashChain(events).valid, true);
+
+  const replayRecord = await createTraceReplayRecord(workspace, runId);
+  assert.equal(replayRecord.mode, "trace");
+  assert.equal(replayRecord.live_side_effects.allowed, false);
+  assert.equal(replayRecord.live_side_effects.approval_id, null);
+  assert.equal(replayRecord.result.status, "passed");
+  assert.equal(replayRecord.source_events.at(-1), "evt_contract_run_completed");
+  const replayValidation = await validateAgainstSchema(repoRoot, "replay-record.schema.json", replayRecord);
+  assert.equal(replayValidation.valid, true, replayValidation.errors.join("; "));
+});
+
+test("phase 1 run creates workspace registry, run manifest, approval card, and blocks unapproved write", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-phase1-"));
+  await writeFile(join(root, "README.md"), "Phase 1 fixture\n");
+  const { runLocalKernelLoop, loadRunManifest, workspaceRegistryPath } = await import("../src/index.ts");
+
+  const result = await runLocalKernelLoop({
+    repoRoot,
+    workspaceRoot: root,
+    inputPath: "README.md",
+    outputPath: ".aetherion/SUMMARY.md",
+    approveWrite: false,
+    runId: "run_phase1_blocked"
+  });
+
+  assert.equal(result.writePreDecision.decision, "ask");
+  assert.equal(result.approvalCard.risk_level, "L3");
+  assert.equal(result.trace.live_side_effects_replayed, false);
+  assert.equal((await readFile(workspaceRegistryPath(result.workspace), "utf8")).includes("typescript-seed"), true);
+  const manifest = await loadRunManifest(result.workspace, "run_phase1_blocked");
+  assert.equal(manifest.status, "blocked");
+  assert.ok(manifest.event_ids.includes("evt_run_phase1_blocked_completed_without_write"));
+});
+
+test("workspace boundary denies paths outside the workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-boundary-"));
+  const outsideRoot = await mkdtemp(join(tmpdir(), "aetherion-outside-"));
+  const outsidePath = join(outsideRoot, "secret.txt");
+  await writeFile(outsidePath, "secret\n");
+
+  const request = createFileReadRequest("run_outside", outsidePath);
+  const decision = mockPolicyDecision(root, request);
+  assert.equal(decision.decision, "deny");
+});
+
+test("expired scoped leases are rejected before file writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-expired-"));
+  const path = join(root, "SUMMARY.md");
+  const request = createFileWriteRequest("run_expired", path);
+  const decision = {
+    id: "policy_run_expired_allow_write",
+    tool_request_id: request.id,
+    decision: "allow" as const,
+    risk_level: "L3" as const,
+    reason: "expired lease fixture",
+    lease: {
+      id: "lease_expired",
+      expires_at: "2000-01-01T00:00:00.000Z",
+      scope: { paths: [path] }
+    }
+  };
+  await assert.rejects(() => writeLocalFileThroughPolicy(request, decision, "nope"), /expired scoped lease/);
 });

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/poisoning-signal.schema.json",
+  "title": "PoisoningSignal",
+  "type": "object",
+  "required": ["id", "source_event_id", "signal_type", "severity", "quarantined", "can_authorize_actions"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^poison_[A-Za-z0-9_-]+$" },
+    "source_event_id": { "type": "string" },
+    "signal_type": { "type": "string", "enum": ["prompt_injection", "secret_exfiltration", "policy_override", "tool_abuse"] },
+    "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+    "quarantined": { "type": "boolean" },
+    "can_authorize_actions": { "type": "boolean" }
+  }
+}

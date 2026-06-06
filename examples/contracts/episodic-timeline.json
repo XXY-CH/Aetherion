@@ -1,0 +1,25 @@
+{
+  "id": "episode_run_demo",
+  "run_id": "run_demo",
+  "source_events": ["evt_user_message_001", "evt_tool_request_001", "evt_verification_001", "evt_run_completed_001"],
+  "user_intent": "Read a workspace file and create an approval-gated summary.",
+  "steps_taken": [
+    {
+      "event_id": "evt_tool_request_001",
+      "event_type": "tool.requested",
+      "summary": "Requested workspace file read."
+    },
+    {
+      "event_id": "evt_verification_001",
+      "event_type": "verification.recorded",
+      "summary": "Verified summary file contains expected text."
+    }
+  ],
+  "tools_used": ["filesystem.read", "filesystem.write"],
+  "failures": [],
+  "recoveries": [],
+  "user_corrections": [],
+  "final_artifact": "Workspace summary file verified.",
+  "skill_candidates": [],
+  "regression_cases": ["Replay must not repeat live side effects."]
+}

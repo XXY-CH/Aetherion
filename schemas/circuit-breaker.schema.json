@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/circuit-breaker.schema.json",
+  "title": "CircuitBreaker",
+  "type": "object",
+  "required": ["id", "trigger", "status", "event_id", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^breaker_[A-Za-z0-9_-]+$" },
+    "trigger": { "type": "string", "enum": ["budget_exhausted", "repeated_policy_denial", "permission_violation", "poisoning_detected"] },
+    "status": { "type": "string", "enum": ["open", "closed"] },
+    "event_id": { "type": "string" },
+    "reason": { "type": "string" }
+  }
+}

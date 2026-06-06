@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/run-manifest.schema.json",
+  "title": "RunManifest",
+  "type": "object",
+  "required": ["id", "workspace_id", "started_at", "status", "entry_surface", "event_ids"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "minLength": 1 },
+    "completed_at": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["running", "completed", "blocked", "failed"] },
+    "entry_surface": { "type": "string", "enum": ["tui", "gui", "im", "browser", "api", "system"] },
+    "event_ids": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string" }
+  }
+}

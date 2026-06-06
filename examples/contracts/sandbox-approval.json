@@ -1,0 +1,10 @@
+{
+  "id": "sandbox_approval_rehearsal_run_example_diff",
+  "rehearsal_id": "rehearsal_run_example_diff",
+  "branch_id": "branch_run_example_alt_prompt",
+  "fresh_policy_evaluated": true,
+  "inherited_authority": false,
+  "policy_event_id": "evt_rehearsal_policy_recheck",
+  "live_action_event_id": "evt_rehearsal_live_action",
+  "status": "approved"
+}

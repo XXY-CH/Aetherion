@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-contract.schema.json",
+  "title": "AgentContract",
+  "type": "object",
+  "required": ["id", "parent_run_id", "child_agent_id", "task", "resource_budget_id", "allowed_capsules", "completion_evidence_required"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^contract_[A-Za-z0-9_-]+$" },
+    "parent_run_id": { "type": "string" },
+    "child_agent_id": { "type": "string" },
+    "task": { "type": "string" },
+    "resource_budget_id": { "type": "string" },
+    "allowed_capsules": { "type": "array", "items": { "type": "string" } },
+    "completion_evidence_required": { "type": "boolean" }
+  }
+}

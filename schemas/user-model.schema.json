@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/user-model.schema.json",
+  "title": "UserModel",
+  "type": "object",
+  "required": ["id", "source_memory_ids", "source_events", "communication_style", "work_style", "automation_policy"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^user_model_[A-Za-z0-9_-]+$" },
+    "source_memory_ids": { "type": "array", "items": { "type": "string" } },
+    "source_events": { "type": "array", "items": { "type": "string" } },
+    "communication_style": {
+      "type": "object",
+      "required": ["prefers", "dislikes"],
+      "additionalProperties": false,
+      "properties": {
+        "prefers": { "type": "array", "items": { "type": "string" } },
+        "dislikes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "work_style": {
+      "type": "object",
+      "required": ["decision_pattern", "risk_tolerance", "approval_preference"],
+      "additionalProperties": false,
+      "properties": {
+        "decision_pattern": { "type": "string" },
+        "risk_tolerance": { "type": "string" },
+        "approval_preference": { "type": "string" }
+      }
+    },
+    "automation_policy": {
+      "type": "object",
+      "required": ["auto_execute", "require_approval"],
+      "additionalProperties": false,
+      "properties": {
+        "auto_execute": { "type": "array", "items": { "type": "string" } },
+        "require_approval": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

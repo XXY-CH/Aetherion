@@ -1,0 +1,8 @@
+{
+  "id": "poison_prompt_override",
+  "source_event_id": "evt_public_web_observation",
+  "signal_type": "policy_override",
+  "severity": "high",
+  "quarantined": true,
+  "can_authorize_actions": false
+}

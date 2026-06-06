@@ -1,0 +1,8 @@
+{
+  "id": "legacy_openclaw_skill",
+  "source": "openclaw:skills/example.yaml",
+  "lifecycle": "quarantined",
+  "sandbox_required": true,
+  "permissions_inherited": false,
+  "review_required": ["permission_diff", "sandbox_trial"]
+}

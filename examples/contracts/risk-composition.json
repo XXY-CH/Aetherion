@@ -1,0 +1,15 @@
+{
+  "id": "risk_run_example_write",
+  "tool_request_id": "toolreq_run_example_write",
+  "risk_level": "L3",
+  "factors": {
+    "action_type": "write",
+    "target_resource": "workspace_file",
+    "side_effect": "definite",
+    "reversibility": "medium",
+    "data_sensitivity": "private",
+    "egress": "local_artifact_store"
+  },
+  "decision_hint": "ask",
+  "reason": "Workspace write has a definite local side effect and needs explicit approval."
+}

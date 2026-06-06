@@ -6,6 +6,7 @@ import {
   eventRecord,
   type Workspace
 } from "./ledger.ts";
+import { createApprovalCard, type ApprovalCard } from "./approval.ts";
 import {
   approveWriteWithConsent,
   createFileReadRequest,
@@ -15,6 +16,7 @@ import {
   type PolicyDecision,
   type ToolRequest
 } from "./policy.ts";
+import { composeRisk, type RiskComposition } from "./risk.ts";
 import {
   readLocalFileThroughPolicy,
   writeLocalFileThroughPolicy
@@ -22,6 +24,14 @@ import {
 import { reconstructTrace, type ReconstructedTrace } from "./replay.ts";
 import { validateAgainstSchema } from "./schema.ts";
 import { verifyFileContains, type ObservationRecord, type VerificationRecord } from "./verify.ts";
+import {
+  completeRunManifest,
+  createRunManifest,
+  recordRunEvent,
+  writeWorkspaceRegistry,
+  type RunManifest,
+  type WorkspaceRegistry
+} from "./workspace.ts";
 
 export type LocalKernelRunInput = {
   repoRoot: string;
@@ -36,11 +46,16 @@ export type LocalKernelRunInput = {
 
 export type LocalKernelRunResult = {
   workspace: Workspace;
+  workspaceRegistry: WorkspaceRegistry;
+  runManifest: RunManifest;
   runId: string;
   readRequest: ToolRequest;
+  readRisk: RiskComposition;
   readDecision: PolicyDecision;
   writeRequest: ToolRequest;
+  writeRisk: RiskComposition;
   writePreDecision: PolicyDecision;
+  approvalCard: ApprovalCard;
   consent?: ConsentRecord;
   writeDecision?: PolicyDecision;
   observation?: ObservationRecord;
@@ -51,12 +66,14 @@ export type LocalKernelRunResult = {
 export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<LocalKernelRunResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const workspace = await createWorkspace(workspaceRoot, input.workspaceId ?? "ws_tui");
+  const workspaceRegistry = await writeWorkspaceRegistry(input.repoRoot, workspace, "typescript-seed");
   const runId = input.runId ?? `run_${Date.now()}`;
+  const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "TUI local kernel loop");
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);
   await mkdir(dirname(outputPath), { recursive: true });
 
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_user_message`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -68,7 +85,9 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   const readRequest = createFileReadRequest(runId, inputPath);
   await assertValid(input.repoRoot, "tool-request.schema.json", readRequest);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  const readRisk = composeRisk(readRequest);
+  await assertValid(input.repoRoot, "risk-composition.schema.json", readRisk);
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_read_requested`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -79,7 +98,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   const readDecision = mockPolicyDecision(workspaceRoot, readRequest);
   await assertValid(input.repoRoot, "policy-decision.schema.json", readDecision);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_read_policy`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -89,7 +108,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   }));
 
   const readResult = await readLocalFileThroughPolicy(readRequest, readDecision);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_read_result`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -100,8 +119,12 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   const writeRequest = createFileWriteRequest(runId, outputPath);
   await assertValid(input.repoRoot, "tool-request.schema.json", writeRequest);
+  const writeRisk = composeRisk(writeRequest);
+  await assertValid(input.repoRoot, "risk-composition.schema.json", writeRisk);
   const writePreDecision = mockPolicyDecision(workspaceRoot, writeRequest);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  const approvalCard = createApprovalCard(writeRequest, writePreDecision);
+  await assertValid(input.repoRoot, "approval-card.schema.json", approvalCard);
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_write_policy_ask`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -116,7 +139,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   let verification: VerificationRecord | undefined;
 
   if (!input.approveWrite) {
-    await appendEvent(input.repoRoot, workspace, eventRecord({
+    await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
       id: `evt_${runId}_completed_without_write`,
       workspace_id: workspace.id,
       run_id: runId,
@@ -124,13 +147,19 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
       actor: { type: "system", id: "tui.orchestrator" },
       summary: "Run stopped before write because approval was not provided."
     }));
+    await completeRunManifest(input.repoRoot, workspace, runManifest, "blocked");
     return {
       workspace,
+      workspaceRegistry,
+      runManifest,
       runId,
       readRequest,
+      readRisk,
       readDecision,
       writeRequest,
+      writeRisk,
       writePreDecision,
+      approvalCard,
       trace: await reconstructTrace(workspace, runId)
     };
   }
@@ -150,7 +179,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     }
   };
   await assertValid(input.repoRoot, "consent-record.schema.json", consent);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_consent`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -162,7 +191,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   writeDecision = approveWriteWithConsent(workspaceRoot, writeRequest, consent);
   await assertValid(input.repoRoot, "policy-decision.schema.json", writeDecision);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_write_policy`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -173,7 +202,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 
   const summaryText = input.summaryText ?? defaultSummary(readResult.contents);
   const writeResult = await writeLocalFileThroughPolicy(writeRequest, writeDecision, summaryText);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_write_action`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -190,7 +219,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   }));
   await assertValid(input.repoRoot, "observation-record.schema.json", observation);
   await assertValid(input.repoRoot, "verification-record.schema.json", verification);
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_observation`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -198,7 +227,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "verifier" },
     summary: observation.summary
   }));
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_verification`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -206,7 +235,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "verifier" },
     summary: verification.summary
   }));
-  await appendEvent(input.repoRoot, workspace, eventRecord({
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_completed`,
     workspace_id: workspace.id,
     run_id: runId,
@@ -214,20 +243,31 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "tui.orchestrator" },
     summary: "TUI local kernel loop completed."
   }));
+  await completeRunManifest(input.repoRoot, workspace, runManifest, "completed");
 
   return {
     workspace,
+    workspaceRegistry,
+    runManifest,
     runId,
     readRequest,
+    readRisk,
     readDecision,
     writeRequest,
+    writeRisk,
     writePreDecision,
+    approvalCard,
     consent,
     writeDecision,
     observation,
     verification,
     trace: await reconstructTrace(workspace, runId)
   };
+}
+
+async function appendRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, event: ReturnType<typeof eventRecord>): Promise<void> {
+  await appendEvent(repoRoot, workspace, event);
+  await recordRunEvent(repoRoot, workspace, manifest, event.id);
 }
 
 function defaultSummary(contents: string): string {

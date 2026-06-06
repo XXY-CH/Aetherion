@@ -1,4 +1,5 @@
 import { relative, resolve } from "node:path";
+import { composeRisk } from "./risk.ts";
 
 export type ToolRequest = {
   id: string;
@@ -131,6 +132,7 @@ export function mockPolicyDecision(workspaceRoot: string, request: ToolRequest):
   const resolvedTarget = resolve(targetPath);
   const relativeTarget = relative(resolvedWorkspace, resolvedTarget);
   const insideWorkspace = relativeTarget !== "" && !relativeTarget.startsWith("..") && !relativeTarget.startsWith("/");
+  const risk = composeRisk(request);
 
   if (request.operation.verb !== "read") {
     if (request.operation.verb === "write") {
@@ -149,7 +151,7 @@ export function mockPolicyDecision(workspaceRoot: string, request: ToolRequest):
     id: `policy_${request.run_id}_allow_read`,
     tool_request_id: request.id,
     decision: "allow",
-    risk_level: "L1",
+    risk_level: risk.risk_level,
     reason: "Explicit user request for workspace-scoped local file read.",
     lease: {
       id: `lease_${request.run_id}_read`,
@@ -186,6 +188,7 @@ export function approveWriteWithConsent(workspaceRoot: string, request: ToolRequ
       expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       scope: {
         tools: ["filesystem.write"],
+        actions: ["write"],
         paths: [boundary.resolvedTarget],
         egress: ["local_artifact_store"],
         denied: ["read_home", "read_secrets", "external_send"]

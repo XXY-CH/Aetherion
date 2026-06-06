@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/risk-composition.schema.json",
+  "title": "RiskComposition",
+  "type": "object",
+  "required": ["id", "tool_request_id", "risk_level", "factors", "decision_hint"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^risk_[A-Za-z0-9_-]+$" },
+    "tool_request_id": { "type": "string", "minLength": 1 },
+    "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "factors": {
+      "type": "object",
+      "required": ["action_type", "target_resource", "side_effect", "reversibility", "data_sensitivity", "egress"],
+      "additionalProperties": true,
+      "properties": {
+        "action_type": { "type": "string" },
+        "target_resource": { "type": "string" },
+        "side_effect": { "type": "string" },
+        "reversibility": { "type": "string" },
+        "data_sensitivity": { "type": "string" },
+        "egress": { "type": "string" }
+      }
+    },
+    "decision_hint": { "type": "string", "enum": ["allow", "ask", "deny", "sandbox_only"] },
+    "reason": { "type": "string" }
+  }
+}

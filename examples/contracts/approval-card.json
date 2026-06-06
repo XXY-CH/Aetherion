@@ -1,0 +1,14 @@
+{
+  "id": "approval_run_example_write",
+  "tool_request_id": "toolreq_run_example_write",
+  "risk_level": "L3",
+  "target": "file:///tmp/aetherion-workspace/.aetherion/SUMMARY.md",
+  "expected_effect": "Create or replace a workspace-scoped summary file",
+  "scope": {
+    "actions": ["write"],
+    "resources": ["/tmp/aetherion-workspace/.aetherion/SUMMARY.md"],
+    "egress": ["local_artifact_store"],
+    "ttl_seconds": 300
+  },
+  "choices": ["approve_once", "deny"]
+}

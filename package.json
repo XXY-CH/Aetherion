@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test packages/harness-core/test/*.test.ts packages/tui/test/*.test.ts packages/computer-use/test/*.test.ts packages/connector-sdk/test/*.test.ts",
+    "test": "node --test packages/*/test/*.test.ts",
     "test:rust": "cargo test",
     "test:all": "npm test && cargo test",
-    "tui": "node packages/tui/src/cli.ts"
+    "ether": "node packages/tui/src/cli.ts"
   },
   "engines": {
     "node": ">=25"

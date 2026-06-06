@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/memory-fold.schema.json",
+  "title": "MemoryFold",
+  "type": "object",
+  "required": ["id", "folded_from", "proposed_memory_id", "confidence", "review_status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^fold_[A-Za-z0-9_-]+$" },
+    "folded_from": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "proposed_memory_id": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "review_status": { "type": "string", "enum": ["pending", "accepted", "rejected"] }
+  }
+}

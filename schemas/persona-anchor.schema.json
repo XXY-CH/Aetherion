@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/persona-anchor.schema.json",
+  "title": "PersonaAnchor",
+  "type": "object",
+  "required": ["id", "content", "source_events", "confidence", "ttl", "allowed_contexts", "blocked_contexts", "review_status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^anchor_[A-Za-z0-9_-]+$" },
+    "content": { "type": "string", "minLength": 1 },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "ttl": { "type": "string", "minLength": 1 },
+    "allowed_contexts": { "type": "array", "items": { "type": "string" } },
+    "blocked_contexts": { "type": "array", "items": { "type": "string" } },
+    "review_status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+    "sensitivity": { "type": "string" }
+  }
+}

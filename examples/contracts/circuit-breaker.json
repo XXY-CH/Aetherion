@@ -1,0 +1,7 @@
+{
+  "id": "breaker_budget_exhausted",
+  "trigger": "budget_exhausted",
+  "status": "open",
+  "event_id": "evt_budget_exhausted",
+  "reason": "Child agent exceeded tool-call budget."
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/workspace-registry.schema.json",
+  "title": "WorkspaceRegistry",
+  "type": "object",
+  "required": ["id", "root", "created_at", "authority", "runtime_dir"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "root": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "authority": { "type": "string", "enum": ["typescript-seed", "rust-supervisor"] },
+    "runtime_dir": { "type": "string", "minLength": 1 },
+    "ledger_path": { "type": "string", "minLength": 1 }
+  }
+}

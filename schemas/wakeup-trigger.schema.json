@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/wakeup-trigger.schema.json",
+  "title": "WakeupTrigger",
+  "type": "object",
+  "required": ["id", "hibernation_id", "source", "status", "policy_recheck_required"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^wake_[A-Za-z0-9_-]+$" },
+    "hibernation_id": { "type": "string" },
+    "source": { "type": "string", "enum": ["manual", "file", "deadline", "webhook", "im"] },
+    "status": { "type": "string", "enum": ["queued", "resumed", "discarded", "expired"] },
+    "policy_recheck_required": { "type": "boolean" }
+  }
+}

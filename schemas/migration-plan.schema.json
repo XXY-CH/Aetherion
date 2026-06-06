@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/migration-plan.schema.json",
+  "title": "MigrationPlan",
+  "type": "object",
+  "required": ["id", "source", "mode", "steps", "authority_policy"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^migration_plan_[A-Za-z0-9_-]+$" },
+    "source": { "type": "string", "enum": ["openclaw", "hermes", "openhuman", "generic"] },
+    "mode": { "type": "string", "enum": ["dry_run", "apply"] },
+    "steps": { "type": "array", "items": { "type": "string" } },
+    "authority_policy": { "type": "string", "enum": ["report_only", "vault_refs_only", "fresh_approval_required"] }
+  }
+}

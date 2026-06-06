@@ -1,0 +1,7 @@
+{
+  "id": "wake_run_example_manual",
+  "hibernation_id": "hibernate_run_example",
+  "source": "manual",
+  "status": "queued",
+  "policy_recheck_required": true
+}

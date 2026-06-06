@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/event-checkpoint.schema.json",
+  "title": "EventCheckpoint",
+  "type": "object",
+  "required": ["id", "run_id", "event_id", "created_at", "replay_mode", "active_leases_reusable"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^checkpoint_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "event_id": { "type": "string" },
+    "event_hash": { "type": "string" },
+    "created_at": { "type": "string" },
+    "replay_mode": { "type": "string", "enum": ["trace", "simulation"] },
+    "active_leases_reusable": { "type": "boolean" }
+  }
+}

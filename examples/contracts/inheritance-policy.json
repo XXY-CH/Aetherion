@@ -1,0 +1,6 @@
+{
+  "id": "inheritance_default",
+  "allowed": ["approved_memory", "public_history_refs"],
+  "denied": ["raw_secrets", "oauth_grants", "active_leases"],
+  "requires_fresh_approval": ["confidential_memory", "device_authority"]
+}
