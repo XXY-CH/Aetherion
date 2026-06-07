@@ -3,7 +3,7 @@
   "$id": "https://aetherion.local/schemas/event.schema.json",
   "title": "Event",
   "type": "object",
-  "required": ["id", "timestamp", "workspace_id", "run_id", "event_type", "actor", "summary", "sensitivity", "taint"],
+  "required": ["id", "timestamp", "workspace_id", "run_id", "event_type", "actor", "summary", "hash_version", "sensitivity", "taint"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
@@ -65,6 +65,7 @@
       }
     },
     "summary": { "type": "string", "minLength": 1 },
+    "hash_version": { "type": "string", "enum": ["aetherion-event-v1"] },
     "payload_ref": { "type": "string" },
     "parent_event_id": { "type": "string" },
     "parent_event_hash": { "type": "string" },

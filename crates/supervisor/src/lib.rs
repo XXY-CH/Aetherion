@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const EVENT_HASH_VERSION_V1: &str = "aetherion-event-v1";
 
 #[derive(Debug, Clone)]
 pub struct Workspace {
@@ -70,6 +73,16 @@ struct EventHashInput<'a> {
     payload_ref: Option<&'a str>,
     parent_event_id: Option<&'a str>,
     parent_event_hash: Option<&'a str>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(String),
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(BTreeMap<String, JsonValue>),
 }
 
 pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Result<Workspace> {
@@ -155,46 +168,73 @@ fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
             continue;
         }
         let line_number = index + 1;
-        let event_id = required_json_string_field(line, "id", line_number)?;
-        let timestamp = required_json_string_field(line, "timestamp", line_number)?;
-        let workspace_id = required_json_string_field(line, "workspace_id", line_number)?;
-        let run_id = required_json_string_field(line, "run_id", line_number)?;
-        let event_type = required_json_string_field(line, "event_type", line_number)?;
-        let summary = required_json_string_field(line, "summary", line_number)?;
-        let payload_ref = json_string_field(line, "payload_ref");
-        let parent_event_id = json_string_field(line, "parent_event_id");
-        let parent_event_hash = json_string_field(line, "parent_event_hash");
-        let event_hash = required_json_string_field(line, "event_hash", line_number)?;
+        let parsed = parse_json(line).map_err(|reason| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid ledger JSON at line {line_number}: {reason}"),
+            )
+        })?;
+        let object = json_object(&parsed, line_number)?;
+        let event_id = required_object_string(object, "id", line_number)?;
+        let parent_event_id = optional_object_string(object, "parent_event_id", line_number)?;
+        let parent_event_hash = optional_object_string(object, "parent_event_hash", line_number)?;
+        let event_hash = required_object_string(object, "event_hash", line_number)?;
         if parent_event_id != previous_id || parent_event_hash != previous_hash {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("ledger parent chain mismatch at line {line_number}"),
             ));
         }
-        if is_supervisor_authored_event(line) {
-            let expected_hash = format!(
-                "sha256:{}",
-                sha256_hex(
-                    canonical_event_json(&EventHashInput {
-                        event_id: &event_id,
-                        timestamp: &timestamp,
-                        workspace_id: &workspace_id,
-                        run_id: &run_id,
-                        event_type: &event_type,
-                        summary: &summary,
-                        payload_ref: payload_ref.as_deref(),
-                        parent_event_id: parent_event_id.as_deref(),
-                        parent_event_hash: parent_event_hash.as_deref(),
-                    })
-                    .as_bytes()
-                )
-            );
-            if event_hash != expected_hash {
+        match optional_object_string(object, "hash_version", line_number)?.as_deref() {
+            Some(EVENT_HASH_VERSION_V1) => {
+                let expected_hash = event_hash_v1(&parsed, line_number)?;
+                if event_hash != expected_hash {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("ledger event hash mismatch at line {line_number}"),
+                    ));
+                }
+            }
+            Some(version) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("ledger supervisor event hash mismatch at line {line_number}"),
+                    format!("unsupported ledger hash version {version} at line {line_number}"),
                 ));
             }
+            None if is_supervisor_authored_event(object) => {
+                let timestamp = required_object_string(object, "timestamp", line_number)?;
+                let workspace_id = required_object_string(object, "workspace_id", line_number)?;
+                let run_id = required_object_string(object, "run_id", line_number)?;
+                let event_type = required_object_string(object, "event_type", line_number)?;
+                let summary = required_object_string(object, "summary", line_number)?;
+                let payload_ref = optional_object_string(object, "payload_ref", line_number)?;
+                let expected_hash = format!(
+                    "sha256:{}",
+                    sha256_hex(
+                        canonical_legacy_event_json(&EventHashInput {
+                            event_id: &event_id,
+                            timestamp: &timestamp,
+                            workspace_id: &workspace_id,
+                            run_id: &run_id,
+                            event_type: &event_type,
+                            summary: &summary,
+                            payload_ref: payload_ref.as_deref(),
+                            parent_event_id: parent_event_id.as_deref(),
+                            parent_event_hash: parent_event_hash.as_deref(),
+                        })
+                        .as_bytes()
+                    )
+                );
+                if event_hash != expected_hash {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "ledger legacy supervisor event hash mismatch at line {line_number}"
+                        ),
+                    ));
+                }
+            }
+            None => {}
         }
         previous_id = Some(event_id);
         previous_hash = Some(event_hash);
@@ -202,8 +242,22 @@ fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn required_json_string_field(line: &str, key: &str, line_number: usize) -> io::Result<String> {
-    json_string_field(line, key).ok_or_else(|| {
+fn json_object(value: &JsonValue, line_number: usize) -> io::Result<&BTreeMap<String, JsonValue>> {
+    match value {
+        JsonValue::Object(object) => Ok(object),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ledger line {line_number} must be a JSON object"),
+        )),
+    }
+}
+
+fn required_object_string(
+    object: &BTreeMap<String, JsonValue>,
+    key: &str,
+    line_number: usize,
+) -> io::Result<String> {
+    optional_object_string(object, key, line_number)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("ledger line {line_number} missing string field {key}"),
@@ -211,8 +265,50 @@ fn required_json_string_field(line: &str, key: &str, line_number: usize) -> io::
     })
 }
 
-fn is_supervisor_authored_event(line: &str) -> bool {
-    line.contains("\"actor\":{\"type\":\"system\",\"id\":\"local_supervisor\"}")
+fn optional_object_string(
+    object: &BTreeMap<String, JsonValue>,
+    key: &str,
+    line_number: usize,
+) -> io::Result<Option<String>> {
+    match object.get(key) {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ledger line {line_number} field {key} must be a string"),
+        )),
+    }
+}
+
+fn is_supervisor_authored_event(object: &BTreeMap<String, JsonValue>) -> bool {
+    let Some(JsonValue::Object(actor)) = object.get("actor") else {
+        return false;
+    };
+    matches!(
+        (actor.get("type"), actor.get("id")),
+        (
+            Some(JsonValue::String(actor_type)),
+            Some(JsonValue::String(actor_id))
+        ) if actor_type == "system" && actor_id == "local_supervisor"
+    )
+}
+
+fn event_hash_v1(value: &JsonValue, line_number: usize) -> io::Result<String> {
+    let JsonValue::Object(object) = value else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ledger line {line_number} must be a JSON object"),
+        ));
+    };
+    let mut without_hash = object.clone();
+    if without_hash.remove("event_hash").is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ledger line {line_number} missing string field event_hash"),
+        ));
+    }
+    let canonical = canonical_json(&JsonValue::Object(without_hash));
+    Ok(format!("sha256:{}", sha256_hex(canonical.as_bytes())))
 }
 
 pub fn append_event(
@@ -251,7 +347,7 @@ pub fn append_event_with_payload(
     let parent_event_hash = previous
         .as_deref()
         .and_then(|line| json_string_field(line, "event_hash"));
-    let canonical = canonical_event_json(&EventHashInput {
+    let canonical = canonical_event_json_v1(&EventHashInput {
         event_id: &event_id,
         timestamp: &timestamp,
         workspace_id: &workspace.id,
@@ -275,13 +371,14 @@ pub fn append_event_with_payload(
         .map(|value| format!(",\"payload_ref\":\"{}\"", escape_json(value)))
         .unwrap_or_default();
     let event_line = format!(
-        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\"{}{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
+        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\",\"hash_version\":\"{}\"{}{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
         escape_json(&event_id),
         escape_json(&timestamp),
         escape_json(&workspace.id),
         escape_json(run_id),
         escape_json(event_type),
         escape_json(summary),
+        EVENT_HASH_VERSION_V1,
         payload_field,
         parent_fields,
         event_hash
@@ -612,11 +709,7 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
 }
 
 fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    escape_json_canonical(value)
 }
 
 fn sanitize_id(value: &str) -> String {
@@ -632,7 +725,38 @@ fn sanitize_id(value: &str) -> String {
         .collect()
 }
 
-fn canonical_event_json(input: &EventHashInput<'_>) -> String {
+fn canonical_event_json_v1(input: &EventHashInput<'_>) -> String {
+    let mut fields = vec![
+        "\"actor\":{\"id\":\"local_supervisor\",\"type\":\"system\"}".to_string(),
+        format!("\"event_type\":\"{}\"", escape_json(input.event_type)),
+        format!("\"hash_version\":\"{}\"", EVENT_HASH_VERSION_V1),
+        format!("\"id\":\"{}\"", escape_json(input.event_id)),
+    ];
+    if let (Some(parent_id), Some(parent_hash)) = (input.parent_event_id, input.parent_event_hash) {
+        fields.push(format!(
+            "\"parent_event_hash\":\"{}\"",
+            escape_json(parent_hash)
+        ));
+        fields.push(format!(
+            "\"parent_event_id\":\"{}\"",
+            escape_json(parent_id)
+        ));
+    }
+    if let Some(payload_ref) = input.payload_ref {
+        fields.push(format!("\"payload_ref\":\"{}\"", escape_json(payload_ref)));
+    }
+    fields.extend([
+        format!("\"run_id\":\"{}\"", escape_json(input.run_id)),
+        "\"sensitivity\":\"private\"".to_string(),
+        format!("\"summary\":\"{}\"", escape_json(input.summary)),
+        "\"taint\":{\"can_authorize_actions\":false,\"sources\":[\"trusted_system\"]}".to_string(),
+        format!("\"timestamp\":\"{}\"", escape_json(input.timestamp)),
+        format!("\"workspace_id\":\"{}\"", escape_json(input.workspace_id)),
+    ]);
+    format!("{{{}}}", fields.join(","))
+}
+
+fn canonical_legacy_event_json(input: &EventHashInput<'_>) -> String {
     let mut fields = vec![
         "\"actor\":{\"id\":\"local_supervisor\",\"type\":\"system\"}".to_string(),
         format!("\"event_type\":\"{}\"", escape_json(input.event_type)),
@@ -660,6 +784,320 @@ fn canonical_event_json(input: &EventHashInput<'_>) -> String {
         format!("\"workspace_id\":\"{}\"", escape_json(input.workspace_id)),
     ]);
     format!("{{{}}}", fields.join(","))
+}
+
+fn parse_json(input: &str) -> Result<JsonValue, String> {
+    let mut parser = JsonParser {
+        bytes: input.as_bytes(),
+        position: 0,
+    };
+    let value = parser.parse_value()?;
+    parser.skip_whitespace();
+    if parser.position != parser.bytes.len() {
+        return Err(format!(
+            "unexpected trailing data at byte {}",
+            parser.position
+        ));
+    }
+    Ok(value)
+}
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    position: usize,
+}
+
+impl JsonParser<'_> {
+    fn parse_value(&mut self) -> Result<JsonValue, String> {
+        self.skip_whitespace();
+        match self.peek_byte() {
+            Some(b'n') => {
+                self.consume_literal(b"null")?;
+                Ok(JsonValue::Null)
+            }
+            Some(b't') => {
+                self.consume_literal(b"true")?;
+                Ok(JsonValue::Bool(true))
+            }
+            Some(b'f') => {
+                self.consume_literal(b"false")?;
+                Ok(JsonValue::Bool(false))
+            }
+            Some(b'"') => self.parse_string().map(JsonValue::String),
+            Some(b'[') => self.parse_array(),
+            Some(b'{') => self.parse_object(),
+            Some(b'-' | b'0'..=b'9') => self.parse_number().map(JsonValue::Number),
+            Some(other) => Err(format!(
+                "unexpected byte {} at byte {}",
+                other, self.position
+            )),
+            None => Err("unexpected end of JSON".to_string()),
+        }
+    }
+
+    fn parse_array(&mut self) -> Result<JsonValue, String> {
+        self.expect_byte(b'[')?;
+        self.skip_whitespace();
+        let mut values = Vec::new();
+        if self.consume_if(b']') {
+            return Ok(JsonValue::Array(values));
+        }
+        loop {
+            values.push(self.parse_value()?);
+            self.skip_whitespace();
+            if self.consume_if(b']') {
+                return Ok(JsonValue::Array(values));
+            }
+            self.expect_byte(b',')?;
+        }
+    }
+
+    fn parse_object(&mut self) -> Result<JsonValue, String> {
+        self.expect_byte(b'{')?;
+        self.skip_whitespace();
+        let mut fields = BTreeMap::new();
+        if self.consume_if(b'}') {
+            return Ok(JsonValue::Object(fields));
+        }
+        loop {
+            self.skip_whitespace();
+            let key = self.parse_string()?;
+            self.skip_whitespace();
+            self.expect_byte(b':')?;
+            let value = self.parse_value()?;
+            if fields.insert(key.clone(), value).is_some() {
+                return Err(format!("duplicate JSON object key {key}"));
+            }
+            self.skip_whitespace();
+            if self.consume_if(b'}') {
+                return Ok(JsonValue::Object(fields));
+            }
+            self.expect_byte(b',')?;
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String, String> {
+        self.expect_byte(b'"')?;
+        let mut output = String::new();
+        let mut segment_start = self.position;
+        while let Some(byte) = self.peek_byte() {
+            match byte {
+                b'"' => {
+                    output.push_str(self.utf8_segment(segment_start, self.position)?);
+                    self.position += 1;
+                    return Ok(output);
+                }
+                b'\\' => {
+                    output.push_str(self.utf8_segment(segment_start, self.position)?);
+                    self.position += 1;
+                    let escape = self
+                        .next_byte()
+                        .ok_or_else(|| "unterminated JSON escape".to_string())?;
+                    match escape {
+                        b'"' => output.push('"'),
+                        b'\\' => output.push('\\'),
+                        b'/' => output.push('/'),
+                        b'b' => output.push('\u{0008}'),
+                        b'f' => output.push('\u{000c}'),
+                        b'n' => output.push('\n'),
+                        b'r' => output.push('\r'),
+                        b't' => output.push('\t'),
+                        b'u' => output.push(self.parse_unicode_escape()?),
+                        other => {
+                            return Err(format!(
+                                "invalid JSON escape {} at byte {}",
+                                other,
+                                self.position.saturating_sub(1)
+                            ));
+                        }
+                    }
+                    segment_start = self.position;
+                }
+                0x00..=0x1f => {
+                    return Err(format!(
+                        "unescaped control character at byte {}",
+                        self.position
+                    ));
+                }
+                _ => self.position += 1,
+            }
+        }
+        Err("unterminated JSON string".to_string())
+    }
+
+    fn parse_unicode_escape(&mut self) -> Result<char, String> {
+        let first = self.parse_hex_quad()?;
+        if (0xd800..=0xdbff).contains(&first) {
+            self.expect_byte(b'\\')?;
+            self.expect_byte(b'u')?;
+            let second = self.parse_hex_quad()?;
+            if !(0xdc00..=0xdfff).contains(&second) {
+                return Err("invalid JSON low surrogate".to_string());
+            }
+            let codepoint = 0x10000 + (((first - 0xd800) as u32) << 10) + (second - 0xdc00) as u32;
+            char::from_u32(codepoint).ok_or_else(|| "invalid JSON codepoint".to_string())
+        } else if (0xdc00..=0xdfff).contains(&first) {
+            Err("unexpected JSON low surrogate".to_string())
+        } else {
+            char::from_u32(first as u32).ok_or_else(|| "invalid JSON codepoint".to_string())
+        }
+    }
+
+    fn parse_hex_quad(&mut self) -> Result<u16, String> {
+        let mut value = 0u16;
+        for _ in 0..4 {
+            let byte = self
+                .next_byte()
+                .ok_or_else(|| "incomplete JSON unicode escape".to_string())?;
+            let digit = match byte {
+                b'0'..=b'9' => (byte - b'0') as u16,
+                b'a'..=b'f' => (byte - b'a' + 10) as u16,
+                b'A'..=b'F' => (byte - b'A' + 10) as u16,
+                _ => return Err("invalid JSON unicode escape".to_string()),
+            };
+            value = (value << 4) | digit;
+        }
+        Ok(value)
+    }
+
+    fn parse_number(&mut self) -> Result<String, String> {
+        let start = self.position;
+        self.consume_if(b'-');
+        match self.peek_byte() {
+            Some(b'0') => self.position += 1,
+            Some(b'1'..=b'9') => {
+                self.position += 1;
+                while matches!(self.peek_byte(), Some(b'0'..=b'9')) {
+                    self.position += 1;
+                }
+            }
+            _ => return Err(format!("invalid JSON number at byte {start}")),
+        }
+        if self.consume_if(b'.') {
+            let fraction_start = self.position;
+            while matches!(self.peek_byte(), Some(b'0'..=b'9')) {
+                self.position += 1;
+            }
+            if self.position == fraction_start {
+                return Err(format!("invalid JSON fraction at byte {start}"));
+            }
+        }
+        if matches!(self.peek_byte(), Some(b'e' | b'E')) {
+            self.position += 1;
+            if matches!(self.peek_byte(), Some(b'+' | b'-')) {
+                self.position += 1;
+            }
+            let exponent_start = self.position;
+            while matches!(self.peek_byte(), Some(b'0'..=b'9')) {
+                self.position += 1;
+            }
+            if self.position == exponent_start {
+                return Err(format!("invalid JSON exponent at byte {start}"));
+            }
+        }
+        self.utf8_segment(start, self.position).map(str::to_string)
+    }
+
+    fn consume_literal(&mut self, literal: &[u8]) -> Result<(), String> {
+        if self.bytes.get(self.position..self.position + literal.len()) == Some(literal) {
+            self.position += literal.len();
+            Ok(())
+        } else {
+            Err(format!("invalid JSON literal at byte {}", self.position))
+        }
+    }
+
+    fn expect_byte(&mut self, expected: u8) -> Result<(), String> {
+        self.skip_whitespace();
+        match self.next_byte() {
+            Some(actual) if actual == expected => Ok(()),
+            Some(actual) => Err(format!(
+                "expected byte {expected}, found {actual} at byte {}",
+                self.position.saturating_sub(1)
+            )),
+            None => Err(format!("expected byte {expected}, found end of JSON")),
+        }
+    }
+
+    fn consume_if(&mut self, expected: u8) -> bool {
+        self.skip_whitespace();
+        if self.peek_byte() == Some(expected) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.peek_byte(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
+            self.position += 1;
+        }
+    }
+
+    fn peek_byte(&self) -> Option<u8> {
+        self.bytes.get(self.position).copied()
+    }
+
+    fn next_byte(&mut self) -> Option<u8> {
+        let byte = self.peek_byte()?;
+        self.position += 1;
+        Some(byte)
+    }
+
+    fn utf8_segment(&self, start: usize, end: usize) -> Result<&str, String> {
+        std::str::from_utf8(&self.bytes[start..end])
+            .map_err(|_| format!("invalid UTF-8 in JSON string at byte {start}"))
+    }
+}
+
+fn canonical_json(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(value) => value.to_string(),
+        JsonValue::Number(value) => value.clone(),
+        JsonValue::String(value) => format!("\"{}\"", escape_json_canonical(value)),
+        JsonValue::Array(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_json)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        JsonValue::Object(fields) => format!(
+            "{{{}}}",
+            fields
+                .iter()
+                .map(|(key, value)| format!(
+                    "\"{}\":{}",
+                    escape_json_canonical(key),
+                    canonical_json(value)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    }
+}
+
+fn escape_json_canonical(value: &str) -> String {
+    let mut escaped = String::new();
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\u{000c}' => escaped.push_str("\\f"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{0000}'..='\u{001f}' => {
+                escaped.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn json_string_field(line: &str, key: &str) -> Option<String> {
@@ -1021,7 +1459,52 @@ mod tests {
 
         let error = init_workspace(&root, "ws_rust_corrupt").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("supervisor event hash mismatch"));
+        assert!(error.to_string().contains("ledger event hash mismatch"));
+    }
+
+    #[test]
+    fn startup_recovery_verifies_typescript_authored_v1_events() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-cross-lang-{}", now_nanos()));
+        let event_dir = root.join(".aetherion").join("events");
+        fs::create_dir_all(&event_dir).unwrap();
+        let ledger_path = event_dir.join("events.jsonl");
+        let typescript_event = r#"{"id":"evt_cross_language_001","timestamp":"2026-06-07T10:00:00.000Z","workspace_id":"ws_cross_language","run_id":"run_cross_language","event_type":"user.message","actor":{"type":"user","id":"user_local"},"summary":"Cross-language hash\nverified","hash_version":"aetherion-event-v1","payload_ref":"artifact://cross/demo","sensitivity":"private","taint":{"sources":["user","public_web"],"can_authorize_actions":true},"retention":{"ttl":"30d","user_deletable":true},"links":["evt_source"],"event_hash":"sha256:d655e8b6de65915bce7c0cccb2eb03aa613fc7a864fcbfab08331499169e1afa"}"#;
+        fs::write(&ledger_path, format!("{typescript_event}\n")).unwrap();
+
+        let workspace = init_workspace(&root, "ws_cross_language").unwrap();
+        assert_eq!(workspace.ledger_path, ledger_path);
+
+        let tampered = typescript_event.replace("hash\\nverified", "hash\\ntampered");
+        fs::write(&workspace.ledger_path, format!("{tampered}\n")).unwrap();
+        let error = init_workspace(&root, "ws_cross_language").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("ledger event hash mismatch"));
+    }
+
+    #[test]
+    fn startup_recovery_accepts_legacy_supervisor_hashes_but_rejects_unknown_versions() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-legacy-{}", now_nanos()));
+        let event_dir = root.join(".aetherion").join("events");
+        fs::create_dir_all(&event_dir).unwrap();
+        let ledger_path = event_dir.join("events.jsonl");
+        let legacy_event = r#"{"id":"evt_legacy_supervisor_001","timestamp":"2026-06-07T09:00:00.000Z","workspace_id":"ws_legacy","run_id":"run_legacy","event_type":"run.started","actor":{"type":"system","id":"local_supervisor"},"summary":"Legacy supervisor event","event_hash":"sha256:9c48664046cc527cb361ae577bfff89107fa57110bde06845cdf0b532ebbe7df","sensitivity":"private","taint":{"sources":["trusted_system"],"can_authorize_actions":false}}"#;
+        fs::write(&ledger_path, format!("{legacy_event}\n")).unwrap();
+
+        let workspace = init_workspace(&root, "ws_legacy").unwrap();
+        assert_eq!(workspace.ledger_path, ledger_path);
+
+        let unknown_version = legacy_event.replace(
+            "\"event_hash\":",
+            "\"hash_version\":\"aetherion-event-v999\",\"event_hash\":",
+        );
+        fs::write(&workspace.ledger_path, format!("{unknown_version}\n")).unwrap();
+        let error = init_workspace(&root, "ws_legacy").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error
+            .to_string()
+            .contains("unsupported ledger hash version"));
     }
 
     #[test]
@@ -1039,6 +1522,24 @@ mod tests {
             rfc3339_from_unix_millis(1_704_067_200, 123),
             "2024-01-01T00:00:00.123Z"
         );
+    }
+
+    #[test]
+    fn supervisor_events_escape_control_characters_and_recover_unicode() {
+        let root = std::env::temp_dir().join(format!("aetherion-supervisor-json-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_json").unwrap();
+        append_event(
+            &workspace,
+            "observation.recorded",
+            "run_rust_json",
+            "Unicode 灵魂\tverified\nnext line",
+        )
+        .unwrap();
+
+        let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
+        assert!(ledger.contains("Unicode 灵魂\\tverified\\nnext line"));
+        init_workspace(&root, "ws_rust_json").unwrap();
     }
 
     fn assert_no_ledger_temp_files(workspace: &Workspace) {

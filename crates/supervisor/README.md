@@ -5,7 +5,8 @@ Rust proof-of-concept for the future Local Supervisor authority boundary.
 Current scope:
 
 - Workspace initialization.
-- Append SHA-256-linked JSONL events compatible with Ether trace verification.
+- Append `aetherion-event-v1` SHA-256-linked JSONL events compatible with Ether trace verification.
+- Canonicalize complete v1 event envelopes identically with TypeScript, verify all v1 authors on startup, and preserve compatibility verification for legacy supervisor events.
 - Serialize event appends with a workspace-local lock, write through synced temp files and atomic rename, clean abandoned temp files on startup, and reject corrupt hash chains.
 - Evaluate a tiny deterministic local file policy.
 - Issue scoped leases for workspace-local reads and approval-gated writes.

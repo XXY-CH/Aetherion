@@ -117,7 +117,7 @@ The repository contains the contract-first kernel workspace:
 - `packages/tui/`: V1 terminal surface for the same local kernel loop.
 - `packages/computer-use/`: post-V1 scaffold for policy-gated computer-use adapters.
 - `packages/connector-sdk/`: post-V1 scaffold for quarantined connector imports and policy-gated tool calls.
-- `crates/supervisor/`: Rust Local Supervisor POC used by Ether by default: workspace init, hash-chained JSONL event append, deterministic local file policy, scoped leases, and lease-gated local file read/write.
+- `crates/supervisor/`: Rust Local Supervisor POC used by Ether by default: workspace init, versioned cross-author hash-chained JSONL event append/verification, deterministic local file policy, scoped leases, and lease-gated local file read/write.
 
 Run verification:
 
@@ -131,7 +131,7 @@ cargo test
 The repository now implements the first development wave of the phased plan:
 
 - Phase 1 has a runnable Ether terminal kernel loop with workspace registry, run manifest, append-only event ledger, risk composition, approval card, scoped leases, workspace-bound file read/write, verification, and trace replay.
-- Phase 2 has a Rust supervisor authority-boundary POC used by Ether by default, including lease expiry/wrong-path rejection, hash-chained events, minimal stdio JSON-RPC, and a TypeScript client. The TypeScript authority path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
+- Phase 2 has a Rust supervisor authority-boundary POC used by Ether by default, including lease expiry/wrong-path rejection, `aetherion-event-v1` cross-author hash verification, minimal stdio JSON-RPC, and a TypeScript client. The TypeScript authority path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - Phases 3-12 have source-backed local runtime slices for Memory OS, migration dry-run, sandbox branching/rehearsal, document-only Capability Capsules, causal report projections, queue-only Digital Hibernation, governed Memory Folding, persona branches, authority-free Soul Fork records, one narrow governed child-read executor, hash-only anti-poisoning assessment with Rust-enforced taint denial, and Phase 12 surface/store gates for browser observations, IM inbox/outbox queues, signed Capsule Store installation, and computer-use action/observation contracts. Missing source events, registries, checkpoints, budgets, or capabilities cause failure instead of synthetic fallback data.
 
 These later-phase modules deliberately do not execute external side effects, take over real IM/webhooks, install imported skills, drive browsers/desktops, capture screenshots, or inherit secrets/permissions. They exist to lock the contracts and safety invariants before broader runtime expansion.

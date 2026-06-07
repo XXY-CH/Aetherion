@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 55 passing tests.
-- `cargo test`: 14 passing Rust tests.
+- `npm test`: 58 passing tests.
+- `cargo test`: 17 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -17,8 +17,8 @@ Verification from the latest pass:
 
 | Phase | Plan intent | Current code evidence | Verification evidence | Review status |
 | --- | --- | --- | --- | --- |
-| 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; Rust and test-only TS event hash chains. | Harness and Ether tests cover approval-gated read/write, trace reconstruction, hash-chain validation, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
-| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends SHA-256-linked events behind a workspace-local append lock and sync-then-rename Ledger rewrite; workspace init recovers abandoned temp files, checks the parent chain, and rejects corrupt supervisor-authored event hashes. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, schema-compatible timestamps, concurrent append serialization, atomic rewrite behavior, startup temp cleanup, corrupt supervisor-chain rejection, and RPC JSON contents; Ether integration validates mixed TS/Rust ledgers with `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, and process sandbox remain pending. |
+| 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; versioned `aetherion-event-v1` hash chains shared by Rust and the test-only TS seed. | Harness and Ether tests cover approval-gated read/write, trace reconstruction, cross-author hash-chain validation, fixed canonical hash vectors, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
+| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends versioned SHA-256-linked events behind a workspace-local append lock and sync-then-rename Ledger rewrite; workspace init recovers abandoned temp files and verifies parent continuity plus complete canonical v1 event hashes for every author. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, TS/Rust canonical-vector parity, TS-authored event acceptance, tamper rejection, JSON control-character/Unicode recovery, schema-compatible timestamps, concurrent append serialization, atomic rewrite behavior, startup temp cleanup, and RPC JSON contents; Ether integration validates mixed TS/Rust ledgers with `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, signatures, and process sandbox remain pending. |
 | 3. Memory OS MVP | Grow memory from source events, not opaque vector state. | `packages/memory-os/src/index.ts`; trace-derived candidates, episodic timeline, evidence-only user model, context pack; Ether memory/context commands and registries. | Memory OS tests require source events; Ether tests derive candidates from a real run, accept one, and select it in context explain. | MVP source-backed path implemented. Extraction and ranking remain narrow; missing evidence is not synthesized. |
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
@@ -62,12 +62,13 @@ Matched source docs:
 
 - `docs/01-architecture.md`: Event Ledger is the product source of truth and stores durable envelopes, provenance, hashes, redaction markers, tombstones, and artifact references.
 - `docs/05-audit-and-data-contracts.md`: replay defaults to trace reconstruction or sandbox simulation; live side-effect replay is disabled unless explicitly approved.
-- `docs/10-technical-strategy.md`: the durable Event Ledger belongs in Rust core plus JSONL; hash chain is called out as later work.
+- `docs/10-technical-strategy.md`: the durable Event Ledger belongs in Rust core plus JSONL with versioned hash-chain verification.
 - `docs/11-migration-and-runtime-economics.md`: Git-style branching over Event Ledger checkpoints is feasible, but branches can replay decisions and artifacts, not authority.
 
 Implemented correspondence:
 
-- Rust supervisor and the test-only TS seed append `parent_event_id`, `parent_event_hash`, and SHA-256 `event_hash`.
+- Rust supervisor and the test-only TS seed append `hash_version: aetherion-event-v1`, `parent_event_id`, `parent_event_hash`, and SHA-256 `event_hash`.
+- Both authors hash the same canonical complete event envelope, excluding only `event_hash`. Rust workspace startup verifies every v1 event regardless of actor.
 - `reconstructTrace` verifies the full Ledger prefix through the selected run's last event, then projects that run. This preserves cross-run parent links while exposing `chain_valid`, `head_event_id`, and `head_event_hash` without replaying side effects.
 - `ether replay` now persists a Replay Record artifact and registry entry with `live_side_effects.allowed=false`.
 - `checkpoint` records the selected event id/hash; `branch` copies source/head pointers and keeps `inherits_authority=false`.
@@ -76,7 +77,7 @@ Implemented correspondence:
 Correction from review:
 
 - This is not the final production Event Ledger. Per `docs/10-technical-strategy.md`, the production hash-chain authority still belongs in the Rust Local Supervisor/Event Ledger core.
-- Rust now emits the same hash-chain fields consumed by trace verification, supervisor-authored event timestamps are RFC3339 UTC strings validated against `event.schema.json`, and supervisor-authored appends hold a workspace-local lock while reading the head and preparing the next event. The Ledger file is rewritten through a synced temp file and atomic rename, so an append leaves either the old complete Ledger or the new complete Ledger rather than a partial JSONL line. Workspace init removes abandoned uncommitted temp files, verifies parent continuity across mixed TS/Rust ledgers, and rejects corrupt supervisor-authored event hashes before accepting a workspace. The remaining ledger gap is durability hardening: redaction, signatures, branch-specific append streams, and one canonical cross-author event hash implementation.
+- Rust now emits the same versioned hash-chain fields consumed by trace verification, supervisor-authored event timestamps are RFC3339 UTC strings validated against `event.schema.json`, and supervisor-authored appends hold a workspace-local lock while reading the head and preparing the next event. The Ledger file is rewritten through a synced temp file and atomic rename, so an append leaves either the old complete Ledger or the new complete Ledger rather than a partial JSONL line. Workspace init removes abandoned uncommitted temp files, verifies parent continuity across mixed TS/Rust ledgers, and verifies the complete canonical v1 event hash regardless of author. Legacy unversioned supervisor events retain compatibility verification; legacy non-supervisor migration remains explicit technical debt. The remaining ledger gaps are redaction/rebuild, signatures, branch-specific append streams, legacy migration tooling, and process-aware stale-lock recovery.
 - Branching preserves checkpoint identity and hash pointers and can create an Aetherion-managed temp file workspace under `.aetherion/sandboxes/`; it does not yet create Git worktrees or branch-specific event append streams.
 
 ## Phase 5 Review Notes
@@ -280,7 +281,7 @@ Implemented correspondence:
 - Rust workspace init and event append: `workspace.init`, `event.append`.
 - Rust event append serializes concurrent writers with a ledger lock file before computing parent event pointers and hashes.
 - Rust event append writes through a synced temp Ledger and atomic rename, preserving complete JSONL lines even when the prior file has no trailing newline.
-- Rust workspace init cleans abandoned Ledger temp files, verifies parent continuity, and rejects corrupted supervisor-authored event hashes before any new run proceeds.
+- Rust workspace init cleans abandoned Ledger temp files, verifies parent continuity, and rejects corrupted v1 event hashes from any author before any new run proceeds.
 - Rust policy and leases: `tool.evaluate`, `lease.issue`, `file.read`, `file.write`.
 - TS client path: `callSupervisorRpc` and `runSupervisorKernelLoop`.
 - Ether CLI user path: `npm run ether -- run --supervisor stdio ...`.
@@ -290,7 +291,7 @@ Known gaps before Phase 2 can be called production-ready:
 
 - The Rust stdio RPC parser is dependency-free and intentionally minimal; required fields now fail closed, but it is not a robust general JSON-RPC server.
 - Rust ledger timestamps now use RFC3339 UTC strings, and Ether integration validates supervisor-authored events against `event.schema.json`.
-- Rust supervisor appends are serialized by a local lock and use synced temp-file rename; startup checks remove abandoned uncommitted temp files, verify parent continuity, and reject corrupt supervisor-authored event hashes. Stale active lock recovery is still timeout-based rather than process-aware, and mixed TS/Rust historical ledgers still rely on the TS replay verifier for full cross-author hash validation.
+- Rust supervisor appends are serialized by a local lock and use synced temp-file rename; startup checks remove abandoned uncommitted temp files, verify parent continuity, and reject corrupt canonical v1 event hashes from Rust or TypeScript authors. Stale active lock recovery is still timeout-based rather than process-aware. Legacy unversioned non-supervisor events remain readable but need migration tooling before Rust can prove their full content hash.
 - TS seed path remains test-only and is blocked unless `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - No vault, sandbox process isolation, long-running daemon, connector runtime, or generated-code isolation is implemented.
 

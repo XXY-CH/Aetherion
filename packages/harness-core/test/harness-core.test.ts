@@ -10,6 +10,7 @@ import {
   createFileWriteRequest,
   createTraceReplayRecord,
   createWorkspace,
+  eventContentHash,
   eventRecord,
   readEvents,
   evaluateSeedPolicy,
@@ -122,6 +123,31 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   const childResultValidation = await validateAgainstSchema(repoRoot, "child-result.schema.json", childResult);
   assert.equal(childResultValidation.valid, false);
   assert.ok(childResultValidation.errors.some((error) => error.includes("expected one of false")));
+});
+
+test("event hash v1 has a fixed cross-language canonical vector", () => {
+  const hash = eventContentHash({
+    id: "evt_cross_language_001",
+    timestamp: "2026-06-07T10:00:00.000Z",
+    workspace_id: "ws_cross_language",
+    run_id: "run_cross_language",
+    event_type: "user.message",
+    actor: { type: "user", id: "user_local" },
+    summary: "Cross-language hash\nverified",
+    hash_version: "aetherion-event-v1",
+    payload_ref: "artifact://cross/demo",
+    sensitivity: "private",
+    taint: {
+      sources: ["user", "public_web"],
+      can_authorize_actions: true
+    },
+    retention: {
+      ttl: "30d",
+      user_deletable: true
+    },
+    links: ["evt_source"]
+  });
+  assert.equal(hash, "sha256:d655e8b6de65915bce7c0cccb2eb03aa613fc7a864fcbfab08331499169e1afa");
 });
 
 test("user request -> policy decision -> local file read/write -> verification -> replay reconstruction", async () => {

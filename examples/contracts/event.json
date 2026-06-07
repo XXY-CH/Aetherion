@@ -9,6 +9,7 @@
     "id": "user_local"
   },
   "summary": "User asked Aetherion to read a local project file.",
+  "hash_version": "aetherion-event-v1",
   "sensitivity": "private",
   "taint": {
     "sources": ["user"],

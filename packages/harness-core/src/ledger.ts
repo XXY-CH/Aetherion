@@ -14,6 +14,7 @@ export type EventRecord = {
     id: string;
   };
   summary: string;
+  hash_version: "aetherion-event-v1";
   payload_ref?: string;
   parent_event_id?: string;
   parent_event_hash?: string;
@@ -63,7 +64,7 @@ export async function readEvents(workspace: Workspace): Promise<EventRecord[]> {
     .map((line) => JSON.parse(line) as EventRecord);
 }
 
-export function eventRecord(input: Omit<EventRecord, "timestamp" | "workspace_id" | "sensitivity" | "taint"> & {
+export function eventRecord(input: Omit<EventRecord, "timestamp" | "workspace_id" | "hash_version" | "sensitivity" | "taint"> & {
   workspace_id: string;
   sensitivity?: string;
   taint?: EventRecord["taint"];
@@ -71,6 +72,7 @@ export function eventRecord(input: Omit<EventRecord, "timestamp" | "workspace_id
   return {
     ...input,
     timestamp: new Date().toISOString(),
+    hash_version: "aetherion-event-v1",
     sensitivity: input.sensitivity ?? "private",
     taint: input.taint ?? { sources: ["trusted_system"], can_authorize_actions: false }
   };
@@ -123,7 +125,7 @@ function stableStringify(value: unknown): string {
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
       .filter(([, child]) => child !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
       .join(",")}}`;
   }

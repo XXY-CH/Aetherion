@@ -55,7 +55,7 @@ This constraint prevents surface-area sprawl before the authority boundary is re
 | TUI v0 | TypeScript | Fastest integration with harness-core |
 | Agent Orchestrator prototype | TypeScript | LLM, connector, and schema iteration speed |
 | Local Supervisor | Rust | Root authority, native integration, process control |
-| Event Ledger | Rust core plus JSONL | Durable audit, SHA-256 parent chain, supervisor-local append lock, sync-then-rename ledger writes, and startup recovery scan; signatures later |
+| Event Ledger | Rust core plus JSONL | Durable audit, versioned cross-author SHA-256 parent chain, supervisor-local append lock, sync-then-rename ledger writes, and startup recovery scan; signatures later |
 | Tool Policy Proxy | Rust core | Access/action choke point |
 | Policy language | Typed JSON/YAML first, OPA/Rego later | Stabilize product semantics before advanced DSL |
 | Secret Vault | Rust wrapper | OS keychain and encrypted artifacts |
@@ -119,9 +119,11 @@ Later:
 
 - Initialize a local workspace ledger under `.aetherion/events/events.jsonl`.
 - Append human-readable SHA-256-linked JSONL events.
+- Mark new events with `hash_version: aetherion-event-v1` and hash the complete canonical event envelope, excluding only `event_hash`, identically in TypeScript and Rust.
+- Treat the v1 canonicalization rules as immutable. Any incompatible envelope or value-normalization change requires a new hash version and explicit migration rather than silently changing old hashes.
 - Serialize supervisor-authored event appends with a workspace-local lock file while computing parent pointers and event hashes.
 - Rewrite the Ledger through a synced temporary file and atomic rename so a failed append leaves either the prior complete Ledger or the next complete Ledger.
-- On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, and reject corrupt supervisor-authored event hashes before accepting the workspace.
+- On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, and reject any corrupt v1 event hash regardless of author before accepting the workspace. Legacy unversioned supervisor events retain their original hash verifier.
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
 - Execute local file read/write only through an allowed scoped lease.

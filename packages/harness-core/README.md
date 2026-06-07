@@ -7,7 +7,8 @@ Current scope:
 - Create a workspace runtime directory.
 - Create workspace registry and per-run manifest files.
 - Append typed events to a JSONL event ledger.
-- Verify `parent_event_id`, `parent_event_hash`, and `event_hash` pointers from Rust supervisor events and the test-only TypeScript seed.
+- Create `aetherion-event-v1` hashes over the complete canonical event envelope, excluding only `event_hash`.
+- Verify `parent_event_id`, `parent_event_hash`, and cross-author `event_hash` pointers from Rust supervisor events and the test-only TypeScript seed.
 - Validate events and contract examples against JSON Schemas.
 - Create a tool request for a workspace-scoped file read.
 - Compose seed risk records and deterministic seed policy decisions.

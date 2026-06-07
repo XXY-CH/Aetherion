@@ -64,6 +64,10 @@ channel:
   id: desktop_main
 event_type: user_message | tool_call | tool_result | approval | memory_candidate | capability_candidate | proactive_opportunity | policy_decision
 summary: "User requested initial Aetherion documentation."
+hash_version: aetherion-event-v1
+parent_event_id: event_20260605_000
+parent_event_hash: "sha256:..."
+event_hash: "sha256:..."
 payload_ref: blobs/event_20260605_001.json
 sensitivity: low | medium | high
 taint:
