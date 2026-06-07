@@ -11,6 +11,7 @@ import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createRe
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
+import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
@@ -341,6 +342,12 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       return true;
     case "security":
       await runSecurity(options);
+      return true;
+    case "surface":
+      await runSurface(options);
+      return true;
+    case "store":
+      await runStore(options);
       return true;
     default:
       return false;
@@ -1491,6 +1498,172 @@ async function runSecurity(options: CliOptions): Promise<void> {
   throw new Error("security supports scan, ack <signal_id>, trial <signal_id>, and fixture <signal_id>");
 }
 
+async function runSurface(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
+  if (options.topic === "browser-observe") {
+    if (!options.path || !options.sourceEvent) {
+      throw new Error("surface browser-observe requires --path <observation-input.json> --source-event <event_id>");
+    }
+    await requireSourceEvent(workspaceRoot, options.sourceEvent);
+    const input = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as BrowserObservationInput;
+    const runId = `run_surface_browser_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const manifest = await createRunManifest(repoRoot, workspace, runId, `Ingest current-tab browser observation for ${input.origin}.`);
+    const taintPolicy = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${runId}_browser_taint`,
+      method: "security.taint.evaluate",
+      workspace_root: workspaceRoot,
+      workspace_id: workspace.id,
+      run_id: runId,
+      source_kind: "public_web"
+    }));
+    if (
+      taintPolicy.decision !== "deny"
+      || taintPolicy.lease_id !== ""
+      || taintPolicy.can_authorize_actions !== false
+      || typeof taintPolicy.policy_decision_id !== "string"
+      || typeof taintPolicy.policy_event_id !== "string"
+    ) {
+      await completeRunManifest(repoRoot, workspace, manifest, "failed");
+      throw new Error("Supervisor did not mark browser observation as non-authorizing tainted content");
+    }
+    await recordRunEvent(repoRoot, workspace, manifest, taintPolicy.policy_event_id);
+    const observation = createBrowserObservation(input, taintPolicy.policy_decision_id, [options.sourceEvent, taintPolicy.policy_event_id]);
+    await requireValidContract("browser-observation.schema.json", observation);
+    persistSurfaceRecord(workspaceRoot, "browser-observe", "browser-observations", observation);
+    await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "browser.observation.ingested",
+      `Ingested hash-only current-tab browser observation ${observation.id}; raw DOM was not persisted and cannot authorize actions.`,
+      artifactRef("surface", "browser-observe", observation.id)
+    );
+    await completeRunManifest(repoRoot, workspace, manifest, "completed");
+    printJson(observation);
+    return;
+  }
+  if (options.topic === "im-inbox") {
+    if (!options.path) {
+      throw new Error("surface im-inbox requires --path <inbox-input.json>");
+    }
+    const input = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as ImInboxInput;
+    const item = createImInboxItem(input);
+    await requireValidContract("im-inbox-item.schema.json", item);
+    persistSurfaceRecord(workspaceRoot, "im-inbox", "im-inbox", item);
+    await recordGovernanceEvent(
+      workspaceRoot,
+      "im.inbox.received",
+      `Queued hash-only ${item.adapter} ${item.visibility} inbox item ${item.id}; inbound IM cannot authorize actions.`,
+      artifactRef("surface", "im-inbox", item.id)
+    );
+    printJson(item);
+    return;
+  }
+  if (options.topic === "im-outbox") {
+    if (!options.path) {
+      throw new Error("surface im-outbox requires --path <outbox-input.json>");
+    }
+    const input = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as ImOutboxInput;
+    await loadRunManifest(workspace, input.source_run_id).catch(() => {
+      throw new Error(`Outbox source run ${input.source_run_id} not found`);
+    });
+    const runId = `run_surface_outbox_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const manifest = await createRunManifest(repoRoot, workspace, runId, `Evaluate ${input.adapter} outbox item for ${input.source_run_id}.`);
+    const policy = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${runId}_outbox_policy`,
+      method: "surface.outbox.evaluate",
+      workspace_root: workspaceRoot,
+      workspace_id: workspace.id,
+      run_id: runId,
+      visibility: input.visibility,
+      adapter: input.adapter
+    }));
+    if (
+      (policy.decision !== "ask" && policy.decision !== "deny")
+      || policy.lease_id !== ""
+      || policy.delivery_allowed !== false
+      || typeof policy.policy_decision_id !== "string"
+      || typeof policy.policy_event_id !== "string"
+    ) {
+      await completeRunManifest(repoRoot, workspace, manifest, "failed");
+      throw new Error("Supervisor returned an invalid outbox policy response");
+    }
+    await recordRunEvent(repoRoot, workspace, manifest, policy.policy_event_id);
+    const item = createImOutboxItem(input, {
+      decision: policy.decision as "ask" | "deny",
+      policy_decision_id: policy.policy_decision_id,
+      policy_event_id: policy.policy_event_id
+    });
+    await requireValidContract("im-outbox-item.schema.json", item);
+    persistSurfaceRecord(workspaceRoot, "im-outbox", "im-outbox", item);
+    await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "im.outbox.queued",
+      `${item.delivery_status === "queued" ? "Queued" : "Blocked"} hash-only ${item.adapter} outbox item ${item.id}; delivery was not attempted.`,
+      artifactRef("surface", "im-outbox", item.id)
+    );
+    await completeRunManifest(repoRoot, workspace, manifest, item.delivery_status === "queued" ? "blocked" : "completed");
+    printJson(item);
+    return;
+  }
+  throw new Error("surface supports browser-observe, im-inbox, and im-outbox");
+}
+
+async function runStore(options: CliOptions): Promise<void> {
+  if (options.topic !== "install") {
+    throw new Error("store supports install --path <signed-package.json> [--approve-permissions]");
+  }
+  if (!options.path) {
+    throw new Error("store install requires --path <signed-package.json>");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
+  const pkg = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as StorePackage;
+  await requireValidContract("store-package.schema.json", pkg);
+  const capsule = pkg.capsule as Capsule;
+  let approvalCardId: string | null = null;
+  if (capsule.permission_diff?.requires_approval) {
+    if (!options.approvePermissions) {
+      throw new Error("Store package permission expansion requires --approve-permissions");
+    }
+    const approvalCard = capsuleApprovalCard(capsule);
+    await requireValidContract("approval-card.schema.json", approvalCard);
+    upsertRegistryItem(workspaceRoot, "approval-cards", approvalCard);
+    approvalCardId = approvalCard.id;
+  }
+  const install = createCapsuleInstallRecord(pkg, {
+    approvePermissions: options.approvePermissions,
+    approvalCardId
+  });
+  await requireValidContract("capsule-install.schema.json", install);
+  await requireValidContract("capability-capsule.schema.json", capsule);
+  upsertRegistryItem(workspaceRoot, "capsules", capsule);
+  upsertRegistryItem(workspaceRoot, "capsule-installs", install);
+  archiveCapsuleVersion(workspaceRoot, capsule);
+  await recordGovernanceEvent(
+    workspaceRoot,
+    "capsule.store.installed",
+    `Installed signed Capsule package ${pkg.id} into the local registry after signature, replay, sandbox, and permission-diff checks; no package code executed.`,
+    artifactRef("store", "install", install.id)
+  );
+  printJson(install);
+}
+
+function persistSurfaceRecord(
+  workspaceRoot: string,
+  topic: string,
+  registryName: string,
+  value: Record<string, unknown> & { id: string }
+): void {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "surface", sanitizePathSegment(topic));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sanitizePathSegment(value.id)}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  upsertRegistryItem(workspaceRoot, registryName, value);
+}
+
 function persistSecurityRecord(
   workspaceRoot: string,
   topic: string,
@@ -1594,6 +1767,10 @@ function registryNameFor(options: CliOptions): string | null {
       return null;
     case "security":
       return null;
+    case "surface":
+      return null;
+    case "store":
+      return "capsule-installs";
     default:
       return null;
   }
@@ -1805,6 +1982,10 @@ Usage:
   npm run ether -- security ack <signal_id>
   npm run ether -- security trial <signal_id> [--capsule <capsule_id>]
   npm run ether -- security fixture <signal_id>
+  npm run ether -- surface browser-observe --path <observation-input.json> --source-event <event_id>
+  npm run ether -- surface im-inbox --path <inbox-input.json>
+  npm run ether -- surface im-outbox --path <outbox-input.json>
+  npm run ether -- store install --path <signed-package.json> [--approve-permissions]
 
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
@@ -1817,6 +1998,8 @@ Commands:
   dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
   agent                  Phase 10 governed document-read child run and evidence
   security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
+  surface                Phase 12 hash-only browser/IM ingress and approval-gated outbox queue
+  store                  Phase 12 signed Capsule install into local registry without code execution
   help                   Show this help
 
 Options:

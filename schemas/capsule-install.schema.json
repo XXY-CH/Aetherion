@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/capsule-install.schema.json",
+  "title": "CapsuleInstall",
+  "type": "object",
+  "required": [
+    "id",
+    "package_id",
+    "capsule_id",
+    "capsule_version",
+    "publisher_id",
+    "package_digest",
+    "signature_verified",
+    "permission_diff_reviewed",
+    "replay_tests_passed",
+    "sandbox_trial_passed",
+    "approval_card_id",
+    "rollback_target",
+    "installed_registry",
+    "raw_code_executed",
+    "status",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^install_[A-Za-z0-9_-]+$" },
+    "package_id": { "type": "string", "pattern": "^pkg_[A-Za-z0-9_-]+$" },
+    "capsule_id": { "type": "string", "pattern": "^cap_[A-Za-z0-9_-]+$" },
+    "capsule_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "publisher_id": { "type": "string", "pattern": "^pub_[A-Za-z0-9_-]+$" },
+    "package_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "signature_verified": { "type": "boolean", "enum": [true] },
+    "permission_diff_reviewed": { "type": "boolean", "enum": [true] },
+    "replay_tests_passed": { "type": "boolean", "enum": [true] },
+    "sandbox_trial_passed": { "type": "boolean", "enum": [true] },
+    "approval_card_id": { "type": ["string", "null"] },
+    "rollback_target": { "type": ["string", "null"] },
+    "installed_registry": { "type": "string", "enum": ["capsules"] },
+    "raw_code_executed": { "type": "boolean", "enum": [false] },
+    "status": { "type": "string", "enum": ["installed"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -341,3 +341,14 @@ user request
 -> event trace
 -> reconstructable result
 ```
+
+## Current Phase 12 Control-Plane Slice
+
+The current implementation does not yet drive the browser or desktop. It implements the first trustworthy control-plane slice needed before real computer-use actions:
+
+- `ether surface browser-observe` ingests a caller-supplied current-tab observation. It requires a source Event Ledger id, asks the Rust supervisor for `security.taint.evaluate` on `public_web`, persists only the DOM SHA-256 plus redaction counts, and appends `browser.observation.ingested`. Raw DOM is not persisted and cannot authorize actions.
+- `ether surface im-inbox` persists inbound IM metadata as sender/message hashes. Unknown/group/public inputs are risk-upgraded and cannot authorize actions.
+- `ether surface im-outbox` validates the source run, asks Rust `surface.outbox.evaluate`, queues DM/group messages for one scoped approval, blocks public sends, stores only destination/body hashes, and attempts no delivery.
+- `ether store install` validates a Store Package, verifies Ed25519 over the canonical Capsule declaration, requires passing replay tests, sandbox trial, and permission-diff approval, then installs only the Capsule declaration. Package code is not executed.
+
+This deliberately follows the lessons from mature computer-use surfaces: prefer structured observation before screenshots, observe after action, treat external content as untrusted, require scoped approval for risky UI/egress operations, and make runtime failures auditable. The actual DOM/CDP action channel, screenshot fallback, OS automation, browser extension, IM delivery adapter, and GUI console remain future work.

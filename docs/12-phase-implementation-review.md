@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 49 passing tests.
-- `cargo test`: 8 passing Rust tests.
+- `npm test`: 55 passing tests.
+- `cargo test`: 9 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -28,7 +28,32 @@ Verification from the latest pass:
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, prevent it from authorizing actions, detect escalation/exfiltration attempts, contain suspicious subjects, and create regression evidence. | `packages/security/src/index.ts`; assessment/signal/trial/fixture contracts; Ether `security scan/ack/trial/fixture`; Rust `security.taint.evaluate`. | Security tests cover hash-only detection, multi-rule signals, taint authorization rejection, decoy-only trials, raw-free fixtures, Rust deny/no-lease policy, and Ledger-backed Ether lifecycle. | Deterministic local defense slice implemented. Semantic classifiers, source adapters, unknown-code process sandboxes, attribution, and active countermeasures remain pending. |
-| 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/computer-use/README.md`, `packages/connector-sdk/README.md`, scaffold tests that keep these surfaces post-V1/local-client only. | Existing tests reject quarantined adapters and enforce policy/verifier constraints for computer-use scaffold. | Intentionally deferred from V1. No GUI/IM/store implementation yet. |
+| 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/surface-os/src/index.ts`; browser/IM/store contracts/examples; Ether `surface browser-observe`, `surface im-inbox`, `surface im-outbox`, and `store install`; Rust `surface.outbox.evaluate`; existing computer-use and connector scaffolds remain non-authoritative. | Surface OS tests cover hash-only browser/IM records, one-scoped outbox approval, no delivery, and Ed25519 package verification. Ether integration proves browser taint denial, IM outbox policy, no raw content in output/Ledger, and signed Capsule declaration install. Rust tests cover outbox ask/deny policy. | Narrow control-plane slice implemented. Real GUI, browser extension, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, and remote Capsule Store remain pending. |
+
+## Phase 12 Review Notes
+
+Matched source docs:
+
+- `docs/01-architecture.md`: TUI, GUI, browser extension, IM, mobile, and API are client surfaces. They cannot grant authority directly.
+- `docs/02-user-boundary-layer.md`: external content and remote channels must not authorize sensitive actions.
+- `docs/09-computer-use-implementation.md`: browser harness should prefer structured observation, keep extension current-tab by default, redact credential-like DOM, treat DOM as tainted, and require explicit approval for data egress.
+- `docs/04-skill-and-scaffold-os.md`: Capsules declare requirements; installation and permission expansion must pass schema, tests, sandbox evidence, approval, and rollback.
+- Original Phase 12 plan: browser extension cannot bypass Local Supervisor; IM approvals approve only one scoped action; outbound IM/email goes through outbox policy; Capsule Store installation must show permission diff and execute no malicious code.
+
+Implemented correspondence:
+
+- `BrowserObservation` is current-tab only, public-web tainted, non-authorizing, hash-only, and stores redaction counts rather than raw DOM. `ether surface browser-observe` requires an existing source event and Rust supervisor taint denial before appending `browser.observation.ingested`.
+- `ImInboxItem` stores sender/message hashes, never raw text, and upgrades risk for group/public/unknown senders. Inbound IM has `can_authorize_actions=false`.
+- `ImOutboxItem` stores destination/body hashes, marks `delivery_attempted=false`, and carries one-scoped approval semantics. Rust `surface.outbox.evaluate` returns `ask`/L3 for DM or group and `deny`/L5 for public sends, always with no lease and `delivery_allowed=false`.
+- `StorePackage` uses Ed25519 over a canonical Capsule declaration. `store install` validates the package, verifies the signature, requires at least two passing replay tests, a passing sandbox trial, and permission-diff approval, then installs only the Capsule declaration and a Capsule Install record. `raw_code_executed=false`.
+- Ether Ledger evidence is surface-specific: `browser.observation.ingested`, `im.inbox.received`, `im.outbox.queued`, and `capsule.store.installed`. Registries remain projections over artifacts and events.
+
+Correction and remaining boundary:
+
+- Phase 12 is not a full computer-use implementation yet. It does not click, type, read arbitrary tabs, use screenshots, launch a browser extension, send IM/email, start a webhook, run a GUI, or execute package code.
+- The browser command currently accepts a governed observation fixture/input. Real DOM/CDP collection and screenshot fallback must be implemented behind the same Supervisor policy gates.
+- Store publication is still local. There is no remote market, transparency log, revocation feed, payment, or public trust network.
+- GUI work remains blocked on a concrete product-design target. The console must be a Local Supervisor client over these same event/registry surfaces, not a new authority path.
 
 ## Git-Like Event System Review
 
@@ -279,6 +304,7 @@ Current enforced rules:
 - Agent Contract creation does not consume budget or imply a child run occurred. Only `agent execute` creates a child run and accounting records.
 - Child output cannot authorize parent actions; successful results contain hash/byte evidence and require a new parent policy decision for any follow-on action.
 - External-content assessments require a Rust deny/no-lease taint decision. Poisoning artifacts store hashes and rule ids rather than raw scanned text.
+- Browser/IM/Store surface commands persist hash-only artifacts and require Ledger/Supervisor evidence. They do not claim browser automation, IM delivery, GUI operation, webhook takeover, remote Store publication, or package-code execution.
 - Counterfactual output is low-confidence, report-only, and lists evidence, assumptions, and unknowns.
 - Examples and test fixtures may use illustrative ids, but runtime code cannot fall back to them.
 

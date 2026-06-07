@@ -22,7 +22,7 @@ A Capability Capsule does not own permissions. It declares permission requiremen
 Observe task history
   -> Detect repeatable pattern
   -> Draft capability patch
-  -> Run synthetic tests
+  -> Run replay and evaluation tests
   -> Run replay tests from historical episodes
   -> Classify risk
   -> Request policy or user approval

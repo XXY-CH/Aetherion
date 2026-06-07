@@ -1,0 +1,19 @@
+{
+  "id": "inbox_demo001",
+  "adapter": "telegram",
+  "external_message_id": "msg_123",
+  "sender_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "sender_role": "unknown",
+  "visibility": "group",
+  "mentioned": true,
+  "message_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "raw_message_persisted": false,
+  "risk_level": "L5",
+  "disposition": "pairing_required",
+  "can_authorize_actions": false,
+  "taint": {
+    "sources": ["im"],
+    "can_authorize_actions": false
+  },
+  "created_at": "2026-06-07T12:00:00.000Z"
+}

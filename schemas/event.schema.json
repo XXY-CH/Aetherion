@@ -48,6 +48,10 @@
         "poisoning.acknowledged",
         "honeypot.trial.completed",
         "poisoning.regression.created",
+        "browser.observation.ingested",
+        "im.inbox.received",
+        "im.outbox.queued",
+        "capsule.store.installed",
         "run.completed"
       ]
     },

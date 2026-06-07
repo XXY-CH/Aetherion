@@ -1,0 +1,76 @@
+{
+  "id": "pkg_demo_file_read",
+  "publisher_id": "pub_aetherion_local",
+  "issued_at": "2026-06-07T12:00:00.000Z",
+  "capsule": {
+    "id": "cap_store_file_read",
+    "version": "1.0.0",
+    "description": "Read workspace-scoped documentation through governed tool contracts.",
+    "playbook": "playbooks/local-file-read.md",
+    "execution_mode": "document_only",
+    "permission_requirements": {
+      "required_tools": ["filesystem.read"],
+      "forbidden_tools": ["filesystem.write", "network.raw"]
+    },
+    "tool_contracts": ["tool-request.schema.json", "policy-decision.schema.json"],
+    "risk_level": "L1",
+    "lifecycle": "published",
+    "sandbox_required": true,
+    "permissions_inherited": false,
+    "permission_diff": {
+      "added_tools": ["filesystem.read"],
+      "removed_tools": [],
+      "requires_approval": true
+    },
+    "replay_tests": [
+      {
+        "run_id": "run_store_replay_a",
+        "replay_record_id": "replay_store_a",
+        "status": "passed",
+        "source_events": ["evt_user_message_001"]
+      },
+      {
+        "run_id": "run_store_replay_b",
+        "replay_record_id": "replay_store_b",
+        "status": "passed",
+        "source_events": ["evt_user_message_002"]
+      }
+    ],
+    "sandbox_trial": {
+      "status": "passed",
+      "sandbox_path": ".aetherion/sandbox/capsules/cap_store_file_read",
+      "content_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "forbidden_pattern_matches": []
+    },
+    "approval": {
+      "required": true,
+      "status": "approved",
+      "approval_card_id": "approval_capsule_store_file_read"
+    },
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "publication_scope": "local_unsigned",
+    "rollback": {
+      "previous_version": null
+    },
+    "provenance": {
+      "source_events": ["evt_user_message_001", "evt_user_message_002"],
+      "source_tasks": ["run_store_replay_a", "run_store_replay_b"]
+    },
+    "legacy_source": null,
+    "evals": ["store_signature_verify", "sandbox_trial"],
+    "scoring_summary": {
+      "success": 2,
+      "correction": 0,
+      "tool_error": 0,
+      "policy_denial": 0
+    }
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n-----END PUBLIC KEY-----\n",
+    "value_base64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+  }
+}

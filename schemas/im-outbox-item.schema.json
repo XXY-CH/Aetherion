@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/im-outbox-item.schema.json",
+  "title": "ImOutboxItem",
+  "type": "object",
+  "required": [
+    "id",
+    "source_run_id",
+    "adapter",
+    "destination_hash",
+    "visibility",
+    "body_sha256",
+    "raw_body_persisted",
+    "risk_level",
+    "approval_required",
+    "delivery_status",
+    "delivery_attempted",
+    "approval_scope",
+    "policy_decision_id",
+    "policy_event_id",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^outbox_[A-Za-z0-9_-]+$" },
+    "source_run_id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "adapter": { "type": "string", "enum": ["telegram", "slack", "local_fixture"] },
+    "destination_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "visibility": { "type": "string", "enum": ["dm", "group", "public"] },
+    "body_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "raw_body_persisted": { "type": "boolean", "enum": [false] },
+    "risk_level": { "type": "string", "enum": ["L3", "L5"] },
+    "approval_required": { "type": "boolean", "enum": [true] },
+    "delivery_status": { "type": "string", "enum": ["queued", "blocked"] },
+    "delivery_attempted": { "type": "boolean", "enum": [false] },
+    "approval_scope": {
+      "type": "object",
+      "required": ["one_scoped_action", "may_reuse_for_future_messages"],
+      "additionalProperties": false,
+      "properties": {
+        "one_scoped_action": { "type": "boolean", "enum": [true] },
+        "may_reuse_for_future_messages": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "policy_decision_id": { "type": "string" },
+    "policy_event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -77,7 +77,12 @@ const schemaExamplePairs = [
   ["content-assessment.schema.json", "content-assessment.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"],
   ["honeypot-trial.schema.json", "honeypot-trial.json"],
-  ["poisoning-regression-fixture.schema.json", "poisoning-regression-fixture.json"]
+  ["poisoning-regression-fixture.schema.json", "poisoning-regression-fixture.json"],
+  ["browser-observation.schema.json", "browser-observation.json"],
+  ["im-inbox-item.schema.json", "im-inbox-item.json"],
+  ["im-outbox-item.schema.json", "im-outbox-item.json"],
+  ["store-package.schema.json", "store-package.json"],
+  ["capsule-install.schema.json", "capsule-install.json"]
 ] as const;
 
 test("contract examples validate against seed JSON schemas", async () => {

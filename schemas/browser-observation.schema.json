@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/browser-observation.schema.json",
+  "title": "BrowserObservation",
+  "type": "object",
+  "required": [
+    "id",
+    "origin",
+    "title",
+    "mode",
+    "current_tab_only",
+    "dom_sha256",
+    "raw_dom_persisted",
+    "redactions",
+    "taint",
+    "can_create_side_effects",
+    "policy_decision_id",
+    "source_event_ids",
+    "captured_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^browser_obs_[A-Za-z0-9_-]+$" },
+    "origin": { "type": "string", "pattern": "^https?://" },
+    "title": { "type": "string" },
+    "mode": { "type": "string", "enum": ["current_tab_observe"] },
+    "current_tab_only": { "type": "boolean", "enum": [true] },
+    "dom_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "raw_dom_persisted": { "type": "boolean", "enum": [false] },
+    "redactions": {
+      "type": "object",
+      "required": ["password_fields", "hidden_inputs", "credential_like_matches"],
+      "additionalProperties": false,
+      "properties": {
+        "password_fields": { "type": "number", "minimum": 0 },
+        "hidden_inputs": { "type": "number", "minimum": 0 },
+        "credential_like_matches": { "type": "number", "minimum": 0 }
+      }
+    },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "prefixItems": [{ "type": "string", "enum": ["public_web"] }],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "can_create_side_effects": { "type": "boolean", "enum": [false] },
+    "policy_decision_id": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "captured_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/im-inbox-item.schema.json",
+  "title": "ImInboxItem",
+  "type": "object",
+  "required": [
+    "id",
+    "adapter",
+    "external_message_id",
+    "sender_hash",
+    "sender_role",
+    "visibility",
+    "mentioned",
+    "message_sha256",
+    "raw_message_persisted",
+    "risk_level",
+    "disposition",
+    "can_authorize_actions",
+    "taint",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^inbox_[A-Za-z0-9_-]+$" },
+    "adapter": { "type": "string", "enum": ["telegram", "slack", "local_fixture"] },
+    "external_message_id": { "type": "string", "minLength": 1 },
+    "sender_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sender_role": { "type": "string", "enum": ["owner", "paired", "unknown"] },
+    "visibility": { "type": "string", "enum": ["dm", "group", "public"] },
+    "mentioned": { "type": "boolean" },
+    "message_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "raw_message_persisted": { "type": "boolean", "enum": [false] },
+    "risk_level": { "type": "string", "enum": ["L1", "L3", "L5"] },
+    "disposition": { "type": "string", "enum": ["queued", "observe_only", "pairing_required"] },
+    "can_authorize_actions": { "type": "boolean", "enum": [false] },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "prefixItems": [{ "type": "string", "enum": ["im"] }],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

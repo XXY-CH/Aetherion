@@ -1,0 +1,18 @@
+{
+  "id": "install_demo001",
+  "package_id": "pkg_demo_file_read",
+  "capsule_id": "cap_store_file_read",
+  "capsule_version": "1.0.0",
+  "publisher_id": "pub_aetherion_local",
+  "package_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "signature_verified": true,
+  "permission_diff_reviewed": true,
+  "replay_tests_passed": true,
+  "sandbox_trial_passed": true,
+  "approval_card_id": "approval_capsule_store_file_read",
+  "rollback_target": null,
+  "installed_registry": "capsules",
+  "raw_code_executed": false,
+  "status": "installed",
+  "created_at": "2026-06-07T12:00:00.000Z"
+}

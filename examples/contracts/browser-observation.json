@@ -1,0 +1,22 @@
+{
+  "id": "browser_obs_demo001",
+  "origin": "https://example.com/account",
+  "title": "Example Account",
+  "mode": "current_tab_observe",
+  "current_tab_only": true,
+  "dom_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "raw_dom_persisted": false,
+  "redactions": {
+    "password_fields": 1,
+    "hidden_inputs": 2,
+    "credential_like_matches": 3
+  },
+  "taint": {
+    "sources": ["public_web"],
+    "can_authorize_actions": false
+  },
+  "can_create_side_effects": false,
+  "policy_decision_id": "policy_run_browser_taint_deny",
+  "source_event_ids": ["evt_user_message_001"],
+  "captured_at": "2026-06-07T12:00:00.000Z"
+}

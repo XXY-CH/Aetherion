@@ -192,6 +192,58 @@ fn handle_rpc_line(line: &str) -> String {
                 Err(error) => return error_response(&id, &error.to_string()),
             }
         }
+        "surface.outbox.evaluate" => {
+            let visibility = match required_string_field(line, "visibility") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let adapter = match required_string_field(line, "adapter") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            if !matches!(visibility.as_str(), "dm" | "group" | "public") {
+                return error_response(&id, "outbox visibility must be dm, group, or public");
+            }
+            if !matches!(adapter.as_str(), "telegram" | "slack" | "local_fixture") {
+                return error_response(
+                    &id,
+                    "outbox adapter must be telegram, slack, or local_fixture",
+                );
+            }
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    if let Err(error) = write_workspace_registry(&workspace) {
+                        return error_response(&id, &error.to_string());
+                    }
+                    let denied = visibility == "public";
+                    let decision = if denied { "deny" } else { "ask" };
+                    let risk = if denied { "L5" } else { "L3" };
+                    let policy_decision_id = format!("policy_{}_outbox_{}", run_id, decision);
+                    let summary = if denied {
+                        format!(
+                            "Denied public {} outbox send; no delivery, lease, or reusable approval was issued.",
+                            adapter
+                        )
+                    } else {
+                        format!(
+                            "Queued {} {} outbox send for one scoped approval; no delivery or lease was issued.",
+                            visibility, adapter
+                        )
+                    };
+                    match append_event(&workspace, "policy.decided", &run_id, &summary) {
+                        Ok(event_id) => format!(
+                            "{{\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{}\",\"lease_id\":\"\",\"delivery_allowed\":false,\"one_scoped_approval\":true}}",
+                            escape(&policy_decision_id),
+                            escape(&event_id),
+                            decision,
+                            risk
+                        ),
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
+                }
+                Err(error) => return error_response(&id, &error.to_string()),
+            }
+        }
         "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 let path = match required_string_field(line, "path") {
@@ -520,6 +572,37 @@ mod tests {
         assert!(response.contains("\"policy_event_id\":\"evt_"));
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
         assert!(ledger.contains("Denied authorization from tainted public_web content"));
+    }
+
+    #[test]
+    fn rpc_surface_outbox_queues_dm_but_denies_public_delivery() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-outbox-policy-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let dm_request = format!(
+            "{{\"id\":\"rpc_outbox_dm\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_outbox_test\",\"run_id\":\"run_outbox_test\",\"visibility\":\"dm\",\"adapter\":\"local_fixture\"}}",
+            escape(&root.display().to_string())
+        );
+        let dm_response = handle_rpc_line(&dm_request);
+        assert!(dm_response.contains("\"decision\":\"ask\""));
+        assert!(dm_response.contains("\"risk_level\":\"L3\""));
+        assert!(dm_response.contains("\"delivery_allowed\":false"));
+        assert!(dm_response.contains("\"lease_id\":\"\""));
+
+        let public_request = format!(
+            "{{\"id\":\"rpc_outbox_public\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_outbox_test\",\"run_id\":\"run_outbox_public\",\"visibility\":\"public\",\"adapter\":\"slack\"}}",
+            escape(&root.display().to_string())
+        );
+        let public_response = handle_rpc_line(&public_request);
+        assert!(public_response.contains("\"decision\":\"deny\""));
+        assert!(public_response.contains("\"risk_level\":\"L5\""));
+        assert!(public_response.contains("\"delivery_allowed\":false"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("Queued dm local_fixture outbox send for one scoped approval"));
+        assert!(ledger.contains("Denied public slack outbox send"));
     }
 
     #[test]

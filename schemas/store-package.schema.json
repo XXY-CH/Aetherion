@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/store-package.schema.json",
+  "title": "StorePackage",
+  "type": "object",
+  "required": ["id", "publisher_id", "issued_at", "capsule", "signature"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^pkg_[A-Za-z0-9_-]+$" },
+    "publisher_id": { "type": "string", "pattern": "^pub_[A-Za-z0-9_-]+$" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "capsule": { "$ref": "capability-capsule.schema.json" },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "public_key_pem", "value_base64"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["ed25519"] },
+        "public_key_pem": { "type": "string", "pattern": "-----BEGIN PUBLIC KEY-----" },
+        "value_base64": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

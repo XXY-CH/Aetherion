@@ -1,0 +1,20 @@
+{
+  "id": "outbox_demo001",
+  "source_run_id": "run_demo",
+  "adapter": "slack",
+  "destination_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "visibility": "dm",
+  "body_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "raw_body_persisted": false,
+  "risk_level": "L3",
+  "approval_required": true,
+  "delivery_status": "queued",
+  "delivery_attempted": false,
+  "approval_scope": {
+    "one_scoped_action": true,
+    "may_reuse_for_future_messages": false
+  },
+  "policy_decision_id": "policy_run_demo_outbox_ask",
+  "policy_event_id": "evt_policy_outbox_001",
+  "created_at": "2026-06-07T12:00:00.000Z"
+}

@@ -16,7 +16,7 @@ Current scope:
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
-- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, governed folding/persona/Soul Fork, a governed document-read child run, and anti-poisoning assessment/containment.
+- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, governed folding/persona/Soul Fork, a governed document-read child run, anti-poisoning assessment/containment, and Phase 12 surface/store gates.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
@@ -32,6 +32,7 @@ Current scope:
 - Record Phase 9 lifecycle changes through Rust Supervisor events whose `payload_ref` points to the persisted Ether artifact; registries remain projections, not the only fact source.
 - Run Phase 10 child work only through `ether agent execute`. The current executor accepts one published evidence-backed `document_only` Capsule with exactly `filesystem.read`, one explicitly contracted workspace path, and an independent child run. The same Rust supervisor RPC path validates workspace identity, appends `tool.requested`, `policy.decided`, and `tool.result`, and performs the lease-gated read. The parent receives hash/byte evidence only; child output is tainted and cannot authorize another action.
 - Treat `public_web`, `email`, `pdf`, `im`, `github_issue`, `mcp_description`, and `third_party_content` as untrusted sources. `security scan` persists hashes and detector rule ids rather than raw content, while Rust records a deny-only taint policy with no lease. `security trial` is a deterministic decoy exercise, not execution of unknown content or Capsule code; `security fixture` is detector-only replay metadata.
+- Treat browser, IM, and Store as client surfaces, not authority. `surface browser-observe` requires current-tab input, hash-only DOM evidence, a source event, and Rust taint denial. `surface im-inbox` stores only sender/message hashes and cannot authorize actions. `surface im-outbox` asks the Rust supervisor for outbox policy, queues only one scoped approval for DM/group sends, blocks public sends, and attempts no delivery. `store install` verifies a signed Capsule package and installs only a declaration after replay, sandbox, and permission-diff checks.
 - Rebuild `.aetherion/projections/causal.sqlite` from Ledger events for `why` and `counterfactual`. The SQLite file is explicitly a disposable projection; typed edges are temporal dependency candidates, not proof of causation, and redacted source links lower report confidence.
 - Persist Digital Hibernation records with a hash-bound Ledger cursor, minimal `resume` Context Pack, no active leases, bounded wake attention, and manual/deadline/file triggers. `wake` evaluates a trigger only when invoked, requests a fresh Rust supervisor queue decision, and appends `policy.decided` plus `wakeup.queued` to a new blocked resume run. It does not run a daemon, issue a lease, or resume task actions.
 
@@ -56,6 +57,17 @@ npm run ether -- security ack <signal_id> --workspace .
 ```
 
 The scanner is deterministic and intentionally narrow. It does not claim semantic prompt-injection completeness, execute hostile instructions, contact an attacker, or trace a real attack source.
+
+Surface and Store flow:
+
+```bash
+npm run ether -- surface browser-observe --path browser-input.json --source-event <event_id> --workspace .
+npm run ether -- surface im-inbox --path inbox-input.json --workspace .
+npm run ether -- surface im-outbox --path outbox-input.json --workspace .
+npm run ether -- store install --path signed-package.json --approve-permissions --workspace .
+```
+
+These commands do not click a browser, read every tab, send IM/email, start a webhook, or execute package code. They prove the first Phase 12 control-plane slice: external surface observations and messages become hash-only, tainted, policy-linked Ledger evidence, while Store installation is a signed declaration import with no runtime authority.
 
 Rust supervisor mode:
 
@@ -102,6 +114,6 @@ Out of scope:
 - GUI.
 - IM delivery.
 - Browser extension.
-- Browser automation.
+- Browser current-tab observation is implemented as hash-only contract input. Browser automation remains out of scope.
 - MCP/OAuth connectors.
 - Cloud workers.
