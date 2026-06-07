@@ -257,7 +257,7 @@ test("TUI migration dry-run redacts tokens and quarantines legacy skills", async
   assert.doesNotMatch(JSON.stringify(reports), /123:SECRET/);
 });
 
-test("TUI memory commands require real source events and capsule execution does not fake success", async () => {
+test("TUI memory commands require real source events and missing Capsules do not fake success", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-registries-"));
   await writeFile(join(workspace, "README.md"), "Registry evidence\n");
   const run = await execFileAsync(process.execPath, [
@@ -325,10 +325,138 @@ test("TUI memory commands require real source events and capsule execution does 
 
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "capsule", "test", "cap_cli_demo", "--workspace", workspace]),
-    /real replay and sandbox trial runner/
+    /Capsule cap_cli_demo not found/
   );
   const capsuleList = await execFileAsync(process.execPath, [cliPath, "capsule", "list", "--workspace", workspace]);
   assert.equal(capsuleList.stdout.trim(), "[]");
+});
+
+test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approval, and rollback", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-capsule-"));
+  await mkdir(join(workspace, "playbooks"));
+  await writeFile(join(workspace, "README.md"), "Capsule source task\n");
+  await writeFile(join(workspace, "playbooks", "local-read.md"), "# Read local documentation through policy\n");
+
+  const runIds: string[] = [];
+  for (const output of [".aetherion/SUMMARY-1.md", ".aetherion/SUMMARY-2.md"]) {
+    const run = await execFileAsync(process.execPath, [
+      cliPath,
+      "run",
+      "--workspace",
+      workspace,
+      "--input",
+      "README.md",
+      "--output",
+      output,
+      "--approve-write"
+    ]);
+    const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+    assert.ok(runId);
+    runIds.push(runId);
+  }
+  assert.notEqual(runIds[0], runIds[1]);
+  const events = (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { id: string; run_id: string });
+  const sourceEvents = runIds.map((runId) => {
+    const event = events.find((entry) => entry.run_id === runId);
+    assert.ok(event);
+    return event.id;
+  });
+
+  const writeManifest = async (version: string) => {
+    const manifestPath = join(workspace, `capsule-${version}.json`);
+    await writeFile(manifestPath, JSON.stringify({
+      id: "cap_local_read",
+      version,
+      description: "Read workspace documentation through governed contracts.",
+      playbook: "playbooks/local-read.md",
+      execution_mode: "document_only",
+      permission_requirements: {
+        required_tools: ["filesystem.read"],
+        forbidden_tools: ["filesystem.write"]
+      },
+      tool_contracts: ["tool-request.schema.json", "policy-decision.schema.json"],
+      risk_level: "L1",
+      provenance: {
+        source_events: sourceEvents,
+        source_tasks: runIds
+      },
+      evals: ["trace_replay"]
+    }));
+    return manifestPath;
+  };
+
+  const firstManifest = await writeManifest("0.1.0");
+  await execFileAsync(process.execPath, [cliPath, "capsule", "draft", "--path", firstManifest, "--workspace", workspace]);
+  const tested = await execFileAsync(process.execPath, [
+    cliPath,
+    "capsule",
+    "test",
+    "cap_local_read",
+    "--replay-run",
+    runIds[0],
+    "--replay-run",
+    runIds[1],
+    "--workspace",
+    workspace
+  ]);
+  assert.match(tested.stdout, /"lifecycle": "tested"/);
+  assert.match(tested.stdout, /"status": "passed"/);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "capsule", "publish", "cap_local_read", "--workspace", workspace]),
+    /requires --approve-permissions/
+  );
+  const published = await execFileAsync(process.execPath, [
+    cliPath,
+    "capsule",
+    "publish",
+    "cap_local_read",
+    "--approve-permissions",
+    "--workspace",
+    workspace
+  ]);
+  assert.match(published.stdout, /"publication_scope": "local_unsigned"/);
+  assert.match(published.stdout, /"status": "approved"/);
+
+  const secondManifest = await writeManifest("0.2.0");
+  await execFileAsync(process.execPath, [cliPath, "capsule", "draft", "--path", secondManifest, "--workspace", workspace]);
+  const activeDuringDraft = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "capsules.json"), "utf8")) as Array<{ version: string }>;
+  assert.equal(activeDuringDraft[0].version, "0.1.0");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "capsule",
+    "test",
+    "cap_local_read",
+    "--replay-run",
+    runIds[0],
+    "--replay-run",
+    runIds[1],
+    "--workspace",
+    workspace
+  ]);
+  const activeDuringTest = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "capsules.json"), "utf8")) as Array<{ version: string }>;
+  assert.equal(activeDuringTest[0].version, "0.1.0");
+  await execFileAsync(process.execPath, [cliPath, "capsule", "publish", "cap_local_read", "--workspace", workspace]);
+  const rollback = await execFileAsync(process.execPath, [
+    cliPath,
+    "capsule",
+    "rollback",
+    "cap_local_read",
+    "--version",
+    "0.1.0",
+    "--workspace",
+    workspace
+  ]);
+  assert.match(rollback.stdout, /"version": "0.1.0"/);
+  assert.match(rollback.stdout, /"previous_version": "0.2.0"/);
+
+  const current = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "capsules.json"), "utf8")) as Array<{ version: string; lifecycle: string }>;
+  assert.equal(current[0].version, "0.1.0");
+  assert.equal(current[0].lifecycle, "published");
+  const approvals = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "approval-cards.json"), "utf8")) as Array<{ target: string }>;
+  assert.equal(approvals[0].target, "capsule://cap_local_read@0.1.0");
 });
 
 test("TUI hibernation wake updates persisted hibernation lifecycle", async () => {
@@ -364,12 +492,35 @@ test("TUI agent contract requires existing run, budget, and published capsule wi
   }]));
   await writeFile(join(registryDir, "capsules.json"), JSON.stringify([{
     id: "cap_local_docs_read",
+    version: "0.1.0",
+    description: "Published test fixture",
+    playbook: "playbooks/local-docs.md",
+    execution_mode: "document_only",
+    permission_requirements: { required_tools: ["filesystem.read"], forbidden_tools: [] },
+    tool_contracts: ["tool-request.schema.json"],
+    risk_level: "L1",
     lifecycle: "published",
     sandbox_required: true,
-    permission_diff: [],
-    replay_tests_passed: true,
     permissions_inherited: false,
-    scoring: { success: 1, correction: 0, tool_error: 0, policy_denial: 0 }
+    permission_diff: { added_tools: [], removed_tools: [], requires_approval: false },
+    replay_tests: [
+      { run_id: "fixture_run_one", replay_record_id: "replay_fixture_one", status: "passed", source_events: ["fixture_event_one"] },
+      { run_id: "fixture_run_two", replay_record_id: "replay_fixture_two", status: "passed", source_events: ["fixture_event_two"] }
+    ],
+    sandbox_trial: {
+      status: "passed",
+      sandbox_path: ".aetherion/capsules/trials/cap_local_docs_read/0.1.0/playbook.md",
+      content_sha256: `sha256:${"a".repeat(64)}`,
+      forbidden_pattern_matches: []
+    },
+    approval: { required: false, status: "not_required", approval_card_id: null },
+    integrity: { algorithm: "sha256", digest: `sha256:${"b".repeat(64)}` },
+    publication_scope: "local_unsigned",
+    rollback: { previous_version: null },
+    provenance: { source_events: ["fixture_event_one", "fixture_event_two"], source_tasks: ["fixture_run_one", "fixture_run_two"] },
+    legacy_source: null,
+    evals: [],
+    scoring_summary: { success: 1, correction: 0, tool_error: 0, policy_denial: 0 }
   }]));
   const result = await execFileAsync(process.execPath, [
     cliPath,

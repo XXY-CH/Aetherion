@@ -3,13 +3,37 @@
   "$id": "https://aetherion.local/schemas/capability-capsule.schema.json",
   "title": "CapabilityCapsule",
   "type": "object",
-  "required": ["id", "version", "description", "playbook", "permission_requirements", "tool_contracts", "risk_level", "lifecycle", "provenance"],
+  "required": [
+    "id",
+    "version",
+    "description",
+    "playbook",
+    "execution_mode",
+    "permission_requirements",
+    "tool_contracts",
+    "risk_level",
+    "lifecycle",
+    "sandbox_required",
+    "permissions_inherited",
+    "permission_diff",
+    "replay_tests",
+    "sandbox_trial",
+    "approval",
+    "integrity",
+    "publication_scope",
+    "rollback",
+    "provenance",
+    "legacy_source",
+    "evals",
+    "scoring_summary"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^cap_[A-Za-z0-9_-]+$" },
-    "version": { "type": "string" },
-    "description": { "type": "string" },
-    "playbook": { "type": "string" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "description": { "type": "string", "minLength": 1 },
+    "playbook": { "type": "string", "minLength": 1 },
+    "execution_mode": { "type": "string", "enum": ["document_only", "external_sandbox"] },
     "permission_requirements": {
       "type": "object",
       "required": ["required_tools", "forbidden_tools"],
@@ -21,15 +45,92 @@
     },
     "tool_contracts": { "type": "array", "items": { "type": "string" } },
     "risk_level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
-    "lifecycle": { "type": "string", "enum": ["draft", "testing", "published", "deprecated", "quarantined"] },
-    "evals": { "type": "array", "items": { "type": "string" } },
-    "rollback": { "type": "string" },
-    "provenance": {
+    "lifecycle": { "type": "string", "enum": ["draft", "tested", "published", "deprecated", "quarantined"] },
+    "sandbox_required": { "type": "boolean", "enum": [true] },
+    "permissions_inherited": { "type": "boolean", "enum": [false] },
+    "permission_diff": {
       "type": "object",
-      "required": ["source_events"],
+      "required": ["added_tools", "removed_tools", "requires_approval"],
       "additionalProperties": false,
       "properties": {
-        "source_events": { "type": "array", "items": { "type": "string" } }
+        "added_tools": { "type": "array", "items": { "type": "string" } },
+        "removed_tools": { "type": "array", "items": { "type": "string" } },
+        "requires_approval": { "type": "boolean" }
+      }
+    },
+    "replay_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "replay_record_id", "status", "source_events"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": { "type": "string" },
+          "replay_record_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["passed", "failed", "partial"] },
+          "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+        }
+      }
+    },
+    "sandbox_trial": {
+      "type": ["object", "null"],
+      "required": ["status", "sandbox_path", "content_sha256", "forbidden_pattern_matches"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["passed", "failed"] },
+        "sandbox_path": { "type": "string" },
+        "content_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "forbidden_pattern_matches": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "required": ["required", "status", "approval_card_id"],
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["not_required", "pending", "approved"] },
+        "approval_card_id": { "type": ["string", "null"] }
+      }
+    },
+    "integrity": {
+      "type": ["object", "null"],
+      "required": ["algorithm", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["sha256"] },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "publication_scope": { "type": "string", "enum": ["not_published", "local_unsigned"] },
+    "rollback": {
+      "type": "object",
+      "required": ["previous_version"],
+      "additionalProperties": false,
+      "properties": {
+        "previous_version": { "type": ["string", "null"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source_events", "source_tasks"],
+      "additionalProperties": false,
+      "properties": {
+        "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "source_tasks": { "type": "array", "items": { "type": "string" }, "minItems": 2 }
+      }
+    },
+    "legacy_source": { "type": ["string", "null"] },
+    "evals": { "type": "array", "items": { "type": "string" } },
+    "scoring_summary": {
+      "type": "object",
+      "required": ["success", "correction", "tool_error", "policy_denial"],
+      "additionalProperties": false,
+      "properties": {
+        "success": { "type": "number", "minimum": 0 },
+        "correction": { "type": "number", "minimum": 0 },
+        "tool_error": { "type": "number", "minimum": 0 },
+        "policy_denial": { "type": "number", "minimum": 0 }
       }
     }
   }

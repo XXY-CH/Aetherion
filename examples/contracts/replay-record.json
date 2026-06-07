@@ -1,9 +1,9 @@
 {
   "id": "replay_trace_001",
-  "run_id": "run_demo",
+  "run_id": "run_contract_example",
   "mode": "trace",
   "source_events": ["evt_user_message_001"],
-  "fixture_ref": "artifact://fixtures/run_demo",
+  "artifact_ref": "artifact://replay/run_contract_example/trace",
   "live_side_effects": {
     "allowed": false,
     "approval_id": null

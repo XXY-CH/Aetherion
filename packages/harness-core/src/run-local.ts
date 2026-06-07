@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -68,7 +69,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   const workspaceRoot = resolve(input.workspaceRoot);
   const workspace = await createWorkspace(workspaceRoot, input.workspaceId ?? workspaceIdForRoot(workspaceRoot));
   const workspaceRegistry = await writeWorkspaceRegistry(input.repoRoot, workspace, "typescript-seed");
-  const runId = input.runId ?? `run_${Date.now()}`;
+  const runId = input.runId ?? `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "Ether test-only local kernel loop");
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);

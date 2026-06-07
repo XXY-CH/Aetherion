@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Workspace } from "./ledger.ts";
@@ -50,7 +51,7 @@ export type SupervisorKernelRunResult = {
 export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): Promise<SupervisorKernelRunResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const workspaceId = input.workspaceId ?? workspaceIdForRoot(workspaceRoot);
-  const runId = input.runId ?? `run_${Date.now()}`;
+  const runId = input.runId ?? `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);
   await mkdir(dirname(outputPath), { recursive: true });
@@ -187,7 +188,7 @@ async function supervisorCall(repoRoot: string, request: Parameters<typeof callS
 
 async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, runId: string, event_type: string, summary: string): Promise<void> {
   const appendResult = await supervisorCall(repoRoot, {
-    id: `rpc_${event_type}_${Date.now()}`,
+    id: `rpc_${event_type}_${randomUUID()}`,
     method: "event.append",
     workspace_root: workspace.root,
     workspace_id: workspace.id,

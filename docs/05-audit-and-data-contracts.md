@@ -126,7 +126,7 @@ run_id: run_abc
 mode: trace | simulation | live
 source_events:
   - event_123
-fixture_ref: artifact://fixture_abc
+artifact_ref: artifact://replay/run_abc/trace
 live_side_effects:
   allowed: false
   approval_id: null

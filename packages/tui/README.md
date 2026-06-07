@@ -16,7 +16,7 @@ Current scope:
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
-- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, capsule contract inspection, causal why/counterfactual reports, hibernation records, persona/soul records, multi-agent contracts, and poisoning scan.
+- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, hibernation records, persona/soul records, multi-agent contracts, and poisoning scan.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
@@ -25,9 +25,10 @@ Current scope:
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
 - Approve rehearsals through `approve-rehearsal`, which requests a fresh Rust supervisor policy decision/lease, performs the write, verifies exact content, and appends new policy/action events without inheriting prior authority.
+- Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Local publication is unsigned and does not execute the playbook.
 - Use registries for persona anchor proposal/accept/reject, persona reset records, and checkpoint-backed soul forks that never inherit live authority.
 
-Later-phase contract commands do not connect real IM, take over webhooks, run imported skills, install capsules, or execute external side effects. They fail when required ledger or registry evidence is absent.
+Later-phase contract commands do not connect real IM, take over webhooks, run imported skills, install executable packages, or execute external side effects. They fail when required ledger or registry evidence is absent.
 
 Rust supervisor mode:
 
@@ -47,6 +48,17 @@ npm run ether -- approve-rehearsal <rehearsal_id> --workspace .
 ```
 
 The rehearsal command mutates only `.aetherion/sandboxes/`. Approval does not reuse checkpoint authority: Ether asks the Rust supervisor for a fresh policy decision, the write boundary reevaluates policy again, and exact file contents are verified before the live action event is recorded.
+
+Document-only Capsule flow:
+
+```bash
+npm run ether -- capsule draft --path capsule.json --workspace .
+npm run ether -- capsule test <capsule_id> --replay-run <run_id_1> --replay-run <run_id_2> --workspace .
+npm run ether -- capsule publish <capsule_id> --approve-permissions --workspace .
+npm run ether -- capsule rollback <capsule_id> --version <published_version> --workspace .
+```
+
+This flow never runs imported or generated code. It produces replay records, a static-scanned playbook copy, an integrity digest, permission diff, optional Approval Card, version registry, and rollback target. Package signing and external sandbox execution remain later-phase work.
 
 Out of scope:
 

@@ -37,7 +37,7 @@ export type Workspace = {
   runtimeDir: string;
 };
 
-export async function createWorkspace(root: string, id = "ws_test"): Promise<Workspace> {
+export async function createWorkspace(root: string, id: string): Promise<Workspace> {
   const runtimeDir = join(root, ".aetherion");
   const ledgerPath = join(runtimeDir, "events", "events.jsonl");
   await mkdir(dirname(ledgerPath), { recursive: true });

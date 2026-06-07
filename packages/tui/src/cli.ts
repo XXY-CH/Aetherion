@@ -4,13 +4,13 @@ import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, counterfactualFromCheckpoint, isCausalEdge } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
-import { isCapsule, requireCapsule } from "../../capability-os/src/index.ts";
+import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { findHibernation, hibernateRun, isHibernationRecord, markWaking, wakeRun } from "../../hibernation/src/index.ts";
 import { acceptPersonaAnchor, createPersonaReset, findPersonaAnchor, foldMemories, forkSoul, isPersonaAnchor, proposePersonaAnchor, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { createAgentContract, findBudget, isResourceBudget } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
-import { appendEvent, callSupervisorRpc, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -30,6 +30,9 @@ type CliOptions = {
   confidence?: number;
   fromRun?: string;
   capsule?: string;
+  replayRuns: string[];
+  approvePermissions: boolean;
+  version?: string;
   parentRun?: string;
   childAgent?: string;
   budget?: string;
@@ -93,7 +96,9 @@ function parseArgs(args: string[]): CliOptions {
     input: "README.md",
     output: ".aetherion/SUMMARY.md",
     approveWrite: false,
-    dryRun: false
+    dryRun: false,
+    replayRuns: [],
+    approvePermissions: false
   };
 
   for (let index = 1; index < args.length; index += 1) {
@@ -163,6 +168,17 @@ function parseArgs(args: string[]): CliOptions {
         options.capsule = requireValue(arg, next);
         index += 1;
         break;
+      case "--replay-run":
+        options.replayRuns.push(requireValue(arg, next));
+        index += 1;
+        break;
+      case "--approve-permissions":
+        options.approvePermissions = true;
+        break;
+      case "--version":
+        options.version = requireValue(arg, next);
+        index += 1;
+        break;
       case "--parent-run":
         options.parentRun = requireValue(arg, next);
         index += 1;
@@ -201,7 +217,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -240,7 +256,7 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       await runApproveRehearsal(options);
       return true;
     case "capsule":
-      runCapsule(options);
+      await runCapsule(options);
       return true;
     case "why":
       await runWhy(options);
@@ -506,19 +522,208 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   printJson(approved.approval);
 }
 
-function runCapsule(options: CliOptions): void {
+async function runCapsule(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   const capsules = readRegistry(workspaceRoot, "capsules").filter(isCapsule);
+  const drafts = readRegistry(workspaceRoot, "capsule-drafts").filter(isCapsule);
   if (options.topic === "list" || !options.topic) {
-    printJson(capsules);
+    printJson([...capsules, ...drafts]);
     return;
   }
   if (options.topic === "inspect") {
     const capsuleId = requirePositional(options.target ?? options.capsule, "capsule inspect requires a capsule id");
-    printJson(requireCapsule(capsules, capsuleId));
+    printJson(requireCapsule([...capsules, ...drafts], capsuleId));
     return;
   }
-  throw new Error("capsule test/publish are unavailable until the real replay and sandbox trial runner is implemented");
+  if (options.topic === "draft") {
+    if (!options.path) {
+      throw new Error("capsule draft requires --path <manifest.json>");
+    }
+    const raw = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as unknown;
+    const draftInput = capsuleDraftInput(raw);
+    const previous = capsules.find((entry) => entry.id === draftInput.id);
+    const draft = createDraftCapsule(draftInput, previous);
+    await requireCapsuleProvenance(workspaceRoot, draft);
+    await requireValidContract("capability-capsule.schema.json", draft);
+    archiveCapsuleVersion(workspaceRoot, draft);
+    upsertRegistryItem(workspaceRoot, "capsule-drafts", draft);
+    printJson(draft);
+    return;
+  }
+  if (options.topic === "test") {
+    const capsuleId = requirePositional(options.target ?? options.capsule, "capsule test requires a capsule id");
+    const capsule = requireCapsule(drafts, capsuleId);
+    if (options.replayRuns.length < 2) {
+      throw new Error("capsule test requires at least two --replay-run <run_id> values");
+    }
+    const workspace = await openWorkspace(workspaceRoot);
+    const replayRecords = await Promise.all(options.replayRuns.map((runId) => createTraceReplayRecord(workspace, runId)));
+    for (const replayRecord of replayRecords) {
+      writeReplayArtifact(workspaceRoot, replayRecord);
+      upsertRegistryItem(workspaceRoot, "replay-records", replayRecord);
+    }
+    const sandboxTrial = await runDocumentSandboxTrial(workspaceRoot, capsule);
+    const tested = attachCapsuleTestEvidence(capsule, replayRecords, sandboxTrial);
+    await requireValidContract("capability-capsule.schema.json", tested);
+    archiveCapsuleVersion(workspaceRoot, tested);
+    upsertRegistryItem(workspaceRoot, "capsule-drafts", tested);
+    printJson(tested);
+    return;
+  }
+  if (options.topic === "publish") {
+    const capsuleId = requirePositional(options.target ?? options.capsule, "capsule publish requires a capsule id");
+    const capsule = requireCapsule(drafts, capsuleId);
+    let approvalCardId: string | undefined;
+    if (capsule.permission_diff.requires_approval) {
+      if (!options.approvePermissions) {
+        throw new Error("Permission expansion requires --approve-permissions");
+      }
+      const approvalCard = capsuleApprovalCard(capsule);
+      await requireValidContract("approval-card.schema.json", approvalCard);
+      upsertRegistryItem(workspaceRoot, "approval-cards", approvalCard);
+      approvalCardId = approvalCard.id;
+    }
+    const published = publishCapsule(capsule, approvalCardId);
+    await requireValidContract("capability-capsule.schema.json", published);
+    archiveCapsuleVersion(workspaceRoot, published);
+    upsertRegistryItem(workspaceRoot, "capsules", published);
+    removeRegistryItem(workspaceRoot, "capsule-drafts", published.id);
+    printJson(published);
+    return;
+  }
+  if (options.topic === "rollback") {
+    const capsuleId = requirePositional(options.target ?? options.capsule, "capsule rollback requires a capsule id");
+    if (!options.version) {
+      throw new Error("capsule rollback requires --version <published_version>");
+    }
+    const current = requireCapsule(capsules, capsuleId);
+    const target = readCapsuleVersion(workspaceRoot, capsuleId, options.version);
+    const result = rollbackCapsule(current, target);
+    archiveCapsuleVersion(workspaceRoot, result.deprecated);
+    archiveCapsuleVersion(workspaceRoot, result.active);
+    upsertRegistryItem(workspaceRoot, "capsules", result.active);
+    printJson(result);
+    return;
+  }
+  throw new Error("capsule supports draft, list, inspect, test, publish, and rollback");
+}
+
+function capsuleDraftInput(value: unknown): CapsuleDraftInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Capsule manifest must be a JSON object");
+  }
+  const manifest = value as Record<string, unknown>;
+  const executionMode = requireManifestString(manifest, "execution_mode");
+  if (executionMode !== "document_only" && executionMode !== "external_sandbox") {
+    throw new Error("Capsule manifest execution_mode must be document_only or external_sandbox");
+  }
+  const riskLevel = requireManifestString(manifest, "risk_level");
+  if (!["L0", "L1", "L2", "L3", "L4", "L5"].includes(riskLevel)) {
+    throw new Error("Capsule manifest risk_level must be L0 through L5");
+  }
+  const permissionRequirements = requireManifestObject(manifest, "permission_requirements");
+  const provenance = requireManifestObject(manifest, "provenance");
+  return {
+    id: requireManifestString(manifest, "id"),
+    version: requireManifestString(manifest, "version"),
+    description: requireManifestString(manifest, "description"),
+    playbook: requireManifestString(manifest, "playbook"),
+    execution_mode: executionMode,
+    permission_requirements: {
+      required_tools: requireManifestStringArray(permissionRequirements, "required_tools"),
+      forbidden_tools: requireManifestStringArray(permissionRequirements, "forbidden_tools")
+    },
+    tool_contracts: requireManifestStringArray(manifest, "tool_contracts"),
+    risk_level: riskLevel as CapsuleDraftInput["risk_level"],
+    provenance: {
+      source_events: requireManifestStringArray(provenance, "source_events"),
+      source_tasks: requireManifestStringArray(provenance, "source_tasks")
+    },
+    legacy_source: typeof manifest.legacy_source === "string" ? manifest.legacy_source : null,
+    evals: requireManifestStringArray(manifest, "evals")
+  };
+}
+
+async function requireCapsuleProvenance(workspaceRoot: string, capsule: Capsule): Promise<void> {
+  const workspace = await openWorkspace(workspaceRoot);
+  const events = await readEvents(workspace);
+  const eventIds = new Set(events.map((event) => event.id));
+  for (const sourceEvent of capsule.provenance.source_events) {
+    if (!eventIds.has(sourceEvent)) {
+      throw new Error(`Capsule source event ${sourceEvent} not found in Event Ledger`);
+    }
+  }
+  for (const sourceTask of capsule.provenance.source_tasks) {
+    if (!events.some((event) => event.run_id === sourceTask)) {
+      throw new Error(`Capsule source task ${sourceTask} has no Event Ledger evidence`);
+    }
+  }
+}
+
+async function requireValidContract(schemaName: string, value: unknown): Promise<void> {
+  const validation = await validateAgainstSchema(repoRoot, schemaName, value);
+  if (!validation.valid) {
+    throw new Error(`${schemaName} validation failed: ${validation.errors.join("; ")}`);
+  }
+}
+
+function capsuleApprovalCard(capsule: Capsule): Record<string, unknown> & { id: string } {
+  const approvalSuffix = `${capsule.id}_${capsule.version}`.replace(/[^A-Za-z0-9_-]+/g, "_");
+  return {
+    id: `approval_capsule_${approvalSuffix}`,
+    tool_request_id: `capsule_publish_${capsule.id}_${capsule.version}`,
+    risk_level: capsule.risk_level,
+    target: `capsule://${capsule.id}@${capsule.version}`,
+    expected_effect: `Publish a local unsigned Capsule with added tool requirements: ${capsule.permission_diff.added_tools.join(", ")}`,
+    scope: {
+      actions: ["capsule.publish"],
+      resources: capsule.permission_diff.added_tools,
+      egress: ["none"],
+      ttl_seconds: 300
+    },
+    choices: ["approve_once", "deny"]
+  };
+}
+
+function archiveCapsuleVersion(workspaceRoot: string, capsule: Capsule): void {
+  upsertRegistryItem(workspaceRoot, "capsule-versions", {
+    id: `capver_${sanitizePathSegment(capsule.id)}_${sanitizePathSegment(capsule.version)}`,
+    capsule
+  });
+}
+
+function readCapsuleVersion(workspaceRoot: string, capsuleId: string, version: string): Capsule {
+  const recordId = `capver_${sanitizePathSegment(capsuleId)}_${sanitizePathSegment(version)}`;
+  const record = readRegistry(workspaceRoot, "capsule-versions").find((entry) => entry.id === recordId);
+  const capsule = record?.capsule;
+  if (!isCapsule(capsule) || capsule.lifecycle !== "published") {
+    throw new Error(`Published Capsule ${capsuleId}@${version} not found`);
+  }
+  return capsule;
+}
+
+function requireManifestString(manifest: Record<string, unknown>, key: string): string {
+  const value = manifest[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Capsule manifest ${key} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireManifestStringArray(manifest: Record<string, unknown>, key: string): string[] {
+  const value = manifest[key];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`Capsule manifest ${key} must be an array of strings`);
+  }
+  return value;
+}
+
+function requireManifestObject(manifest: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = manifest[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Capsule manifest ${key} must be an object`);
+  }
+  return value as Record<string, unknown>;
 }
 
 async function runWhy(options: CliOptions): Promise<void> {
@@ -653,9 +858,10 @@ async function runAgent(options: CliOptions): Promise<void> {
     throw new Error(`Resource budget ${budgetId} not found`);
   }
   const capsule = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === capsuleId);
-  if (!capsule || capsule.lifecycle !== "published") {
+  if (!capsule || !isPublishedCapsuleWithEvidence(capsule)) {
     throw new Error(`Published capsule ${capsuleId} not found`);
   }
+  await requireValidContract("capability-capsule.schema.json", capsule);
   printJson(createAgentContract(parentRunId, childAgentId, task, existingBudget, [capsuleId]));
 }
 
@@ -760,7 +966,7 @@ function registryNameFor(options: CliOptions): string | null {
     case "approve-rehearsal":
       return "sandbox-approvals";
     case "capsule":
-      return "capsules";
+      return null;
     case "counterfactual":
       return "counterfactual-reports";
     case "sleep":
@@ -915,8 +1121,12 @@ Usage:
   npm run ether -- branch <checkpoint_id>
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>
   npm run ether -- approve-rehearsal <rehearsal_id> --workspace <path>
+  npm run ether -- capsule draft --path <manifest.json> --workspace <path>
   npm run ether -- capsule list
   npm run ether -- capsule inspect <capsule_id>
+  npm run ether -- capsule test <capsule_id> --replay-run <run_id> --replay-run <run_id>
+  npm run ether -- capsule publish <capsule_id> [--approve-permissions]
+  npm run ether -- capsule rollback <capsule_id> --version <published_version>
   npm run ether -- why <run_id> --workspace <path>
   npm run ether -- counterfactual <checkpoint_id> --change <text>
   npm run ether -- sleep <run_id>
@@ -932,7 +1142,7 @@ Commands:
   import                 Phase 4 dry-run migration report
   memory/context         Phase 3 source-backed Memory OS surfaces
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
-  capsule                Phase 6 contract inspection only; execution is unavailable
+  capsule                Governed document-only draft/test/local-publish/rollback lifecycle
   why/counterfactual     Phase 7 causal memory report surfaces
   sleep/wake             Phase 8 evidence-backed hibernation records
   anchors/persona/soul   Phase 9 evidence-backed persona and soul fork records

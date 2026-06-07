@@ -16,7 +16,7 @@ export type ReplayRecord = {
   run_id: string;
   mode: "trace" | "simulation" | "live";
   source_events: string[];
-  fixture_ref?: string;
+  artifact_ref?: string;
   live_side_effects: {
     allowed: boolean;
     approval_id: string | null;
@@ -28,14 +28,17 @@ export type ReplayRecord = {
 };
 
 export async function reconstructTrace(workspace: Workspace, runId: string): Promise<ReconstructedTrace> {
-  const events = (await readEvents(workspace)).filter((event) => event.run_id === runId);
+  const ledger = await readEvents(workspace);
+  const events = ledger.filter((event) => event.run_id === runId);
+  const lastRunEventIndex = ledger.findLastIndex((event) => event.run_id === runId);
+  const verifiedPrefix = lastRunEventIndex >= 0 ? ledger.slice(0, lastRunEventIndex + 1) : [];
   return {
     run_id: runId,
     event_count: events.length,
     event_types: events.map((event) => event.event_type),
     head_event_id: events.at(-1)?.id,
     head_event_hash: events.at(-1)?.event_hash,
-    chain_valid: verifyEventHashChain(events).valid,
+    chain_valid: events.length > 0 && verifyEventHashChain(verifiedPrefix).valid,
     live_side_effects_replayed: false
   };
 }
@@ -51,7 +54,7 @@ export async function createTraceReplayRecord(workspace: Workspace, runId: strin
     run_id: runId,
     mode: "trace",
     source_events: events.map((event) => event.id),
-    fixture_ref: `artifact://replay/${runId}/trace`,
+    artifact_ref: `artifact://replay/${runId}/trace`,
     live_side_effects: {
       allowed: false,
       approval_id: null

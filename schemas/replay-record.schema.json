@@ -10,7 +10,7 @@
     "run_id": { "type": "string" },
     "mode": { "type": "string", "enum": ["trace", "simulation", "live"] },
     "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-    "fixture_ref": { "type": "string" },
+    "artifact_ref": { "type": "string" },
     "live_side_effects": {
       "type": "object",
       "required": ["allowed"],

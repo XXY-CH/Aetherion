@@ -424,11 +424,14 @@ fn canonical_event_json(input: &EventHashInput<'_>) -> String {
 }
 
 fn json_string_field(line: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{}\":\"", key);
-    let start = line.find(&needle)? + needle.len();
+    let needle = format!("\"{}\"", key);
+    let key_end = line.find(&needle)? + needle.len();
+    let remainder = line[key_end..].trim_start();
+    let remainder = remainder.strip_prefix(':')?.trim_start();
+    let remainder = remainder.strip_prefix('"')?;
     let mut value = String::new();
     let mut escaped = false;
-    for character in line[start..].chars() {
+    for character in remainder.chars() {
         if escaped {
             match character {
                 '"' => value.push('"'),
@@ -595,6 +598,27 @@ mod tests {
         assert!(ledger.contains("\"parent_event_hash\":\"sha256:"));
         let registry = fs::read_to_string(registry_path).unwrap();
         assert!(registry.contains("\"authority\": \"rust-supervisor\""));
+    }
+
+    #[test]
+    fn workspace_registry_init_is_idempotent_but_rejects_identity_changes() {
+        let root = std::env::temp_dir().join(format!(
+            "aetherion-supervisor-workspace-idempotent-{}",
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_stable").unwrap();
+        let first_path = write_workspace_registry(&workspace).unwrap();
+        let first_contents = fs::read_to_string(&first_path).unwrap();
+
+        let second_path = write_workspace_registry(&workspace).unwrap();
+        assert_eq!(first_path, second_path);
+        assert_eq!(fs::read_to_string(second_path).unwrap(), first_contents);
+
+        let conflicting = init_workspace(&root, "ws_changed").unwrap();
+        let error = write_workspace_registry(&conflicting).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(error.to_string().contains("identity mismatch"));
     }
 
     #[test]

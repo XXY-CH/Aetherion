@@ -1,8 +1,9 @@
 {
   "id": "cap_local_file_read",
   "version": "0.1.0",
-  "description": "Read a workspace-scoped file after policy approval.",
+  "description": "Read workspace-scoped documentation through governed tool contracts.",
   "playbook": "playbooks/local-file-read.md",
+  "execution_mode": "document_only",
   "permission_requirements": {
     "required_tools": ["filesystem.read"],
     "forbidden_tools": ["filesystem.write", "external.email.send"]
@@ -10,9 +11,35 @@
   "tool_contracts": ["tool-request.schema.json", "policy-decision.schema.json"],
   "risk_level": "L1",
   "lifecycle": "draft",
-  "evals": ["local_file_read_trace_replay"],
-  "rollback": "none",
+  "sandbox_required": true,
+  "permissions_inherited": false,
+  "permission_diff": {
+    "added_tools": ["filesystem.read"],
+    "removed_tools": [],
+    "requires_approval": true
+  },
+  "replay_tests": [],
+  "sandbox_trial": null,
+  "approval": {
+    "required": false,
+    "status": "not_required",
+    "approval_card_id": null
+  },
+  "integrity": null,
+  "publication_scope": "not_published",
+  "rollback": {
+    "previous_version": null
+  },
   "provenance": {
-    "source_events": ["evt_user_message_001"]
+    "source_events": ["evt_user_message_001", "evt_user_message_002"],
+    "source_tasks": ["run_local_read_001", "run_local_read_002"]
+  },
+  "legacy_source": null,
+  "evals": ["local_file_read_trace_replay"],
+  "scoring_summary": {
+    "success": 0,
+    "correction": 0,
+    "tool_error": 0,
+    "policy_denial": 0
   }
 }

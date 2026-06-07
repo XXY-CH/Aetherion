@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 29 passing tests.
-- `cargo test`: 4 passing Rust tests.
+- `npm test`: 32 passing tests.
+- `cargo test`: 5 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -18,11 +18,11 @@ Verification from the latest pass:
 | Phase | Plan intent | Current code evidence | Verification evidence | Review status |
 | --- | --- | --- | --- | --- |
 | 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; Rust and test-only TS event hash chains. | Harness and Ether tests cover approval-gated read/write, trace reconstruction, hash-chain validation, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
-| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends SHA-256-linked events. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, standard SHA-256 vector, and RPC JSON contents; Ether integration validates `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, and process sandbox remain pending. |
+| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends SHA-256-linked events. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, and RPC JSON contents; Ether integration validates repeated runs and `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, and process sandbox remain pending. |
 | 3. Memory OS MVP | Grow memory from source events, not opaque vector state. | `packages/memory-os/src/index.ts`; trace-derived candidates, episodic timeline, evidence-only user model, context pack; Ether memory/context commands and registries. | Memory OS tests require source events; Ether tests derive candidates from a real run, accept one, and select it in context explain. | MVP source-backed path implemented. Extraction and ranking remain narrow; missing evidence is not synthesized. |
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
-| 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; Ether `capsule list/inspect`. | Capsule tests block publish without replay evidence and permission approval; Ether rejects test/publish because no real runner exists. | Contract inspection only. Replay runner, sandbox trial, and publish executor remain pending. |
+| 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
 | 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; causal edge and counterfactual schemas/examples; Ether why/counterfactual. | Tests require source-event citations, typed projection basis, explicit unknowns, and no live side effects. | Low-confidence typed event-sequence projection implemented. It does not claim proven causality; graph/SQLite projection remains pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, wake via local triggers with policy recheck. | `packages/hibernation/src/index.ts`; hibernation and wakeup schemas/examples; Ether sleep/wake registry path. | Hibernation tests assert active leases are not retained; Ether requires an existing run and context pack and rejects missing hibernation records. | Evidence-backed record lifecycle implemented. Trigger runner and resumed execution remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through folds, anchors, reset, fork, and inheritance policy. | `packages/soul/src/index.ts`; fold, anchor, soul fork, inheritance policy schemas/examples; Ether anchors/persona/soul commands. | Soul tests require evidence-backed anchors, explicit confidence, proposed-only reset/fork records, and no inherited live authority. | Proposal records implemented. Identity creation, policy materialization, inheritance export, and Dreaming patch pipeline remain pending. |
@@ -42,7 +42,7 @@ Matched source docs:
 Implemented correspondence:
 
 - Rust supervisor and the test-only TS seed append `parent_event_id`, `parent_event_hash`, and SHA-256 `event_hash`.
-- `reconstructTrace` exposes `chain_valid`, `head_event_id`, and `head_event_hash` without replaying side effects.
+- `reconstructTrace` verifies the full Ledger prefix through the selected run's last event, then projects that run. This preserves cross-run parent links while exposing `chain_valid`, `head_event_id`, and `head_event_hash` without replaying side effects.
 - `ether replay` now persists a Replay Record artifact and registry entry with `live_side_effects.allowed=false`.
 - `checkpoint` records the selected event id/hash; `branch` copies source/head pointers and keeps `inherits_authority=false`.
 - Ether prints chain status and head pointers for both supervisor and test-only seed traces.
@@ -77,6 +77,34 @@ Correction and remaining boundary:
 - TypeScript remains the Ether orchestrator and audit client. Rust owns the policy/write boundary for approved file rehearsal, but the supervisor is still a POC rather than the production authority daemon.
 - Approval records the actual operation lease returned by `file.write`; the separate preflight lease is not represented as execution authority.
 
+## Phase 6 Review Notes
+
+The user plan numbers this work as Phase 6. The original repository roadmap names the same Capability Capsule milestone Phase 5 because that roadmap has a different phase sequence. This review uses the user-plan number while preserving the source-document mapping.
+
+Matched source docs:
+
+- `docs/04-skill-and-scaffold-os.md`: Capsules bind playbook, tool contracts, permission requirements, tests, evals, provenance, and rollback; Capsules declare requirements but never own runtime permissions.
+- `docs/04-skill-and-scaffold-os.md`: permission expansion requires explicit approval; imported skills and executable packages remain quarantined until stronger gates pass.
+- `docs/06-roadmap.md` Phase 5: draft/test/publish/deprecated lifecycle, historical replay, scoring, source tasks, risk, provenance, rollback, and no direct tool permission ownership.
+- `docs/11-migration-and-runtime-economics.md`: imported Legacy Capsules remain quarantined and do not inherit trust.
+
+Implemented correspondence:
+
+- `capsule draft` accepts only a workspace-local manifest whose cited source events and at least two distinct source runs exist in the Event Ledger.
+- `capsule test` reconstructs two distinct cited run traces against the global hash-chain prefix. It never replays live side effects.
+- The MVP sandbox trial supports document-only playbooks. It copies the playbook into `.aetherion/capsules/trials/<id>/<version>/`, computes a SHA-256 digest, and rejects shell, network, or secret-access markers.
+- Draft/test state stays in `capsule-drafts`; it cannot replace the active `capsules` registry entry. Permission requirements produce a diff against the current published version. Added tools require `--approve-permissions`, which creates a schema-valid Approval Card before local publication.
+- Published versions retain replay tests, sandbox evidence, source tasks/events, evals, risk, integrity digest, and rollback metadata. Multi-agent contracts accept only published Capsules with this evidence.
+- `capsule rollback` resolves a previously published version from the version registry, marks the replaced version deprecated, and restores the selected version as current.
+- External/executable Capsules are quarantined. No playbook or imported code executes in the Local Supervisor.
+
+Correction and remaining boundary:
+
+- SHA-256 proves content integrity but is not a signature. The contract therefore uses `integrity` and marks publication `local_unsigned`; package/capsule signing remains a later Store/package gate.
+- Static pattern scanning is deliberately narrow and cannot establish code safety. Executable package typecheck, unit tests, process isolation, structured IPC, resource limits, and network policy remain unimplemented.
+- The lifecycle does not yet auto-propose Capsules from repeated episodes. Users provide a manifest whose provenance is verified.
+- Scoring fields are present and updateable in the domain module, but production task routing does not yet feed outcome metrics into them.
+
 ## Phase 2 Review Notes
 
 Matched architecture docs:
@@ -110,7 +138,8 @@ Current enforced rules:
 - Workspace ids are derived from the resolved workspace path instead of fixed demo ids.
 - Memory candidates and Persona Anchors require existing source events and explicit confidence.
 - Context, checkpoint, branch, rehearsal, hibernation, wakeup, Soul Fork, and Agent Contract commands fail when their referenced ledger or registry records do not exist.
-- Capsule test/publish commands are unavailable until real replay and sandbox trial runners exist.
+- Capsule test/publish accepts only persisted Capsule drafts, two distinct cited Ledger runs, passing hash-chain replay records, and a document sandbox trial. Permission expansion requires an Approval Card.
+- Capsule publication is labeled `local_unsigned`; a SHA-256 integrity digest is not represented as a cryptographic signature.
 - Agent Contract creation does not consume budget or imply a child run occurred.
 - Counterfactual output is low-confidence, report-only, and lists evidence, assumptions, and unknowns.
 - Examples and test fixtures may use illustrative ids, but runtime code cannot fall back to them.

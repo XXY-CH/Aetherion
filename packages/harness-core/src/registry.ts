@@ -47,6 +47,14 @@ export function upsertRegistryItems(workspaceRoot: string, name: string, items: 
   return latest;
 }
 
+export function removeRegistryItem(workspaceRoot: string, name: string, id: string): RegistryItem[] {
+  const next = readRegistry(workspaceRoot, name).filter((item) => item.id !== id);
+  const path = registryPath(workspaceRoot, name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+  return next;
+}
+
 export function isRegistryItem(value: unknown): value is RegistryItem {
   return value !== null && typeof value === "object" && !Array.isArray(value) && "id" in value && typeof value.id === "string";
 }
