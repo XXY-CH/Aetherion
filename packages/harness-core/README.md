@@ -21,7 +21,7 @@ Current scope:
 - Check trace hash-chain validity for Rust supervisor and test-only seed events.
 - Create Replay Records for trace-mode reconstruction with live side effects disabled.
 - Provide a TypeScript stdio client for the Rust supervisor POC.
-- Run the default Ether kernel loop through the Rust supervisor via `runSupervisorKernelLoop`.
+- Run the default Ether kernel loop through the Rust supervisor via `runSupervisorKernelLoop`, using Rust traced file-action RPCs for read/write lifecycle events while keeping approval-card, consent, verification, and manifest projection in the Ether client layer.
 - Provide human-readable local registry helpers for `.aetherion/registries/*.json`.
 - Support registry upsert/read helpers used by Memory OS, Capsule OS, hibernation, migration, and security contract surfaces.
 - Feed later Memory OS context assembly by making run ledger events and manifests readable by TUI commands.

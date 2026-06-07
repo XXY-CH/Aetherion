@@ -296,6 +296,22 @@ fn handle_rpc_line(line: &str) -> String {
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
+        "file.read.traced" => match init_workspace(&workspace_root, &workspace_id) {
+            Ok(workspace) => {
+                if let Err(error) = write_workspace_registry(&workspace) {
+                    return error_response(&id, &error.to_string());
+                }
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                match traced_read(&workspace, &run_id, path) {
+                    Ok(response) => response,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                }
+            }
+            Err(error) => return error_response(&id, &error.to_string()),
+        },
         "child.file.read" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 if let Err(error) = write_workspace_registry(&workspace) {
@@ -387,6 +403,45 @@ fn handle_rpc_line(line: &str) -> String {
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
+        "file.write.prepare" => match init_workspace(&workspace_root, &workspace_id) {
+            Ok(workspace) => {
+                if let Err(error) = write_workspace_registry(&workspace) {
+                    return error_response(&id, &error.to_string());
+                }
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                match traced_write_prepare(&workspace, &run_id, path) {
+                    Ok(response) => response,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                }
+            }
+            Err(error) => return error_response(&id, &error.to_string()),
+        },
+        "file.write.commit" => match init_workspace(&workspace_root, &workspace_id) {
+            Ok(workspace) => {
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                let contents = match required_string_field(line, "contents") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
+                match traced_write_commit(
+                    &workspace,
+                    &run_id,
+                    path,
+                    &contents,
+                    bool_field(line, "approved"),
+                ) {
+                    Ok(response) => response,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                }
+            }
+            Err(error) => return error_response(&id, &error.to_string()),
+        },
         "file.write" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 let path = match required_string_field(line, "path") {
@@ -429,6 +484,225 @@ fn required_string_field(line: &str, key: &str) -> Result<String, String> {
     string_field(line, key)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("missing required string field {key}"))
+}
+
+fn traced_read(
+    workspace: &aetherion_supervisor::Workspace,
+    run_id: &str,
+    path: PathBuf,
+) -> std::io::Result<String> {
+    let request = file_read_request(run_id, path);
+    let request_event_id = append_event(
+        workspace,
+        "tool.requested",
+        run_id,
+        &format!(
+            "Rust supervisor requested workspace read {}",
+            request.path.display()
+        ),
+    )?;
+    let decision = evaluate_policy(workspace, &request, None);
+    let risk_event_id = append_event(
+        workspace,
+        "risk.composed",
+        run_id,
+        &format!(
+            "Composed {:?} risk for supervisor workspace file read.",
+            decision.risk_level
+        ),
+    )?;
+    let policy_event_id = append_event(
+        workspace,
+        "policy.decided",
+        run_id,
+        &format!(
+            "Read policy {} for {}: {}",
+            decision_name(&decision.decision),
+            request.path.display(),
+            decision.reason
+        ),
+    )?;
+    let lease_event_id = if let Some(lease) = &decision.lease {
+        append_event(
+            workspace,
+            "lease.issued",
+            run_id,
+            &format!("Issued scoped read lease {}.", lease.id),
+        )?
+    } else {
+        String::new()
+    };
+    match read_with_lease(&request, &decision) {
+        Ok(contents) => {
+            let result_event_id = append_event(
+                workspace,
+                "tool.result",
+                run_id,
+                &format!(
+                    "Rust supervisor read {} bytes from workspace file {}.",
+                    contents.len(),
+                    request.path.display()
+                ),
+            )?;
+            Ok(format!(
+                "{{\"contents\":\"{}\",\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"risk_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
+                escape(&contents),
+                escape(&request.id),
+                escape(&request_event_id),
+                escape(&risk_event_id),
+                escape(&decision.id),
+                escape(&policy_event_id),
+                escape(&lease_event_id),
+                escape(&result_event_id),
+                decision_name(&decision.decision),
+                decision.risk_level,
+                escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
+            ))
+        }
+        Err(error) => {
+            let result_event_id = append_event(
+                workspace,
+                "tool.result",
+                run_id,
+                &format!(
+                    "Rust supervisor read denied for {}: {}",
+                    request.path.display(),
+                    error
+                ),
+            )?;
+            Ok(format!(
+                "{{\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"risk_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
+                escape(&request.id),
+                escape(&request_event_id),
+                escape(&risk_event_id),
+                escape(&decision.id),
+                escape(&policy_event_id),
+                escape(&lease_event_id),
+                escape(&result_event_id),
+                decision_name(&decision.decision),
+                decision.risk_level,
+                escape(&error.to_string())
+            ))
+        }
+    }
+}
+
+fn traced_write_prepare(
+    workspace: &aetherion_supervisor::Workspace,
+    run_id: &str,
+    path: PathBuf,
+) -> std::io::Result<String> {
+    let request = file_write_request(run_id, path);
+    let request_event_id = append_event(
+        workspace,
+        "tool.requested",
+        run_id,
+        &format!(
+            "Rust supervisor requested workspace write {}",
+            request.path.display()
+        ),
+    )?;
+    let decision = evaluate_policy(workspace, &request, None);
+    let risk_event_id = append_event(
+        workspace,
+        "risk.composed",
+        run_id,
+        &format!(
+            "Composed {:?} risk for supervisor workspace file write.",
+            decision.risk_level
+        ),
+    )?;
+    let policy_event_id = append_event(
+        workspace,
+        "policy.decided",
+        run_id,
+        &format!(
+            "Write prepare policy {} for {}: {}",
+            decision_name(&decision.decision),
+            request.path.display(),
+            decision.reason
+        ),
+    )?;
+    Ok(format!(
+        "{{\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"risk_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\"}}",
+        escape(&request.id),
+        escape(&request_event_id),
+        escape(&risk_event_id),
+        escape(&decision.id),
+        escape(&policy_event_id),
+        decision_name(&decision.decision),
+        decision.risk_level
+    ))
+}
+
+fn traced_write_commit(
+    workspace: &aetherion_supervisor::Workspace,
+    run_id: &str,
+    path: PathBuf,
+    contents: &str,
+    approved: bool,
+) -> std::io::Result<String> {
+    let request = file_write_request(run_id, path);
+    let consent = Consent {
+        request_id: request.id.clone(),
+        approved,
+    };
+    let decision = evaluate_policy(workspace, &request, Some(&consent));
+    let policy_event_id = append_event(
+        workspace,
+        "policy.decided",
+        run_id,
+        &format!(
+            "Write commit policy {} for {}: {}",
+            decision_name(&decision.decision),
+            request.path.display(),
+            decision.reason
+        ),
+    )?;
+    let lease_event_id = if let Some(lease) = &decision.lease {
+        append_event(
+            workspace,
+            "lease.issued",
+            run_id,
+            &format!("Issued scoped write lease {}.", lease.id),
+        )?
+    } else {
+        String::new()
+    };
+    match write_with_lease(&request, &decision, contents) {
+        Ok(()) => {
+            let action_event_id = append_event(
+                workspace,
+                "action.recorded",
+                run_id,
+                &format!(
+                    "Rust supervisor wrote workspace file {} through scoped policy.",
+                    request.path.display()
+                ),
+            )?;
+            Ok(format!(
+                "{{\"written\":true,\"request_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
+                escape(&request.id),
+                escape(&decision.id),
+                escape(&policy_event_id),
+                escape(&lease_event_id),
+                escape(&action_event_id),
+                decision_name(&decision.decision),
+                decision.risk_level,
+                escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
+            ))
+        }
+        Err(error) => Ok(format!(
+            "{{\"written\":false,\"request_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_event_id\":\"\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
+            escape(&request.id),
+            escape(&decision.id),
+            escape(&policy_event_id),
+            escape(&lease_event_id),
+            decision_name(&decision.decision),
+            decision.risk_level,
+            escape(&error.to_string())
+        )),
+    }
 }
 
 fn string_field(line: &str, key: &str) -> Option<String> {
@@ -640,5 +914,131 @@ mod tests {
         );
         let conflict_response = handle_rpc_line(&conflicting_request);
         assert!(conflict_response.contains("\"error\":\"workspace registry identity mismatch\""));
+    }
+
+    #[test]
+    fn rpc_traced_file_actions_emit_supervisor_lifecycle_events() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-traced-actions-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("README.md");
+        let output = root.join(".aetherion").join("SUMMARY.md");
+        fs::write(&input, "traced evidence\n").unwrap();
+
+        let read_request = format!(
+            "{{\"id\":\"rpc_read_traced\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&input.display().to_string())
+        );
+        let read_response = handle_rpc_line(&read_request);
+        assert!(read_response.contains("\"contents\":\"traced evidence\\n\""));
+        assert!(read_response.contains("\"request_event_id\":\"evt_"));
+        assert!(read_response.contains("\"risk_event_id\":\"evt_"));
+        assert!(read_response.contains("\"policy_event_id\":\"evt_"));
+        assert!(read_response.contains("\"lease_event_id\":\"evt_"));
+        assert!(read_response.contains("\"result_event_id\":\"evt_"));
+
+        let prepare_request = format!(
+            "{{\"id\":\"rpc_write_prepare\",\"method\":\"file.write.prepare\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&output.display().to_string())
+        );
+        let prepare_response = handle_rpc_line(&prepare_request);
+        assert!(prepare_response.contains("\"decision\":\"ask\""));
+        assert!(prepare_response.contains("\"risk_event_id\":\"evt_"));
+        assert!(prepare_response.contains("\"lease_id\":\"\""));
+
+        let commit_request = format!(
+            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"contents\":\"Summary: traced evidence\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&output.display().to_string())
+        );
+        let commit_response = handle_rpc_line(&commit_request);
+        assert!(commit_response.contains("\"written\":true"));
+        assert!(commit_response.contains("\"policy_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"lease_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"action_event_id\":\"evt_"));
+        assert_eq!(
+            fs::read_to_string(&output).unwrap(),
+            "Summary: traced evidence\n"
+        );
+
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        let event_types = ledger
+            .lines()
+            .filter_map(|line| string_field(line, "event_type"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            event_types,
+            vec![
+                "tool.requested",
+                "risk.composed",
+                "policy.decided",
+                "lease.issued",
+                "tool.result",
+                "tool.requested",
+                "risk.composed",
+                "policy.decided",
+                "policy.decided",
+                "lease.issued",
+                "action.recorded"
+            ]
+        );
+    }
+
+    #[test]
+    fn rpc_write_commit_without_approval_records_policy_but_no_action() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-traced-deny-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("SUMMARY.md");
+        let request = format!(
+            "{{\"id\":\"rpc_write_commit_deny\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_deny\",\"run_id\":\"run_traced_deny\",\"path\":\"{}\",\"contents\":\"no approval\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&output.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"written\":false"));
+        assert!(response.contains("\"decision\":\"ask\""));
+        assert!(response.contains("\"action_event_id\":\"\""));
+        assert!(!output.exists());
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("\"event_type\":\"policy.decided\""));
+        assert!(!ledger.contains("\"event_type\":\"action.recorded\""));
+    }
+
+    #[test]
+    fn rpc_traced_read_outside_workspace_records_l5_deny_without_lease() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-traced-outside-{nonce}"));
+        let outside_root =
+            std::env::temp_dir().join(format!("aetherion-rpc-traced-outside-file-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside_root).unwrap();
+        let outside = outside_root.join("secret.txt");
+        fs::write(&outside, "outside\n").unwrap();
+        let request = format!(
+            "{{\"id\":\"rpc_read_outside\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_outside\",\"run_id\":\"run_traced_outside\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&outside.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"decision\":\"deny\""));
+        assert!(response.contains("\"risk_level\":\"L5\""));
+        assert!(response.contains("\"lease_id\":\"\""));
+        assert!(response.contains("\"result_event_id\":\"evt_"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("Composed L5 risk for supervisor workspace file read"));
+        assert!(ledger.contains("Target is outside workspace boundary"));
+        assert!(!ledger.contains("\"event_type\":\"lease.issued\""));
     }
 }

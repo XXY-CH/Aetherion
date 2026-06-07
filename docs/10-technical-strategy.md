@@ -127,6 +127,7 @@ Later:
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
 - Execute local file read/write only through an allowed scoped lease.
+- Expose traced file-action RPCs for Ether's default run path so the Rust process emits `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, and `action.recorded` events for workspace file reads and writes instead of requiring Ether to append each file-action event itself.
 - Expose a minimal stdio RPC command used by the TypeScript Ether client by default.
 
 This crate is not yet the production supervisor. It does not implement a vault, event signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.

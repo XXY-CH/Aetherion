@@ -11,6 +11,7 @@ Current scope:
 - Evaluate a tiny deterministic local file policy.
 - Issue scoped leases for workspace-local reads and approval-gated writes.
 - Execute workspace-scoped file read/write through leases.
+- Emit traced file-action lifecycle events from Rust RPC methods for workspace reads, write preparation, and approved write commits.
 - Reject expired leases and wrong-path lease reuse.
 - Expose a minimal stdio JSON-RPC POC for workspace init, event append, policy evaluation, lease issuance, file read/write, and trace replay.
 - Fail closed when required RPC fields are absent and return the actual operation lease id for writes.

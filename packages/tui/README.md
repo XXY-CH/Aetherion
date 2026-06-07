@@ -77,7 +77,7 @@ Rust supervisor mode:
 npm run ether -- run --supervisor stdio --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
-This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, and lease-gated file read/write for this path.
+This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, traced file-action event emission, and lease-gated file read/write for this path. Ether still owns the run manifest projection, approval-card display, consent capture, and verification records.
 
 File rehearsal flow:
 

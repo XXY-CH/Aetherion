@@ -90,7 +90,7 @@ The first loop is now closed for local file read/write through Ether and the Rus
 2. Trace-backed Memory Card lifecycle: real run trace to candidate, review, active card, context pack, and tombstone.
 3. Trace-backed Capability Draft lifecycle: repeated successful traces to draft Capsule, replay tests, sandbox trial, and staged status without production execution.
 
-For the action lifecycle, future work should move more of the lifecycle creation into Rust supervisor RPC methods instead of relying on the TypeScript Ether orchestrator to append every intermediate event. Until that boundary exists, tests must verify the Ledger sequence emitted by `ether run --supervisor stdio`.
+For the action lifecycle, the default Ether supervisor path now uses Rust traced file-action RPCs for read, write prepare, and write commit. Those RPCs create the file-action Ledger events and return event ids for the run manifest projection. Ether still creates the user-intent event, approval card, consent event, verification records, and run manifest status. Future work should keep moving authority-bearing lifecycle logic into Rust RPC methods before adding new action families.
 
 ## Node Baseline
 

@@ -70,53 +70,34 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
 
   const readRequest = createFileReadRequest(runId, inputPath);
   const readRisk = composeRisk(readRequest);
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.requested", "Requested supervisor workspace file read.");
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "risk.composed", `Composed ${readRisk.risk_level} risk for supervisor workspace file read.`);
-  const readEval = await supervisorCall(input.repoRoot, {
-    id: `rpc_${runId}_read_policy`,
-    method: "tool.evaluate",
-    workspace_root: workspaceRoot,
-    workspace_id: workspaceId,
-    run_id: runId,
-    verb: "read",
-    path: inputPath
-  });
-  const readDecision = policyFromSupervisor(runId, readRequest, readEval, "Explicit workspace-scoped read evaluated by Rust supervisor.");
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "policy.decided", readDecision.reason);
-  if (readDecision.lease) {
-    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "lease.issued", `Issued scoped read lease ${readDecision.lease.id}.`);
-  }
-
   const readResult = await supervisorCall(input.repoRoot, {
-    id: `rpc_${runId}_read`,
-    method: "file.read",
+    id: `rpc_${runId}_read_traced`,
+    method: "file.read.traced",
     workspace_root: workspaceRoot,
     workspace_id: workspaceId,
     run_id: runId,
     path: inputPath
   });
+  await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, readResult, ["request_event_id", "risk_event_id", "policy_event_id", "lease_event_id", "result_event_id"]);
+  const readDecision = policyFromSupervisor(runId, readRequest, readResult, "Explicit workspace-scoped read evaluated and executed by Rust supervisor.");
   if (typeof readResult.contents !== "string") {
     throw new Error("Rust supervisor file.read returned no contents");
   }
   const readContents = readResult.contents;
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.result", `Rust supervisor read ${Buffer.byteLength(readContents, "utf8")} bytes from workspace file.`);
 
   const writeRequest = createFileWriteRequest(runId, outputPath);
   const writeRisk = composeRisk(writeRequest);
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.requested", "Requested supervisor workspace file write.");
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "risk.composed", `Composed ${writeRisk.risk_level} risk for supervisor workspace file write.`);
   const writePreEval = await supervisorCall(input.repoRoot, {
-    id: `rpc_${runId}_write_policy_ask`,
-    method: "tool.evaluate",
+    id: `rpc_${runId}_write_prepare`,
+    method: "file.write.prepare",
     workspace_root: workspaceRoot,
     workspace_id: workspaceId,
     run_id: runId,
-    verb: "write",
     path: outputPath
   });
+  await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, writePreEval, ["request_event_id", "risk_event_id", "policy_event_id"]);
   const writePreDecision = policyFromSupervisor(runId, writeRequest, writePreEval, "Workspace write requires explicit consent from Rust supervisor policy.");
   const approvalCard = createApprovalCard(writeRequest, writePreDecision);
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "policy.decided", writePreDecision.reason);
 
   if (!input.approveWrite) {
     await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Run stopped before supervisor write because approval was not provided.");
@@ -141,8 +122,8 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "consent.recorded", "Ether user approved Rust supervisor workspace-scoped write.");
   const summaryText = input.summaryText ?? defaultSummary(readContents);
   const writeResult = await supervisorCall(input.repoRoot, {
-    id: `rpc_${runId}_write`,
-    method: "file.write",
+    id: `rpc_${runId}_write_commit`,
+    method: "file.write.commit",
     workspace_root: workspaceRoot,
     workspace_id: workspaceId,
     run_id: runId,
@@ -154,11 +135,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   if (writeResult.written !== true || writeDecision.decision !== "allow" || !writeDecision.lease) {
     throw new Error("Rust supervisor did not return an allowed lease-backed write result");
   }
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "policy.decided", writeDecision.reason);
-  if (writeDecision.lease) {
-    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "lease.issued", `Issued scoped write lease ${writeDecision.lease.id}.`);
-  }
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "action.recorded", "Rust supervisor wrote workspace file through scoped policy.");
+  await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, writeResult, ["policy_event_id", "lease_event_id", "action_event_id"]);
 
   const { observation, verification } = await verifyFileContains({
     runId,
@@ -209,6 +186,25 @@ async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, man
     throw new Error(`Rust supervisor event.append returned no event id for ${event_type}`);
   }
   await recordRunEvent(repoRoot, workspace, manifest, appendResult.event_id);
+}
+
+async function recordSupervisorEventIds(
+  repoRoot: string,
+  workspace: Workspace,
+  manifest: RunManifest,
+  result: Record<string, unknown>,
+  keys: string[]
+): Promise<void> {
+  for (const key of keys) {
+    const eventId = result[key];
+    if (eventId === "") {
+      continue;
+    }
+    if (typeof eventId !== "string") {
+      throw new Error(`Rust supervisor traced action returned no ${key}`);
+    }
+    await recordRunEvent(repoRoot, workspace, manifest, eventId);
+  }
 }
 
 function policyFromSupervisor(runId: string, request: ToolRequest, result: Record<string, unknown>, reason: string): PolicyDecision {
