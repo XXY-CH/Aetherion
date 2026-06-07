@@ -124,6 +124,17 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   const childResultValidation = await validateAgainstSchema(repoRoot, "child-result.schema.json", childResult);
   assert.equal(childResultValidation.valid, false);
   assert.ok(childResultValidation.errors.some((error) => error.includes("expected one of false")));
+
+  const computerAction = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "computer-action.json"), "utf8"));
+  computerAction.adapter_requirements_gate.enabled_by_user_config = true;
+  computerAction.approval_keys = [
+    "browser-current-tab-cdp:browser:click:https://app.example.com:button.export",
+    "browser-current-tab-cdp:browser:click:https://app.example.com:button.export"
+  ];
+  const computerActionValidation = await validateAgainstSchema(repoRoot, "computer-action.schema.json", computerAction);
+  assert.equal(computerActionValidation.valid, false);
+  assert.ok(computerActionValidation.errors.some((error) => error.includes("expected one of false")));
+  assert.ok(computerActionValidation.errors.some((error) => error.includes("expected unique items")));
 });
 
 test("event hash v1 has a fixed cross-language canonical vector", () => {

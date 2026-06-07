@@ -85,6 +85,7 @@ Memory OS       Capability OS        Proactive Engine
 - [Technical Strategy](docs/10-technical-strategy.md)
 - [Migration and Runtime Economics](docs/11-migration-and-runtime-economics.md)
 - [Phase Implementation Review](docs/12-phase-implementation-review.md)
+- [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
 
 ## MVP Direction
 

@@ -3,6 +3,12 @@
   "run_id": "run_computer_demo",
   "source_event_ids": ["evt_user_requested_browser_export"],
   "adapter_id": "browser-current-tab-cdp",
+  "adapter_requirements_gate": {
+    "feature": "computer_use",
+    "enabled_by_requirements": true,
+    "enabled_by_user_config": false,
+    "source_event_ids": ["evt_requirement_browser_action"]
+  },
   "channel": "browser_cdp",
   "verb": "click",
   "target": {
@@ -23,6 +29,7 @@
   "policy_decision_id": "policy_browser_click_ask",
   "lease_id": "lease_browser_click_scoped",
   "approval_card_id": "approval_browser_click_export",
+  "approval_keys": ["browser-current-tab-cdp:browser:click:https://app.example.com:button.export"],
   "expected_effect": "Open the current dashboard export dialog without sending data externally.",
   "verification_required": true,
   "live_replay_allowed": false,

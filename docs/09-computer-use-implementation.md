@@ -165,7 +165,7 @@ The key difference is that Aetherion treats observations as evidence, not author
 
 The control-plane contracts are:
 
-- `computer-action`: a policy-linked action request. It records source events, adapter, channel, target, confidence, taint, egress destination, policy decision, optional lease, optional approval card, expected effect, and the invariant that live replay is disabled.
+- `computer-action`: a policy-linked action request. It records source events, adapter, adapter requirements gate evidence, channel, target, confidence, taint, egress destination, policy decision, optional lease, optional approval card, exact approval keys, expected effect, and the invariant that live replay is disabled.
 - `computer-observation`: post-action or observe-only evidence. It stores artifact hashes, redaction counts, taint, observed effect, and verifier status while explicitly marking raw payload persistence and authorization as false.
 
 Channel preference is part of the contract:

@@ -8,6 +8,7 @@
     "run_id",
     "source_event_ids",
     "adapter_id",
+    "adapter_requirements_gate",
     "channel",
     "verb",
     "target",
@@ -19,6 +20,7 @@
     "policy_decision_id",
     "lease_id",
     "approval_card_id",
+    "approval_keys",
     "expected_effect",
     "verification_required",
     "live_replay_allowed",
@@ -30,6 +32,22 @@
     "run_id": { "type": "string" },
     "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "adapter_id": { "type": "string" },
+    "adapter_requirements_gate": {
+      "type": "object",
+      "required": [
+        "feature",
+        "enabled_by_requirements",
+        "enabled_by_user_config",
+        "source_event_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "type": "string", "enum": ["browser_use", "desktop_use", "computer_use"] },
+        "enabled_by_requirements": { "type": "boolean", "enum": [true] },
+        "enabled_by_user_config": { "type": "boolean", "enum": [false] },
+        "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
     "channel": {
       "type": "string",
       "enum": [
@@ -81,6 +99,12 @@
     "policy_decision_id": { "type": "string" },
     "lease_id": { "type": ["string", "null"] },
     "approval_card_id": { "type": ["string", "null"] },
+    "approval_keys": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.:/#-]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "expected_effect": { "type": "string", "minLength": 1 },
     "verification_required": { "type": "boolean", "enum": [true] },
     "live_replay_allowed": { "type": "boolean", "enum": [false] },
