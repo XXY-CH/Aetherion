@@ -1,8 +1,17 @@
 {
-  "id": "poison_prompt_override",
+  "id": "poison_evt_public_web_observation_000000000000",
+  "assessment_id": "assessment_evt_public_web_observation_000000000000",
   "source_event_id": "evt_public_web_observation",
+  "source_kind": "public_web",
+  "content_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "signal_type": "policy_override",
-  "severity": "high",
+  "severity": "critical",
+  "matched_rules": ["rule_policy_override"],
+  "status": "detected",
   "quarantined": true,
-  "can_authorize_actions": false
+  "sandbox_required": true,
+  "can_authorize_actions": false,
+  "acknowledged_at": null,
+  "regression_fixture_id": null,
+  "created_at": "2026-06-07T00:00:00.000Z"
 }

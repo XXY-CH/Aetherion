@@ -10,7 +10,7 @@ import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
-import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
+import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
@@ -45,6 +45,7 @@ type CliOptions = {
   childAgent?: string;
   budget?: string;
   agentId?: string;
+  sourceKind?: UntrustedSource;
   supervisor?: "typescript-seed" | "stdio";
 };
 
@@ -160,6 +161,15 @@ function parseArgs(args: string[]): CliOptions {
         options.sourceEvent = requireValue(arg, next);
         index += 1;
         break;
+      case "--source-kind": {
+        const sourceKind = requireValue(arg, next);
+        if (!isUntrustedSource(sourceKind)) {
+          throw new Error("--source-kind must be public_web, email, pdf, im, github_issue, mcp_description, or third_party_content");
+        }
+        options.sourceKind = sourceKind;
+        index += 1;
+        break;
+      }
       case "--confidence": {
         const confidence = Number(requireValue(arg, next));
         if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
@@ -1349,16 +1359,66 @@ async function runSecurity(options: CliOptions): Promise<void> {
       throw new Error("security scan requires --source-event <event_id> and --content <text>");
     }
     await requireSourceEvent(workspaceRoot, options.sourceEvent);
-    const signal = detectPoisoning(options.sourceEvent, options.content);
+    const assessment = scanUntrustedContent({
+      sourceEventId: options.sourceEvent,
+      sourceKind: options.sourceKind ?? "third_party_content",
+      text: options.content
+    });
+    await requireValidContract("content-assessment.schema.json", assessment);
+    persistSecurityRecord(workspaceRoot, "scan", "content-assessments", assessment);
+    const workspace = await openWorkspace(workspaceRoot);
+    const securityRunId = `run_security_scan_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const manifest = await createRunManifest(repoRoot, workspace, securityRunId, `Assess tainted ${assessment.source_kind} content from ${assessment.source_event_id}.`);
+    let taintPolicy: Record<string, unknown>;
+    try {
+      taintPolicy = rpcResult(await callSupervisorRpc(repoRoot, {
+        id: `rpc_${securityRunId}_taint_policy`,
+        method: "security.taint.evaluate",
+        workspace_root: workspaceRoot,
+        workspace_id: workspace.id,
+        run_id: securityRunId,
+        source_kind: assessment.source_kind
+      }));
+    } catch (error) {
+      await completeRunManifest(repoRoot, workspace, manifest, "failed");
+      throw error;
+    }
+    if (
+      taintPolicy.decision !== "deny"
+      || taintPolicy.lease_id !== ""
+      || taintPolicy.can_authorize_actions !== false
+      || typeof taintPolicy.policy_event_id !== "string"
+    ) {
+      await completeRunManifest(repoRoot, workspace, manifest, "failed");
+      throw new Error(`Supervisor did not deny tainted authorization for ${assessment.id}`);
+    }
+    await recordRunEvent(repoRoot, workspace, manifest, taintPolicy.policy_event_id);
+    await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "security.content.assessed",
+      `Assessed tainted ${assessment.source_kind} content from ${assessment.source_event_id}; raw content was not persisted and cannot authorize actions.`,
+      artifactRef("security", "scan", assessment.id)
+    );
+    const signal = signalFromAssessment(assessment);
     if (!signal) {
-      console.log(JSON.stringify({
-        source_event_id: options.sourceEvent,
-        status: "no_signal",
-        can_authorize_actions: false
-      }, null, 2));
+      await completeRunManifest(repoRoot, workspace, manifest, "completed");
+      console.log(JSON.stringify(assessment, null, 2));
       return;
     }
-    printJson(signal);
+    await requireValidContract("poisoning-signal.schema.json", signal);
+    persistSecurityRecord(workspaceRoot, "scan", "poisoning-signals", signal);
+    await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "poisoning.detected",
+      `Quarantined ${signal.signal_type} signal ${signal.id}; no authorization or external action was issued.`,
+      artifactRef("security", "scan", signal.id)
+    );
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    console.log(JSON.stringify(signal, null, 2));
     return;
   }
   if (options.topic === "ack") {
@@ -1367,10 +1427,80 @@ async function runSecurity(options: CliOptions): Promise<void> {
     if (!signal) {
       throw new Error(`Poisoning signal ${signalId} not found`);
     }
-    printJson(acknowledgePoisoning(signal));
+    const acknowledged = acknowledgePoisoning(signal);
+    await requireValidContract("poisoning-signal.schema.json", acknowledged);
+    persistSecurityRecord(workspaceRoot, "ack", "poisoning-signals", acknowledged);
+    await recordGovernanceEvent(
+      workspaceRoot,
+      "poisoning.acknowledged",
+      `Acknowledged poisoning signal ${signal.id}; quarantine and authorization block remain active.`,
+      artifactRef("security", "ack", acknowledged.id)
+    );
+    console.log(JSON.stringify(acknowledged, null, 2));
     return;
   }
-  throw new Error("security supports scan --content <text> and ack <signal_id>");
+  if (options.topic === "trial") {
+    const signalId = requirePositional(options.target, "security trial requires a signal id");
+    const signal = readRegistry(workspaceRoot, "poisoning-signals").filter(isPoisoningSignal).find((entry) => entry.id === signalId);
+    if (!signal) {
+      throw new Error(`Poisoning signal ${signalId} not found`);
+    }
+    if (options.capsule) {
+      const published = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === options.capsule);
+      const draft = readRegistry(workspaceRoot, "capsule-drafts").filter(isCapsule).find((entry) => entry.id === options.capsule);
+      const capsule = published ?? draft;
+      if (!capsule) {
+        throw new Error(`Capsule ${options.capsule} not found`);
+      }
+      const quarantined = { ...capsule, lifecycle: "quarantined" as const };
+      await requireValidContract("capability-capsule.schema.json", quarantined);
+      upsertRegistryItem(workspaceRoot, published ? "capsules" : "capsule-drafts", quarantined);
+    }
+    const trial = runHoneypotTrial(signal, options.capsule);
+    await requireValidContract("honeypot-trial.schema.json", trial);
+    persistSecurityRecord(workspaceRoot, "trial", "honeypot-trials", trial);
+    await recordGovernanceEvent(
+      workspaceRoot,
+      "honeypot.trial.completed",
+      `Completed decoy-only containment trial ${trial.id}; no real secret, network, or authorization path was available.`,
+      artifactRef("security", "trial", trial.id)
+    );
+    console.log(JSON.stringify(trial, null, 2));
+    return;
+  }
+  if (options.topic === "fixture") {
+    const signalId = requirePositional(options.target, "security fixture requires a signal id");
+    const signal = readRegistry(workspaceRoot, "poisoning-signals").filter(isPoisoningSignal).find((entry) => entry.id === signalId);
+    if (!signal) {
+      throw new Error(`Poisoning signal ${signalId} not found`);
+    }
+    const created = createPoisoningRegressionFixture(signal);
+    await requireValidContract("poisoning-signal.schema.json", created.signal);
+    await requireValidContract("poisoning-regression-fixture.schema.json", created.fixture);
+    persistSecurityRecord(workspaceRoot, "fixture", "poisoning-signals", created.signal);
+    persistSecurityRecord(workspaceRoot, "fixture", "poisoning-regression-fixtures", created.fixture);
+    await recordGovernanceEvent(
+      workspaceRoot,
+      "poisoning.regression.created",
+      `Created detector-only regression fixture ${created.fixture.id} from ${signal.id}; raw content and live side effects are excluded.`,
+      artifactRef("security", "fixture", created.fixture.id)
+    );
+    console.log(JSON.stringify(created.fixture, null, 2));
+    return;
+  }
+  throw new Error("security supports scan, ack <signal_id>, trial <signal_id>, and fixture <signal_id>");
+}
+
+function persistSecurityRecord(
+  workspaceRoot: string,
+  topic: string,
+  registryName: string,
+  value: Record<string, unknown> & { id: string }
+): void {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "security", sanitizePathSegment(topic));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sanitizePathSegment(value.id)}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  upsertRegistryItem(workspaceRoot, registryName, value);
 }
 
 function printJson(value: unknown): void {
@@ -1463,7 +1593,7 @@ function registryNameFor(options: CliOptions): string | null {
       if (options.topic === "execute") return "child-results";
       return null;
     case "security":
-      return "poisoning-signals";
+      return null;
     default:
       return null;
   }
@@ -1671,7 +1801,10 @@ Usage:
   npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id> [--approve-sensitive]
   npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --path <workspace-file> --content <task>
   npm run ether -- agent execute <contract_id> [--capsule <capsule_id>] [--path <workspace-file>]
-  npm run ether -- security scan --source-event <event_id> --content <text>
+  npm run ether -- security scan --source-event <event_id> --source-kind <kind> --content <text>
+  npm run ether -- security ack <signal_id>
+  npm run ether -- security trial <signal_id> [--capsule <capsule_id>]
+  npm run ether -- security fixture <signal_id>
 
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
@@ -1683,7 +1816,7 @@ Commands:
   sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
   dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
   agent                  Phase 10 governed document-read child run and evidence
-  security               Phase 11 signature-based poisoning detection
+  security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
   help                   Show this help
 
 Options:

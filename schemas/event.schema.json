@@ -43,6 +43,11 @@
         "agent.child.policy_denied",
         "agent.child.completed",
         "circuit.opened",
+        "security.content.assessed",
+        "poisoning.detected",
+        "poisoning.acknowledged",
+        "honeypot.trial.completed",
+        "poisoning.regression.created",
         "run.completed"
       ]
     },
@@ -68,7 +73,7 @@
       "properties": {
         "sources": {
           "type": "array",
-          "items": { "type": "string", "enum": ["user", "trusted_system", "connector", "public_web", "third_party_content", "llm_output"] }
+          "items": { "type": "string", "enum": ["user", "trusted_system", "connector", "public_web", "email", "pdf", "im", "github_issue", "mcp_description", "third_party_content", "llm_output", "child_agent"] }
         },
         "can_authorize_actions": { "type": "boolean" }
       }

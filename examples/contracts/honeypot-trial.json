@@ -1,0 +1,19 @@
+{
+  "id": "honeypot_poison_evt_public_web_observation_000000000000_abcd1234",
+  "signal_id": "poison_evt_public_web_observation_000000000000",
+  "source_event_ids": ["evt_public_web_observation"],
+  "subject": {
+    "kind": "content",
+    "id": "assessment_evt_public_web_observation_000000000000"
+  },
+  "mode": "deterministic_decoy_trial",
+  "decoy_secret_refs": ["decoy://honeypot/poison_evt_public_web_observation_000000000000/credential"],
+  "real_secret_accessed": false,
+  "network_accessed": false,
+  "authorization_issued": false,
+  "observed_attempts": ["policy_override"],
+  "outcome": "contained",
+  "quarantine_recommended": true,
+  "capsule_quarantined": false,
+  "created_at": "2026-06-07T00:00:00.000Z"
+}

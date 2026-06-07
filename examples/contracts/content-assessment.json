@@ -1,0 +1,14 @@
+{
+  "id": "assessment_evt_public_web_observation_000000000000",
+  "source_event_id": "evt_public_web_observation",
+  "source_kind": "public_web",
+  "content_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "status": "suspicious",
+  "matched_rules": ["rule_policy_override"],
+  "taint": {
+    "sources": ["public_web"],
+    "can_authorize_actions": false
+  },
+  "raw_content_persisted": false,
+  "created_at": "2026-06-07T00:00:00.000Z"
+}

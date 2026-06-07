@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 47 passing tests.
-- `cargo test`: 7 passing Rust tests.
+- `npm test`: 49 passing tests.
+- `cargo test`: 8 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -27,7 +27,7 @@ Verification from the latest pass:
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, evaluate local triggers, and recheck policy before resume. | `packages/hibernation/src/index.ts`; expanded hibernation/wakeup schemas/examples; Ether `sleep`, `wake`, and `sleepers`; Rust `run.resume.evaluate`; new resume-run Ledger events. | Unit tests cover lease rejection, cursor binding, deadlines, expiry, attention budgets, file change/deletion, workspace escape, and symlink escape. Ether integration proves fresh-policy queueing with no lease or action. | Local explicit-evaluation, queue-only MVP implemented. Background daemon and resumed task executor remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
-| 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, detect policy override/secret exfiltration attempts, quarantine suspicious signals. | `packages/security/src/index.ts`; poisoning signal schema/example; TUI security scan/ack. | Security tests create quarantined poisoning signals from override attempts. | Contract seed implemented. Honeypot capsule runtime pending. |
+| 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, prevent it from authorizing actions, detect escalation/exfiltration attempts, contain suspicious subjects, and create regression evidence. | `packages/security/src/index.ts`; assessment/signal/trial/fixture contracts; Ether `security scan/ack/trial/fixture`; Rust `security.taint.evaluate`. | Security tests cover hash-only detection, multi-rule signals, taint authorization rejection, decoy-only trials, raw-free fixtures, Rust deny/no-lease policy, and Ledger-backed Ether lifecycle. | Deterministic local defense slice implemented. Semantic classifiers, source adapters, unknown-code process sandboxes, attribution, and active countermeasures remain pending. |
 | 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/computer-use/README.md`, `packages/connector-sdk/README.md`, scaffold tests that keep these surfaces post-V1/local-client only. | Existing tests reject quarantined adapters and enforce policy/verifier constraints for computer-use scaffold. | Intentionally deferred from V1. No GUI/IM/store implementation yet. |
 
 ## Git-Like Event System Review
@@ -215,6 +215,32 @@ Correction and remaining boundary:
 - CPU measurement currently covers the Ether-side spawn/RPC interval and process CPU consumed by the orchestrator. Exact child supervisor CPU accounting requires a long-running supervisor with per-request metering.
 - Tool, policy, and result events are Rust-authored facts. Budget Accounts, breakers, scores, and Child Results are schema-validated local projections/artifacts; future durability work must make their rebuild rules explicit.
 
+## Phase 11 Review Notes
+
+Matched source docs:
+
+- `docs/01-architecture.md`: every sensitive action passes through taint propagation before lease issuance; client surfaces cannot authorize themselves.
+- `docs/02-user-boundary-layer.md`: public content may inform summaries but cannot authorize tools, override user instructions, or trigger high-risk actions.
+- `docs/05-audit-and-data-contracts.md`: taint and source evidence belong in durable envelopes while sensitive payloads can remain in separately governed artifacts.
+- `docs/09-computer-use-implementation.md`: external DOM/content stays tainted through planning and cannot become action authority.
+- `docs/11-migration-and-runtime-economics.md`: useful first steps are taint marking, privilege-escalation detection, sandbox/honeypot trials, and regression fixtures.
+
+Implemented correspondence:
+
+- `scanUntrustedContent` covers explicitly classified web, email, PDF, IM, GitHub issue, MCP description, and generic third-party text. Assessments retain source event id, source kind, SHA-256, matched rules, and non-authorizing taint; raw input is not persisted. Each scan receives a nonce-bearing artifact id so repeated scans cannot overwrite an earlier Ledger reference.
+- Detection rules currently cover prior-instruction override, secret exfiltration, policy/approval bypass, and dangerous tool invocation. Multi-rule matches are retained and the highest-severity signal becomes primary.
+- `ether security scan` requires an existing source event, creates an independent security run, and calls Rust `security.taint.evaluate`. Rust validates workspace identity, appends a deny-only `policy.decided`, returns no lease, and sets `can_authorize_actions=false`.
+- Clean assessments complete the security run. Suspicious assessments append `poisoning.detected`, persist a quarantined signal, and end the run as blocked.
+- `security ack` changes review state without lifting quarantine. `security trial` creates a deterministic `decoy://` containment record with no real secret, network, or authorization path. When a Capsule is explicitly named, its lifecycle is reduced to `quarantined` without executing it.
+- `security fixture` converts the signal into detector-only replay expectations by content hash and rule ids. It includes no raw hostile content and cannot replay side effects.
+
+Correction and remaining boundary:
+
+- The earlier Phase 11 seed was three regular expressions plus an acknowledgement field that did not conform to its own schema. It had no Rust policy evidence, honeypot record, regression fixture, or Ledger lifecycle.
+- The current detector is deterministic and narrow. It does not claim semantic prompt-injection completeness, model-based intent classification, source ingestion, attacker attribution, active countermeasures, or safe execution of hostile code.
+- The honeypot trial is deliberately a decoy-only containment evaluation, not a process sandbox. Unknown executable Capsule trials remain blocked until separate-process isolation, structured IPC, resource limits, and network/vault denial are implemented.
+- Content hashes let regressions identify the same input without retaining it. Re-running detection requires the caller to supply governed source content again; the fixture cannot reconstruct raw input by design.
+
 ## Phase 2 Review Notes
 
 Matched architecture docs:
@@ -252,6 +278,7 @@ Current enforced rules:
 - Capsule publication is labeled `local_unsigned`; a SHA-256 integrity digest is not represented as a cryptographic signature.
 - Agent Contract creation does not consume budget or imply a child run occurred. Only `agent execute` creates a child run and accounting records.
 - Child output cannot authorize parent actions; successful results contain hash/byte evidence and require a new parent policy decision for any follow-on action.
+- External-content assessments require a Rust deny/no-lease taint decision. Poisoning artifacts store hashes and rule ids rather than raw scanned text.
 - Counterfactual output is low-confidence, report-only, and lists evidence, assumptions, and unknowns.
 - Examples and test fixtures may use illustrative ids, but runtime code cannot fall back to them.
 

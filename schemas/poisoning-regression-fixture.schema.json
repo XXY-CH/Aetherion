@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/poisoning-regression-fixture.schema.json",
+  "title": "PoisoningRegressionFixture",
+  "type": "object",
+  "required": ["id", "signal_id", "source_event_ids", "input_sha256", "replay_mode", "expected_signal_type", "expected_matched_rules", "expected_authorization_blocked", "raw_content_included", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^poison_fixture_[A-Za-z0-9_-]+$" },
+    "signal_id": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "input_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "replay_mode": { "type": "string", "enum": ["detector_only"] },
+    "expected_signal_type": { "type": "string", "enum": ["prompt_injection", "secret_exfiltration", "policy_override", "tool_abuse"] },
+    "expected_matched_rules": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "expected_authorization_blocked": { "type": "boolean", "enum": [true] },
+    "raw_content_included": { "type": "boolean", "enum": [false] },
+    "created_at": { "type": "string" }
+  }
+}

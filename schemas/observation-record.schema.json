@@ -19,7 +19,7 @@
       "required": ["sources", "can_authorize_actions"],
       "additionalProperties": false,
       "properties": {
-        "sources": { "type": "array", "items": { "type": "string" } },
+        "sources": { "type": "array", "items": { "type": "string", "enum": ["user", "trusted_system", "connector", "public_web", "email", "pdf", "im", "github_issue", "mcp_description", "third_party_content", "llm_output", "child_agent"] } },
         "can_authorize_actions": { "type": "boolean" }
       }
     }

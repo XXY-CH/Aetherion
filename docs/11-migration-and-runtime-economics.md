@@ -232,6 +232,14 @@ Useful first steps:
 - Run suspicious Capsule or connector behavior in sandbox trial.
 - Convert poisoning attempts into regression fixtures.
 
+Current local implementation boundary:
+
+- Ether accepts explicitly classified web, email, PDF, IM, GitHub issue, MCP description, or third-party text and persists only a SHA-256 plus matched rule ids.
+- Rust Supervisor records a deny-only taint policy and issues no lease, so detector output or external content cannot become authorization.
+- Honeypot trials are deterministic decoy-only records with no vault/network/authorization path. They do not execute unknown content or Capsule code.
+- Regression fixtures replay detector expectations by hash and rule ids only; raw hostile content and live side effects are excluded.
+- Semantic classifiers, browser/email ingestion, process sandboxes, attacker attribution, and active countermeasures remain future work.
+
 ## Innovation Application Tracks
 
 ### Event-Driven Agent Hibernation

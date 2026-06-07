@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/honeypot-trial.schema.json",
+  "title": "HoneypotTrial",
+  "type": "object",
+  "required": ["id", "signal_id", "source_event_ids", "subject", "mode", "decoy_secret_refs", "real_secret_accessed", "network_accessed", "authorization_issued", "observed_attempts", "outcome", "quarantine_recommended", "capsule_quarantined", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^honeypot_[A-Za-z0-9_-]+$" },
+    "signal_id": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "subject": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["content", "capsule"] },
+        "id": { "type": "string" }
+      }
+    },
+    "mode": { "type": "string", "enum": ["deterministic_decoy_trial"] },
+    "decoy_secret_refs": { "type": "array", "items": { "type": "string", "pattern": "^decoy://" }, "minItems": 1 },
+    "real_secret_accessed": { "type": "boolean", "enum": [false] },
+    "network_accessed": { "type": "boolean", "enum": [false] },
+    "authorization_issued": { "type": "boolean", "enum": [false] },
+    "observed_attempts": { "type": "array", "items": { "type": "string", "enum": ["prompt_injection", "secret_exfiltration", "policy_override", "tool_abuse"] }, "minItems": 1 },
+    "outcome": { "type": "string", "enum": ["contained"] },
+    "quarantine_recommended": { "type": "boolean", "enum": [true] },
+    "capsule_quarantined": { "type": "boolean" },
+    "created_at": { "type": "string" }
+  }
+}

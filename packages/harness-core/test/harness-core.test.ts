@@ -74,7 +74,10 @@ const schemaExamplePairs = [
   ["circuit-breaker.schema.json", "circuit-breaker.json"],
   ["child-result.schema.json", "child-result.json"],
   ["agent-score.schema.json", "agent-score.json"],
-  ["poisoning-signal.schema.json", "poisoning-signal.json"]
+  ["content-assessment.schema.json", "content-assessment.json"],
+  ["poisoning-signal.schema.json", "poisoning-signal.json"],
+  ["honeypot-trial.schema.json", "honeypot-trial.json"],
+  ["poisoning-regression-fixture.schema.json", "poisoning-regression-fixture.json"]
 ] as const;
 
 test("contract examples validate against seed JSON schemas", async () => {

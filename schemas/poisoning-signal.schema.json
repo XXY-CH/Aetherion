@@ -3,14 +3,23 @@
   "$id": "https://aetherion.local/schemas/poisoning-signal.schema.json",
   "title": "PoisoningSignal",
   "type": "object",
-  "required": ["id", "source_event_id", "signal_type", "severity", "quarantined", "can_authorize_actions"],
+  "required": ["id", "assessment_id", "source_event_id", "source_kind", "content_sha256", "signal_type", "severity", "matched_rules", "status", "quarantined", "sandbox_required", "can_authorize_actions", "acknowledged_at", "regression_fixture_id", "created_at"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^poison_[A-Za-z0-9_-]+$" },
+    "assessment_id": { "type": "string", "pattern": "^assessment_[A-Za-z0-9_-]+$" },
     "source_event_id": { "type": "string" },
+    "source_kind": { "type": "string", "enum": ["public_web", "email", "pdf", "im", "github_issue", "mcp_description", "third_party_content"] },
+    "content_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "signal_type": { "type": "string", "enum": ["prompt_injection", "secret_exfiltration", "policy_override", "tool_abuse"] },
-    "severity": { "type": "string", "enum": ["low", "medium", "high"] },
-    "quarantined": { "type": "boolean" },
-    "can_authorize_actions": { "type": "boolean" }
+    "severity": { "type": "string", "enum": ["medium", "high", "critical"] },
+    "matched_rules": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "status": { "type": "string", "enum": ["detected", "acknowledged"] },
+    "quarantined": { "type": "boolean", "enum": [true] },
+    "sandbox_required": { "type": "boolean", "enum": [true] },
+    "can_authorize_actions": { "type": "boolean", "enum": [false] },
+    "acknowledged_at": { "type": ["string", "null"] },
+    "regression_fixture_id": { "type": ["string", "null"] },
+    "created_at": { "type": "string" }
   }
 }

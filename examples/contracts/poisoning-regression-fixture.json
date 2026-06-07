@@ -1,0 +1,12 @@
+{
+  "id": "poison_fixture_poison_evt_public_web_observation_000000000000",
+  "signal_id": "poison_evt_public_web_observation_000000000000",
+  "source_event_ids": ["evt_public_web_observation"],
+  "input_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "replay_mode": "detector_only",
+  "expected_signal_type": "policy_override",
+  "expected_matched_rules": ["rule_policy_override"],
+  "expected_authorization_blocked": true,
+  "raw_content_included": false,
+  "created_at": "2026-06-07T00:00:00.000Z"
+}

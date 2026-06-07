@@ -153,6 +153,45 @@ fn handle_rpc_line(line: &str) -> String {
                 Err(error) => return error_response(&id, &error.to_string()),
             }
         }
+        "security.taint.evaluate" => {
+            let source_kind = match required_string_field(line, "source_kind") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            if !matches!(
+                source_kind.as_str(),
+                "public_web"
+                    | "email"
+                    | "pdf"
+                    | "im"
+                    | "github_issue"
+                    | "mcp_description"
+                    | "third_party_content"
+            ) {
+                return error_response(&id, "unsupported untrusted source kind");
+            }
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    if let Err(error) = write_workspace_registry(&workspace) {
+                        return error_response(&id, &error.to_string());
+                    }
+                    let policy_decision_id = format!("policy_{}_taint_deny", run_id);
+                    let summary = format!(
+                        "Denied authorization from tainted {} content; no lease was issued.",
+                        source_kind
+                    );
+                    match append_event(&workspace, "policy.decided", &run_id, &summary) {
+                        Ok(event_id) => format!(
+                            "{{\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"decision\":\"deny\",\"risk_level\":\"L5\",\"lease_id\":\"\",\"can_authorize_actions\":false}}",
+                            escape(&policy_decision_id),
+                            escape(&event_id)
+                        ),
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
+                }
+                Err(error) => return error_response(&id, &error.to_string()),
+            }
+        }
         "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 let path = match required_string_field(line, "path") {
@@ -460,6 +499,27 @@ mod tests {
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
         assert!(ledger.contains("\"event_type\":\"policy.decided\""));
         assert!(ledger.contains("wake_resume_test"));
+    }
+
+    #[test]
+    fn rpc_taint_policy_denies_authorization_without_a_lease() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-taint-policy-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let request = format!(
+            "{{\"id\":\"rpc_taint\",\"method\":\"security.taint.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_taint_test\",\"run_id\":\"run_taint_test\",\"source_kind\":\"public_web\"}}",
+            escape(&root.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"decision\":\"deny\""));
+        assert!(response.contains("\"lease_id\":\"\""));
+        assert!(response.contains("\"can_authorize_actions\":false"));
+        assert!(response.contains("\"policy_event_id\":\"evt_"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("Denied authorization from tainted public_web content"));
     }
 
     #[test]
