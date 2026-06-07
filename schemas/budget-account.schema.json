@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/budget-account.schema.json",
+  "title": "BudgetAccount",
+  "type": "object",
+  "required": ["id", "contract_id", "remaining", "tool_calls_used", "leases_used", "policy_denials", "token_used", "cpu_ms_used", "network_calls_used", "wall_time_ms_used", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^account_[A-Za-z0-9_-]+$" },
+    "contract_id": { "type": "string" },
+    "remaining": { "$ref": "resource-budget.schema.json" },
+    "tool_calls_used": { "type": "integer", "minimum": 0 },
+    "leases_used": { "type": "integer", "minimum": 0 },
+    "policy_denials": { "type": "integer", "minimum": 0 },
+    "token_used": { "type": "integer", "minimum": 0 },
+    "cpu_ms_used": { "type": "integer", "minimum": 0 },
+    "network_calls_used": { "type": "integer", "minimum": 0 },
+    "wall_time_ms_used": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["active", "exhausted", "stopped"] }
+  }
+}

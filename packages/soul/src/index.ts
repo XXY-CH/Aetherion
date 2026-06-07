@@ -94,6 +94,9 @@ export type SoulFork = {
     id: string;
     token_budget: 0;
     tool_call_budget: 0;
+    cpu_ms_budget: 0;
+    network_call_budget: 0;
+    wall_time_ms_budget: 0;
     risk_budget: "L2";
     lease_budget: 0;
     on_exhaustion: "ask";
@@ -340,6 +343,9 @@ export function forkSoul(input: {
       id: `budget_${sanitize(input.newAgentId)}`,
       token_budget: 0,
       tool_call_budget: 0,
+      cpu_ms_budget: 0,
+      network_call_budget: 0,
+      wall_time_ms_budget: 0,
       risk_budget: "L2",
       lease_budget: 0,
       on_exhaustion: "ask"

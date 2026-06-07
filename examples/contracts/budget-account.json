@@ -1,0 +1,23 @@
+{
+  "id": "account_contract_run_parent_agent_search",
+  "contract_id": "contract_run_parent_agent_search",
+  "remaining": {
+    "id": "budget_search_child",
+    "token_budget": 20000,
+    "tool_call_budget": 19,
+    "cpu_ms_budget": 30000,
+    "network_call_budget": 0,
+    "wall_time_ms_budget": 60000,
+    "risk_budget": "L2",
+    "lease_budget": 1,
+    "on_exhaustion": "stop"
+  },
+  "tool_calls_used": 1,
+  "leases_used": 1,
+  "policy_denials": 0,
+  "token_used": 0,
+  "cpu_ms_used": 4,
+  "network_calls_used": 0,
+  "wall_time_ms_used": 9,
+  "status": "active"
+}

@@ -70,7 +70,10 @@ const schemaExamplePairs = [
   ["inheritance-policy.schema.json", "inheritance-policy.json"],
   ["agent-contract.schema.json", "agent-contract.json"],
   ["resource-budget.schema.json", "resource-budget.json"],
+  ["budget-account.schema.json", "budget-account.json"],
   ["circuit-breaker.schema.json", "circuit-breaker.json"],
+  ["child-result.schema.json", "child-result.json"],
+  ["agent-score.schema.json", "agent-score.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"]
 ] as const;
 
@@ -97,6 +100,12 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   const foldResult = await validateAgainstSchema(repoRoot, "memory-fold.schema.json", fold);
   assert.equal(foldResult.valid, false);
   assert.ok(foldResult.errors.some((error) => error.includes("expected unique items")));
+
+  const childResult = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "child-result.json"), "utf8"));
+  childResult.output_taint.can_authorize_actions = true;
+  const childResultValidation = await validateAgainstSchema(repoRoot, "child-result.schema.json", childResult);
+  assert.equal(childResultValidation.valid, false);
+  assert.ok(childResultValidation.errors.some((error) => error.includes("expected one of false")));
 });
 
 test("user request -> policy decision -> local file read/write -> verification -> replay reconstruction", async () => {

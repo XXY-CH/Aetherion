@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 export type SupervisorRpcRequest = {
   id: string;
-  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "tool.evaluate" | "lease.issue" | "file.read" | "file.write" | "trace.replay";
+  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "tool.evaluate" | "lease.issue" | "file.read" | "child.file.read" | "file.write" | "trace.replay";
   workspace_root: string;
   workspace_id?: string;
   run_id?: string;
@@ -26,7 +26,7 @@ export type SupervisorRpcResponse = {
   error?: string;
 };
 
-export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpcRequest): Promise<SupervisorRpcResponse> {
+export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpcRequest, options?: { timeoutMs?: number }): Promise<SupervisorRpcResponse> {
   const binary = join(repoRoot, "target", "debug", "aetherion-supervisor");
   const binaryIsFresh = isSupervisorBinaryFresh(repoRoot, binary);
   const command = binaryIsFresh ? binary : "cargo";
@@ -48,12 +48,24 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
 
   child.stdin.end(`${JSON.stringify(request)}\n`);
 
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", resolve);
-  });
+  let timedOut = false;
+  const timeout = options?.timeoutMs
+    ? setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, options.timeoutMs)
+    : undefined;
+  let exitCode: number | null;
+  try {
+    exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   if (exitCode !== 0) {
-    throw new Error(`supervisor rpc failed: ${stderr.trim()}`);
+    throw new Error(`supervisor rpc ${timedOut ? "timed out" : "failed"}: ${stderr.trim()}`);
   }
   const line = stdout.split("\n").find(Boolean);
   if (!line) {

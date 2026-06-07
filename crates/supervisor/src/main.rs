@@ -205,6 +205,97 @@ fn handle_rpc_line(line: &str) -> String {
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
+        "child.file.read" => match init_workspace(&workspace_root, &workspace_id) {
+            Ok(workspace) => {
+                if let Err(error) = write_workspace_registry(&workspace) {
+                    return error_response(&id, &error.to_string());
+                }
+                let path = match required_string_field(line, "path") {
+                    Ok(value) => PathBuf::from(value),
+                    Err(error) => return error_response(&id, &error),
+                };
+                let request = file_read_request(&run_id, path);
+                let request_event_id = match append_event(
+                    &workspace,
+                    "tool.requested",
+                    &run_id,
+                    &format!("Child requested workspace read {}", request.path.display()),
+                ) {
+                    Ok(event_id) => event_id,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                };
+                let decision = evaluate_policy(&workspace, &request, None);
+                let decision_label = decision_name(&decision.decision);
+                let policy_event_id = match append_event(
+                    &workspace,
+                    "policy.decided",
+                    &run_id,
+                    &format!(
+                        "Child read policy {} for {}: {}",
+                        decision_label,
+                        request.path.display(),
+                        decision.reason
+                    ),
+                ) {
+                    Ok(event_id) => event_id,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                };
+                match read_with_lease(&request, &decision) {
+                    Ok(contents) => {
+                        let result_event_id = match append_event(
+                            &workspace,
+                            "tool.result",
+                            &run_id,
+                            &format!(
+                                "Child workspace read completed for {} with {} bytes",
+                                request.path.display(),
+                                contents.len()
+                            ),
+                        ) {
+                            Ok(event_id) => event_id,
+                            Err(error) => return error_response(&id, &error.to_string()),
+                        };
+                        format!(
+                            "{{\"contents\":\"{}\",\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"allow\",\"risk_level\":\"L1\",\"lease_id\":\"{}\"}}",
+                            escape(&contents),
+                            escape(&request.id),
+                            escape(&request_event_id),
+                            escape(&decision.id),
+                            escape(&policy_event_id),
+                            escape(&result_event_id),
+                            escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
+                        )
+                    }
+                    Err(error) => {
+                        let result_event_id = match append_event(
+                            &workspace,
+                            "tool.result",
+                            &run_id,
+                            &format!(
+                                "Child workspace read denied for {}: {}",
+                                request.path.display(),
+                                error
+                            ),
+                        ) {
+                            Ok(event_id) => event_id,
+                            Err(append_error) => {
+                                return error_response(&id, &append_error.to_string())
+                            }
+                        };
+                        format!(
+                            "{{\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"deny\",\"risk_level\":\"L5\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
+                            escape(&request.id),
+                            escape(&request_event_id),
+                            escape(&decision.id),
+                            escape(&policy_event_id),
+                            escape(&result_event_id),
+                            escape(&error.to_string())
+                        )
+                    }
+                }
+            }
+            Err(error) => return error_response(&id, &error.to_string()),
+        },
         "file.write" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 let path = match required_string_field(line, "path") {
@@ -369,5 +460,42 @@ mod tests {
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
         assert!(ledger.contains("\"event_type\":\"policy.decided\""));
         assert!(ledger.contains("wake_resume_test"));
+    }
+
+    #[test]
+    fn rpc_child_read_returns_policy_lease_and_ledger_evidence() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-child-read-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("README.md");
+        fs::write(&target, "child evidence\n").unwrap();
+        let request = format!(
+            "{{\"id\":\"rpc_child_read\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_test\",\"run_id\":\"run_child_test\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&target.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"decision\":\"allow\""));
+        assert!(response.contains("\"policy_decision_id\":\"policy_"));
+        assert!(response.contains("\"lease_id\":\"lease_"));
+        assert!(response.contains("\"contents\":\"child evidence\\n\""));
+        assert!(response.contains("\"request_event_id\":\"evt_"));
+        assert!(response.contains("\"policy_event_id\":\"evt_"));
+        assert!(response.contains("\"result_event_id\":\"evt_"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("\"event_type\":\"tool.requested\""));
+        assert!(ledger.contains("\"event_type\":\"policy.decided\""));
+        assert!(ledger.contains("\"event_type\":\"tool.result\""));
+
+        let conflicting_request = format!(
+            "{{\"id\":\"rpc_child_read_conflict\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_conflict\",\"run_id\":\"run_child_conflict\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&target.display().to_string())
+        );
+        let conflict_response = handle_rpc_line(&conflicting_request);
+        assert!(conflict_response.contains("\"error\":\"workspace registry identity mismatch\""));
     }
 }

@@ -3,15 +3,28 @@
   "$id": "https://aetherion.local/schemas/agent-contract.schema.json",
   "title": "AgentContract",
   "type": "object",
-  "required": ["id", "parent_run_id", "child_agent_id", "task", "resource_budget_id", "allowed_capsules", "completion_evidence_required"],
+  "required": ["id", "parent_run_id", "child_agent_id", "task", "resource_budget_id", "budget_snapshot", "allowed_capsules", "allowed_paths", "completion_evidence_required", "output_taint", "status", "created_at"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^contract_[A-Za-z0-9_-]+$" },
     "parent_run_id": { "type": "string" },
-    "child_agent_id": { "type": "string" },
-    "task": { "type": "string" },
+    "child_agent_id": { "type": "string", "pattern": "^agent_[A-Za-z0-9_-]+$" },
+    "task": { "type": "string", "minLength": 1 },
     "resource_budget_id": { "type": "string" },
-    "allowed_capsules": { "type": "array", "items": { "type": "string" } },
-    "completion_evidence_required": { "type": "boolean" }
+    "budget_snapshot": { "$ref": "resource-budget.schema.json" },
+    "allowed_capsules": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "allowed_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "completion_evidence_required": { "type": "boolean", "enum": [true] },
+    "output_taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string", "enum": ["child_agent"] }, "minItems": 1, "maxItems": 1 },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "status": { "type": "string", "enum": ["draft", "active", "completed", "stopped"] },
+    "created_at": { "type": "string" }
   }
 }

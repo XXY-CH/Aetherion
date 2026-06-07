@@ -435,7 +435,7 @@ Mid-term:
 
 - Implement quarantined Legacy Capsule import.
 - Implement Memory Candidate folding from real trace data.
-- Add resource budgets to scoped leases.
+- Expand the implemented child-read Budget Account into supervisor-enforced CPU, token, network, and lease metering for every tool family.
 - Add TUI observability over event traces.
 
 Long-term:
@@ -444,5 +444,5 @@ Long-term:
 - Add causal graph projections.
 - Add hibernation and event-driven wakeup.
 - Add Capsule Store primitives.
-- Add zero-trust multi-agent contracts.
+- Expand the implemented local document-read child contract into general governed orchestration only after write/network/tool-specific isolation is proven.
 - Add GUI/HUD only after the TUI and authority boundary are proven.

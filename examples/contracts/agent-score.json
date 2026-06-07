@@ -1,0 +1,8 @@
+{
+  "id": "score_agent_search",
+  "agent_id": "agent_search",
+  "successes": 1,
+  "policy_denials": 0,
+  "permission_violations": 0,
+  "routing_weight": 1
+}

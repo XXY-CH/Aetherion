@@ -1,0 +1,27 @@
+{
+  "id": "child_result_run_child_search",
+  "contract_id": "contract_run_parent_agent_search",
+  "child_run_id": "run_child_search",
+  "child_agent_id": "agent_search",
+  "capsule_id": "cap_local_docs_read",
+  "status": "completed",
+  "completion_evidence": {
+    "source_event_ids": ["evt_child_started", "evt_child_completed"],
+    "request_id": "toolreq_run_child_search_read",
+    "policy_decision_id": "policy_run_child_search_allow_read",
+    "lease_id": "lease_run_child_search_read_1",
+    "artifact_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "byte_count": 128,
+    "usage": {
+      "token_used": 0,
+      "cpu_ms_used": 4,
+      "network_calls_used": 0,
+      "wall_time_ms_used": 9
+    }
+  },
+  "output_taint": {
+    "sources": ["child_agent"],
+    "can_authorize_actions": false
+  },
+  "parent_must_reauthorize_actions": true
+}

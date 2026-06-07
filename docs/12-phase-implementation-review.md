@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 46 passing tests.
-- `cargo test`: 6 passing Rust tests.
+- `npm test`: 47 passing tests.
+- `cargo test`: 7 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -26,7 +26,7 @@ Verification from the latest pass:
 | 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; Causal Edge, Why Report, Counterfactual Report, and Causal Projection schemas/examples; Ether `why`/`counterfactual`; rebuildable `.aetherion/projections/causal.sqlite`. | Tests cover typed dependency chains, failure/correction links, report-only downstream counterfactuals, disposable SQLite rebuild, cross-run isolation, and redacted-source confidence reduction. Ether integration rebuilds from a real Rust-supervised Ledger and a real appended redaction event. | Evidence-aware report projection implemented. It labels edges as temporal dependency candidates, not proven causes. Domain state simulation, LLM replay, and alternate-history outcome evaluation remain pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, evaluate local triggers, and recheck policy before resume. | `packages/hibernation/src/index.ts`; expanded hibernation/wakeup schemas/examples; Ether `sleep`, `wake`, and `sleepers`; Rust `run.resume.evaluate`; new resume-run Ledger events. | Unit tests cover lease rejection, cursor binding, deadlines, expiry, attention budgets, file change/deletion, workspace escape, and symlink escape. Ether integration proves fresh-policy queueing with no lease or action. | Local explicit-evaluation, queue-only MVP implemented. Background daemon and resumed task executor remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
-| 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; agent contract, resource budget, circuit breaker schemas/examples; Ether contract creation requires an existing parent run, budget, and published capsule. | Multi-agent tests trigger budget breakers and isolate capsules; Ether test verifies contract creation does not pretend to execute or consume budget. | Contract creation only. Real child run orchestration and accounting remain pending. |
+| 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, detect policy override/secret exfiltration attempts, quarantine suspicious signals. | `packages/security/src/index.ts`; poisoning signal schema/example; TUI security scan/ack. | Security tests create quarantined poisoning signals from override attempts. | Contract seed implemented. Honeypot capsule runtime pending. |
 | 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/computer-use/README.md`, `packages/connector-sdk/README.md`, scaffold tests that keep these surfaces post-V1/local-client only. | Existing tests reject quarantined adapters and enforce policy/verifier constraints for computer-use scaffold. | Intentionally deferred from V1. No GUI/IM/store implementation yet. |
 
@@ -188,6 +188,33 @@ Correction and remaining boundary:
 - Persona reset currently classifies preference/habit cards as style-adjacent and retains other Memory Card types as business memory. Richer memory taxonomy and conflict resolution remain future work.
 - Governance event payloads point to immutable command artifacts, but registry rebuild tooling from those artifacts is not yet implemented.
 
+## Phase 10 Review Notes
+
+Matched source docs:
+
+- `docs/01-architecture.md`: child clients and orchestrators cannot become trust roots; the Rust Local Supervisor owns policy and scoped leases.
+- `docs/04-skill-and-scaffold-os.md`: Capsules declare requirements and evidence but never own permissions.
+- `docs/11-migration-and-runtime-economics.md`: multi-agent work needs contracts, resource budgets, circuit breakers, isolated capability scope, completion evidence, and tainted child output.
+- Original Phase 10 plan: each child has an independent run id, budget, and lease scope; unauthorized Capsules and repeated policy denial stop execution; parent routing cannot treat child output as authority.
+
+Implemented correspondence:
+
+- `ether agent contract` requires an existing parent run, persisted stop-on-exhaustion Resource Budget, published evidence-backed Capsule, explicit workspace path, child identity, and task. Contract creation consumes nothing and records no child execution.
+- `ether agent execute` creates a separate child run manifest. The current executor accepts only a published `document_only` Capsule whose sole tool requirement is `filesystem.read`.
+- Capsule id, exact path, and L1 risk are checked against the contract before authority is requested. Permission violations stop the contract and open a circuit breaker.
+- Rust `child.file.read` validates the existing workspace identity, creates the Tool Request, evaluates policy, issues the scoped read lease, performs the read, and appends `tool.requested`, `policy.decided`, and `tool.result` to the Event Ledger in the same supervisor RPC path. Ether only attaches returned event ids to the child manifest.
+- Budget Accounts decrement tool-call and lease allowances and record orchestration CPU/wall time. Token and network usage stay zero because the MVP invokes neither a model nor a network tool.
+- Successful child results expose event ids, request/policy/lease ids, SHA-256, byte count, and usage totals, but not file contents. `output_taint.can_authorize_actions=false` and `parent_must_reauthorize_actions=true`.
+- Three policy denials open a hard-stop breaker. Permission violations, resource exhaustion, timeout, and supervisor execution failure also stop the contract. Success/denial/violation outcomes update a bounded routing weight.
+
+Correction and remaining boundary:
+
+- The earlier static Agent Contract surface was not multi-agent execution and could not claim budget consumption. Phase 10 now has one real, deliberately narrow child operation.
+- This is not general LLM-based agent orchestration, arbitrary Capsule execution, payment/search separation across remote agents, public escrow, or an Agent economy.
+- Resource Budget contracts can represent stop/queue/ask for future orchestration, but the current executor rejects anything except `on_exhaustion=stop`; it does not pretend to queue or request approval.
+- CPU measurement currently covers the Ether-side spawn/RPC interval and process CPU consumed by the orchestrator. Exact child supervisor CPU accounting requires a long-running supervisor with per-request metering.
+- Tool, policy, and result events are Rust-authored facts. Budget Accounts, breakers, scores, and Child Results are schema-validated local projections/artifacts; future durability work must make their rebuild rules explicit.
+
 ## Phase 2 Review Notes
 
 Matched architecture docs:
@@ -223,7 +250,8 @@ Current enforced rules:
 - Context, checkpoint, branch, rehearsal, hibernation, wakeup, Soul Fork, and Agent Contract commands fail when their referenced ledger or registry records do not exist.
 - Capsule test/publish accepts only persisted Capsule drafts, two distinct cited Ledger runs, passing hash-chain replay records, and a document sandbox trial. Permission expansion requires an Approval Card.
 - Capsule publication is labeled `local_unsigned`; a SHA-256 integrity digest is not represented as a cryptographic signature.
-- Agent Contract creation does not consume budget or imply a child run occurred.
+- Agent Contract creation does not consume budget or imply a child run occurred. Only `agent execute` creates a child run and accounting records.
+- Child output cannot authorize parent actions; successful results contain hash/byte evidence and require a new parent policy decision for any follow-on action.
 - Counterfactual output is low-confidence, report-only, and lists evidence, assumptions, and unknowns.
 - Examples and test fixtures may use illustrative ids, but runtime code cannot fall back to them.
 

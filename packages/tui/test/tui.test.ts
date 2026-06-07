@@ -541,7 +541,7 @@ test("Ether hibernation evaluates local triggers and queues a fresh-policy resum
   assert.match(sleepers.stdout, new RegExp(`"id": "hibernate_${runId}"`));
 });
 
-test("TUI agent contract requires existing run, budget, and published capsule without consuming budget", async () => {
+test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, and tainted output", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-agent-"));
   await writeFile(join(workspace, "README.md"), "Agent contract evidence\n");
   const run = await execFileAsync(process.execPath, [cliPath, "run", "--workspace", workspace, "--input", "README.md", "--output", ".aetherion/SUMMARY.md"]);
@@ -553,6 +553,19 @@ test("TUI agent contract requires existing run, budget, and published capsule wi
     id: "budget_cli",
     token_budget: 1000,
     tool_call_budget: 2,
+    cpu_ms_budget: 10000,
+    network_call_budget: 0,
+    wall_time_ms_budget: 30000,
+    risk_budget: "L2",
+    lease_budget: 1,
+    on_exhaustion: "stop"
+  }, {
+    id: "budget_denied",
+    token_budget: 0,
+    tool_call_budget: 3,
+    cpu_ms_budget: 10000,
+    network_call_budget: 0,
+    wall_time_ms_budget: 30000,
     risk_budget: "L2",
     lease_budget: 1,
     on_exhaustion: "stop"
@@ -601,14 +614,55 @@ test("TUI agent contract requires existing run, budget, and published capsule wi
     "budget_cli",
     "--capsule",
     "cap_local_docs_read",
+    "--path",
+    "README.md",
     "--content",
     "Read local documentation",
     "--workspace",
     workspace
   ]);
   assert.match(result.stdout, new RegExp(`"parent_run_id": "${runId}"`));
+  assert.match(result.stdout, /"status": "draft"/);
   const budgetsAfter = JSON.parse(await readFile(join(registryDir, "resource-budgets.json"), "utf8")) as Array<{ id: string; tool_call_budget: number }>;
   assert.equal(budgetsAfter[0].tool_call_budget, 2);
+  const contractId = JSON.parse(result.stdout).id as string;
+  const execution = await execFileAsync(process.execPath, [cliPath, "agent", "execute", contractId, "--workspace", workspace]);
+  const childResult = JSON.parse(execution.stdout) as { child_run_id: string; status: string; completion_evidence: { lease_id: string; artifact_sha256: string; byte_count: number }; output_taint: { can_authorize_actions: boolean }; parent_must_reauthorize_actions: boolean };
+  assert.equal(childResult.status, "completed");
+  assert.match(childResult.completion_evidence.lease_id, /^lease_/);
+  assert.match(childResult.completion_evidence.artifact_sha256, /^sha256:/);
+  assert.ok(childResult.completion_evidence.byte_count > 0);
+  assert.equal(childResult.output_taint.can_authorize_actions, false);
+  assert.equal(childResult.parent_must_reauthorize_actions, true);
+  const childManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${childResult.child_run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(childManifest.status, "completed");
+  assert.ok(childManifest.event_ids.length >= 3);
+  const accounts = JSON.parse(await readFile(join(registryDir, "budget-accounts.json"), "utf8")) as Array<{ remaining: { tool_call_budget: number; lease_budget: number }; tool_calls_used: number; leases_used: number }>;
+  assert.equal(accounts[0].remaining.tool_call_budget, 1);
+  assert.equal(accounts[0].remaining.lease_budget, 0);
+  assert.equal(accounts[0].tool_calls_used, 1);
+  assert.equal(accounts[0].leases_used, 1);
+  const contracts = JSON.parse(await readFile(join(registryDir, "agent-contracts.json"), "utf8")) as Array<{ id: string; status: string }>;
+  assert.equal(contracts.find((entry) => entry.id === contractId)?.status, "completed");
+
+  const deniedContract = await execFileAsync(process.execPath, [
+    cliPath, "agent", "contract",
+    "--parent-run", runId,
+    "--child-agent", "agent_denied",
+    "--budget", "budget_denied",
+    "--capsule", "cap_local_docs_read",
+    "--path", "../outside.txt",
+    "--content", "Attempt a denied path",
+    "--workspace", workspace
+  ]);
+  const deniedContractId = JSON.parse(deniedContract.stdout).id as string;
+  await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
+  const thirdDenial = await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
+  assert.match(thirdDenial.stdout, /"trigger": "repeated_policy_denial"/);
+  assert.match(thirdDenial.stdout, /"action": "stop"/);
+  const scores = JSON.parse(await readFile(join(registryDir, "agent-scores.json"), "utf8")) as Array<{ agent_id: string; routing_weight: number }>;
+  assert.ok((scores.find((entry) => entry.agent_id === "agent_denied")?.routing_weight ?? 1) < 1);
 });
 
 test("Ether governs memory folding, persona branches, and authority-free Soul Fork inheritance", async () => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
@@ -9,7 +9,7 @@ import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCa
 import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
-import { createAgentContract, findBudget, isResourceBudget } from "../../multiagent/src/index.ts";
+import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
 import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
 
@@ -714,6 +714,16 @@ async function requireValidContract(schemaName: string, value: unknown): Promise
   }
 }
 
+async function validateAndUpsertAgentRecord(
+  workspaceRoot: string,
+  schemaName: string,
+  registryName: string,
+  value: Record<string, unknown> & { id: string }
+): Promise<void> {
+  await requireValidContract(schemaName, value);
+  upsertRegistryItem(workspaceRoot, registryName, value);
+}
+
 function capsuleApprovalCard(capsule: Capsule): Record<string, unknown> & { id: string } {
   const approvalSuffix = `${capsule.id}_${capsule.version}`.replace(/[^A-Za-z0-9_-]+/g, "_");
   return {
@@ -1131,28 +1141,205 @@ async function runSoul(options: CliOptions): Promise<void> {
 
 async function runAgent(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
-  if (options.topic !== "contract") {
-    throw new Error("agent supports contract");
-  }
-  const parentRunId = requirePositional(options.parentRun, "agent contract requires --parent-run <run_id>");
-  const childAgentId = requirePositional(options.childAgent, "agent contract requires --child-agent <agent_id>");
-  const budgetId = requirePositional(options.budget, "agent contract requires --budget <budget_id>");
-  const task = requirePositional(options.content, "agent contract requires --content <task>");
-  const capsuleId = requirePositional(options.capsule, "agent contract requires --capsule <capsule_id>");
   const workspace = await openWorkspace(workspaceRoot);
-  await loadRunManifest(workspace, parentRunId).catch(() => {
-    throw new Error(`Parent run ${parentRunId} not found`);
-  });
-  const existingBudget = findBudget(readRegistry(workspaceRoot, "resource-budgets").filter(isResourceBudget), budgetId);
-  if (!existingBudget) {
-    throw new Error(`Resource budget ${budgetId} not found`);
+  if (options.topic === "contract") {
+    const parentRunId = requirePositional(options.parentRun, "agent contract requires --parent-run <run_id>");
+    const childAgentId = requirePositional(options.childAgent, "agent contract requires --child-agent <agent_id>");
+    const budgetId = requirePositional(options.budget, "agent contract requires --budget <budget_id>");
+    const task = requirePositional(options.content, "agent contract requires --content <task>");
+    const capsuleId = requirePositional(options.capsule, "agent contract requires --capsule <capsule_id>");
+    const path = requirePositional(options.path, "agent contract requires --path <workspace-file>");
+    await loadRunManifest(workspace, parentRunId).catch(() => {
+      throw new Error(`Parent run ${parentRunId} not found`);
+    });
+    const existingBudget = findBudget(readRegistry(workspaceRoot, "resource-budgets").filter(isResourceBudget), budgetId);
+    if (!existingBudget) {
+      throw new Error(`Resource budget ${budgetId} not found`);
+    }
+    if (existingBudget.on_exhaustion !== "stop") {
+      throw new Error("Phase 10 child execution currently supports only on_exhaustion=stop");
+    }
+    const capsule = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === capsuleId);
+    if (!capsule || !isPublishedCapsuleWithEvidence(capsule)) {
+      throw new Error(`Published capsule ${capsuleId} not found`);
+    }
+    await requireValidContract("capability-capsule.schema.json", capsule);
+    const contract = createAgentContract({
+      parentRunId,
+      childAgentId,
+      task,
+      budget: existingBudget,
+      allowedCapsules: [capsuleId],
+      allowedPaths: [path]
+    });
+    await requireValidContract("agent-contract.schema.json", contract);
+    await recordGovernanceEvent(workspaceRoot, "agent.contract.created", `Created ${contract.id} as a reviewable child work order; no child execution occurred.`, artifactRef("agent", "contract", contract.id));
+    printJson(contract);
+    return;
   }
+  if (options.topic !== "execute") {
+    throw new Error("agent supports contract and execute <contract_id>");
+  }
+  const contractId = requirePositional(options.target, "agent execute requires a contract id");
+  const contract = readRegistry(workspaceRoot, "agent-contracts").filter(isAgentContract).find((entry) => entry.id === contractId);
+  if (!contract) {
+    throw new Error(`Agent contract ${contractId} not found`);
+  }
+  if (contract.status === "completed" || contract.status === "stopped") {
+    throw new Error(`Agent contract ${contract.id} is ${contract.status}`);
+  }
+  const capsuleId = options.capsule ?? contract.allowed_capsules[0];
+  const path = options.path ?? contract.allowed_paths[0];
+  const childRunId = `run_child_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const manifest = await createRunManifest(repoRoot, workspace, childRunId, `Child ${contract.child_agent_id}: ${contract.task}`);
+  const startedEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.started", `Child run started under ${contract.id}.`, artifactRef("agent", "contract", contract.id));
+  let account = readRegistry(workspaceRoot, "budget-accounts").filter(isBudgetAccount).find((entry) => entry.contract_id === contract.id) ?? createBudgetAccount(contract);
+  const score = readRegistry(workspaceRoot, "agent-scores").filter(isAgentScore).find((entry) => entry.agent_id === contract.child_agent_id);
   const capsule = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === capsuleId);
-  if (!capsule || !isPublishedCapsuleWithEvidence(capsule)) {
-    throw new Error(`Published capsule ${capsuleId} not found`);
+  try {
+    assertCapsuleAllowed(contract, capsuleId);
+    assertPathAllowed(contract, path);
+    assertRiskBudget(contract, "L1");
+    if (
+      !capsule
+      || !isPublishedCapsuleWithEvidence(capsule)
+      || capsule.execution_mode !== "document_only"
+      || capsule.permission_requirements.required_tools.length !== 1
+      || capsule.permission_requirements.required_tools[0] !== "filesystem.read"
+    ) {
+      throw new Error(`Capsule ${capsuleId} is not an eligible document-only read Capsule`);
+    }
+  } catch (error) {
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", String(error), artifactRef("agent", "execute", childRunId));
+    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "permission_violation", eventId, reason: String(error) });
+    await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "permission_violation"));
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    printJson(breaker);
+    return;
   }
-  await requireValidContract("capability-capsule.schema.json", capsule);
-  printJson(createAgentContract(parentRunId, childAgentId, task, existingBudget, [capsuleId]));
+  const reserved = reserveRead(account);
+  if (reserved === "exhausted") {
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Budget exhausted for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
+    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "Tool-call or lease budget exhausted" });
+    await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", { ...account, status: "exhausted" });
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    printJson(breaker);
+    return;
+  }
+  account = reserved;
+  const wallStarted = performance.now();
+  const cpuStarted = process.cpuUsage();
+  let readResult: Record<string, unknown>;
+  try {
+    readResult = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${childRunId}_read`,
+      method: "child.file.read",
+      workspace_root: workspaceRoot,
+      workspace_id: workspace.id,
+      run_id: childRunId,
+      path: resolve(workspaceRoot, path)
+    }, { timeoutMs: Math.max(1, account.remaining.wall_time_ms_budget) }));
+  } catch (error) {
+    const cpuUsed = process.cpuUsage(cpuStarted);
+    account = recordRuntimeUsage(account, (cpuUsed.user + cpuUsed.system) / 1000, performance.now() - wallStarted);
+    const timedOut = String(error).includes("timed out");
+    account = { ...account, status: timedOut ? "exhausted" : "stopped" };
+    const reason = timedOut ? "Wall-time budget exhausted" : `Supervisor child read failed: ${String(error)}`;
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", reason, artifactRef("agent", "execute", childRunId));
+    const breaker = openCircuitBreaker({
+      contractId: contract.id,
+      childRunId,
+      trigger: timedOut ? "budget_exhausted" : "execution_failure",
+      eventId,
+      reason
+    });
+    await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    printJson(breaker);
+    return;
+  }
+  const cpuUsed = process.cpuUsage(cpuStarted);
+  account = recordRuntimeUsage(account, (cpuUsed.user + cpuUsed.system) / 1000, performance.now() - wallStarted);
+  if (account.status === "exhausted") {
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Child execution exceeded CPU or wall-time accounting for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
+    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "CPU or wall-time budget exhausted" });
+    await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    printJson(breaker);
+    return;
+  }
+  const supervisorEventIds = [
+    readResult.request_event_id,
+    readResult.policy_event_id,
+    readResult.result_event_id
+  ];
+  if (!supervisorEventIds.every((eventId) => typeof eventId === "string" && eventId.length > 0)) {
+    throw new Error(`Supervisor child read did not return Ledger event evidence for ${childRunId}`);
+  }
+  for (const eventId of supervisorEventIds as string[]) {
+    await recordRunEvent(repoRoot, workspace, manifest, eventId);
+  }
+  if (readResult.decision !== "allow") {
+    account = recordPolicyDenial(account);
+    const denialEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.policy_denied", `Supervisor denied ${path} for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
+    await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
+    await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "policy_denial"));
+    if (account.policy_denials >= 3) {
+      const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "repeated_policy_denial", eventId: denialEventId, reason: "Three supervisor policy denials", action: "stop" });
+      await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+      await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
+      await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+      printJson(breaker);
+      return;
+    }
+    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    printJson(account);
+    return;
+  }
+  if (typeof readResult.contents !== "string" || typeof readResult.request_id !== "string" || typeof readResult.policy_decision_id !== "string" || typeof readResult.lease_id !== "string" || !readResult.lease_id) {
+    throw new Error(`Supervisor child read did not return completion evidence for ${childRunId}`);
+  }
+  account = recordLeaseUse(account);
+  const resultRef = artifactRef("agent", "execute", `child_result_${childRunId}`);
+  const completedEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.completed", `Child read completed with hash-only parent evidence.`, resultRef);
+  const result: ChildResult = {
+    id: `child_result_${childRunId}`,
+    contract_id: contract.id,
+    child_run_id: childRunId,
+    child_agent_id: contract.child_agent_id,
+    capsule_id: capsuleId,
+    status: "completed",
+    completion_evidence: {
+      source_event_ids: [startedEventId, ...(supervisorEventIds as string[]), completedEventId],
+      request_id: readResult.request_id,
+      policy_decision_id: readResult.policy_decision_id,
+      lease_id: readResult.lease_id,
+      artifact_sha256: `sha256:${createHash("sha256").update(readResult.contents).digest("hex")}`,
+      byte_count: Buffer.byteLength(readResult.contents),
+      usage: {
+        token_used: account.token_used,
+        cpu_ms_used: account.cpu_ms_used,
+        network_calls_used: account.network_calls_used,
+        wall_time_ms_used: account.wall_time_ms_used
+      }
+    },
+    output_taint: { sources: ["child_agent"], can_authorize_actions: false },
+    parent_must_reauthorize_actions: true
+  };
+  await requireValidContract("child-result.schema.json", result);
+  await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
+  await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "success"));
+  await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "completed" });
+  await completeRunManifest(repoRoot, workspace, manifest, "completed");
+  printJson(result);
 }
 
 async function runSecurity(options: CliOptions): Promise<void> {
@@ -1272,7 +1459,9 @@ function registryNameFor(options: CliOptions): string | null {
     case "soul":
       return "soul-forks";
     case "agent":
-      return "agent-contracts";
+      if (options.topic === "contract") return "agent-contracts";
+      if (options.topic === "execute") return "child-results";
+      return null;
     case "security":
       return "poisoning-signals";
     default:
@@ -1395,6 +1584,31 @@ async function recordGovernanceEvent(workspaceRoot: string, eventType: string, s
   return result.event_id;
 }
 
+async function appendManagedRunEvent(
+  workspaceRoot: string,
+  workspace: Awaited<ReturnType<typeof openWorkspace>>,
+  manifest: Awaited<ReturnType<typeof createRunManifest>>,
+  eventType: string,
+  summary: string,
+  payloadRef: string
+): Promise<string> {
+  const result = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${manifest.id}_${randomUUID().slice(0, 8)}`,
+    method: "event.append",
+    workspace_root: workspaceRoot,
+    workspace_id: workspace.id,
+    run_id: manifest.id,
+    event_type: eventType,
+    summary,
+    payload_ref: payloadRef
+  }));
+  if (typeof result.event_id !== "string") {
+    throw new Error(`Supervisor did not append managed run event ${eventType}`);
+  }
+  await recordRunEvent(repoRoot, workspace, manifest, result.event_id);
+  return result.event_id;
+}
+
 function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): void {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
@@ -1455,7 +1669,8 @@ Usage:
   npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1> [--branch <name>]
   npm run ether -- persona reset <branch>
   npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id> [--approve-sensitive]
-  npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --content <task>
+  npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --path <workspace-file> --content <task>
+  npm run ether -- agent execute <contract_id> [--capsule <capsule_id>] [--path <workspace-file>]
   npm run ether -- security scan --source-event <event_id> --content <text>
 
 Commands:
@@ -1467,7 +1682,7 @@ Commands:
   why/counterfactual     Phase 7 causal memory report surfaces
   sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
   dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
-  agent                  Phase 10 contract creation only; no child execution
+  agent                  Phase 10 governed document-read child run and evidence
   security               Phase 11 signature-based poisoning detection
   help                   Show this help
 

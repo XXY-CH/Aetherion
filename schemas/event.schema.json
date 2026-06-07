@@ -38,6 +38,11 @@
         "persona.anchor.rejected",
         "persona.reset.applied",
         "soul.fork.created",
+        "agent.contract.created",
+        "agent.child.started",
+        "agent.child.policy_denied",
+        "agent.child.completed",
+        "circuit.opened",
         "run.completed"
       ]
     },

@@ -3,13 +3,17 @@
   "$id": "https://aetherion.local/schemas/circuit-breaker.schema.json",
   "title": "CircuitBreaker",
   "type": "object",
-  "required": ["id", "trigger", "status", "event_id", "reason"],
+  "required": ["id", "contract_id", "child_run_id", "trigger", "status", "action", "event_id", "reason", "created_at"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^breaker_[A-Za-z0-9_-]+$" },
-    "trigger": { "type": "string", "enum": ["budget_exhausted", "repeated_policy_denial", "permission_violation", "poisoning_detected"] },
+    "contract_id": { "type": "string" },
+    "child_run_id": { "type": "string" },
+    "trigger": { "type": "string", "enum": ["budget_exhausted", "repeated_policy_denial", "permission_violation", "poisoning_detected", "execution_failure"] },
     "status": { "type": "string", "enum": ["open", "closed"] },
+    "action": { "type": "string", "enum": ["stop", "queue", "report"] },
     "event_id": { "type": "string" },
-    "reason": { "type": "string" }
+    "reason": { "type": "string" },
+    "created_at": { "type": "string" }
   }
 }

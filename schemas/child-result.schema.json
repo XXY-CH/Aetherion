@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/child-result.schema.json",
+  "title": "ChildResult",
+  "type": "object",
+  "required": ["id", "contract_id", "child_run_id", "child_agent_id", "capsule_id", "status", "completion_evidence", "output_taint", "parent_must_reauthorize_actions"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^child_result_[A-Za-z0-9_-]+$" },
+    "contract_id": { "type": "string" },
+    "child_run_id": { "type": "string" },
+    "child_agent_id": { "type": "string" },
+    "capsule_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["completed"] },
+    "completion_evidence": {
+      "type": "object",
+      "required": ["source_event_ids", "request_id", "policy_decision_id", "lease_id", "artifact_sha256", "byte_count", "usage"],
+      "additionalProperties": false,
+      "properties": {
+        "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "request_id": { "type": "string" },
+        "policy_decision_id": { "type": "string" },
+        "lease_id": { "type": "string" },
+        "artifact_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "byte_count": { "type": "integer", "minimum": 0 },
+        "usage": {
+          "type": "object",
+          "required": ["token_used", "cpu_ms_used", "network_calls_used", "wall_time_ms_used"],
+          "additionalProperties": false,
+          "properties": {
+            "token_used": { "type": "integer", "minimum": 0 },
+            "cpu_ms_used": { "type": "integer", "minimum": 0 },
+            "network_calls_used": { "type": "integer", "minimum": 0 },
+            "wall_time_ms_used": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "output_taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string", "enum": ["child_agent"] }, "minItems": 1, "maxItems": 1 },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "parent_must_reauthorize_actions": { "type": "boolean", "enum": [true] }
+  }
+}

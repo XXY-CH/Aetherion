@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-score.schema.json",
+  "title": "AgentScore",
+  "type": "object",
+  "required": ["id", "agent_id", "successes", "policy_denials", "permission_violations", "routing_weight"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^score_[A-Za-z0-9_-]+$" },
+    "agent_id": { "type": "string" },
+    "successes": { "type": "integer", "minimum": 0 },
+    "policy_denials": { "type": "integer", "minimum": 0 },
+    "permission_violations": { "type": "integer", "minimum": 0 },
+    "routing_weight": { "type": "number", "minimum": 0.1, "maximum": 1 }
+  }
+}

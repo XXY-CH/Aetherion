@@ -1,7 +1,11 @@
 {
-  "id": "breaker_budget_exhausted",
+  "id": "breaker_contract_search_a1b2c3d4",
+  "contract_id": "contract_run_parent_agent_search",
+  "child_run_id": "run_child_search",
   "trigger": "budget_exhausted",
   "status": "open",
+  "action": "stop",
   "event_id": "evt_budget_exhausted",
-  "reason": "Child agent exceeded tool-call budget."
+  "reason": "Child agent exceeded tool-call budget.",
+  "created_at": "2026-06-07T00:00:00.000Z"
 }

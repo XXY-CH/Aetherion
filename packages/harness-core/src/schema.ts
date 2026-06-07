@@ -15,12 +15,15 @@ export async function loadSchema(repoRoot: string, name: string): Promise<JsonSc
 
 export async function validateAgainstSchema(repoRoot: string, schemaName: string, value: unknown): Promise<ValidationResult> {
   const schema = await loadSchema(repoRoot, schemaName);
-  return validateValue(value, schema, "$", { repoRoot, rootSchema: schema });
+  const externalSchemas = new Map<string, JsonSchema>();
+  await loadExternalSchemas(repoRoot, schema, externalSchemas);
+  return validateValue(value, schema, "$", { repoRoot, rootSchema: schema, externalSchemas });
 }
 
 type ValidateContext = {
   repoRoot: string;
   rootSchema: JsonSchema;
+  externalSchemas: Map<string, JsonSchema>;
 };
 
 function validateValue(value: unknown, schema: JsonSchema, path: string, context: ValidateContext): ValidationResult {
@@ -35,15 +38,9 @@ function validateValue(value: unknown, schema: JsonSchema, path: string, context
       }
       return validateValue(value, resolved, path, context);
     }
-    if (schema.$ref === "memory-card.schema.json") {
-      // The lightweight validator only resolves the one local ref currently used by seed schemas.
-      // Runtime code can replace this with a full JSON Schema implementation later.
-      const memoryCardSchema = cachedSchemas.get("memory-card.schema.json");
-      if (!memoryCardSchema) {
-        errors.push(`${path}: unresolved schema ref ${schema.$ref}`);
-        return { valid: false, errors };
-      }
-      return validateValue(value, memoryCardSchema, path, context);
+    const external = context.externalSchemas.get(schema.$ref);
+    if (external) {
+      return validateValue(value, external, path, { ...context, rootSchema: external });
     }
     errors.push(`${path}: unsupported schema ref ${schema.$ref}`);
     return { valid: false, errors };
@@ -125,6 +122,30 @@ export const cachedSchemas = new Map<string, JsonSchema>();
 
 export async function primeSchemaCache(repoRoot: string): Promise<void> {
   cachedSchemas.set("memory-card.schema.json", await loadSchema(repoRoot, "memory-card.schema.json"));
+}
+
+async function loadExternalSchemas(repoRoot: string, schema: JsonSchema, target: Map<string, JsonSchema>): Promise<void> {
+  const refs = collectExternalRefs(schema);
+  for (const ref of refs) {
+    if (target.has(ref)) {
+      continue;
+    }
+    const external = await loadSchema(repoRoot, ref);
+    target.set(ref, external);
+    await loadExternalSchemas(repoRoot, external, target);
+  }
+}
+
+function collectExternalRefs(value: unknown, refs = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const child of value) collectExternalRefs(child, refs);
+  } else if (isPlainObject(value)) {
+    if (typeof value.$ref === "string" && !value.$ref.startsWith("#/")) {
+      refs.add(value.$ref);
+    }
+    for (const child of Object.values(value)) collectExternalRefs(child, refs);
+  }
+  return refs;
 }
 
 function matchesType(value: unknown, type: unknown): boolean {

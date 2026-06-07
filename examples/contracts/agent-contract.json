@@ -1,9 +1,27 @@
 {
-  "id": "contract_parent_search_child",
+  "id": "contract_run_parent_agent_search",
   "parent_run_id": "run_parent",
   "child_agent_id": "agent_search",
-  "task": "Search local project docs only.",
+  "task": "Read local project docs only.",
   "resource_budget_id": "budget_search_child",
-  "allowed_capsules": ["cap_local_docs_read@0.1.0"],
-  "completion_evidence_required": true
+  "budget_snapshot": {
+    "id": "budget_search_child",
+    "token_budget": 20000,
+    "tool_call_budget": 20,
+    "cpu_ms_budget": 30000,
+    "network_call_budget": 0,
+    "wall_time_ms_budget": 60000,
+    "risk_budget": "L2",
+    "lease_budget": 2,
+    "on_exhaustion": "stop"
+  },
+  "allowed_capsules": ["cap_local_docs_read"],
+  "allowed_paths": ["README.md"],
+  "completion_evidence_required": true,
+  "output_taint": {
+    "sources": ["child_agent"],
+    "can_authorize_actions": false
+  },
+  "status": "draft",
+  "created_at": "2026-06-07T00:00:00.000Z"
 }
