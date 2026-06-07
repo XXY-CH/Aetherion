@@ -26,6 +26,18 @@ export type MemoryCard = {
   blocked_contexts?: string[];
 };
 
+export type MemoryTombstone = {
+  id: string;
+  event_type: "memory.deleted";
+  target_memory_id: string;
+  source_events: string[];
+  reason: string;
+  created_at: string;
+  active_memory_removed: true;
+  history_rewritten: false;
+  redaction_status: "tombstone_only" | "redaction_pending" | "redacted";
+};
+
 export type ContextPack = {
   id: string;
   run_id: string;
@@ -197,15 +209,37 @@ export function acceptMemoryCandidate(candidate: MemoryCandidate): MemoryCard {
   };
 }
 
-export function createMemoryDeleteTombstone(memory: MemoryCard, reason: string): { event_type: "memory.deleted"; target_memory_id: string; reason: string } {
-  return { event_type: "memory.deleted", target_memory_id: memory.id, reason };
+export function createMemoryDeleteTombstone(memory: MemoryCard, reason: string, createdAt = new Date().toISOString()): MemoryTombstone {
+  if (memory.source_events.length === 0) {
+    throw new Error("Memory delete tombstones must cite source events");
+  }
+  return {
+    id: `tombstone_${memory.id}`,
+    event_type: "memory.deleted",
+    target_memory_id: memory.id,
+    source_events: memory.source_events,
+    reason,
+    created_at: createdAt,
+    active_memory_removed: true,
+    history_rewritten: false,
+    redaction_status: "tombstone_only"
+  };
 }
 
-export function assembleContextPack(runId: string, memories: MemoryCard[], context: string): ContextPack {
+export function blockMemoryContext(memory: MemoryCard, context: string): MemoryCard {
+  const blocked = new Set(memory.blocked_contexts ?? []);
+  blocked.add(context);
+  return { ...memory, blocked_contexts: [...blocked].sort() };
+}
+
+export function assembleContextPack(runId: string, memories: MemoryCard[], context: string, tombstones: MemoryTombstone[] = []): ContextPack {
   const selected_memories = [];
   const excluded_memories = [];
+  const deletedMemoryIds = new Set(tombstones.map((tombstone) => tombstone.target_memory_id));
   for (const memory of memories) {
-    if (memory.blocked_contexts?.includes(context)) {
+    if (deletedMemoryIds.has(memory.id)) {
+      excluded_memories.push({ id: memory.id, reason: "deleted by memory tombstone" });
+    } else if (memory.blocked_contexts?.includes(context)) {
       excluded_memories.push({ id: memory.id, reason: `blocked for ${context}` });
     } else if (memory.sensitivity === "secret" || (memory.sensitivity === "confidential" && context === "external_send")) {
       excluded_memories.push({ id: memory.id, reason: `sensitivity ${memory.sensitivity} not allowed in ${context}` });
@@ -260,6 +294,16 @@ export function isMemoryCard(value: unknown): value is MemoryCard {
     && typeof value.content === "string"
     && Array.isArray(value.source_events)
     && typeof value.confidence === "number";
+}
+
+export function isMemoryTombstone(value: unknown): value is MemoryTombstone {
+  return isObject(value)
+    && typeof value.id === "string"
+    && value.event_type === "memory.deleted"
+    && typeof value.target_memory_id === "string"
+    && Array.isArray(value.source_events)
+    && value.active_memory_removed === true
+    && value.history_rewritten === false;
 }
 
 export function isEpisodicTimeline(value: unknown): value is EpisodicTimeline {

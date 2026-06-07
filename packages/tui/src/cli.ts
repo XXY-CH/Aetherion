@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
+import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
@@ -29,6 +29,7 @@ type CliOptions = {
   change?: string;
   content?: string;
   sourceEvent?: string;
+  context?: string;
   confidence?: number;
   fromRun?: string;
   capsule?: string;
@@ -160,6 +161,10 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--source-event":
         options.sourceEvent = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--context":
+        options.context = requireValue(arg, next);
         index += 1;
         break;
       case "--source-kind": {
@@ -368,6 +373,16 @@ async function runMemory(options: CliOptions): Promise<void> {
     printJson(readRegistry(workspaceRoot, "memory-cards"));
     return;
   }
+  if (options.topic === "inspect") {
+    const memoryId = requirePositional(options.target, "memory inspect requires a memory id");
+    const memory = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard).find((entry) => entry.id === memoryId);
+    const tombstone = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone).find((entry) => entry.target_memory_id === memoryId);
+    if (!memory && !tombstone) {
+      throw new Error(`Memory ${memoryId} not found`);
+    }
+    printJson({ id: `memory_inspect_${sanitizePathSegment(memoryId)}`, memory, tombstone, active: Boolean(memory) && !tombstone });
+    return;
+  }
   if (options.topic === "candidates") {
     if (options.fromRun) {
       const workspace = await openWorkspace(workspaceRoot);
@@ -427,10 +442,26 @@ async function runMemory(options: CliOptions): Promise<void> {
     if (!memory) {
       throw new Error(`Memory card ${memoryId} not found`);
     }
-    printJson({ id: `tombstone_${memory.id}`, ...createMemoryDeleteTombstone(memory, "user_delete_request") });
+    const tombstone = createMemoryDeleteTombstone(memory, "user_delete_request");
+    await requireValidContract("memory-tombstone.schema.json", tombstone);
+    removeRegistryItem(workspaceRoot, "memory-cards", memory.id);
+    printJson(tombstone);
     return;
   }
-  throw new Error("memory supports candidates, timeline, user-model, list, accept, reject, and delete");
+  if (options.topic === "block") {
+    const memoryId = requirePositional(options.target, "memory block requires a memory id");
+    const context = options.context ?? "external_send";
+    const memory = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard).find((entry) => entry.id === memoryId);
+    if (!memory) {
+      throw new Error(`Memory card ${memoryId} not found`);
+    }
+    const blocked = blockMemoryContext(memory, context);
+    await requireValidContract("memory-card.schema.json", blocked);
+    upsertRegistryItem(workspaceRoot, "memory-cards", blocked);
+    printJson(blocked);
+    return;
+  }
+  throw new Error("memory supports candidates, timeline, user-model, list, inspect, accept, reject, block, and delete");
 }
 
 async function runContext(options: CliOptions): Promise<void> {
@@ -445,7 +476,8 @@ async function runContext(options: CliOptions): Promise<void> {
     throw new Error(`Run ${runId} has no ledger events`);
   }
   const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
-  printJson(assembleContextPack(runId, memories, "planning"));
+  const tombstones = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone);
+  printJson(assembleContextPack(runId, memories, "planning", tombstones));
 }
 
 async function runCheckpoint(options: CliOptions): Promise<void> {
@@ -1953,6 +1985,9 @@ Usage:
   npm run ether -- import --from openclaw --path <dir> --dry-run
   npm run ether -- memory candidates --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- memory candidates --from-run <run_id> --workspace <path>
+  npm run ether -- memory inspect <memory_id> --workspace <path>
+  npm run ether -- memory block <memory_id> --context external_send --workspace <path>
+  npm run ether -- memory delete <memory_id> --workspace <path>
   npm run ether -- memory timeline <run_id> --workspace <path>
   npm run ether -- memory user-model --workspace <path>
   npm run ether -- context explain <run_id> --workspace <path>

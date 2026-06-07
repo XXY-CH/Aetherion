@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents } from "../src/index.ts";
+import { acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents } from "../src/index.ts";
 
 test("memory candidates require source events and context explains selection", () => {
   assert.throws(() => createMemoryCandidate({
@@ -26,6 +26,31 @@ test("memory candidates require source events and context explains selection", (
 
   const tombstone = createMemoryDeleteTombstone(memory, "user_delete_request");
   assert.equal(tombstone.event_type, "memory.deleted");
+  assert.equal(tombstone.target_memory_id, "mem_direct");
+  assert.deepEqual(tombstone.source_events, ["evt_style"]);
+  assert.equal(tombstone.active_memory_removed, true);
+  assert.equal(tombstone.history_rewritten, false);
+
+  const deletedPack = assembleContextPack("run_memory", [memory], "planning", [tombstone]);
+  assert.equal(deletedPack.selected_memories.length, 0);
+  assert.equal(deletedPack.excluded_memories[0].reason, "deleted by memory tombstone");
+});
+
+test("memory block updates context boundaries without changing provenance", () => {
+  const memory = acceptMemoryCandidate(createMemoryCandidate({
+    id: "memcand_block",
+    source_events: ["evt_block"],
+    candidate: { type: "preference", subject: "user", content: "User wants local-only planning notes." },
+    confidence: 0.92
+  }));
+
+  const blocked = blockMemoryContext(memory, "external_send");
+  assert.deepEqual(blocked.source_events, ["evt_block"]);
+  assert.deepEqual(blocked.blocked_contexts, ["external_send"]);
+
+  const pack = assembleContextPack("run_block", [blocked], "external_send");
+  assert.equal(pack.selected_memories.length, 0);
+  assert.equal(pack.excluded_memories[0].reason, "blocked for external_send");
 });
 
 test("memory candidates can be derived from real run trace events", () => {

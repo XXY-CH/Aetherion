@@ -37,6 +37,7 @@ const schemaExamplePairs = [
   ["permission-policy.schema.json", "permission-policy.json"],
   ["memory-card.schema.json", "memory-card.json"],
   ["memory-candidate.schema.json", "memory-candidate.json"],
+  ["memory-tombstone.schema.json", "memory-tombstone.json"],
   ["memory-patch.schema.json", "memory-patch.json"],
   ["context-pack.schema.json", "context-pack.json"],
   ["capability-capsule.schema.json", "capability-capsule.json"],

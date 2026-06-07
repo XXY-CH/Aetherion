@@ -125,6 +125,15 @@ The Context Assembler chooses task-relevant context under token, privacy, and pe
 - Uncertainty and conflicts.
 - Source citations.
 
+Current Ether MVP:
+
+- `ether memory candidates --from-run <run_id>` derives pending candidates only from real Ledger events.
+- `ether memory accept <candidate_id>` promotes a reviewed candidate into an active Memory Card.
+- `ether memory inspect <memory_id>` shows whether a Memory Card is still active or has a deletion tombstone.
+- `ether memory block <memory_id> --context <context>` adds a context-specific exclusion without changing source provenance.
+- `ether memory delete <memory_id>` removes the active Memory Card projection and persists a `memory.deleted` tombstone that cites the original source events. It does not rewrite Ledger history or perform full artifact redaction.
+- `ether context explain <run_id>` assembles context from active Memory Cards and excludes context-blocked, sensitive, or tombstoned memory with an explicit reason.
+
 ## Event-Driven Dreaming Pipeline
 
 Dreaming is an event-driven consolidation pipeline. It is not a fixed idle cron and should not be framed as the agent periodically waking up to think.

@@ -147,6 +147,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
   await execFileAsync(process.execPath, [cliPath, "memory", "accept", `memcand_${runId}_episode`, "--workspace", workspace]);
   const memoryRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "memory-cards.json"), "utf8")) as Array<{ id: string; source_events: string[] }>;
   assert.ok(memoryRegistry.some((entry) => entry.id === `mem_${runId}_episode` && entry.source_events.length > 0));
+  const inspect = await execFileAsync(process.execPath, [cliPath, "memory", "inspect", `mem_${runId}_episode`, "--workspace", workspace]);
+  assert.match(inspect.stdout, /"active": true/);
+  const block = await execFileAsync(process.execPath, [cliPath, "memory", "block", `mem_${runId}_episode`, "--context", "external_send", "--workspace", workspace]);
+  assert.match(block.stdout, /external_send/);
+  const blockedRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "memory-cards.json"), "utf8")) as Array<{ id: string; blocked_contexts?: string[] }>;
+  assert.ok(blockedRegistry.some((entry) => entry.id === `mem_${runId}_episode` && entry.blocked_contexts?.includes("external_send")));
 
   const timeline = await execFileAsync(process.execPath, [cliPath, "memory", "timeline", runId, "--workspace", workspace]);
   const timelineRecord = JSON.parse(timeline.stdout) as { id: string; run_id: string; source_events: string[]; regression_cases: string[] };
@@ -168,6 +174,17 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(contextArtifacts.some((entry) => entry.startsWith(`ctx_${runId}`)));
   const contextRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "context-packs.json"), "utf8")) as Array<{ id: string }>;
   assert.ok(contextRegistry.some((entry) => entry.id === `ctx_${runId}`));
+  const deleted = await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);
+  assert.match(deleted.stdout, /"event_type": "memory.deleted"/);
+  assert.match(deleted.stdout, /"history_rewritten": false/);
+  const afterDeleteRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "memory-cards.json"), "utf8")) as Array<{ id: string }>;
+  assert.ok(!afterDeleteRegistry.some((entry) => entry.id === `mem_${runId}_episode`));
+  const tombstones = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "memory-tombstones.json"), "utf8")) as Array<{ target_memory_id: string; source_events: string[] }>;
+  assert.ok(tombstones.some((entry) => entry.target_memory_id === `mem_${runId}_episode` && entry.source_events.length > 0));
+  const inspectDeleted = await execFileAsync(process.execPath, [cliPath, "memory", "inspect", `mem_${runId}_episode`, "--workspace", workspace]);
+  assert.match(inspectDeleted.stdout, /"active": false/);
+  const contextAfterDelete = await execFileAsync(process.execPath, [cliPath, "context", "explain", runId, "--workspace", workspace]);
+  assert.doesNotMatch(contextAfterDelete.stdout, new RegExp(`"id": "mem_${runId}_episode"`));
 
   const checkpoint = await execFileAsync(process.execPath, [cliPath, "checkpoint", runId, "--workspace", workspace]);
   assert.match(checkpoint.stdout, /"active_leases_reusable": false/);

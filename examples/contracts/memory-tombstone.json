@@ -1,0 +1,11 @@
+{
+  "id": "tombstone_mem_preference_001",
+  "event_type": "memory.deleted",
+  "target_memory_id": "mem_preference_001",
+  "source_events": ["evt_user_message_001"],
+  "reason": "user_delete_request",
+  "created_at": "2026-06-07T10:30:00Z",
+  "active_memory_removed": true,
+  "history_rewritten": false,
+  "redaction_status": "tombstone_only"
+}

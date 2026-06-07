@@ -20,6 +20,7 @@ Current scope:
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
+- Inspect, block, and delete accepted Memory Cards through `memory inspect`, `memory block`, and `memory delete`; deletes remove active cards and persist tombstones rather than rewriting history.
 - Use registries for evidence-backed lifecycle transitions such as memory candidate accept/reject and hibernation trigger evaluation.
 - Use registries for sandbox checkpoint/branch/rehearsal, causal projection/Why/Counterfactual reports, child-agent resource budgets/circuit breakers, and poisoning signal acknowledgement.
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.

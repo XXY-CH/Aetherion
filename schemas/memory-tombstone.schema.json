@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/memory-tombstone.schema.json",
+  "title": "MemoryTombstone",
+  "type": "object",
+  "required": [
+    "id",
+    "event_type",
+    "target_memory_id",
+    "source_events",
+    "reason",
+    "created_at",
+    "active_memory_removed",
+    "history_rewritten",
+    "redaction_status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^tombstone_mem_[A-Za-z0-9_-]+$" },
+    "event_type": { "type": "string", "enum": ["memory.deleted"] },
+    "target_memory_id": { "type": "string", "pattern": "^mem_[A-Za-z0-9_-]+$" },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "reason": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "active_memory_removed": { "type": "boolean", "enum": [true] },
+    "history_rewritten": { "type": "boolean", "enum": [false] },
+    "redaction_status": { "type": "string", "enum": ["tombstone_only", "redaction_pending", "redacted"] }
+  }
+}
