@@ -9,7 +9,7 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 Verification from the latest pass:
 
 - `npm test`: 55 passing tests.
-- `cargo test`: 11 passing Rust tests.
+- `cargo test`: 12 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -18,7 +18,7 @@ Verification from the latest pass:
 | Phase | Plan intent | Current code evidence | Verification evidence | Review status |
 | --- | --- | --- | --- | --- |
 | 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; Rust and test-only TS event hash chains. | Harness and Ether tests cover approval-gated read/write, trace reconstruction, hash-chain validation, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
-| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends SHA-256-linked events behind a workspace-local append lock. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, schema-compatible timestamps, concurrent append serialization, and RPC JSON contents; Ether integration validates repeated runs and `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, and process sandbox remain pending. |
+| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends SHA-256-linked events behind a workspace-local append lock and sync-then-rename Ledger rewrite. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, schema-compatible timestamps, concurrent append serialization, atomic rewrite behavior, and RPC JSON contents; Ether integration validates repeated runs and `chain_valid=true`. | Authority-boundary POC implemented and used by default. Long-running daemon, vault, and process sandbox remain pending. |
 | 3. Memory OS MVP | Grow memory from source events, not opaque vector state. | `packages/memory-os/src/index.ts`; trace-derived candidates, episodic timeline, evidence-only user model, context pack; Ether memory/context commands and registries. | Memory OS tests require source events; Ether tests derive candidates from a real run, accept one, and select it in context explain. | MVP source-backed path implemented. Extraction and ranking remain narrow; missing evidence is not synthesized. |
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
@@ -75,7 +75,7 @@ Implemented correspondence:
 Correction from review:
 
 - This is not the final production Event Ledger. Per `docs/10-technical-strategy.md`, the production hash-chain authority still belongs in the Rust Local Supervisor/Event Ledger core.
-- Rust now emits the same hash-chain fields consumed by trace verification, supervisor-authored event timestamps are RFC3339 UTC strings validated against `event.schema.json`, and supervisor-authored appends hold a workspace-local lock while reading the head and writing the next event. The remaining ledger gap is durability hardening: crash-safe append/recovery, redaction, signatures, and branch-specific append streams.
+- Rust now emits the same hash-chain fields consumed by trace verification, supervisor-authored event timestamps are RFC3339 UTC strings validated against `event.schema.json`, and supervisor-authored appends hold a workspace-local lock while reading the head and preparing the next event. The Ledger file is rewritten through a synced temp file and atomic rename, so an append leaves either the old complete Ledger or the new complete Ledger rather than a partial JSONL line. The remaining ledger gap is durability hardening: crash-recovery scanning, redaction, signatures, and branch-specific append streams.
 - Branching preserves checkpoint identity and hash pointers and can create an Aetherion-managed temp file workspace under `.aetherion/sandboxes/`; it does not yet create Git worktrees or branch-specific event append streams.
 
 ## Phase 5 Review Notes
@@ -278,6 +278,7 @@ Implemented correspondence:
 
 - Rust workspace init and event append: `workspace.init`, `event.append`.
 - Rust event append serializes concurrent writers with a ledger lock file before computing parent event pointers and hashes.
+- Rust event append writes through a synced temp Ledger and atomic rename, preserving complete JSONL lines even when the prior file has no trailing newline.
 - Rust policy and leases: `tool.evaluate`, `lease.issue`, `file.read`, `file.write`.
 - TS client path: `callSupervisorRpc` and `runSupervisorKernelLoop`.
 - Ether CLI user path: `npm run ether -- run --supervisor stdio ...`.
@@ -287,7 +288,7 @@ Known gaps before Phase 2 can be called production-ready:
 
 - The Rust stdio RPC parser is dependency-free and intentionally minimal; required fields now fail closed, but it is not a robust general JSON-RPC server.
 - Rust ledger timestamps now use RFC3339 UTC strings, and Ether integration validates supervisor-authored events against `event.schema.json`.
-- Rust supervisor appends are serialized by a local lock, but crash-safe recovery and fsync/rename hardening are still not implemented.
+- Rust supervisor appends are serialized by a local lock and use synced temp-file rename, but startup recovery for abandoned temp/lock files is still not implemented.
 - TS seed path remains test-only and is blocked unless `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - No vault, sandbox process isolation, long-running daemon, connector runtime, or generated-code isolation is implemented.
 

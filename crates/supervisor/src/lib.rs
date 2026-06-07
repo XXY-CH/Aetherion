@@ -1,4 +1,4 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -145,15 +145,12 @@ pub fn append_event_with_payload(
         now_nanos()
     );
     let timestamp = now_rfc3339_millis();
-    let previous = fs::read_to_string(&workspace.ledger_path)
-        .ok()
-        .and_then(|contents| {
-            contents
-                .lines()
-                .rev()
-                .find(|line| !line.trim().is_empty())
-                .map(str::to_string)
-        });
+    let ledger_before = fs::read_to_string(&workspace.ledger_path).unwrap_or_default();
+    let previous = ledger_before
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::to_string);
     let parent_event_id = previous
         .as_deref()
         .and_then(|line| json_string_field(line, "id"));
@@ -183,12 +180,7 @@ pub fn append_event_with_payload(
     let payload_field = payload_ref
         .map(|value| format!(",\"payload_ref\":\"{}\"", escape_json(value)))
         .unwrap_or_default();
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&workspace.ledger_path)?;
-    writeln!(
-        file,
+    let event_line = format!(
         "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\"{}{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
         escape_json(&event_id),
         escape_json(&timestamp),
@@ -199,8 +191,43 @@ pub fn append_event_with_payload(
         payload_field,
         parent_fields,
         event_hash
-    )?;
+    );
+    atomic_rewrite_ledger(&workspace.ledger_path, &ledger_before, &event_line)?;
     Ok(event_id)
+}
+
+fn atomic_rewrite_ledger(
+    ledger_path: &Path,
+    current_contents: &str,
+    event_line: &str,
+) -> io::Result<()> {
+    let temp_path =
+        ledger_path.with_extension(format!("jsonl.tmp.{}.{}", std::process::id(), now_nanos()));
+    let mut next_contents = String::with_capacity(current_contents.len() + event_line.len() + 2);
+    next_contents.push_str(current_contents);
+    if !next_contents.is_empty() && !next_contents.ends_with('\n') {
+        next_contents.push('\n');
+    }
+    next_contents.push_str(event_line);
+    next_contents.push('\n');
+
+    {
+        let mut temp = File::create(&temp_path)?;
+        temp.write_all(next_contents.as_bytes())?;
+        temp.sync_all()?;
+    }
+    fs::rename(&temp_path, ledger_path)?;
+    sync_parent_dir(ledger_path)?;
+    Ok(())
+}
+
+fn sync_parent_dir(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = File::open(parent) {
+            dir.sync_all()?;
+        }
+    }
+    Ok(())
 }
 
 struct LedgerLock {
@@ -796,6 +823,7 @@ mod tests {
         let lines = ledger.lines().collect::<Vec<_>>();
         assert_eq!(lines.len(), worker_count);
         assert!(!workspace.ledger_path.with_extension("jsonl.lock").exists());
+        assert_no_ledger_temp_files(&workspace);
 
         for (index, line) in lines.iter().enumerate() {
             assert!(json_string_field(line, "event_hash")
@@ -819,6 +847,40 @@ mod tests {
     }
 
     #[test]
+    fn atomic_rewrite_preserves_existing_ledger_without_trailing_newline() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-atomic-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_atomic").unwrap();
+        fs::write(
+            &workspace.ledger_path,
+            "{\"id\":\"evt_manual\",\"timestamp\":\"2026-06-07T00:00:00.000Z\",\"workspace_id\":\"ws_rust_atomic\",\"run_id\":\"run_manual\",\"event_type\":\"run.started\",\"actor\":{\"type\":\"system\",\"id\":\"local_supervisor\"},\"summary\":\"Manual prior event\",\"event_hash\":\"sha256:manual\",\"sensitivity\":\"private\",\"taint\":{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}"
+        ).unwrap();
+
+        append_event(
+            &workspace,
+            "run.completed",
+            "run_manual",
+            "Atomic append should create a complete second line",
+        )
+        .unwrap();
+
+        let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
+        let lines = ledger.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            json_string_field(lines[1], "parent_event_id").as_deref(),
+            Some("evt_manual")
+        );
+        assert_eq!(
+            json_string_field(lines[1], "parent_event_hash").as_deref(),
+            Some("sha256:manual")
+        );
+        assert!(ledger.ends_with('\n'));
+        assert_no_ledger_temp_files(&workspace);
+    }
+
+    #[test]
     fn sha256_matches_standard_vector() {
         assert_eq!(
             sha256_hex(b"abc"),
@@ -832,6 +894,20 @@ mod tests {
         assert_eq!(
             rfc3339_from_unix_millis(1_704_067_200, 123),
             "2024-01-01T00:00:00.123Z"
+        );
+    }
+
+    fn assert_no_ledger_temp_files(workspace: &Workspace) {
+        let event_dir = workspace.ledger_path.parent().unwrap();
+        let leftovers = fs::read_dir(event_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains(".tmp.") || name.ends_with(".lock"))
+            .collect::<Vec<_>>();
+        assert!(
+            leftovers.is_empty(),
+            "leftover ledger temp files: {leftovers:?}"
         );
     }
 }
