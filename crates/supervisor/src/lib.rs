@@ -82,6 +82,7 @@ pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Resu
         .create(true)
         .append(true)
         .open(&ledger_path)?;
+    recover_ledger_on_startup(&ledger_path)?;
     Ok(Workspace {
         id: id.into(),
         root,
@@ -119,6 +120,99 @@ pub fn write_workspace_registry(workspace: &Workspace) -> io::Result<PathBuf> {
         ),
     )?;
     Ok(registry_path)
+}
+
+fn recover_ledger_on_startup(ledger_path: &Path) -> io::Result<()> {
+    let _lock = LedgerLock::acquire(ledger_path)?;
+    remove_abandoned_ledger_temp_files(ledger_path)?;
+    verify_ledger_hash_chain(ledger_path)
+}
+
+fn remove_abandoned_ledger_temp_files(ledger_path: &Path) -> io::Result<()> {
+    let Some(parent) = ledger_path.parent() else {
+        return Ok(());
+    };
+    let Some(file_name) = ledger_path.file_name().and_then(|value| value.to_str()) else {
+        return Ok(());
+    };
+    let temp_prefix = format!("{file_name}.tmp.");
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(&temp_prefix) {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
+    let contents = fs::read_to_string(ledger_path)?;
+    let mut previous_id: Option<String> = None;
+    let mut previous_hash: Option<String> = None;
+    for (index, line) in contents.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let line_number = index + 1;
+        let event_id = required_json_string_field(line, "id", line_number)?;
+        let timestamp = required_json_string_field(line, "timestamp", line_number)?;
+        let workspace_id = required_json_string_field(line, "workspace_id", line_number)?;
+        let run_id = required_json_string_field(line, "run_id", line_number)?;
+        let event_type = required_json_string_field(line, "event_type", line_number)?;
+        let summary = required_json_string_field(line, "summary", line_number)?;
+        let payload_ref = json_string_field(line, "payload_ref");
+        let parent_event_id = json_string_field(line, "parent_event_id");
+        let parent_event_hash = json_string_field(line, "parent_event_hash");
+        let event_hash = required_json_string_field(line, "event_hash", line_number)?;
+        if parent_event_id != previous_id || parent_event_hash != previous_hash {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("ledger parent chain mismatch at line {line_number}"),
+            ));
+        }
+        if is_supervisor_authored_event(line) {
+            let expected_hash = format!(
+                "sha256:{}",
+                sha256_hex(
+                    canonical_event_json(&EventHashInput {
+                        event_id: &event_id,
+                        timestamp: &timestamp,
+                        workspace_id: &workspace_id,
+                        run_id: &run_id,
+                        event_type: &event_type,
+                        summary: &summary,
+                        payload_ref: payload_ref.as_deref(),
+                        parent_event_id: parent_event_id.as_deref(),
+                        parent_event_hash: parent_event_hash.as_deref(),
+                    })
+                    .as_bytes()
+                )
+            );
+            if event_hash != expected_hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("ledger supervisor event hash mismatch at line {line_number}"),
+                ));
+            }
+        }
+        previous_id = Some(event_id);
+        previous_hash = Some(event_hash);
+    }
+    Ok(())
+}
+
+fn required_json_string_field(line: &str, key: &str, line_number: usize) -> io::Result<String> {
+    json_string_field(line, key).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ledger line {line_number} missing string field {key}"),
+        )
+    })
+}
+
+fn is_supervisor_authored_event(line: &str) -> bool {
+    line.contains("\"actor\":{\"type\":\"system\",\"id\":\"local_supervisor\"}")
 }
 
 pub fn append_event(
@@ -878,6 +972,56 @@ mod tests {
         );
         assert!(ledger.ends_with('\n'));
         assert_no_ledger_temp_files(&workspace);
+    }
+
+    #[test]
+    fn startup_recovery_removes_abandoned_temp_files() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-recover-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_recover").unwrap();
+        append_event(
+            &workspace,
+            "run.started",
+            "run_recover",
+            "Recoverable ledger event",
+        )
+        .unwrap();
+        let abandoned_temp = workspace
+            .ledger_path
+            .with_extension(format!("jsonl.tmp.{}.abandoned", std::process::id()));
+        fs::write(&abandoned_temp, "uncommitted next ledger\n").unwrap();
+        assert!(abandoned_temp.exists());
+
+        let recovered = init_workspace(&root, "ws_rust_recover").unwrap();
+        assert_eq!(recovered.ledger_path, workspace.ledger_path);
+        assert!(!abandoned_temp.exists());
+        assert_no_ledger_temp_files(&workspace);
+        let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
+        assert_eq!(ledger.lines().count(), 1);
+    }
+
+    #[test]
+    fn startup_recovery_rejects_corrupt_hash_chain() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-corrupt-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_corrupt").unwrap();
+        append_event(
+            &workspace,
+            "run.started",
+            "run_corrupt",
+            "Valid event before corruption",
+        )
+        .unwrap();
+        let ledger = fs::read_to_string(&workspace.ledger_path)
+            .unwrap()
+            .replace("\"event_hash\":\"sha256:", "\"event_hash\":\"sha256:0000");
+        fs::write(&workspace.ledger_path, ledger).unwrap();
+
+        let error = init_workspace(&root, "ws_rust_corrupt").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("supervisor event hash mismatch"));
     }
 
     #[test]

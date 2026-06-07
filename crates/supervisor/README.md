@@ -6,6 +6,7 @@ Current scope:
 
 - Workspace initialization.
 - Append SHA-256-linked JSONL events compatible with Ether trace verification.
+- Serialize event appends with a workspace-local lock, write through synced temp files and atomic rename, clean abandoned temp files on startup, and reject corrupt hash chains.
 - Evaluate a tiny deterministic local file policy.
 - Issue scoped leases for workspace-local reads and approval-gated writes.
 - Execute workspace-scoped file read/write through leases.
@@ -16,7 +17,7 @@ Current scope:
 Out of scope:
 
 - Real vault backend.
-- Crash-safe concurrent ledger append, signatures, and redaction.
+- Event signatures, redaction, and branch-specific append streams.
 - JSON-RPC server.
 - Browser, IM, MCP, OAuth, or cloud worker integration.
 - Loading generated or imported code.
