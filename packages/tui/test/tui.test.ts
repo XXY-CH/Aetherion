@@ -485,19 +485,60 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
   assert.equal(approvals[0].target, "capsule://cap_local_read@0.1.0");
 });
 
-test("TUI hibernation wake updates persisted hibernation lifecycle", async () => {
+test("Ether hibernation evaluates local triggers and queues a fresh-policy resume without authority", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-hibernate-"));
   await writeFile(join(workspace, "README.md"), "Hibernation evidence\n");
   const run = await execFileAsync(process.execPath, [cliPath, "run", "--workspace", workspace, "--input", "README.md", "--output", ".aetherion/SUMMARY.md"]);
   const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
-  await execFileAsync(process.execPath, [cliPath, "context", "explain", runId, "--workspace", workspace]);
-  await execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]);
-  await execFileAsync(process.execPath, [cliPath, "wake", `hibernate_${runId}`, "--workspace", workspace]);
-  const hibernations = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "hibernations.json"), "utf8")) as Array<{ id: string; status: string; active_leases_retained: boolean }>;
+  const sleep = await execFileAsync(process.execPath, [
+    cliPath,
+    "sleep",
+    runId,
+    "--watch-file",
+    "README.md",
+    "--deadline",
+    "2030-01-01T00:00:00.000Z",
+    "--workspace",
+    workspace
+  ]);
+  assert.match(sleep.stdout, /"status": "sleeping"/);
+  assert.match(sleep.stdout, /"event_hash": "sha256:/);
+
+  const triggers = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "wakeups.json"), "utf8")) as Array<{ id: string; source: string; status: string }>;
+  assert.equal(triggers.length, 3);
+  const fileTrigger = triggers.find((entry) => entry.source === "file");
+  assert.ok(fileTrigger);
+  const unchanged = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
+  assert.match(unchanged.stdout, /"status": "scheduled"/);
+
+  await writeFile(join(workspace, "README.md"), "Hibernation evidence changed\n");
+  const wake = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
+  assert.match(wake.stdout, /"status": "queued"/);
+  assert.match(wake.stdout, /"auto_execute_allowed": false/);
+  assert.match(wake.stdout, /"fresh_policy_decision_id": "policy_/);
+  const resumeRunId = wake.stdout.match(/"resume_run_id": "(run_resume_[^"]+)"/)?.[1];
+  assert.ok(resumeRunId);
+
+  const hibernations = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "hibernations.json"), "utf8")) as Array<{ id: string; status: string; active_leases_retained: boolean; attention_budget: { used_wakeups: number } }>;
   const record = hibernations.find((entry) => entry.id === `hibernate_${runId}`);
-  assert.equal(record?.status, "waking");
+  assert.equal(record?.status, "queued");
   assert.equal(record?.active_leases_retained, false);
+  assert.equal(record?.attention_budget.used_wakeups, 1);
+
+  const contextPacks = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "context-packs.json"), "utf8")) as Array<{ id: string; active_leases: string[] }>;
+  assert.deepEqual(contextPacks.find((entry) => entry.id === `ctx_resume_${runId}`)?.active_leases, []);
+  const resumeManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${resumeRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(resumeManifest.status, "blocked");
+  assert.equal(resumeManifest.event_ids.length, 2);
+  const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const resumeEvents = ledger.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { run_id: string; event_type: string }).filter((event) => event.run_id === resumeRunId);
+  assert.deepEqual(resumeEvents.map((event) => event.event_type), ["policy.decided", "wakeup.queued"]);
+
+  const repeated = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
+  assert.match(repeated.stdout, /"status": "discarded"/);
+  const sleepers = await execFileAsync(process.execPath, [cliPath, "sleepers", "--workspace", workspace]);
+  assert.match(sleepers.stdout, new RegExp(`"id": "hibernate_${runId}"`));
 });
 
 test("TUI agent contract requires existing run, budget, and published capsule without consuming budget", async () => {
@@ -634,7 +675,7 @@ test("Ether refuses synthetic fallback state and test-only TypeScript authority"
   );
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "wake", "hibernate_missing", "--workspace", workspace]),
-    /Hibernation hibernate_missing not found/
+    /Hibernation for hibernate_missing not found/
   );
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "memory", "candidates", "--source-event", "evt_missing", "--content", "invented", "--confidence", "0.9", "--workspace", workspace]),

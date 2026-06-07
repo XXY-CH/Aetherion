@@ -16,11 +16,11 @@ Current scope:
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
-- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, hibernation records, persona/soul records, multi-agent contracts, and poisoning scan.
+- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, persona/soul records, multi-agent contracts, and poisoning scan.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
-- Use registries for evidence-backed lifecycle transitions such as memory candidate accept/reject and hibernation wake state updates.
+- Use registries for evidence-backed lifecycle transitions such as memory candidate accept/reject and hibernation trigger evaluation.
 - Use registries for sandbox checkpoint/branch/rehearsal, causal projection/Why/Counterfactual reports, child-agent resource budgets/circuit breakers, and poisoning signal acknowledgement.
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
@@ -28,6 +28,7 @@ Current scope:
 - Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Local publication is unsigned and does not execute the playbook.
 - Use registries for persona anchor proposal/accept/reject, persona reset records, and checkpoint-backed soul forks that never inherit live authority.
 - Rebuild `.aetherion/projections/causal.sqlite` from Ledger events for `why` and `counterfactual`. The SQLite file is explicitly a disposable projection; typed edges are temporal dependency candidates, not proof of causation, and redacted source links lower report confidence.
+- Persist Digital Hibernation records with a hash-bound Ledger cursor, minimal `resume` Context Pack, no active leases, bounded wake attention, and manual/deadline/file triggers. `wake` evaluates a trigger only when invoked, requests a fresh Rust supervisor queue decision, and appends `policy.decided` plus `wakeup.queued` to a new blocked resume run. It does not run a daemon, issue a lease, or resume task actions.
 
 Later-phase contract commands do not connect real IM, take over webhooks, run imported skills, install executable packages, or execute external side effects. They fail when required ledger or registry evidence is absent.
 
@@ -60,6 +61,16 @@ npm run ether -- capsule rollback <capsule_id> --version <published_version> --w
 ```
 
 This flow never runs imported or generated code. It produces replay records, a static-scanned playbook copy, an integrity digest, permission diff, optional Approval Card, version registry, and rollback target. Package signing and external sandbox execution remain later-phase work.
+
+Digital Hibernation flow:
+
+```bash
+npm run ether -- sleep <run_id> --deadline <iso-date> --watch-file README.md --workspace .
+npm run ether -- wake <trigger_or_hibernation_id> --workspace .
+npm run ether -- sleepers --workspace .
+```
+
+Deadline and file conditions are checked when `wake` is explicitly invoked. Reliable background wakeup still requires a future local daemon or OS integration.
 
 Out of scope:
 

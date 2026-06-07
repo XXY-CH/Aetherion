@@ -8,8 +8,8 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 38 passing tests.
-- `cargo test`: 5 passing Rust tests.
+- `npm test`: 42 passing tests.
+- `cargo test`: 6 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -24,7 +24,7 @@ Verification from the latest pass:
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
 | 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
 | 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; Causal Edge, Why Report, Counterfactual Report, and Causal Projection schemas/examples; Ether `why`/`counterfactual`; rebuildable `.aetherion/projections/causal.sqlite`. | Tests cover typed dependency chains, failure/correction links, report-only downstream counterfactuals, disposable SQLite rebuild, cross-run isolation, and redacted-source confidence reduction. Ether integration rebuilds from a real Rust-supervised Ledger and a real appended redaction event. | Evidence-aware report projection implemented. It labels edges as temporal dependency candidates, not proven causes. Domain state simulation, LLM replay, and alternate-history outcome evaluation remain pending. |
-| 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, wake via local triggers with policy recheck. | `packages/hibernation/src/index.ts`; hibernation and wakeup schemas/examples; Ether sleep/wake registry path. | Hibernation tests assert active leases are not retained; Ether requires an existing run and context pack and rejects missing hibernation records. | Evidence-backed record lifecycle implemented. Trigger runner and resumed execution remain pending. |
+| 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, evaluate local triggers, and recheck policy before resume. | `packages/hibernation/src/index.ts`; expanded hibernation/wakeup schemas/examples; Ether `sleep`, `wake`, and `sleepers`; Rust `run.resume.evaluate`; new resume-run Ledger events. | Unit tests cover lease rejection, cursor binding, deadlines, expiry, attention budgets, file change/deletion, workspace escape, and symlink escape. Ether integration proves fresh-policy queueing with no lease or action. | Local explicit-evaluation, queue-only MVP implemented. Background daemon and resumed task executor remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through folds, anchors, reset, fork, and inheritance policy. | `packages/soul/src/index.ts`; fold, anchor, soul fork, inheritance policy schemas/examples; Ether anchors/persona/soul commands. | Soul tests require evidence-backed anchors, explicit confidence, proposed-only reset/fork records, and no inherited live authority. | Proposal records implemented. Identity creation, policy materialization, inheritance export, and Dreaming patch pipeline remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; agent contract, resource budget, circuit breaker schemas/examples; Ether contract creation requires an existing parent run, budget, and published capsule. | Multi-agent tests trigger budget breakers and isolate capsules; Ether test verifies contract creation does not pretend to execute or consume budget. | Contract creation only. Real child run orchestration and accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, detect policy override/secret exfiltration attempts, quarantine suspicious signals. | `packages/security/src/index.ts`; poisoning signal schema/example; TUI security scan/ack. | Security tests create quarantined poisoning signals from override attempts. | Contract seed implemented. Honeypot capsule runtime pending. |
@@ -131,6 +131,33 @@ Correction and remaining boundary:
 - There is no domain state model, symbolic simulator, LLM replay, or asynchronous counterfactual worker yet. Therefore the MVP reports which recorded dependencies may change, not what the alternate world would become.
 - Redaction markers preserve event envelopes and provenance links. Cryptographic erasure of referenced encrypted artifacts remains a separate retention/vault capability.
 - Existing rehearsal promotion appends policy/action evidence to the checkpoint's original run after its `run.completed` event. Why Reports detect this and become partial; a later Phase 5 hardening pass should assign promoted work an independent run manifest instead of extending a completed run.
+
+## Phase 8 Review Notes
+
+The user plan numbers Digital Hibernation as Phase 8. The original repository roadmap uses Phase 8 for remote user connection and lists hibernation under the future runtime-economics track. This review follows the user-plan number without claiming that IM, browser extension, or remote wakeup is implemented.
+
+Matched source docs:
+
+- `docs/01-architecture.md`: proactive behavior reacts to meaningful events, respects attention budgets, and does not periodically wake merely to think.
+- `docs/03-memory-os.md`: Dreaming is event-driven consolidation and must not become an idle cron that self-authorizes actions.
+- `docs/11-migration-and-runtime-economics.md`: wakeup loads minimal context, checks eligibility, policy, attention, and lease freshness, then resumes, queues, or discards; reliable background wakeup requires daemon or OS integration.
+- Original Phase 8 plan: sleeping runs retain no active lease; wakeup must request fresh policy; stale triggers expire; blocked memory stays out of minimal context; high-risk actions do not auto-execute.
+
+Implemented correspondence:
+
+- `ether sleep` requires an existing run manifest and a hash-bound Event Ledger head. It persists that cursor, a compact resume summary, a `resume` Context Pack, trigger ids, and a bounded wake attention budget.
+- The resume Context Pack is rebuilt from accepted Memory Cards. Memory Cards blocked for `resume` appear in `excluded_memories`, and `active_leases` is forcibly empty.
+- Manual, deadline, and workspace-file triggers are persisted. File triggers reject `.aetherion`, lexical boundary escape, missing initial targets, and symbolic links whose real target leaves the workspace; modification or deletion makes the trigger eligible.
+- `ether wake` evaluates one trigger explicitly. Ineligible, stale, exhausted, or already-consumed triggers are scheduled, expired, or discarded without creating a resume run.
+- Eligible wakeups call Rust `run.resume.evaluate`. The supervisor returns queue-only policy with no lease and `auto_execute_allowed=false`.
+- Ether creates a separate resume run, appends `policy.decided` and `wakeup.queued` through the Rust supervisor, and completes the manifest as `blocked`. No tool request, lease, or action event is created.
+
+Correction and remaining boundary:
+
+- The previous record-only `waking` state overstated capability and had no real policy evidence. It was replaced with a queue-only lifecycle backed by a fresh supervisor decision and Ledger events.
+- This implementation is not a daemon, scheduler, process unloader, file watcher, webhook listener, or resumed Agent executor. Deadline and file conditions are checked only when `ether wake` is invoked.
+- A queued resume run is intentionally `blocked` until a future governed executor loads the minimal context and starts a new action lifecycle. It cannot reuse the source run's lease.
+- The Rust resume policy is deliberately narrow and deterministic. Rich opportunity scoring, user-presence policy, trigger signatures, and L4/L5 approval routing remain future work.
 
 ## Phase 2 Review Notes
 

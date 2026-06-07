@@ -3,14 +3,37 @@
   "$id": "https://aetherion.local/schemas/hibernation-record.schema.json",
   "title": "HibernationRecord",
   "type": "object",
-  "required": ["id", "run_id", "status", "created_at", "active_leases_retained", "minimal_context_pack_id"],
+  "required": ["id", "run_id", "status", "created_at", "expires_at", "active_leases_retained", "minimal_context_pack_id", "ledger_cursor", "resume_summary", "trigger_ids", "attention_budget", "max_auto_risk"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^hibernate_[A-Za-z0-9_-]+$" },
     "run_id": { "type": "string" },
-    "status": { "type": "string", "enum": ["sleeping", "waking", "completed", "expired"] },
+    "status": { "type": "string", "enum": ["sleeping", "queued", "completed", "expired"] },
     "created_at": { "type": "string" },
-    "active_leases_retained": { "type": "boolean" },
-    "minimal_context_pack_id": { "type": "string" }
+    "expires_at": { "type": ["string", "null"] },
+    "active_leases_retained": { "type": "boolean", "enum": [false] },
+    "minimal_context_pack_id": { "type": "string" },
+    "ledger_cursor": {
+      "type": "object",
+      "required": ["event_id", "event_hash", "event_count"],
+      "additionalProperties": false,
+      "properties": {
+        "event_id": { "type": "string" },
+        "event_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "event_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "resume_summary": { "type": "string" },
+    "trigger_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "attention_budget": {
+      "type": "object",
+      "required": ["max_wakeups", "used_wakeups"],
+      "additionalProperties": false,
+      "properties": {
+        "max_wakeups": { "type": "integer", "minimum": 1 },
+        "used_wakeups": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "max_auto_risk": { "type": "string", "enum": ["L2"] }
   }
 }

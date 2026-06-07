@@ -2,7 +2,20 @@
   "id": "hibernate_run_example",
   "run_id": "run_example",
   "status": "sleeping",
-  "created_at": "2026-06-06T00:00:00.000Z",
+  "created_at": "2026-06-07T00:00:00.000Z",
+  "expires_at": null,
   "active_leases_retained": false,
-  "minimal_context_pack_id": "ctx_run_example"
+  "minimal_context_pack_id": "ctx_resume_run_example",
+  "ledger_cursor": {
+    "event_id": "evt_run_example_completed",
+    "event_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "event_count": 12
+  },
+  "resume_summary": "Resume only after a matching local trigger and fresh policy eligibility check.",
+  "trigger_ids": ["wake_hibernate_run_example_manual_a1b2c3d4"],
+  "attention_budget": {
+    "max_wakeups": 3,
+    "used_wakeups": 0
+  },
+  "max_auto_risk": "L2"
 }

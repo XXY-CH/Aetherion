@@ -29,6 +29,7 @@
         "artifact.redacted",
         "event.redacted",
         "memory.deleted",
+        "wakeup.queued",
         "run.completed"
       ]
     },

@@ -6,11 +6,11 @@ import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuild
 import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
-import { findHibernation, hibernateRun, isHibernationRecord, markWaking, wakeRun } from "../../hibernation/src/index.ts";
+import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
 import { acceptPersonaAnchor, createPersonaReset, findPersonaAnchor, foldMemories, forkSoul, isPersonaAnchor, proposePersonaAnchor, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { createAgentContract, findBudget, isResourceBudget } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
-import { appendEvent, callSupervisorRpc, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -33,6 +33,8 @@ type CliOptions = {
   replayRuns: string[];
   approvePermissions: boolean;
   version?: string;
+  deadline?: string;
+  watchFile?: string;
   parentRun?: string;
   childAgent?: string;
   budget?: string;
@@ -179,6 +181,14 @@ function parseArgs(args: string[]): CliOptions {
         options.version = requireValue(arg, next);
         index += 1;
         break;
+      case "--deadline":
+        options.deadline = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--watch-file":
+        options.watchFile = requireValue(arg, next);
+        index += 1;
+        break;
       case "--parent-run":
         options.parentRun = requireValue(arg, next);
         index += 1;
@@ -217,7 +227,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -268,7 +278,10 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       await runSleep(options);
       return true;
     case "wake":
-      runWake(options);
+      await runWake(options);
+      return true;
+    case "sleepers":
+      runSleepers(options);
       return true;
     case "anchors":
       await runAnchors(options);
@@ -783,26 +796,112 @@ async function runSleep(options: CliOptions): Promise<void> {
   if (!manifest) {
     throw new Error(`Cannot hibernate unknown run ${runId}`);
   }
-  const contextPackId = `ctx_${runId}`;
-  const contextPack = readRegistry(workspaceRoot, "context-packs").find((entry) => entry.id === contextPackId);
-  if (!contextPack) {
-    throw new Error(`Cannot hibernate run ${runId}: context pack ${contextPackId} not found`);
+  const runEvents = (await readEvents(workspace)).filter((event) => event.run_id === runId);
+  const head = runEvents.at(-1);
+  if (!head?.event_hash) {
+    throw new Error(`Cannot hibernate run ${runId} without a hash-bound Ledger cursor`);
   }
-  printJson(hibernateRun(runId, contextPackId));
+  const contextPack = assembleContextPack(runId, readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard), "resume");
+  contextPack.id = `ctx_resume_${runId}`;
+  contextPack.active_leases = [];
+  contextPack.token_budget = { memory_tokens: 256, capability_tokens: 256, task_tokens: 1024 };
+  await requireValidContract("context-pack.schema.json", contextPack);
+  upsertRegistryItem(workspaceRoot, "context-packs", contextPack);
+
+  const hibernationId = `hibernate_${runId}`;
+  const triggers = [createManualTrigger(hibernationId)];
+  if (options.deadline) {
+    triggers.push(createDeadlineTrigger(hibernationId, options.deadline));
+  }
+  if (options.watchFile) {
+    triggers.push(createFileTrigger(workspaceRoot, hibernationId, options.watchFile));
+  }
+  for (const trigger of triggers) {
+    await requireValidContract("wakeup-trigger.schema.json", trigger);
+    upsertRegistryItem(workspaceRoot, "wakeups", trigger);
+  }
+  const record = hibernateRun({
+    runId,
+    contextPack,
+    ledgerCursor: {
+      event_id: head.id,
+      event_hash: head.event_hash,
+      event_count: runEvents.length
+    },
+    resumeSummary: manifest.summary ?? `Resume ${runId} from persisted Ledger state.`,
+    triggers
+  });
+  await requireValidContract("hibernation-record.schema.json", record);
+  printJson(record);
 }
 
-function runWake(options: CliOptions): void {
+async function runWake(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
-  const hibernationId = requirePositional(options.topic, "wake requires a hibernation id");
-  const hibernation = findHibernation(readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord), hibernationId);
+  const targetId = requirePositional(options.topic, "wake requires a trigger or hibernation id");
+  const hibernations = readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord);
+  const triggers = readRegistry(workspaceRoot, "wakeups").filter(isWakeupTrigger);
+  const directTrigger = findWakeupTrigger(triggers, targetId);
+  const hibernation = directTrigger
+    ? findHibernation(hibernations, directTrigger.hibernation_id)
+    : findHibernation(hibernations, targetId);
   if (!hibernation) {
-    throw new Error(`Hibernation ${hibernationId} not found`);
+    throw new Error(`Hibernation for ${targetId} not found`);
   }
-  const trigger = wakeRun(hibernation, "manual");
-  if (trigger.status === "queued") {
-    upsertRegistryItem(workspaceRoot, "hibernations", markWaking(hibernation));
+  const trigger = directTrigger ?? triggers.find((entry) => entry.hibernation_id === hibernation.id && entry.source === "manual");
+  if (!trigger) {
+    throw new Error(`Wakeup trigger for ${hibernation.id} not found`);
   }
-  printJson(trigger);
+  const evaluated = evaluateWakeup(workspaceRoot, hibernation, trigger);
+  if (evaluated.status !== "eligible") {
+    upsertRegistryItem(workspaceRoot, "wakeups", evaluated);
+    printJson(evaluated);
+    return;
+  }
+
+  const workspace = await openWorkspace(workspaceRoot);
+  const resumeRunId = createResumeRunId();
+  const policyResult = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${resumeRunId}_resume_policy`,
+    method: "run.resume.evaluate",
+    workspace_root: workspaceRoot,
+    workspace_id: workspace.id,
+    run_id: resumeRunId,
+    source: evaluated.source,
+    trigger_id: evaluated.id
+  }));
+  if (
+    policyResult.decision !== "queue"
+    || typeof policyResult.policy_decision_id !== "string"
+    || typeof policyResult.policy_event_id !== "string"
+    || policyResult.lease_id !== ""
+    || policyResult.auto_execute_allowed !== false
+  ) {
+    throw new Error(`Supervisor did not return a queue-only wake policy for ${evaluated.id}`);
+  }
+  const queued = queueWakeup(hibernation, evaluated, policyResult.policy_decision_id, resumeRunId);
+  const resumeManifest = await createRunManifest(repoRoot, workspace, resumeRunId, `Queued resume for ${hibernation.run_id}; no side effects executed.`);
+  await recordRunEvent(repoRoot, workspace, resumeManifest, policyResult.policy_event_id);
+  const appendResult = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${resumeRunId}_wakeup_event`,
+    method: "event.append",
+    workspace_root: workspaceRoot,
+    workspace_id: workspace.id,
+    run_id: resumeRunId,
+    event_type: "wakeup.queued",
+    summary: `Wakeup ${queued.trigger.id} passed fresh queue-only policy; no lease or automatic action was issued.`
+  }));
+  if (typeof appendResult.event_id !== "string") {
+    throw new Error(`Supervisor did not append wakeup event for ${queued.trigger.id}`);
+  }
+  await recordRunEvent(repoRoot, workspace, resumeManifest, appendResult.event_id);
+  await completeRunManifest(repoRoot, workspace, resumeManifest, "blocked");
+  upsertRegistryItem(workspaceRoot, "hibernations", queued.hibernation);
+  upsertRegistryItem(workspaceRoot, "wakeups", queued.trigger);
+  printJson(queued.trigger);
+}
+
+function runSleepers(options: CliOptions): void {
+  printJson(readRegistry(resolve(options.workspace), "hibernations").filter(isHibernationRecord));
 }
 
 async function runAnchors(options: CliOptions): Promise<void> {
@@ -1152,8 +1251,9 @@ Usage:
   npm run ether -- capsule rollback <capsule_id> --version <published_version>
   npm run ether -- why <run_id> --workspace <path>
   npm run ether -- counterfactual <checkpoint_id> --change <text>
-  npm run ether -- sleep <run_id>
-  npm run ether -- wake <hibernation_id>
+  npm run ether -- sleep <run_id> [--deadline <iso-date>] [--watch-file <workspace-file>]
+  npm run ether -- wake <trigger_or_hibernation_id>
+  npm run ether -- sleepers
   npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- persona reset <branch>
   npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id>
@@ -1167,7 +1267,7 @@ Commands:
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
   capsule                Governed document-only draft/test/local-publish/rollback lifecycle
   why/counterfactual     Phase 7 causal memory report surfaces
-  sleep/wake             Phase 8 evidence-backed hibernation records
+  sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
   anchors/persona/soul   Phase 9 evidence-backed persona and soul fork records
   agent                  Phase 10 contract creation only; no child execution
   security               Phase 11 signature-based poisoning detection

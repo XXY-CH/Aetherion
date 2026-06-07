@@ -143,6 +143,16 @@ event arrives
 -> resume, queue, or discard
 ```
 
+The first local implementation should stop at deterministic eligibility and queueing:
+
+- Persist the Ledger cursor, a minimal context pack, trigger conditions, and attention budget.
+- Evaluate manual, deadline, or workspace-file triggers only through an explicit local command until a daemon exists.
+- Request a fresh Local Supervisor policy decision before queueing a resume run.
+- Append the policy decision and queue event to the Ledger.
+- Issue no lease and execute no task action during wakeup evaluation.
+
+This is a truthful hibernation primitive, not yet a reliable background scheduler. Automatic file/deadline observation, process unloading, and resumed task execution require the daemon/OS integration described above.
+
 ### Zero-Trust Agent Contracts And Token Escrow
 
 Scoped leases, Capability Capsules, and signed task contracts can support zero-trust collaboration between agents.

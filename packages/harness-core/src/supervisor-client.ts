@@ -4,10 +4,12 @@ import { join } from "node:path";
 
 export type SupervisorRpcRequest = {
   id: string;
-  method: "workspace.init" | "event.append" | "tool.evaluate" | "lease.issue" | "file.read" | "file.write" | "trace.replay";
+  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "tool.evaluate" | "lease.issue" | "file.read" | "file.write" | "trace.replay";
   workspace_root: string;
   workspace_id?: string;
   run_id?: string;
+  source?: "manual" | "file" | "deadline";
+  trigger_id?: string;
   path?: string;
   verb?: "read" | "write";
   approved?: boolean;

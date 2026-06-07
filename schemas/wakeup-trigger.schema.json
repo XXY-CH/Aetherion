@@ -3,13 +3,30 @@
   "$id": "https://aetherion.local/schemas/wakeup-trigger.schema.json",
   "title": "WakeupTrigger",
   "type": "object",
-  "required": ["id", "hibernation_id", "source", "status", "policy_recheck_required"],
+  "required": ["id", "hibernation_id", "source", "status", "created_at", "expires_at", "condition", "observed_at", "policy_recheck_required", "fresh_policy_decision_id", "resume_run_id", "auto_execute_allowed", "reason"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^wake_[A-Za-z0-9_-]+$" },
     "hibernation_id": { "type": "string" },
-    "source": { "type": "string", "enum": ["manual", "file", "deadline", "webhook", "im"] },
-    "status": { "type": "string", "enum": ["queued", "resumed", "discarded", "expired"] },
-    "policy_recheck_required": { "type": "boolean" }
+    "source": { "type": "string", "enum": ["manual", "file", "deadline"] },
+    "status": { "type": "string", "enum": ["scheduled", "eligible", "queued", "discarded", "expired"] },
+    "created_at": { "type": "string" },
+    "expires_at": { "type": ["string", "null"] },
+    "condition": {
+      "type": "object",
+      "required": ["deadline_at", "file_path", "baseline_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "deadline_at": { "type": ["string", "null"] },
+        "file_path": { "type": ["string", "null"] },
+        "baseline_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "observed_at": { "type": ["string", "null"] },
+    "policy_recheck_required": { "type": "boolean", "enum": [true] },
+    "fresh_policy_decision_id": { "type": ["string", "null"] },
+    "resume_run_id": { "type": ["string", "null"] },
+    "auto_execute_allowed": { "type": "boolean", "enum": [false] },
+    "reason": { "type": "string" }
   }
 }

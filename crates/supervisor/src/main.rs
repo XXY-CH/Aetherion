@@ -114,6 +114,37 @@ fn handle_rpc_line(line: &str) -> String {
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
+        "run.resume.evaluate" => {
+            let source = match required_string_field(line, "source") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let trigger_id = match required_string_field(line, "trigger_id") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            if source != "manual" && source != "file" && source != "deadline" {
+                return error_response(&id, "resume source must be manual, file, or deadline");
+            }
+            let policy_decision_id = format!("policy_{}_resume_queue", run_id);
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    let summary = format!(
+                        "Fresh resume policy {} allowed queueing only for {}; no lease was issued.",
+                        policy_decision_id, trigger_id
+                    );
+                    match append_event(&workspace, "policy.decided", &run_id, &summary) {
+                        Ok(event_id) => format!(
+                            "{{\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"decision\":\"queue\",\"risk_level\":\"L1\",\"lease_id\":\"\",\"auto_execute_allowed\":false}}",
+                            escape(&policy_decision_id),
+                            escape(&event_id)
+                        ),
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
+                }
+                Err(error) => return error_response(&id, &error.to_string()),
+            }
+        }
         "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 let path = match required_string_field(line, "path") {
@@ -308,5 +339,27 @@ mod tests {
             fs::read_to_string(target).unwrap(),
             "line one\nline \"two\"\n"
         );
+    }
+
+    #[test]
+    fn rpc_resume_policy_queues_without_lease_or_auto_execution() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-resume-policy-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let request = format!(
+            "{{\"id\":\"rpc_resume\",\"method\":\"run.resume.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_resume_test\",\"run_id\":\"run_resume_test\",\"source\":\"manual\",\"trigger_id\":\"wake_resume_test\"}}",
+            escape(&root.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"decision\":\"queue\""));
+        assert!(response.contains("\"lease_id\":\"\""));
+        assert!(response.contains("\"auto_execute_allowed\":false"));
+        assert!(response.contains("\"policy_event_id\":\"evt_"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("\"event_type\":\"policy.decided\""));
+        assert!(ledger.contains("wake_resume_test"));
     }
 }

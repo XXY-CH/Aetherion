@@ -1,7 +1,19 @@
 {
-  "id": "wake_run_example_manual",
+  "id": "wake_hibernate_run_example_manual_a1b2c3d4",
   "hibernation_id": "hibernate_run_example",
   "source": "manual",
-  "status": "queued",
-  "policy_recheck_required": true
+  "status": "eligible",
+  "created_at": "2026-06-07T00:00:00.000Z",
+  "expires_at": null,
+  "condition": {
+    "deadline_at": null,
+    "file_path": null,
+    "baseline_sha256": null
+  },
+  "observed_at": null,
+  "policy_recheck_required": true,
+  "fresh_policy_decision_id": null,
+  "resume_run_id": null,
+  "auto_execute_allowed": false,
+  "reason": "Manual wakeup is immediately eligible."
 }
