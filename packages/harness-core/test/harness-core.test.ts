@@ -79,6 +79,8 @@ const schemaExamplePairs = [
   ["honeypot-trial.schema.json", "honeypot-trial.json"],
   ["poisoning-regression-fixture.schema.json", "poisoning-regression-fixture.json"],
   ["browser-observation.schema.json", "browser-observation.json"],
+  ["computer-action.schema.json", "computer-action.json"],
+  ["computer-observation.schema.json", "computer-observation.json"],
   ["im-inbox-item.schema.json", "im-inbox-item.json"],
   ["im-outbox-item.schema.json", "im-outbox-item.json"],
   ["store-package.schema.json", "store-package.json"],

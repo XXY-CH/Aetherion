@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/computer-observation.schema.json",
+  "title": "ComputerObservation",
+  "type": "object",
+  "required": [
+    "id",
+    "action_request_id",
+    "run_id",
+    "source_event_ids",
+    "mode",
+    "artifact_sha256",
+    "raw_payload_persisted",
+    "redactions",
+    "taint",
+    "observed_effect",
+    "verification_status",
+    "can_authorize_actions",
+    "captured_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^cui_obs_[A-Za-z0-9_-]+$" },
+    "action_request_id": { "type": "string", "pattern": "^cui_action_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "mode": {
+      "type": "string",
+      "enum": ["dom_snapshot", "accessibility_tree", "screenshot_verification", "command_output", "file_metadata"]
+    },
+    "artifact_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "raw_payload_persisted": { "type": "boolean", "enum": [false] },
+    "redactions": {
+      "type": "object",
+      "required": ["credential_like_matches", "password_fields", "hidden_inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "credential_like_matches": { "type": "number", "minimum": 0 },
+        "password_fields": { "type": "number", "minimum": 0 },
+        "hidden_inputs": { "type": "number", "minimum": 0 }
+      }
+    },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string" }, "minItems": 0 },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "observed_effect": { "type": "string" },
+    "verification_status": { "type": "string", "enum": ["pending", "matched", "mismatch", "partial"] },
+    "can_authorize_actions": { "type": "boolean", "enum": [false] },
+    "captured_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "cui_obs_browser_demo001",
+  "action_request_id": "cui_action_browser_demo001",
+  "run_id": "run_computer_demo",
+  "source_event_ids": ["evt_browser_action_requested", "evt_browser_action_completed"],
+  "mode": "screenshot_verification",
+  "artifact_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "raw_payload_persisted": false,
+  "redactions": {
+    "credential_like_matches": 0,
+    "password_fields": 0,
+    "hidden_inputs": 2
+  },
+  "taint": {
+    "sources": ["public_web"],
+    "can_authorize_actions": false
+  },
+  "observed_effect": "Export dialog is visible; no outbound send was observed.",
+  "verification_status": "matched",
+  "can_authorize_actions": false,
+  "captured_at": "2026-06-07T09:00:05Z"
+}

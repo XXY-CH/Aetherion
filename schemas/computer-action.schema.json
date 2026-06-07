@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/computer-action.schema.json",
+  "title": "ComputerAction",
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "source_event_ids",
+    "adapter_id",
+    "channel",
+    "verb",
+    "target",
+    "structured_first",
+    "screenshot_fallback_allowed",
+    "target_confidence",
+    "taint",
+    "data_egress_destination",
+    "policy_decision_id",
+    "lease_id",
+    "approval_card_id",
+    "expected_effect",
+    "verification_required",
+    "live_replay_allowed",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^cui_action_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "adapter_id": { "type": "string" },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "browser_dom",
+        "browser_cdp",
+        "browser_screenshot",
+        "desktop_accessibility",
+        "desktop_screenshot",
+        "shell",
+        "file",
+        "sandbox"
+      ]
+    },
+    "verb": {
+      "type": "string",
+      "enum": ["observe", "read", "click", "type", "write", "execute", "submit"]
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["browser", "desktop", "file", "sandbox"] },
+        "origin": { "type": "string", "pattern": "^https?://" },
+        "selector_ref": { "type": "string" },
+        "human_label": { "type": "string" },
+        "current_tab_only": { "type": "boolean" },
+        "window_title": { "type": "string" },
+        "path": { "type": "string" },
+        "command_ref": { "type": "string" }
+      }
+    },
+    "structured_first": { "type": "boolean", "enum": [true] },
+    "screenshot_fallback_allowed": { "type": "boolean" },
+    "target_confidence": { "type": "number", "minimum": 0.8, "maximum": 1 },
+    "taint": {
+      "type": "object",
+      "required": ["sources", "can_authorize_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string" }, "minItems": 0 },
+        "can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "data_egress_destination": {
+      "type": "string",
+      "enum": ["none", "local_artifact_store", "model_context", "external_service", "public_web"]
+    },
+    "policy_decision_id": { "type": "string" },
+    "lease_id": { "type": ["string", "null"] },
+    "approval_card_id": { "type": ["string", "null"] },
+    "expected_effect": { "type": "string", "minLength": 1 },
+    "verification_required": { "type": "boolean", "enum": [true] },
+    "live_replay_allowed": { "type": "boolean", "enum": [false] },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

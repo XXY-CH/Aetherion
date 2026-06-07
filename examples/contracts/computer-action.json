@@ -1,0 +1,30 @@
+{
+  "id": "cui_action_browser_demo001",
+  "run_id": "run_computer_demo",
+  "source_event_ids": ["evt_user_requested_browser_export"],
+  "adapter_id": "browser-current-tab-cdp",
+  "channel": "browser_cdp",
+  "verb": "click",
+  "target": {
+    "kind": "browser",
+    "origin": "https://app.example.com",
+    "selector_ref": "browser_obs_demo001#button.export",
+    "human_label": "Export",
+    "current_tab_only": true
+  },
+  "structured_first": true,
+  "screenshot_fallback_allowed": true,
+  "target_confidence": 0.92,
+  "taint": {
+    "sources": ["public_web"],
+    "can_authorize_actions": false
+  },
+  "data_egress_destination": "local_artifact_store",
+  "policy_decision_id": "policy_browser_click_ask",
+  "lease_id": "lease_browser_click_scoped",
+  "approval_card_id": "approval_browser_click_export",
+  "expected_effect": "Open the current dashboard export dialog without sending data externally.",
+  "verification_required": true,
+  "live_replay_allowed": false,
+  "created_at": "2026-06-07T09:00:00Z"
+}

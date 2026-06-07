@@ -138,6 +138,35 @@ Browser extension constraints:
 - Upload, download, payment, permission changes, and external sends require explicit approval.
 - Site allowlist and denylist must be enforced by Local Supervisor, not the extension.
 
+## Reference Implementation Lessons
+
+The 2026-06-07 reference scan looked at the public OpenAI Codex repository and Claude Code public documentation. The useful lessons are architectural, not code-copy targets:
+
+- Codex exposes sandbox and approval state as explicit protocol objects. Aetherion should do the same for every GUI, browser, IM, and app-server surface, but the protocol object is only a view over Supervisor policy and Ledger evidence.
+- Codex records session/rollout streams separately from projections. Aetherion should preserve this split: Event Ledger remains the source of truth; indexes, GUI timelines, and computer-use observations are rebuildable.
+- Codex has separate command approval, file-change approval, permission profiles, network context, and guardian-style review payloads. Aetherion should model browser/desktop/shell actions with similarly precise action kinds, but bind every approval to a scoped lease and source event.
+- Claude Code's permission evaluation order is useful: hooks/guards, deny rules, permission mode, allow rules, then runtime approval. Aetherion should keep the deny-first property, but should not implement a global `bypassPermissions` equivalent. The closest concept is a scoped, expiring lease for one action surface.
+- Claude Code's tool taxonomy separates read, write, shell, web fetch/search, subagents, monitor, worktree, checkpoint, and scheduled wakeups. Aetherion should keep tool families explicit because browser DOM reads, screenshot observations, shell commands, and outbound sends have different taint and egress risk.
+- Claude Code warns that inherited subagent permissions are dangerous. Aetherion's multi-agent model should never inherit browser, desktop, vault, network, or shell authority. Child runs receive separate budgets and separate leases.
+
+The key difference is that Aetherion treats observations as evidence, not authority. A DOM snapshot, screenshot, tool output, or subagent result can support a verifier, but it cannot authorize the next side effect.
+
+## Computer-Use Contracts
+
+The control-plane contracts are:
+
+- `computer-action`: a policy-linked action request. It records source events, adapter, channel, target, confidence, taint, egress destination, policy decision, optional lease, optional approval card, expected effect, and the invariant that live replay is disabled.
+- `computer-observation`: post-action or observe-only evidence. It stores artifact hashes, redaction counts, taint, observed effect, and verifier status while explicitly marking raw payload persistence and authorization as false.
+
+Channel preference is part of the contract:
+
+1. Browser observe/read: DOM/accessibility first, then CDP, then screenshot.
+2. Browser action: CDP/structured action first, screenshot only as verifier or high-confidence fallback.
+3. Desktop action: accessibility APIs first, screenshot fallback only with high confidence.
+4. Shell/file/sandbox: structured argv/path/workspace descriptors, not free-form opaque strings as authority.
+
+Any side-effectful computer action requires a policy decision plus a scoped lease. If the adapter can create side effects, it also requires an approval card. Tainted observations cannot be routed to external egress destinations.
+
 ## Local Computer Harness
 
 Local computer actions include windows, keyboard, mouse, files, terminal, local apps, and OS automation.
@@ -347,6 +376,7 @@ user request
 The current implementation does not yet drive the browser or desktop. It implements the first trustworthy control-plane slice needed before real computer-use actions:
 
 - `ether surface browser-observe` ingests a caller-supplied current-tab observation. It requires a source Event Ledger id, asks the Rust supervisor for `security.taint.evaluate` on `public_web`, persists only the DOM SHA-256 plus redaction counts, and appends `browser.observation.ingested`. Raw DOM is not persisted and cannot authorize actions.
+- `packages/computer-use` now defines the next control-plane contracts for governed computer actions and observations. It enforces current-tab browser scope, structured-first channel selection, scoped leases for side effects, approval cards for side-effectful adapters, non-authorizing taint, and no live replay. It still does not click, type, or drive the desktop.
 - `ether surface im-inbox` persists inbound IM metadata as sender/message hashes. Unknown/group/public inputs are risk-upgraded and cannot authorize actions.
 - `ether surface im-outbox` validates the source run, asks Rust `surface.outbox.evaluate`, queues DM/group messages for one scoped approval, blocks public sends, stores only destination/body hashes, and attempts no delivery.
 - `ether store install` validates a Store Package, verifies Ed25519 over the canonical Capsule declaration, requires passing replay tests, sandbox trial, and permission-diff approval, then installs only the Capsule declaration. Package code is not executed.
