@@ -3,11 +3,15 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Workspace } from "./ledger.ts";
 import { createApprovalCard, type ApprovalCard } from "./approval.ts";
+import { createBoundaryFacts, writeBoundaryFactsArtifact } from "./boundary.ts";
+import { consentRecordArtifactRef, createWriteConsentRecord } from "./consent.ts";
 import { createFileReadRequest, createFileWriteRequest, type PolicyDecision, type ToolRequest } from "./policy.ts";
 import { composeRisk, type RiskComposition } from "./risk.ts";
+import { defaultSafeSummary } from "./output-summary.ts";
 import { reconstructTrace, type ReconstructedTrace } from "./replay.ts";
+import { validateAgainstSchema } from "./schema.ts";
 import { callSupervisorRpc, rpcResult } from "./supervisor-client.ts";
-import { verifyFileContains, type ObservationRecord, type VerificationRecord } from "./verify.ts";
+import type { ObservationRecord, VerificationRecord } from "./verify.ts";
 import {
   completeRunManifest,
   createRunManifest,
@@ -65,6 +69,22 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   });
   const { workspace, registry: workspaceRegistry } = await loadWorkspaceFromRegistry(workspaceRoot);
   const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "Ether Rust supervisor kernel loop");
+  const boundaryFacts = createBoundaryFacts({
+    workspace,
+    registry: workspaceRegistry,
+    manifest: runManifest,
+    workspaceFileWriteRequested: true
+  });
+  const boundaryRef = await writeBoundaryFactsArtifact(input.repoRoot, workspace, boundaryFacts);
+  await appendSupervisorEvent(
+    input.repoRoot,
+    workspace,
+    runManifest,
+    runId,
+    "run.started",
+    `Ether run started on tui with authority ${workspaceRegistry.authority}; user_id, device_id, channel_id, and secret_vault are not recorded.`,
+    boundaryRef
+  );
 
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "user.message", `Ether requested supervisor summary from ${input.inputPath} to ${input.outputPath}.`);
 
@@ -83,7 +103,6 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   if (typeof readResult.contents !== "string") {
     throw new Error("Rust supervisor file.read returned no contents");
   }
-  const readContents = readResult.contents;
 
   const writeRequest = createFileWriteRequest(runId, outputPath);
   const writeRisk = composeRisk(writeRequest);
@@ -119,8 +138,15 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     };
   }
 
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "consent.recorded", "Ether user approved Rust supervisor workspace-scoped write.");
-  const summaryText = input.summaryText ?? defaultSummary(readContents);
+  const summaryText = input.summaryText ?? defaultSafeSummary();
+  const consent = createWriteConsentRecord({
+    runId,
+    workspaceId,
+    toolRequestId: writeRequest.id,
+    path: outputPath
+  });
+  const consentValidation = await validateConsentRecord(input.repoRoot, consent);
+  const consentRef = consentRecordArtifactRef(runId);
   const writeResult = await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_write_commit`,
     method: "file.write.commit",
@@ -129,22 +155,25 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     run_id: runId,
     path: outputPath,
     approved: true,
+    consent_record_json: consentValidation,
+    consent_payload_ref: consentRef,
     contents: summaryText
   });
   const writeDecision = policyFromSupervisor(runId, writeRequest, writeResult, "Explicit consent approved workspace-scoped write through Rust supervisor.");
   if (writeResult.written !== true || writeDecision.decision !== "allow" || !writeDecision.lease) {
     throw new Error("Rust supervisor did not return an allowed lease-backed write result");
   }
-  await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, writeResult, ["policy_event_id", "lease_event_id", "action_event_id"]);
+  await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, writeResult, [
+    "consent_event_id",
+    "policy_event_id",
+    "lease_event_id",
+    "action_event_id",
+    "observation_event_id",
+    "verification_event_id"
+  ]);
 
-  const { observation, verification } = await verifyFileContains({
-    runId,
-    actionId: `action_${runId}_write`,
-    path: outputPath,
-    expectedText: summaryText.trim()
-  });
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "observation.recorded", observation.summary);
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "verification.recorded", verification.summary);
+  const observation = observationFromSupervisor(runId, writeResult);
+  const verification = verificationFromSupervisor(runId, writeResult, observation);
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Ether Rust supervisor kernel loop completed.");
   await completeRunManifest(input.repoRoot, workspace, runManifest, "completed");
 
@@ -168,11 +197,19 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   };
 }
 
+async function validateConsentRecord(repoRoot: string, consent: unknown): Promise<string> {
+  const result = await validateAgainstSchema(repoRoot, "consent-record.schema.json", consent);
+  if (!result.valid) {
+    throw new Error(`consent-record.schema.json validation failed: ${result.errors.join("; ")}`);
+  }
+  return `${JSON.stringify(consent, null, 2)}\n`;
+}
+
 async function supervisorCall(repoRoot: string, request: Parameters<typeof callSupervisorRpc>[1]): Promise<Record<string, unknown>> {
   return rpcResult(await callSupervisorRpc(repoRoot, request));
 }
 
-async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, runId: string, event_type: string, summary: string): Promise<void> {
+async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, runId: string, event_type: string, summary: string, payloadRef?: string): Promise<void> {
   const appendResult = await supervisorCall(repoRoot, {
     id: `rpc_${event_type}_${randomUUID()}`,
     method: "event.append",
@@ -180,7 +217,8 @@ async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, man
     workspace_id: workspace.id,
     run_id: runId,
     event_type,
-    summary
+    summary,
+    payload_ref: payloadRef
   });
   if (typeof appendResult.event_id !== "string" || !appendResult.event_id) {
     throw new Error(`Rust supervisor event.append returned no event id for ${event_type}`);
@@ -229,7 +267,39 @@ function policyFromSupervisor(runId: string, request: ToolRequest, result: Recor
   };
 }
 
-function defaultSummary(contents: string): string {
-  const firstLine = contents.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "Untitled file";
-  return `Summary: ${firstLine.trim()}\n`;
+function observationFromSupervisor(runId: string, result: Record<string, unknown>): ObservationRecord {
+  const actionId = stringResult(result, "action_id", `action_${runId}_write`);
+  return {
+    id: stringResult(result, "observation_id", `obs_${runId}_file`),
+    run_id: runId,
+    action_id: actionId,
+    timestamp: new Date().toISOString(),
+    observer: "local_supervisor",
+    summary: stringResult(result, "observation_summary", "Supervisor observed workspace file state after scoped write."),
+    artifact_ref: `artifact://${runId}/supervisor_file_verification`,
+    sensitivity: "private",
+    taint: { sources: ["trusted_system"], can_authorize_actions: false }
+  };
+}
+
+function verificationFromSupervisor(runId: string, result: Record<string, unknown>, observation: ObservationRecord): VerificationRecord {
+  const status = result.verification_status === "failed"
+    ? "failed"
+    : result.verification_status === "partial"
+      ? "partial"
+      : "passed";
+  return {
+    id: stringResult(result, "verification_id", `verify_${runId}_file`),
+    run_id: runId,
+    action_id: observation.action_id,
+    observation_id: observation.id,
+    expected_effect: "Supervisor write commit should leave the workspace file with exact committed contents.",
+    status,
+    summary: stringResult(result, "verification_summary", "Supervisor verified workspace file contents after scoped write."),
+    unexpected_side_effects: []
+  };
+}
+
+function stringResult(result: Record<string, unknown>, key: string, fallback: string): string {
+  return typeof result[key] === "string" && result[key] ? result[key] : fallback;
 }

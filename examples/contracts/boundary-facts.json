@@ -1,0 +1,32 @@
+{
+  "id": "boundary_run_example_facts",
+  "run_id": "run_example",
+  "workspace_id": "ws_default",
+  "recorded_at": "2026-06-08T00:00:00.000Z",
+  "entry_surface": "tui",
+  "authority": "rust-supervisor",
+  "known_facts": ["run_id", "workspace_id", "entry_surface", "authority"],
+  "not_recorded": ["user_id", "device_id", "channel_id", "secret_vault"],
+  "limits": {
+    "full_user_identity": false,
+    "device_pairing": false,
+    "remote_channel_identity": false,
+    "secret_vault_backend": false
+  },
+  "impact": {
+    "memory_candidate_created": false,
+    "user_model_updated": false,
+    "capability_changed": false,
+    "runtime_permissions_changed": false,
+    "external_delivery_attempted": false,
+    "browser_automation_attempted": false,
+    "connector_called": false,
+    "package_code_executed": false,
+    "workspace_file_write_requested": true
+  },
+  "evidence": {
+    "run_manifest": "recorded",
+    "workspace_registry": "recorded",
+    "ledger_event": "run.started"
+  }
+}

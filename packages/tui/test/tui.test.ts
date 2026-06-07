@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { appendEvent, eventRecord, loadWorkspaceFromRegistry, readEvents, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
+import { appendEvent, defaultSafeSummary, eventRecord, loadWorkspaceFromRegistry, readEvents, validateAgainstSchema, verifyEventHashChain, type EventRecord } from "../../harness-core/src/index.ts";
 import { storeSignaturePayload, type StorePackage } from "../../surface-os/src/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -39,7 +39,7 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   assert.match(stdout, /live_side_effects_replayed=false/);
 
   const summary = await readFile(join(workspace, ".aetherion", "SUMMARY.md"), "utf8");
-  assert.equal(summary, "Summary: Ether CLI fixture\n");
+  assert.equal(summary, "Summary: Workspace file read completed; source content was not copied by default.\n");
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
@@ -51,6 +51,10 @@ test("TUI run executes approval-gated local kernel loop", async () => {
     workspace
   ]);
   assert.match(replay.stdout, new RegExp(`replay_record=replay_${runId}_trace`));
+  assert.match(replay.stdout, /replay_registry_parity=matched/);
+  assert.match(replay.stdout, /replay_registry_drift=0/);
+  assert.match(replay.stdout, /replay_registry_expected=1/);
+  assert.match(replay.stdout, /replay_registry_actual=1/);
   assert.match(replay.stdout, /chain_valid=true/);
   assert.match(replay.stdout, /head_event_hash=sha256:/);
   assert.match(replay.stdout, /live_side_effects_replayed=false/);
@@ -69,6 +73,199 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   ]);
   assert.match(trace.stdout, /manifest_status=completed/);
   assert.match(trace.stdout, /chain_valid=true/);
+
+  const ledgerBeforeBoundary = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const replayRegistryBeforeBoundary = await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8");
+  const boundaryArtifactPath = join(workspace, ".aetherion", "artifacts", "boundary", runId, `boundary_${runId}_facts.json`);
+  const boundaryFactsBefore = await readFile(boundaryArtifactPath, "utf8");
+  const boundary = await execFileAsync(process.execPath, [
+    cliPath,
+    "boundary",
+    runId,
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeBoundary);
+  assert.equal(await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8"), replayRegistryBeforeBoundary);
+  assert.equal(await readFile(boundaryArtifactPath, "utf8"), boundaryFactsBefore);
+  assert.match(boundary.stdout, new RegExp(`boundary_run=${runId}`));
+  assert.match(boundary.stdout, /boundary_scope=read_only_ledger_manifest/);
+  assert.match(boundary.stdout, /where_entry_surface=tui/);
+  assert.match(boundary.stdout, /where_authority=rust-supervisor/);
+  assert.match(boundary.stdout, /what_policy_decisions=3/);
+  assert.match(boundary.stdout, /what_consents=1/);
+  assert.match(boundary.stdout, /what_leases=2/);
+  assert.match(boundary.stdout, /what_actions=1/);
+  assert.match(boundary.stdout, /risk_levels=L1,L3/);
+  assert.match(boundary.stdout, /consent_status=recorded/);
+  assert.match(boundary.stdout, new RegExp(`consent_payload_refs=artifact://consent/${runId}/write`));
+  assert.match(boundary.stdout, /proof_chain_valid=true/);
+  assert.match(boundary.stdout, /proof_live_side_effects_replayed=false/);
+  assert.match(boundary.stdout, new RegExp(`boundary_facts_ref=artifact://boundary/${runId}/facts`));
+  assert.match(boundary.stdout, /boundary_material_actions=2/);
+  assert.match(boundary.stdout, /boundary_action_1_operation=filesystem\.read/);
+  assert.match(boundary.stdout, /boundary_action_1_actor=system:local_supervisor/);
+  assert.match(boundary.stdout, /boundary_action_1_risk=L1/);
+  assert.match(boundary.stdout, /boundary_action_1_policy=allow/);
+  assert.match(boundary.stdout, /boundary_action_1_lease=issued/);
+  assert.match(boundary.stdout, /boundary_action_1_result=read_recorded/);
+  assert.match(boundary.stdout, /boundary_action_1_proof=tool_result/);
+  assert.match(boundary.stdout, /boundary_action_1_memory_impact=not_recorded/);
+  assert.match(boundary.stdout, /boundary_action_1_permission_impact=scoped_lease_issued/);
+  assert.match(boundary.stdout, /boundary_action_1_source_events=evt_/);
+  assert.match(boundary.stdout, /boundary_action_2_operation=filesystem\.write/);
+  assert.match(boundary.stdout, /boundary_action_2_risk=L3/);
+  assert.match(boundary.stdout, /boundary_action_2_policy=allow/);
+  assert.match(boundary.stdout, /boundary_action_2_consent=recorded/);
+  assert.match(boundary.stdout, /boundary_action_2_lease=issued/);
+  assert.match(boundary.stdout, /boundary_action_2_result=side_effect_recorded/);
+  assert.match(boundary.stdout, /boundary_action_2_proof=verification_passed/);
+  assert.match(boundary.stdout, /boundary_action_2_memory_impact=not_recorded/);
+  assert.match(boundary.stdout, /boundary_action_2_permission_impact=scoped_lease_issued/);
+  assert.match(boundary.stdout, /boundary_action_2_source_events=evt_/);
+  assert.match(boundary.stdout, /boundary_known_facts=run_id,workspace_id,entry_surface,authority/);
+  assert.match(boundary.stdout, /boundary_not_recorded=user_id,device_id,channel_id,secret_vault/);
+  assert.match(boundary.stdout, /boundary_limits_full_user_identity=false/);
+  assert.match(boundary.stdout, /boundary_limits_device_pairing=false/);
+  assert.match(boundary.stdout, /boundary_limits_remote_channel_identity=false/);
+  assert.match(boundary.stdout, /boundary_limits_secret_vault_backend=false/);
+  assert.match(boundary.stdout, /boundary_impact_memory_candidate_created=false/);
+  assert.match(boundary.stdout, /boundary_impact_user_model_updated=false/);
+  assert.match(boundary.stdout, /boundary_impact_capability_changed=false/);
+  assert.match(boundary.stdout, /boundary_impact_runtime_permissions_changed=false/);
+  assert.match(boundary.stdout, /boundary_impact_workspace_file_write_requested=true/);
+  assert.match(boundary.stdout, /boundary_impact_external_delivery_attempted=false/);
+  assert.match(boundary.stdout, /boundary_impact_browser_automation_attempted=false/);
+  assert.match(boundary.stdout, /boundary_impact_connector_called=false/);
+  assert.match(boundary.stdout, /boundary_impact_package_code_executed=false/);
+  const boundaryFacts = JSON.parse(boundaryFactsBefore) as {
+    authority: string;
+    not_recorded: string[];
+    evidence: { ledger_event: string };
+  };
+  assert.equal(boundaryFacts.authority, "rust-supervisor");
+  assert.deepEqual(boundaryFacts.not_recorded, ["user_id", "device_id", "channel_id", "secret_vault"]);
+  assert.equal(boundaryFacts.evidence.ledger_event, "run.started");
+  const boundaryFactsValidation = await validateAgainstSchema(repoRoot, "boundary-facts.schema.json", boundaryFacts);
+  assert.equal(boundaryFactsValidation.valid, true, boundaryFactsValidation.errors.join("; "));
+
+  const { workspace: registeredWorkspace } = await loadWorkspaceFromRegistry(workspace);
+  await appendEvent(repoRoot, registeredWorkspace, eventRecord({
+    id: `evt_${runId}_replay_recorded`,
+    workspace_id: registeredWorkspace.id,
+    run_id: runId,
+    event_type: "replay.recorded",
+    actor: { type: "system", id: "ether.replay" },
+    summary: "Replay Record persisted as read-only trace evidence.",
+    payload_ref: `artifact://replay/${runId}/trace`
+  }));
+  const ledgerBeforePayloadAudit = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const registryBeforePayloadAudit = await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8");
+  const auditPayloadRefs = await execFileAsync(process.execPath, [
+    cliPath,
+    "audit",
+    "payload-refs",
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePayloadAudit);
+  assert.equal(await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8"), registryBeforePayloadAudit);
+  assert.equal(await readFile(boundaryArtifactPath, "utf8"), boundaryFactsBefore);
+  const payloadAudit = JSON.parse(auditPayloadRefs.stdout) as {
+    id: string;
+    scope: { mutates_ledger: boolean; mutates_artifacts: boolean; repair_attempted: boolean };
+    summary: {
+      events_with_payload_ref: number;
+      resolved: number;
+      missing: number;
+      invalid_json: number;
+      unresolved: number;
+      schema_valid: number;
+      schema_invalid: number;
+      schema_not_checked: number;
+    };
+    findings: Array<{
+      event_type: string;
+      payload_ref: string;
+      status: string;
+      resolved_path: string | null;
+      schema_name?: string;
+      schema_status: string;
+      schema_errors: string[];
+    }>;
+  };
+  assert.equal(payloadAudit.id, "ledger_payload_ref_audit");
+  assert.equal(payloadAudit.scope.mutates_ledger, false);
+  assert.equal(payloadAudit.scope.mutates_artifacts, false);
+  assert.equal(payloadAudit.scope.repair_attempted, false);
+  assert.deepEqual(payloadAudit.summary, {
+    events_with_payload_ref: 3,
+    resolved: 3,
+    missing: 0,
+    invalid_json: 0,
+    unresolved: 0,
+    schema_valid: 3,
+    schema_invalid: 0,
+    schema_not_checked: 0
+  });
+  const boundaryPayloadFinding = payloadAudit.findings.find((finding) =>
+    finding.event_type === "run.started"
+    && finding.payload_ref === `artifact://boundary/${runId}/facts`
+    && finding.status === "resolved"
+    && finding.resolved_path?.endsWith(`boundary_${runId}_facts.json`)
+  );
+  assert.ok(boundaryPayloadFinding);
+  assert.equal(boundaryPayloadFinding.schema_name, "boundary-facts.schema.json");
+  assert.equal(boundaryPayloadFinding.schema_status, "valid");
+  assert.deepEqual(boundaryPayloadFinding.schema_errors, []);
+  const consentPayloadFinding = payloadAudit.findings.find((finding) =>
+    finding.event_type === "consent.recorded"
+    && finding.payload_ref === `artifact://consent/${runId}/write`
+    && finding.status === "resolved"
+    && finding.resolved_path?.endsWith(`consent_${runId}_write.json`)
+  );
+  assert.ok(consentPayloadFinding);
+  assert.equal(consentPayloadFinding.schema_name, "consent-record.schema.json");
+  assert.equal(consentPayloadFinding.schema_status, "valid");
+  assert.deepEqual(consentPayloadFinding.schema_errors, []);
+  const replayPayloadFinding = payloadAudit.findings.find((finding) =>
+    finding.event_type === "replay.recorded"
+    && finding.payload_ref === `artifact://replay/${runId}/trace`
+    && finding.status === "resolved"
+    && finding.resolved_path?.endsWith(`replay_${runId}_trace.json`)
+  );
+  assert.ok(replayPayloadFinding);
+  assert.equal(replayPayloadFinding.schema_name, "replay-record.schema.json");
+  assert.equal(replayPayloadFinding.schema_status, "valid");
+  assert.deepEqual(replayPayloadFinding.schema_errors, []);
+
+  await rm(boundaryArtifactPath);
+  const boundaryWithoutFacts = await execFileAsync(process.execPath, [
+    cliPath,
+    "boundary",
+    runId,
+    "--workspace",
+    workspace
+  ]);
+  assert.match(boundaryWithoutFacts.stdout, new RegExp(`boundary_facts_ref=artifact://boundary/${runId}/facts`));
+  assert.match(boundaryWithoutFacts.stdout, /boundary_known_facts=not_recorded/);
+  assert.match(boundaryWithoutFacts.stdout, /boundary_not_recorded=user_id,device_id,channel_id,secret_vault/);
+  assert.match(boundaryWithoutFacts.stdout, /boundary_limits=not_recorded/);
+  assert.match(boundaryWithoutFacts.stdout, /boundary_impact=not_recorded/);
+  await assert.rejects(access(boundaryArtifactPath));
+});
+
+test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
+  const help = await execFileAsync(process.execPath, [cliPath, "help"]);
+
+  assert.match(help.stdout, /V1 core:/);
+  assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
+  assert.match(help.stdout, /Trace-backed local runtime:/);
+  assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
+  assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
+  assert.match(help.stdout, /store\s+Phase 12 contract surface: signed Capsule declaration install, no code execution/);
+  assert.match(help.stdout, /Read-only audits:/);
+  assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
 });
 
 test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async () => {
@@ -99,7 +296,7 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   assert.match(stdout, /live_side_effects_replayed=false/);
 
   const summary = await readFile(join(workspace, ".aetherion", "SUMMARY.md"), "utf8");
-  assert.match(summary, /Summary: Aetherion Rust TUI fixture/);
+  assert.equal(summary, "Summary: Workspace file read completed; source content was not copied by default.\n");
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
@@ -119,6 +316,7 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   assert.doesNotMatch(ledger, /unix-ms-/);
   const eventTypes = ledger.trim().split("\n").map((line) => JSON.parse(line).event_type as string);
   assert.deepEqual(eventTypes, [
+    "run.started",
     "user.message",
     "tool.requested",
     "risk.composed",
@@ -136,9 +334,70 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
     "verification.recorded",
     "run.completed"
   ]);
+  const events = ledger.trim().split("\n").map((line) => JSON.parse(line) as { event_type: string; summary: string; payload_ref?: string });
+  assert.match(
+    events.find((event) => event.event_type === "run.started")?.summary ?? "",
+    /user_id, device_id, channel_id, and secret_vault are not recorded/
+  );
+  assert.equal(events.find((event) => event.event_type === "run.started")?.payload_ref, `artifact://boundary/${runId}/facts`);
+  assert.match(
+    events.find((event) => event.event_type === "consent.recorded")?.summary ?? "",
+    /User consent approved supervisor workspace write/
+  );
+  assert.equal(events.find((event) => event.event_type === "consent.recorded")?.payload_ref, `artifact://consent/${runId}/write`);
+  const consentArtifact = JSON.parse(await readFile(join(workspace, ".aetherion", "artifacts", "consent", runId, `consent_${runId}_write.json`), "utf8"));
+  assert.equal(consentArtifact.id, `consent_${runId}_write`);
+  assert.equal(consentArtifact.tool_request_id, `toolreq_${runId}_write`);
+  assert.equal(consentArtifact.user_id, "user_local");
+  const consentValidation = await validateAgainstSchema(repoRoot, "consent-record.schema.json", consentArtifact);
+  assert.equal(consentValidation.valid, true, consentValidation.errors.join("; "));
+  assert.match(
+    events.find((event) => event.event_type === "observation.recorded")?.summary ?? "",
+    /Supervisor observed expected workspace file state/
+  );
+  assert.match(
+    events.find((event) => event.event_type === "verification.recorded")?.summary ?? "",
+    /Supervisor verified exact workspace file contents/
+  );
   const rustEvent = JSON.parse(ledger.trim().split("\n")[0]);
   const rustEventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", rustEvent);
   assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));
+});
+
+test("TUI default summary avoids source content while explicit summary remains user-controlled", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-summary-safe-"));
+  await writeFile(join(workspace, "README.md"), "OPENAI_API_KEY=sk-tui-secret\nPrivate launch note\n");
+
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SAFE-SUMMARY.md",
+    "--approve-write"
+  ]);
+  const safeSummary = await readFile(join(workspace, ".aetherion", "SAFE-SUMMARY.md"), "utf8");
+  assert.equal(safeSummary, defaultSafeSummary());
+  assert.doesNotMatch(safeSummary, /OPENAI_API_KEY|sk-tui-secret|Private launch note/);
+
+  const explicitSummary = "Summary: user supplied release note\n";
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/EXPLICIT-SUMMARY.md",
+    "--summary",
+    explicitSummary,
+    "--approve-write"
+  ]);
+  assert.equal(await readFile(join(workspace, ".aetherion", "EXPLICIT-SUMMARY.md"), "utf8"), explicitSummary);
 });
 
 test("TUI exposes local-only phase command surfaces", async () => {
@@ -204,6 +463,23 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(inspectDeleted.stdout, /"active": false/);
   const contextAfterDelete = await execFileAsync(process.execPath, [cliPath, "context", "explain", runId, "--workspace", workspace]);
   assert.doesNotMatch(contextAfterDelete.stdout, new RegExp(`"id": "mem_${runId}_episode"`));
+  const memoryLifecycleEvents = (await readLedgerEvents(workspace)).filter((event) => event.event_type.startsWith("memory."));
+  assert.deepEqual(countEventTypes(memoryLifecycleEvents), {
+    "memory.candidate.created": derivedCandidates.length,
+    "memory.accepted": 1,
+    "memory.blocked": 1,
+    "memory.deleted": 1
+  });
+  assert.ok(memoryLifecycleEvents.every((event) => event.actor.type === "system" && event.actor.id === "local_supervisor"));
+  assert.ok(memoryLifecycleEvents.every((event) => event.payload_ref?.startsWith("artifact://memory/")));
+  assert.ok(memoryLifecycleEvents.some((event) => event.payload_ref === `artifact://memory/candidates/memcand_${runId}_episode`));
+  assert.ok(memoryLifecycleEvents.some((event) => event.payload_ref === `artifact://memory/accept/mem_${runId}_episode`));
+  assert.ok(memoryLifecycleEvents.some((event) => event.payload_ref === `artifact://memory/block/mem_${runId}_episode`));
+  assert.ok(memoryLifecycleEvents.some((event) => event.payload_ref === `artifact://memory/delete/tombstone_mem_${runId}_episode`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "candidates", `memcand_${runId}_episode.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "accept", `mem_${runId}_episode.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "block", `mem_${runId}_episode.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "delete", `tombstone_mem_${runId}_episode.json`));
 
   const checkpoint = await execFileAsync(process.execPath, [cliPath, "checkpoint", runId, "--workspace", workspace]);
   assert.match(checkpoint.stdout, /"active_leases_reusable": false/);
@@ -409,6 +685,19 @@ test("TUI memory commands require real source events and missing Capsules do not
   await execFileAsync(process.execPath, [cliPath, "memory", "reject", candidateId, "--workspace", workspace]);
   const rejectedRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "memory-candidates.json"), "utf8")) as Array<{ id: string; review: { status: string } }>;
   assert.equal(rejectedRegistry.find((entry) => entry.id === candidateId)?.review.status, "rejected");
+  const lifecycleEvents = (await readLedgerEvents(workspace)).filter((event) => event.event_type.startsWith("memory."));
+  assert.deepEqual(countEventTypes(lifecycleEvents), {
+    "memory.candidate.created": 2,
+    "memory.accepted": 1,
+    "memory.rejected": 1
+  });
+  assert.ok(lifecycleEvents.every((event) => event.actor.type === "system" && event.actor.id === "local_supervisor"));
+  assert.equal(lifecycleEvents.filter((event) => event.payload_ref === `artifact://memory/candidates/${candidateId}`).length, 2);
+  assert.ok(lifecycleEvents.some((event) => event.payload_ref === `artifact://memory/accept/${candidateId.replace(/^memcand_/, "mem_")}`));
+  assert.ok(lifecycleEvents.some((event) => event.payload_ref === `artifact://memory/reject/${candidateId}`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "candidates", `${candidateId}.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "accept", `${candidateId.replace(/^memcand_/, "mem_")}.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "memory", "reject", `${candidateId}.json`));
 
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "capsule", "test", "cap_cli_demo", "--workspace", workspace]),
@@ -416,6 +705,55 @@ test("TUI memory commands require real source events and missing Capsules do not
   );
   const capsuleList = await execFileAsync(process.execPath, [cliPath, "capsule", "list", "--workspace", workspace]);
   assert.equal(capsuleList.stdout.trim(), "[]");
+});
+
+test("TUI context and user model fail closed on weak memory registry provenance", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-memory-provenance-"));
+  await writeFile(join(workspace, "README.md"), "Memory provenance fixture\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+
+  await execFileAsync(process.execPath, [cliPath, "memory", "candidates", "--from-run", runId, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "accept", `memcand_${runId}_episode`, "--workspace", workspace]);
+  await writeFile(join(workspace, ".aetherion", "registries", "memory-cards.json"), `${JSON.stringify([
+    {
+      id: `mem_${runId}_episode`,
+      type: "project",
+      subject: runId,
+      content: "Tampered projection with stale provenance.",
+      source_events: ["evt_missing_memory_provenance"],
+      confidence: 0.9,
+      sensitivity: "private",
+      blocked_contexts: []
+    }
+  ], null, 2)}\n`);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "context", "explain", runId, "--workspace", workspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "memory", "user-model", "--workspace", workspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "context", "explain")), /ENOENT/);
+  await assert.rejects(access(join(workspace, ".aetherion", "memory", "user-model.json")), /ENOENT/);
+  await assert.rejects(access(join(workspace, ".aetherion", "registries", "hibernations.json")), /ENOENT/);
 });
 
 test("Ether surface and store commands remain supervisor-gated and non-authoritative", async () => {
@@ -710,6 +1048,11 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
     execFileAsync(process.execPath, [cliPath, "capsule", "publish", "cap_local_read", "--workspace", workspace]),
     /requires --approve-permissions/
   );
+  let lifecycleEvents = (await readLedgerEvents(workspace)).filter((event) => event.event_type.startsWith("capsule."));
+  assert.deepEqual(countEventTypes(lifecycleEvents), {
+    "capsule.draft.recorded": 1,
+    "capsule.test.recorded": 1
+  });
   const published = await execFileAsync(process.execPath, [
     cliPath,
     "capsule",
@@ -759,6 +1102,46 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
   assert.equal(current[0].lifecycle, "published");
   const approvals = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "approval-cards.json"), "utf8")) as Array<{ target: string }>;
   assert.equal(approvals[0].target, "capsule://cap_local_read@0.1.0");
+
+  lifecycleEvents = (await readLedgerEvents(workspace)).filter((event) => event.event_type.startsWith("capsule."));
+  assert.deepEqual(countEventTypes(lifecycleEvents), {
+    "capsule.draft.recorded": 2,
+    "capsule.test.recorded": 2,
+    "capsule.publish.recorded": 2,
+    "capsule.rollback.recorded": 1
+  });
+  assert.ok(lifecycleEvents.every((event) => event.payload_ref?.startsWith("artifact://capsule/")));
+  assert.ok(lifecycleEvents.every((event) => event.actor.type === "system" && event.actor.id === "local_supervisor"));
+  assert.match(lifecycleEvents.find((event) => event.event_type === "capsule.publish.recorded")?.summary ?? "", /still owns no runtime permissions/);
+  assert.match(lifecycleEvents.find((event) => event.event_type === "capsule.test.recorded")?.summary ?? "", /without live side effects/);
+  assert.match(lifecycleEvents.find((event) => event.event_type === "capsule.rollback.recorded")?.summary ?? "", /no live tool authority was changed/);
+  const lifecycleEventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", lifecycleEvents.at(-1));
+  assert.equal(lifecycleEventValidation.valid, true, lifecycleEventValidation.errors.join("; "));
+
+  const artifactRefs = new Set(lifecycleEvents.map((event) => event.payload_ref));
+  assert.deepEqual([...artifactRefs].sort(), [
+    "artifact://capsule/draft/cap_local_read_0.1.0",
+    "artifact://capsule/draft/cap_local_read_0.2.0",
+    "artifact://capsule/publish/cap_local_read_0.1.0",
+    "artifact://capsule/publish/cap_local_read_0.2.0",
+    "artifact://capsule/rollback/cap_local_read_0.2.0_to_0.1.0",
+    "artifact://capsule/test/cap_local_read_0.1.0",
+    "artifact://capsule/test/cap_local_read_0.2.0"
+  ]);
+  for (const artifactPath of [
+    ".aetherion/artifacts/capsule/draft/cap_local_read_0.1.0.json",
+    ".aetherion/artifacts/capsule/test/cap_local_read_0.1.0.json",
+    ".aetherion/artifacts/capsule/publish/cap_local_read_0.1.0.json",
+    ".aetherion/artifacts/capsule/draft/cap_local_read_0.2.0.json",
+    ".aetherion/artifacts/capsule/test/cap_local_read_0.2.0.json",
+    ".aetherion/artifacts/capsule/publish/cap_local_read_0.2.0.json",
+    ".aetherion/artifacts/capsule/rollback/cap_local_read_0.2.0_to_0.1.0.json"
+  ]) {
+    await access(join(workspace, artifactPath));
+  }
+  const rollbackArtifact = JSON.parse(await readFile(join(workspace, ".aetherion", "artifacts", "capsule", "rollback", "cap_local_read_0.2.0_to_0.1.0.json"), "utf8")) as { active: { version: string }; deprecated: { version: string } };
+  assert.equal(rollbackArtifact.active.version, "0.1.0");
+  assert.equal(rollbackArtifact.deprecated.version, "0.2.0");
 });
 
 test("Ether hibernation evaluates local triggers and queues a fresh-policy resume without authority", async () => {
@@ -903,7 +1286,7 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   assert.equal(budgetsAfter[0].tool_call_budget, 2);
   const contractId = JSON.parse(result.stdout).id as string;
   const execution = await execFileAsync(process.execPath, [cliPath, "agent", "execute", contractId, "--workspace", workspace]);
-  const childResult = JSON.parse(execution.stdout) as { child_run_id: string; status: string; completion_evidence: { lease_id: string; artifact_sha256: string; byte_count: number }; output_taint: { can_authorize_actions: boolean }; parent_must_reauthorize_actions: boolean };
+  const childResult = JSON.parse(execution.stdout) as { child_run_id: string; status: string; completion_evidence: { source_event_ids: string[]; lease_id: string; artifact_sha256: string; byte_count: number }; output_taint: { can_authorize_actions: boolean }; parent_must_reauthorize_actions: boolean };
   assert.equal(childResult.status, "completed");
   assert.match(childResult.completion_evidence.lease_id, /^lease_/);
   assert.match(childResult.completion_evidence.artifact_sha256, /^sha256:/);
@@ -912,7 +1295,23 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   assert.equal(childResult.parent_must_reauthorize_actions, true);
   const childManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${childResult.child_run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(childManifest.status, "completed");
-  assert.ok(childManifest.event_ids.length >= 3);
+  assert.deepEqual(childManifest.event_ids, childResult.completion_evidence.source_event_ids);
+  const ledgerEvents = new Map(
+    (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { id: string; event_type: string })
+      .map((event) => [event.id, event.event_type])
+  );
+  assert.deepEqual(childManifest.event_ids.map((eventId) => ledgerEvents.get(eventId)), [
+    "agent.child.started",
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "lease.issued",
+    "tool.result",
+    "agent.child.completed"
+  ]);
   const accounts = JSON.parse(await readFile(join(registryDir, "budget-accounts.json"), "utf8")) as Array<{ remaining: { tool_call_budget: number; lease_budget: number }; tool_calls_used: number; leases_used: number }>;
   assert.equal(accounts[0].remaining.tool_call_budget, 1);
   assert.equal(accounts[0].remaining.lease_budget, 0);
@@ -1104,6 +1503,119 @@ test("Ether refuses synthetic fallback state and test-only TypeScript authority"
     execFileAsync(process.execPath, [cliPath, "run", "--supervisor", "typescript-seed", "--workspace", workspace]),
     /typescript-seed is test-only/
   );
+  const blocked = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/NO-CONSENT.md"
+  ]);
+  const blockedRunId = blocked.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(blockedRunId);
+  assert.match(blocked.stdout, /write_policy_initial=ask:L3/);
+  assert.doesNotMatch(blocked.stdout, /write_policy_final=allow/);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "consent", blockedRunId, `consent_${blockedRunId}_write.json`)), /ENOENT/);
+});
+
+test("Ether audit registries reports provenance without persisting audit projections", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-audit-"));
+  await writeFile(join(workspace, "README.md"), "Audit source\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const sourceEvent = (await readEvents((await loadWorkspaceFromRegistry(workspace)).workspace))[0]?.id;
+  assert.ok(sourceEvent);
+  await mkdir(join(workspace, ".aetherion", "registries"), { recursive: true });
+  await writeFile(join(workspace, ".aetherion", "registries", "audit-fixtures.json"), `${JSON.stringify([
+    { id: "strong_fixture", source_events: [sourceEvent] },
+    { id: "weak_fixture", source_events: [sourceEvent, "evt_missing_audit_fixture"] },
+    { id: "missing_fixture", note: "registry-only state" }
+  ], null, 2)}\n`);
+
+  const audit = await execFileAsync(process.execPath, [cliPath, "audit", "registries", "--workspace", workspace]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    scope: { rebuild_parity_checked: boolean };
+    summary: { strong: number; weak: number; missing: number };
+    findings: Array<{ registry: string; item_id: string; status: string; missing_event_ids: string[] }>;
+  };
+  assert.equal(report.id, "registry_provenance_audit");
+  assert.equal(report.scope.rebuild_parity_checked, false);
+  assert.ok(report.summary.strong >= 1);
+  assert.ok(report.summary.weak >= 1);
+  assert.ok(report.summary.missing >= 1);
+  assert.equal(report.findings.find((finding) => finding.item_id === "strong_fixture")?.status, "strong");
+  assert.deepEqual(report.findings.find((finding) => finding.item_id === "weak_fixture")?.missing_event_ids, ["evt_missing_audit_fixture"]);
+  assert.equal(report.findings.find((finding) => finding.item_id === "missing_fixture")?.status, "missing");
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
+  await assert.rejects(access(join(workspace, ".aetherion", "registries", "audit.json")), /ENOENT/);
+});
+
+test("Ether audit replay-records previews artifact rebuild parity without mutating registry", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-replay-audit-"));
+  await writeFile(join(workspace, "README.md"), "Replay audit source\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+  await execFileAsync(process.execPath, [cliPath, "replay", runId, "--workspace", workspace]);
+
+  const registryPath = join(workspace, ".aetherion", "registries", "replay-records.json");
+  const registry = JSON.parse(await readFile(registryPath, "utf8")) as Array<{ id: string; run_id: string; result: { summary: string } }>;
+  const tampered = registry.map((entry) => entry.id === `replay_${runId}_trace`
+    ? { ...entry, result: { ...entry.result, summary: "tampered registry projection" } }
+    : entry);
+  tampered.push({
+    id: "replay_run_stale_trace",
+    run_id: "run_stale",
+    mode: "trace",
+    source_events: ["evt_stale"],
+    artifact_ref: "artifact://replay/run_stale/trace",
+    live_side_effects: { allowed: false, approval_id: null },
+    result: { status: "passed", summary: "stale registry projection" }
+  } as never);
+  await writeFile(registryPath, `${JSON.stringify(tampered, null, 2)}\n`);
+  const beforeAudit = await readFile(registryPath, "utf8");
+
+  const audit = await execFileAsync(process.execPath, [cliPath, "audit", "replay-records", "--workspace", workspace]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean };
+    summary: { expected: number; actual: number; matched: number; mismatched: number; stale_registry: number };
+    findings: Array<{ item_id: string; status: string }>;
+  };
+  assert.equal(report.id, "replay_registry_rebuild_audit");
+  assert.equal(report.scope.mode, "read_only_artifact_rebuild_parity");
+  assert.equal(report.scope.mutates_registry, false);
+  assert.equal(report.summary.expected, 1);
+  assert.equal(report.summary.actual, 2);
+  assert.equal(report.summary.matched, 0);
+  assert.equal(report.summary.mismatched, 1);
+  assert.equal(report.summary.stale_registry, 1);
+  assert.equal(report.findings.find((finding) => finding.item_id === `replay_${runId}_trace`)?.status, "mismatched");
+  assert.equal(report.findings.find((finding) => finding.item_id === "replay_run_stale_trace")?.status, "stale_registry");
+  assert.equal(await readFile(registryPath, "utf8"), beforeAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 });
 
 test("Ether security trial quarantines an explicitly named Capsule without executing it", async () => {
@@ -1158,3 +1670,17 @@ test("Ether security trial quarantines an explicitly named Capsule without execu
   assert.equal(drafts.find((entry) => entry.id === capsule.id)?.lifecycle, "quarantined");
   assert.doesNotMatch(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), /Execute a shell command/);
 });
+
+async function readLedgerEvents(workspace: string): Promise<EventRecord[]> {
+  return (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as EventRecord);
+}
+
+function countEventTypes(events: EventRecord[]): Record<string, number> {
+  return events.reduce<Record<string, number>>((counts, event) => {
+    counts[event.event_type] = (counts[event.event_type] ?? 0) + 1;
+    return counts;
+  }, {});
+}

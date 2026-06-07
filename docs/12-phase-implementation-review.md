@@ -10,8 +10,8 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 60 passing tests.
-- `cargo test`: 17 passing Rust tests.
+- `npm test`: 69 passing tests.
+- `cargo test`: 23 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -19,16 +19,16 @@ Verification from the latest pass:
 
 | Phase | Plan intent | Current code evidence | Verification evidence | Review status |
 | --- | --- | --- | --- | --- |
-| 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; versioned `aetherion-event-v1` hash chains shared by Rust and the test-only TS seed; P0 action lifecycle events include `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, and `verification.recorded`. | Harness and Ether tests cover approval-gated read/write, complete action lifecycle trace order, trace reconstruction, cross-author hash-chain validation, fixed canonical hash vectors, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
-| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends versioned SHA-256-linked events behind a workspace-local append lock and sync-then-rename Ledger rewrite; workspace init recovers abandoned temp files and verifies parent continuity plus complete canonical v1 event hashes for every author; traced read/write RPCs now emit the file-action lifecycle events inside Rust and return event ids for the Ether run manifest projection. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, TS/Rust canonical-vector parity, TS-authored event acceptance, tamper rejection, JSON control-character/Unicode recovery, schema-compatible timestamps, concurrent append serialization, atomic rewrite behavior, startup temp cleanup, traced action lifecycle RPCs, unapproved write commit with no action, and RPC JSON contents; Ether integration validates mixed TS/Rust ledgers with `chain_valid=true`. | Authority-boundary POC implemented and used by default. Ether still owns approval-card rendering, consent capture, run manifests, and verification records; long-running daemon, vault, signatures, and process sandbox remain pending. |
+| 1. TUI Kernel Loop | Prove local safe execution through workspace identity, event ledger, policy, lease, approval, file operation, verification, and replay. | Ether `run`, `replay`, and `trace`; stable path-derived workspace identity; schemas/examples for workspace registry, run manifest, risk, approval, and Replay Record; versioned `aetherion-event-v1` hash chains shared by Rust and the test-only TS seed; output-safe default summaries avoid copying source file content unless the caller explicitly supplies `--summary`; P0 action lifecycle events include `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, and `verification.recorded`. | Harness and Ether tests cover approval-gated read/write, default summary non-copying behavior for secret-like source content, explicit user-supplied summary output, complete action lifecycle trace order, trace reconstruction, cross-author hash-chain validation, fixed canonical hash vectors, and replay records. | Runnable through the Rust supervisor by default. TypeScript authority is isolated behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1` for tests. |
+| 2. Rust Supervisor Boundary | Move authority proof toward Rust supervisor while keeping TS as client/orchestrator. | `crates/supervisor/src/lib.rs`, `crates/supervisor/src/main.rs`; `packages/harness-core/src/supervisor-client.ts`; `packages/harness-core/src/run-supervisor.ts`; default Ether `run`. Rust returns operation lease ids and appends versioned SHA-256-linked events behind a workspace-local append lock and sync-then-rename Ledger rewrite; workspace init recovers abandoned temp files and verifies parent continuity plus complete canonical v1 event hashes for every author; traced read/write RPCs now emit the file-action lifecycle events inside Rust and return event ids for the Ether run manifest projection; approved write commits record consent, observation, and verification in the same supervisor RPC path that performs the write; stdio RPC input now uses the supervisor's minimal structured JSON object parser and typed field accessors. | Rust unit tests cover wrong-path, expired lease, distinct lease ids, idempotent workspace init, identity-conflict rejection, standard SHA-256 vector, TS/Rust canonical-vector parity, TS-authored event acceptance, tamper rejection, JSON control-character/Unicode recovery, schema-compatible timestamps, concurrent append serialization, atomic rewrite behavior, startup temp cleanup, traced action lifecycle RPCs, unapproved write commit with no action, supervisor-authored post-write evidence, RPC JSON contents, and fail-closed malformed/duplicate/wrong-typed RPC fields; Ether integration validates mixed TS/Rust ledgers with `chain_valid=true` and asserts write consent/observation/verification summaries come from supervisor semantics. | Authority-boundary POC implemented and used by default. Ether still owns approval-card rendering and run manifests; long-running daemon, vault, signatures, process sandbox, and a full JSON-RPC server remain pending. |
 | 3. Memory OS MVP | Grow memory from source events, not opaque vector state. | `packages/memory-os/src/index.ts`; trace-derived candidates, episodic timeline, evidence-only user model, context pack, Memory Tombstone contract; Ether memory/context commands and registries. | Memory OS tests require source events, context blocking, and tombstone exclusion; Ether tests derive candidates from a real run, accept one, inspect/block/delete it, and verify context explain no longer selects deleted memory. | MVP source-backed lifecycle implemented. Extraction and ranking remain narrow; missing evidence is not synthesized. |
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
-| 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
+| 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries; supervisor-appended Capsule lifecycle events with versioned `payload_ref` snapshots. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, proves failed permission-expansion publish writes no publish event, records draft/test/publish/rollback lifecycle events, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Capsule registries remain projections, not deterministic rebuild/parity proof. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
 | 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; Causal Edge, Why Report, Counterfactual Report, and Causal Projection schemas/examples; Ether `why`/`counterfactual`; rebuildable `.aetherion/projections/causal.sqlite`. | Tests cover typed dependency chains, failure/correction links, report-only downstream counterfactuals, disposable SQLite rebuild, cross-run isolation, and redacted-source confidence reduction. Ether integration rebuilds from a real Rust-supervised Ledger and a real appended redaction event. | Evidence-aware report projection implemented. It labels edges as temporal dependency candidates, not proven causes. Domain state simulation, LLM replay, and alternate-history outcome evaluation remain pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, evaluate local triggers, and recheck policy before resume. | `packages/hibernation/src/index.ts`; expanded hibernation/wakeup schemas/examples; Ether `sleep`, `wake`, and `sleepers`; Rust `run.resume.evaluate`; new resume-run Ledger events. | Unit tests cover lease rejection, cursor binding, deadlines, expiry, attention budgets, file change/deletion, workspace escape, and symlink escape. Ether integration proves fresh-policy queueing with no lease or action. | Local explicit-evaluation, queue-only MVP implemented. Background daemon and resumed task executor remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
-| 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
+| 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, risk and lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. Rust RPC tests cover allowed child reads and denied child reads with risk evidence and no lease. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, prevent it from authorizing actions, detect escalation/exfiltration attempts, contain suspicious subjects, and create regression evidence. | `packages/security/src/index.ts`; assessment/signal/trial/fixture contracts; Ether `security scan/ack/trial/fixture`; Rust `security.taint.evaluate`. | Security tests cover hash-only detection, multi-rule signals, taint authorization rejection, decoy-only trials, raw-free fixtures, Rust deny/no-lease policy, and Ledger-backed Ether lifecycle. | Deterministic local defense slice implemented. Semantic classifiers, source adapters, unknown-code process sandboxes, attribution, and active countermeasures remain pending. |
 | 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/surface-os/src/index.ts`; browser/IM/store contracts/examples; `packages/computer-use/src/index.ts`; computer action/observation contracts/examples with requirements-gate and approval-key fields; Ether `surface browser-observe`, `surface im-inbox`, `surface im-outbox`, and `store install`; Rust `surface.outbox.evaluate`. | Surface OS tests cover hash-only browser/IM records, one-scoped outbox approval, no delivery, and Ed25519 package verification. Computer-use tests cover current-tab browser scope, structured-first channel selection, side-effect lease/approval requirements, requirements-only adapter gates, scoped approval keys, tainted egress denial, and non-authorizing observations. Contract tests reject user-config-enabled computer actions and duplicate approval keys. Ether integration proves browser taint denial, IM outbox policy, no raw content in output/Ledger, and signed Capsule declaration install. Rust tests cover outbox ask/deny policy. | Narrow control-plane slice implemented. Real GUI, browser extension, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, and remote Capsule Store remain pending. |
 
@@ -72,7 +72,7 @@ Implemented correspondence:
 - Rust supervisor and the test-only TS seed append `hash_version: aetherion-event-v1`, `parent_event_id`, `parent_event_hash`, and SHA-256 `event_hash`.
 - Both authors hash the same canonical complete event envelope, excluding only `event_hash`. Rust workspace startup verifies every v1 event regardless of actor.
 - `reconstructTrace` verifies the full Ledger prefix through the selected run's last event, then projects that run. This preserves cross-run parent links while exposing `chain_valid`, `head_event_id`, and `head_event_hash` without replaying side effects.
-- `ether replay` now persists a Replay Record artifact and registry entry with `live_side_effects.allowed=false`.
+- `ether replay` now persists a Replay Record artifact and registry entry with `live_side_effects.allowed=false`, then runs the same read-only `replay-records` parity check and prints matched/drift summary counts.
 - `checkpoint` records the selected event id/hash; `branch` copies source/head pointers and keeps `inherits_authority=false`.
 - Ether prints chain status and head pointers for both supervisor and test-only seed traces.
 
@@ -125,6 +125,7 @@ Implemented correspondence:
 - Draft/test state stays in `capsule-drafts`; it cannot replace the active `capsules` registry entry. Permission requirements produce a diff against the current published version. Added tools require `--approve-permissions`, which creates a schema-valid Approval Card before local publication.
 - Published versions retain replay tests, sandbox evidence, source tasks/events, evals, risk, integrity digest, and rollback metadata. Multi-agent contracts accept only published Capsules with this evidence.
 - `capsule rollback` resolves a previously published version from the version registry, marks the replaced version deprecated, and restores the selected version as current.
+- Successful `capsule draft`, `test`, `publish`, and `rollback` transitions append supervisor-authored, hash-chained governance events whose `payload_ref` points to versioned Capsule lifecycle snapshots under `.aetherion/artifacts/capsule/<lifecycle>/`.
 - External/executable Capsules are quarantined. No playbook or imported code executes in the Local Supervisor.
 
 Correction and remaining boundary:
@@ -132,6 +133,7 @@ Correction and remaining boundary:
 - SHA-256 proves content integrity but is not a signature. The contract therefore uses `integrity` and marks publication `local_unsigned`; package/capsule signing remains a later Store/package gate.
 - Static pattern scanning is deliberately narrow and cannot establish code safety. Executable package typecheck, unit tests, process isolation, structured IPC, resource limits, and network policy remain unimplemented.
 - The lifecycle does not yet auto-propose Capsules from repeated episodes. Users provide a manifest whose provenance is verified.
+- Capsule registries remain lifecycle projections. The lifecycle events make transition facts Ledger-visible, but they do not yet prove deterministic registry rebuild/parity for Capsule registry files.
 - Scoring fields are present and updateable in the domain module, but production task routing does not yet feed outcome metrics into them.
 
 ## Phase 7 Review Notes
@@ -215,7 +217,7 @@ Correction and remaining boundary:
 - “Digital soul” means versioned, source-linked preference/knowledge/decision-state references in this implementation. It does not claim consciousness, faithful personality emulation, legal succession, or posthumous autonomous agency.
 - Fork budgets and path scopes start empty. A future user-authorized provisioning flow must create new grants; the fork cannot run merely because the record exists.
 - Persona reset currently classifies preference/habit cards as style-adjacent and retains other Memory Card types as business memory. Richer memory taxonomy and conflict resolution remain future work.
-- Governance event payloads point to immutable command artifacts, but registry rebuild tooling from those artifacts is not yet implemented.
+- Governance event payloads point to immutable command artifacts. `audit registries` can now report whether registry entries cite existing Ledger event ids, missing event ids, no event provenance, or malformed entries. `audit replay-records` adds the first scoped rebuild/parity preview by recomputing expected `replay-records` entries from persisted Replay Record artifacts, but deterministic rebuild/parity tooling for other registries is still not implemented.
 
 ## Phase 10 Review Notes
 
@@ -231,7 +233,7 @@ Implemented correspondence:
 - `ether agent contract` requires an existing parent run, persisted stop-on-exhaustion Resource Budget, published evidence-backed Capsule, explicit workspace path, child identity, and task. Contract creation consumes nothing and records no child execution.
 - `ether agent execute` creates a separate child run manifest. The current executor accepts only a published `document_only` Capsule whose sole tool requirement is `filesystem.read`.
 - Capsule id, exact path, and L1 risk are checked against the contract before authority is requested. Permission violations stop the contract and open a circuit breaker.
-- Rust `child.file.read` validates the existing workspace identity, creates the Tool Request, evaluates policy, issues the scoped read lease, performs the read, and appends `tool.requested`, `policy.decided`, and `tool.result` to the Event Ledger in the same supervisor RPC path. Ether only attaches returned event ids to the child manifest.
+- Rust `child.file.read` validates the existing workspace identity, creates the Tool Request, composes risk, evaluates policy, issues the scoped read lease when allowed, performs the read, and appends `tool.requested`, `risk.composed`, `policy.decided`, optional `lease.issued`, and `tool.result` to the Event Ledger in the same supervisor RPC path. Ether attaches the returned non-empty event ids to the child manifest.
 - Budget Accounts decrement tool-call and lease allowances and record orchestration CPU/wall time. Token and network usage stay zero because the MVP invokes neither a model nor a network tool.
 - Successful child results expose event ids, request/policy/lease ids, SHA-256, byte count, and usage totals, but not file contents. `output_taint.can_authorize_actions=false` and `parent_must_reauthorize_actions=true`.
 - Three policy denials open a hard-stop breaker. Permission violations, resource exhaustion, timeout, and supervisor execution failure also stop the contract. Success/denial/violation outcomes update a bounded routing weight.
@@ -242,7 +244,7 @@ Correction and remaining boundary:
 - This is not general LLM-based agent orchestration, arbitrary Capsule execution, payment/search separation across remote agents, public escrow, or an Agent economy.
 - Resource Budget contracts can represent stop/queue/ask for future orchestration, but the current executor rejects anything except `on_exhaustion=stop`; it does not pretend to queue or request approval.
 - CPU measurement currently covers the Ether-side spawn/RPC interval and process CPU consumed by the orchestrator. Exact child supervisor CPU accounting requires a long-running supervisor with per-request metering.
-- Tool, policy, and result events are Rust-authored facts. Budget Accounts, breakers, scores, and Child Results are schema-validated local projections/artifacts; future durability work must make their rebuild rules explicit.
+- Tool, risk, policy, lease, and result events are Rust-authored facts. Budget Accounts, breakers, scores, and Child Results are schema-validated local projections/artifacts; future durability work must make their rebuild rules explicit.
 
 ## Phase 11 Review Notes
 
@@ -291,7 +293,7 @@ Implemented correspondence:
 
 Known gaps before Phase 2 can be called production-ready:
 
-- The Rust stdio RPC parser is dependency-free and intentionally minimal; required fields now fail closed, but it is not a robust general JSON-RPC server.
+- The Rust stdio RPC parser is dependency-free and intentionally minimal; malformed JSON, duplicate keys, wrong-typed required strings, and wrong-typed boolean approval fields now fail closed, but it is not a robust general JSON-RPC server.
 - Rust ledger timestamps now use RFC3339 UTC strings, and Ether integration validates supervisor-authored events against `event.schema.json`.
 - Rust supervisor appends are serialized by a local lock and use synced temp-file rename; startup checks remove abandoned uncommitted temp files, verify parent continuity, and reject corrupt canonical v1 event hashes from Rust or TypeScript authors. Stale active lock recovery is still timeout-based rather than process-aware. Legacy unversioned non-supervisor events remain readable but need migration tooling before Rust can prove their full content hash.
 - TS seed path remains test-only and is blocked unless `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
@@ -304,9 +306,12 @@ Before later phases are promoted, runtime commands must not synthesize missing e
 Current enforced rules:
 
 - Ether defaults to Rust supervisor authority; stale supervisor binaries are rebuilt before RPC use.
+- Ether's default run summary does not copy source file content; copying user text into output requires an explicit `--summary`/`summaryText` value.
 - Workspace ids are derived from the resolved workspace path instead of fixed demo ids.
 - Memory candidates and Persona Anchors require existing source events and explicit confidence.
 - Context, checkpoint, branch, rehearsal, hibernation, wakeup, Soul Fork, and Agent Contract commands fail when their referenced ledger or registry records do not exist.
+- `audit registries` is read-only and does not persist audit artifacts or registry entries. It makes projection provenance debt visible, but `strong` means referenced Ledger event ids exist, not that the registry can already be regenerated from source truth.
+- `audit replay-records` is also read-only and does not repair drift. It compares `.aetherion/registries/replay-records.json` with `.aetherion/artifacts/replay/**/*.json` and reports matched, missing, mismatched, stale, or invalid Replay Record projection state; `ether replay` prints the compact parity summary after each replay write.
 - Capsule test/publish accepts only persisted Capsule drafts, two distinct cited Ledger runs, passing hash-chain replay records, and a document sandbox trial. Permission expansion requires an Approval Card.
 - Capsule publication is labeled `local_unsigned`; a SHA-256 integrity digest is not represented as a cryptographic signature.
 - Agent Contract creation does not consume budget or imply a child run occurred. Only `agent execute` creates a child run and accounting records.
@@ -315,6 +320,229 @@ Current enforced rules:
 - Browser/IM/Store surface commands persist hash-only artifacts and require Ledger/Supervisor evidence. They do not claim browser automation, IM delivery, GUI operation, webhook takeover, remote Store publication, or package-code execution.
 - Counterfactual output is low-confidence, report-only, and lists evidence, assumptions, and unknowns.
 - Examples and test fixtures may use illustrative ids, but runtime code cannot fall back to them.
+
+## Phase 20 Review Notes
+
+Matched architecture docs:
+
+- `docs/02-user-boundary-layer.md`: every material action should answer who, where, what, why, risk, and memory/permission impact questions.
+- `docs/01-architecture.md`: user surfaces display approvals and audit state, but do not grant authority directly.
+- `docs/05-audit-and-data-contracts.md`: every material action should be reconstructable from actor, reason, input/output, risk, timestamp, policy, consent, and trace evidence.
+
+Implemented correspondence:
+
+- `ether boundary <run_id>` is a read-only TUI view over the workspace registry, run manifest, JSONL Event Ledger, and reconstructed trace. It writes no artifact, mutates no registry, and performs no policy action.
+- The command surfaces who/where/what/why/risk/consent/lease/proof fields from recorded facts: actor ids, workspace id/root, entry surface, authority, event types, request/policy/consent/lease/action counts, risk levels, policy summaries, event ids, hash-chain status, manifest status, Ledger path, and `live_side_effects_replayed=false`.
+- Missing identity and vault facts are explicit. Phase 22 now records a `run.started` Boundary Facts payload for current Ether kernel runs, but that payload still marks first-class `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded` rather than synthesizing them.
+- `ether help` now separates V1 core commands, trace-backed local runtime slices, post-V1 contract surfaces, and read-only audits. Surface/Store examples are labeled as no-delivery/no-automation/no-package-code-execution contract surfaces.
+
+Correction and remaining boundary:
+
+- This is a visibility pass, not a production User Boundary Layer. Device identity, channel identity, vault policy, memory impact diffs, consent record schemas with full scopes, and per-action boundary cards still need Ledger-first facts before they can be rendered as complete authority evidence.
+- The command intentionally reads current run and trace evidence only. It does not repair registries, rebuild projections, infer missing users, or normalize old runs into new boundary records.
+
+## Phase 21 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: Event Ledger is the fact layer for capability evolution; client registries and surfaces cannot become trust roots.
+- `docs/04-skill-and-scaffold-os.md`: Capability Capsules declare permission requirements and constraints, but do not own runtime grants.
+- `docs/06-roadmap.md` Phase 5: Capsule draft/test/publish/deprecated lifecycle needs replay tests, risk, provenance, source tasks, scoring, and rollback.
+- `docs/13-schema-runtime-governance.md`: P1 Capability OS changes must cite real Ledger evidence and must not treat registries as rebuildable merely because they exist.
+
+Implemented correspondence:
+
+- `schemas/event.schema.json` now includes `capsule.draft.recorded`, `capsule.test.recorded`, `capsule.publish.recorded`, and `capsule.rollback.recorded`.
+- `ether capsule draft/test/publish/rollback` writes versioned lifecycle snapshots under `.aetherion/artifacts/capsule/<lifecycle>/...` and asks the Rust supervisor to append a hash-chained governance event whose `payload_ref` points to that snapshot.
+- The lifecycle events are appended only after successful state transitions. The Ether integration test proves a failed permission-expansion publish without `--approve-permissions` adds no `capsule.publish.recorded` event.
+- The integration test verifies two draft events, two test events, two publish events, one rollback event, schema-valid supervisor-authored lifecycle events, expected `payload_ref` values, and the corresponding versioned artifacts.
+- Publish summaries explicitly state that the Capsule still owns no runtime permissions, test summaries state that evidence was captured without live side effects, and rollback summaries state that no live tool authority changed.
+
+Correction and remaining boundary:
+
+- This is not a Rust-native Capsule lifecycle state machine. The current improvement is supervisor-appended, hash-chained governance facts over an Ether-managed document-only lifecycle.
+- `payload_ref` is the existing Event contract field for lifecycle artifacts; no generic `artifact_ref` field was added to the Event schema.
+- Capsule registries remain local lifecycle projections. This pass improves Ledger visibility for lifecycle transitions, but deterministic rebuild/parity proof for Capsule registries remains future work.
+
+## Phase 22 Review Notes
+
+Matched architecture docs:
+
+- `docs/02-user-boundary-layer.md`: every material action should make the current who/where/what/why/risk and memory/permission-impact evidence visible, while missing identity, device, channel, and vault facts must not be invented.
+- `docs/01-architecture.md`: Local Supervisor and Event Plane are the authority/fact boundary; TUI is a client surface.
+- `docs/13-schema-runtime-governance.md`: P0 runtime contracts need executable evidence and should close the kernel loop rather than broadening into full identity or connector systems.
+
+Implemented correspondence:
+
+- `schemas/boundary-facts.schema.json` and `examples/contracts/boundary-facts.json` define the first Ledger-attached Boundary Facts payload.
+- `packages/harness-core/src/boundary.ts` creates schema-valid facts and writes `.aetherion/artifacts/boundary/<run_id>/boundary_<run_id>_facts.json`.
+- The default Rust supervisor path and test-only TypeScript seed path append `run.started` with `payload_ref=artifact://boundary/<run_id>/facts` before the file-action lifecycle.
+- Boundary Facts record only current proven facts: `run_id`, `workspace_id`, `entry_surface`, and authority. They explicitly keep `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded`.
+- `ether boundary <run_id>` remains read-only. It reads the Boundary Facts artifact plus Ledger, manifest, workspace registry, and trace evidence, then prints known facts, missing facts, current limits, and impact flags without writing artifacts or registries.
+- Tests validate the schema/example pair, the `run.started.payload_ref`, the artifact contents, and the TUI output for `boundary_known_facts`, `boundary_not_recorded`, limits, and impact fields.
+
+Correction and remaining boundary:
+
+- This is boundary initialization evidence, not a full User Boundary Layer. It does not implement mature user identity, device pairing, channel identity, vault policy, or per-action boundary cards.
+- No new `boundary.*` event type was added. `run.started` carries the artifact reference so the existing event lifecycle remains the fact layer.
+- The Boundary Facts artifact is not an authority source and grants no permission. It is supporting evidence for audit and TUI rendering.
+- The TypeScript seed path remains test-only behind `AETHERION_ALLOW_TYPESCRIPT_SEED=1`; the user-facing Ether path uses the Rust supervisor by default.
+
+## Phase 23 Review Notes
+
+Matched architecture docs:
+
+- `docs/02-user-boundary-layer.md`: every material action should answer who, where, what, why, risk, and memory/permission-impact questions.
+- `docs/01-architecture.md`: TUI is a client surface; Event Ledger and Local Supervisor remain the fact and authority layers.
+- `docs/13-schema-runtime-governance.md`: harden the existing action lifecycle before broadening schema surface.
+
+Implemented correspondence:
+
+- `ether boundary <run_id>` now derives a read-only action matrix from existing Ledger events, anchored by `tool.requested` rows and enriched by subsequent `risk.composed`, `policy.decided`, `consent.recorded`, `lease.issued`, `tool.result`, `action.recorded`, `observation.recorded`, and `verification.recorded` events.
+- The matrix prints per-action operation, actor, where, why, risk, policy, consent, lease, result, proof, memory impact, permission impact, and source event ids.
+- The TUI test verifies a Rust-supervised local run produces two material actions (`filesystem.read` and `filesystem.write`), that both rows cite existing event ids, and that the write row records consent, scoped lease, side effect, and verification proof.
+- The same test snapshots the Ledger, replay registry, and Boundary Facts artifact before running `boundary`, then asserts all three are unchanged afterward.
+
+Correction and remaining boundary:
+
+- This is still a read-only projection, not a persisted per-action Boundary Card and not a new source of authority.
+- No schema, `boundary.*` event type, artifact, registry, identity, device, channel, or vault fact was added.
+- Missing memory impact remains `not_recorded`; the matrix only marks it recorded when a relevant memory lifecycle event exists in the run.
+
+## Phase 24 Review Notes
+
+Matched architecture docs:
+
+- `docs/02-user-boundary-layer.md`: approvals should be durable, inspectable consent records, and every material action should expose recorded consent evidence without inventing identity, device, channel, or vault facts.
+- `docs/05-audit-and-data-contracts.md`: every permission change has a consent record, and Event records can carry artifact references through `payload_ref`.
+- `docs/13-schema-runtime-governance.md`: P0 kernel contracts should harden the existing action lifecycle before broadening schema or authority surface.
+
+Implemented correspondence:
+
+- `packages/harness-core/src/consent.ts` creates, validates, writes, and reads schema-valid Consent Record artifacts for approved local writes under `.aetherion/artifacts/consent/<run_id>/`.
+- The test-only TypeScript seed path writes the Consent Record artifact and attaches `payload_ref=artifact://consent/<run_id>/write` to the existing `consent.recorded` event.
+- The default Rust supervisor path creates the Consent Record data in Ether, passes the schema-valid JSON plus stable artifact ref to `file.write.commit`, and the Rust supervisor writes the artifact before appending `consent.recorded`.
+- Rust `file.write.commit` accepts optional `consent_payload_ref` and attaches it to `consent.recorded` only when approval is present, policy allows the write, and matching consent artifact evidence has been written. Unapproved writes create no consent event and no consent artifact.
+- `ether boundary <run_id>` now prints `consent_payload_refs` from recorded consent events, keeping the User Boundary card read-only and Ledger-derived.
+
+Verification evidence:
+
+- Harness tests validate the Consent Record helper against `consent-record.schema.json`, assert the artifact contents, assert `consent.recorded.payload_ref`, and assert blocked test-seed writes do not create a consent artifact.
+- TUI tests assert the Rust-supervised run writes a schema-valid Consent Record artifact, `consent.recorded.payload_ref=artifact://consent/<run_id>/write`, boundary output includes the consent payload ref, and an unapproved Ether run creates no consent artifact.
+- Rust RPC tests assert approved write commits write the Consent Record artifact before attaching the consent payload ref to the Ledger, and that unapproved, missing-consent, or mismatched-consent write commits do not append `consent.recorded`.
+
+Correction and remaining boundary:
+
+- No new event type or Event schema field was added. Consent evidence uses the existing `consent.recorded` event and `payload_ref`.
+- Consent Records prove one approved local write request. They do not implement full user identity, device pairing, channel identity, vault policy, reusable authority, or a general consent ledger UI.
+- The artifact is supporting audit evidence only; scoped leases and policy decisions remain the runtime authority boundary.
+
+## Phase 25 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: Event Ledger entries may reference artifacts, but those references must remain durable evidence rather than authority.
+- `docs/02-user-boundary-layer.md`: consent evidence must be durable and inspectable for material actions.
+- `docs/13-schema-runtime-governance.md`: P0 kernel contracts should harden existing runtime loops before broadening schema surface.
+
+Implemented correspondence:
+
+- `runSupervisorKernelLoop` now builds and schema-validates the approved-write Consent Record JSON before calling Rust `file.write.commit`, then passes both `consent_record_json` and `consent_payload_ref`.
+- Rust `file.write.commit` requires matching consent JSON before an approved write can append `consent.recorded`; it validates the expected consent id, workspace id, tool request id, decision, and risk level.
+- Rust writes `.aetherion/artifacts/consent/<run_id>/consent_<run_id>_write.json` before appending the `consent.recorded` event with `payload_ref=artifact://consent/<run_id>/write`.
+- Missing or mismatched consent evidence fails before any target file write, consent event, or consent payload ref reaches the Ledger.
+
+Verification evidence:
+
+- Rust RPC tests cover the successful supervisor-authored artifact/event path and the missing/mismatched consent negative paths.
+- Existing TUI integration tests continue to validate that the Rust-supervised run produces a schema-valid Consent Record artifact and `consent.recorded.payload_ref`.
+
+Correction and remaining boundary:
+
+- This removes the earlier dangling-ref window where Rust could append a `consent.recorded.payload_ref` before Ether wrote the referenced artifact.
+- The Consent Record schema remains intentionally narrow. It still proves only one approved local write request and does not establish identity, device, channel, vault, or reusable consent authority.
+
+## Phase 26 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: Event Ledger is the product fact layer, and durable envelopes may reference artifacts without making artifacts authority.
+- `docs/05-audit-and-data-contracts.md`: replay/audit should reconstruct or inspect evidence without replaying live side effects or mutating runtime state.
+- `docs/13-schema-runtime-governance.md`: hardening should close existing runtime loops and keep projections/read-only audits distinct from source-of-truth state.
+
+Implemented correspondence:
+
+- `packages/harness-core/src/registry.ts` now exports `auditLedgerPayloadRefs`, a read-only audit over Event Ledger records with `payload_ref`.
+- The audit resolves known local `artifact://` shapes for Boundary Facts (`artifact://boundary/<run_id>/facts`), Consent Records (`artifact://consent/<run_id>/write`), Replay Records (`artifact://replay/<run_id>/trace`), and generic Ether artifacts under `.aetherion/artifacts/<...>.json`.
+- Findings classify references as `resolved`, `missing`, `invalid_json`, or `unresolved`, and include event id, run id, event type, payload ref, resolved path, and reason when relevant.
+- `ether audit payload-refs --workspace <path>` reads the workspace Ledger and prints the audit JSON to stdout. It appends no Ledger events, writes no artifacts, mutates no registries, and performs no repair.
+- The shared artifact resolver now maps Boundary Facts and Consent Record refs to their actual filenames (`boundary_<run_id>_facts.json` and `consent_<run_id>_write.json`) instead of the older generic `<leaf>.json` convention.
+
+Verification evidence:
+
+- Harness tests cover `resolved`, `missing`, `invalid_json`, and `unresolved` Ledger payload-ref findings and assert the audit leaves artifact files unchanged.
+- TUI integration runs a real Rust-supervised Ether kernel loop and verifies `audit payload-refs` resolves both `run.started` Boundary Facts and `consent.recorded` Consent Record refs while leaving the Ledger, replay registry, and Boundary Facts artifact unchanged.
+- TUI help now lists `audit payload-refs`, keeping the command surfaced as a read-only audit alongside registry provenance and replay-record parity.
+
+Correction and remaining boundary:
+
+- This is not a registry rebuild or artifact repair tool. It reports drift and broken references only.
+- Artifacts remain supporting evidence. Policy decisions and scoped leases remain the runtime authority boundary.
+- Unsupported or non-local reference shapes are reported as `unresolved` rather than guessed, so future encrypted, remote, or vault-backed payload stores can define their own resolver without inheriting false local semantics.
+
+## Phase 27 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: typed events and artifact references are part of the Event Ledger fact layer, while artifacts remain evidence rather than authority.
+- `docs/05-audit-and-data-contracts.md`: audit/replay tooling should inspect persisted evidence without replaying live side effects or mutating source-of-truth state.
+- `docs/13-schema-runtime-governance.md`: P0 contracts should be tied to executable/runtime evidence and schema/example validation, while read-only audits must not become repair or authority paths.
+
+Implemented correspondence:
+
+- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, and Replay Record artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, and `replay-record.schema.json`.
+- Findings now include `schema_name`, `schema_status`, and `schema_errors`; summaries now include `schema_valid`, `schema_invalid`, and `schema_not_checked`.
+- Generic local Ether artifacts still resolve by path and JSON parse only, with `schema_status=not_checked`.
+- Missing files, unresolved schemes, and invalid JSON remain not checked. The audit still writes nothing, repairs nothing, and appends no Ledger events.
+
+Verification evidence:
+
+- Harness tests cover valid Boundary Facts and Consent Record payloads, an invalid Boundary Facts artifact with schema errors, generic not-checked artifacts, missing artifacts, invalid JSON, and unresolved refs.
+- TUI integration verifies a real Rust-supervised run reports the `run.started` Boundary Facts payload, `consent.recorded` Consent Record payload, and an explicit `replay.recorded` Replay Record payload as schema-valid while leaving the Ledger, registry, and artifact files unchanged during the audit.
+
+Correction and remaining boundary:
+
+- No schema was expanded for this phase. The audit uses existing contracts only.
+- Schema-valid payload artifacts are still supporting evidence. Policy decisions, scoped leases, and supervisor-authored action events remain the runtime authority boundary.
+- Capsule, memory, security, and other generic lifecycle artifacts are intentionally not schema-checked by this audit until each family has an explicit rebuild/parity or typed-audit path.
+
+## Phase 28 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: the Event Ledger is the product fact layer, while registries and indexes are rebuildable projections.
+- `docs/03-memory-os.md`: memory must stay source-backed, inspectable, context-bounded, and deletable without silently rewriting user truth.
+- `docs/05-audit-and-data-contracts.md`: replay and audit surfaces inspect recorded evidence and must not replay live side effects or mutate authority state.
+- `docs/13-schema-runtime-governance.md`: P1 product-runtime contracts must cite Ledger evidence or registry evidence whose Ledger references pass provenance checks.
+
+Implemented correspondence:
+
+- `memory candidates --from-run` and `memory candidates --source-event` now persist Memory Candidate artifacts under `.aetherion/artifacts/memory/candidates/`, append supervisor-authored `memory.candidate.created` events with `payload_ref`, and only then upsert `memory-candidates`.
+- `memory accept`, `memory reject`, `memory block`, and `memory delete` follow the same artifact-first, supervisor-Ledger-event, registry-projection order for `memory.accepted`, `memory.rejected`, `memory.blocked`, and `memory.deleted`.
+- `context explain`, `memory user-model`, and Digital Hibernation resume context assembly now require Memory Card/Tombstone registry entries to pass the registry provenance reference gate before those projections can feed downstream context.
+- Weak, missing, or invalid Memory registry provenance fails closed. Tampered Memory Card projections with stale `source_events` cannot enter `context explain` or generate `user-model.json`.
+- `.aetherion/memory/user-model.json` remains a projection-only convenience copy derived from accepted Memory Cards; it is not read as an independent source of truth.
+
+Verification evidence:
+
+- TUI integration asserts Memory lifecycle events are supervisor-authored, include `artifact://memory/...` payload refs, and have matching artifacts for candidate creation, accept, reject, block, and delete.
+- TUI regression tests tamper `memory-cards.json` with a missing Ledger event id and assert `context explain`, `memory user-model`, and `sleep` all reject the projection instead of consuming it.
+
+Correction and remaining boundary:
+
+- This is not the full Memory OS. Candidate extraction remains deterministic and narrow, focused on `run.completed` and `verification.recorded`; failures, corrections, contradictions, rich ranking, TTL expiry, encrypted redaction, and deterministic Memory registry rebuild/parity remain future work.
+- The registry provenance gate proves referenced Ledger event ids exist. It does not prove the registry can be regenerated byte-for-byte from the Ledger and artifacts.
+- `packages/tui/src/cli.ts` is still carrying too much cross-plane orchestration. It remains a client/orchestration surface because authority-bearing writes go through the Rust supervisor, but future phases should split command adapters by plane before adding more runtime behavior.
 
 ## Phase 3 Review Notes
 

@@ -128,11 +128,13 @@ The Context Assembler chooses task-relevant context under token, privacy, and pe
 Current Ether MVP:
 
 - `ether memory candidates --from-run <run_id>` derives pending candidates only from real Ledger events.
+- `ether memory candidates --source-event <event_id>`, `accept`, `reject`, `block`, and `delete` persist a Memory lifecycle artifact, append a supervisor-authored Ledger event with `payload_ref`, and only then update the registry projection.
 - `ether memory accept <candidate_id>` promotes a reviewed candidate into an active Memory Card.
 - `ether memory inspect <memory_id>` shows whether a Memory Card is still active or has a deletion tombstone.
 - `ether memory block <memory_id> --context <context>` adds a context-specific exclusion without changing source provenance.
 - `ether memory delete <memory_id>` removes the active Memory Card projection and persists a `memory.deleted` tombstone that cites the original source events. It does not rewrite Ledger history or perform full artifact redaction.
-- `ether context explain <run_id>` assembles context from active Memory Cards and excludes context-blocked, sensitive, or tombstoned memory with an explicit reason.
+- `ether context explain <run_id>`, `ether memory user-model`, and hibernation resume context assembly consume Memory Card/Tombstone registries only after referenced Ledger event ids pass a provenance gate. Weak, missing, or invalid memory registry provenance fails closed.
+- `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards, not an independent source of truth.
 
 ## Event-Driven Dreaming Pipeline
 

@@ -16,6 +16,8 @@ export type SupervisorRpcRequest = {
   path?: string;
   verb?: "read" | "write";
   approved?: boolean;
+  consent_record_json?: string;
+  consent_payload_ref?: string;
   contents?: string;
   event_type?: string;
   summary?: string;

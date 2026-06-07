@@ -6,7 +6,7 @@ Current scope:
 
 - Run a workspace-scoped local read.
 - Ask/require explicit write approval through `--approve-write`.
-- Write a summary file through scoped policy.
+- Write a default summary file through scoped policy without copying source file content; `--summary` supplies explicit user-controlled summary text, while `--output` chooses the output path.
 - Route `run` through the Rust supervisor POC by default. The TypeScript seed policy path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - Emit events to `.aetherion/events/events.jsonl`.
 - Emit the P0 local-file action lifecycle for `run`: `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, `verification.recorded`, and `run.completed`.
@@ -17,22 +17,30 @@ Current scope:
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
+- Record a `run.started` Boundary Facts artifact for Ether kernel runs. It captures the current proven boundary facts (`run_id`, `workspace_id`, `entry_surface`, and authority) and explicitly marks `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded`.
+- Record approved local write consent as a schema-valid Consent Record artifact attached to `consent.recorded` through `payload_ref=artifact://consent/<run_id>/write`; the default Rust path writes the artifact before appending the consent event, and unapproved writes do not create a Consent Record artifact.
+- Render a read-only User Boundary card with `boundary <run_id>` from the Ledger, run manifest, workspace registry, Boundary Facts artifact, and Consent Record references. It surfaces who/where/what/why/risk/consent/lease/proof facts that are actually recorded, derives a per-action matrix from existing action-lifecycle events, and marks missing identity or vault facts as `not_recorded`.
 - Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, governed folding/persona/Soul Fork, a governed document-read child run, anti-poisoning assessment/containment, and Phase 12 surface/store gates.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
+- Run `audit registries` as a read-only provenance reference audit. It reports whether registry entries cite existing Ledger event ids, missing event ids, no event provenance, or malformed entries; it does not persist audit artifacts and does not prove deterministic rebuild parity.
+- Run `audit replay-records` as a read-only rebuild/parity preview for the `replay-records` registry only. It rebuilds expected entries from `.aetherion/artifacts/replay/**/*.json` and reports matched, missing, mismatched, stale, or invalid projection state without repairing it.
+- Run `audit payload-refs` as a read-only Event Ledger artifact-reference audit. It scans events with `payload_ref`, resolves known local `artifact://` references, validates known Boundary Facts, Consent Record, and Replay Record artifacts against their existing schemas, and reports resolved, missing, invalid JSON, unresolved, schema-valid, schema-invalid, or not-checked references without repairing artifacts or treating payloads as authority.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
+- Record Memory Candidate, accept, reject, block, and delete lifecycle changes as supervisor-authored Ledger events with `.aetherion/artifacts/memory/<topic>/` payload snapshots before updating registry projections.
 - Inspect, block, and delete accepted Memory Cards through `memory inspect`, `memory block`, and `memory delete`; deletes remove active cards and persist tombstones rather than rewriting history.
+- Fail closed before `context explain`, `memory user-model`, or hibernation resume context assembly when Memory Card/Tombstone registry entries have weak, missing, or invalid Ledger provenance. `.aetherion/memory/user-model.json` is a projection-only convenience file, not a truth source.
 - Use registries for evidence-backed lifecycle transitions such as memory candidate accept/reject and hibernation trigger evaluation.
 - Use registries for sandbox checkpoint/branch/rehearsal, causal projection/Why/Counterfactual reports, child-agent resource budgets/circuit breakers, and poisoning signal acknowledgement.
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
 - Approve rehearsals through `approve-rehearsal`, which requests a fresh Rust supervisor policy decision/lease, performs the write, verifies exact content, and appends new policy/action events without inheriting prior authority.
-- Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Local publication is unsigned and does not execute the playbook.
+- Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Successful draft/test/publish/rollback transitions append supervisor-authored, hash-chained governance events whose `payload_ref` points to versioned Capsule lifecycle snapshots. Local publication is unsigned, does not execute the playbook, and does not grant runtime permissions to the Capsule.
 - Use `dream` for reviewable Memory Fold patches. It requires two real Memory Cards, retains `folded_from` and source events, and requires explicit approval before a sensitive fold becomes active.
 - Use named, TTL-bound persona anchor branches. `persona reset` applies only a branch containing accepted, non-expired anchors and retains business Memory Card references.
 - Build checkpoint-backed Soul Fork records with a new identity, zero initial budget, empty path scope, no vault/OAuth/lease grants, reference-only inheritance, and `live_side_effects_allowed=false`.
 - Record Phase 9 lifecycle changes through Rust Supervisor events whose `payload_ref` points to the persisted Ether artifact; registries remain projections, not the only fact source.
-- Run Phase 10 child work only through `ether agent execute`. The current executor accepts one published evidence-backed `document_only` Capsule with exactly `filesystem.read`, one explicitly contracted workspace path, and an independent child run. The same Rust supervisor RPC path validates workspace identity, appends `tool.requested`, `policy.decided`, and `tool.result`, and performs the lease-gated read. The parent receives hash/byte evidence only; child output is tainted and cannot authorize another action.
+- Run Phase 10 child work only through `ether agent execute`. The current executor accepts one published evidence-backed `document_only` Capsule with exactly `filesystem.read`, one explicitly contracted workspace path, and an independent child run. The same Rust supervisor RPC path validates workspace identity, appends `tool.requested`, `risk.composed`, `policy.decided`, optional `lease.issued`, and `tool.result`, and performs the lease-gated read when allowed. The parent receives hash/byte evidence only; child output is tainted and cannot authorize another action.
 - Treat `public_web`, `email`, `pdf`, `im`, `github_issue`, `mcp_description`, and `third_party_content` as untrusted sources. `security scan` persists hashes and detector rule ids rather than raw content, while Rust records a deny-only taint policy with no lease. `security trial` is a deterministic decoy exercise, not execution of unknown content or Capsule code; `security fixture` is detector-only replay metadata.
 - Treat browser, IM, and Store as client surfaces, not authority. `surface browser-observe` requires current-tab input, hash-only DOM evidence, a source event, and Rust taint denial. `surface im-inbox` stores only sender/message hashes and cannot authorize actions. `surface im-outbox` asks the Rust supervisor for outbox policy, queues only one scoped approval for DM/group sends, blocks public sends, and attempts no delivery. `store install` verifies a signed Capsule package and installs only a declaration after replay, sandbox, and permission-diff checks.
 - Rebuild `.aetherion/projections/causal.sqlite` from Ledger events for `why` and `counterfactual`. The SQLite file is explicitly a disposable projection; typed edges are temporal dependency candidates, not proof of causation, and redacted source links lower report confidence.
@@ -71,13 +79,35 @@ npm run ether -- store install --path signed-package.json --approve-permissions 
 
 These commands do not click a browser, read every tab, send IM/email, start a webhook, or execute package code. They prove the first Phase 12 control-plane slice: external surface observations and messages become hash-only, tainted, policy-linked Ledger evidence, while Store installation is a signed declaration import with no runtime authority.
 
+Registry audit flow:
+
+```bash
+npm run ether -- audit registries --workspace .
+npm run ether -- audit replay-records --workspace .
+npm run ether -- audit payload-refs --workspace .
+```
+
+The audit writes only to stdout. `strong` means every event id referenced by a registry entry exists in the JSONL Ledger; it does not mean the registry can already be rebuilt from Ledger/artifacts. `weak`, `missing`, and `invalid` entries show the current projection debt explicitly.
+
+For `replay-records`, Ether can also perform a scoped artifact rebuild parity preview. That command compares the registry against persisted Replay Record artifacts and reports drift, but it still does not mutate `.aetherion/registries/replay-records.json`. The `replay` command runs the same read-only check after writing a Replay Record and prints `replay_registry_parity`, drift count, expected count, and actual count.
+
+For Ledger `payload_ref`s, Ether resolves the local artifact paths it can prove today, including Boundary Facts, Consent Records, Replay Records, and generic `.aetherion/artifacts/<command>/<topic>/<id>.json` artifacts. Boundary Facts, Consent Records, and Replay Records are schema-checked after JSON parse; generic artifacts are reported as `schema_status=not_checked`. Non-local or unsupported reference shapes are reported as `unresolved`; missing or unparsable local files are reported without writing repair artifacts.
+
+User Boundary flow:
+
+```bash
+npm run ether -- boundary <run_id> --workspace .
+```
+
+This command writes nothing. It gives the TUI a first-class view of the six boundary questions from `docs/02-user-boundary-layer.md` using recorded evidence only: the `run.started` Boundary Facts payload, actors, workspace, entry surface, authority, event types, policy decisions, risk levels, consent events and their payload refs, lease events, hash-chain proof, manifest status, replay posture, and a read-only action matrix anchored to existing event ids. It intentionally reports missing fields such as `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded` until a real identity, device, channel, and vault source records them directly.
+
 Rust supervisor mode:
 
 ```bash
 npm run ether -- run --supervisor stdio --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
-This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, traced file-action event emission, and lease-gated file read/write for this path. Ether still owns the run manifest projection, approval-card display, consent capture, and verification records.
+This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, traced file-action event emission, lease-gated file read/write, and approved write commit evidence for this path. Ether still owns the run manifest projection and approval-card display.
 
 File rehearsal flow:
 
@@ -99,7 +129,7 @@ npm run ether -- capsule publish <capsule_id> --approve-permissions --workspace 
 npm run ether -- capsule rollback <capsule_id> --version <published_version> --workspace .
 ```
 
-This flow never runs imported or generated code. It produces replay records, a static-scanned playbook copy, an integrity digest, permission diff, optional Approval Card, version registry, and rollback target. Package signing and external sandbox execution remain later-phase work.
+This flow never runs imported or generated code. It produces replay records, a static-scanned playbook copy, an integrity digest, permission diff, optional Approval Card, supervisor-appended lifecycle events, versioned lifecycle artifacts, a version registry, and rollback target. Capsule registries remain projections over those facts; deterministic rebuild/parity proof for Capsule registries remains later-phase work. Package signing and external sandbox execution remain later-phase work.
 
 Digital Hibernation flow:
 

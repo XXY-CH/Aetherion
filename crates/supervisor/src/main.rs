@@ -1,9 +1,10 @@
 use aetherion_supervisor::{
     append_event, append_event_with_payload, evaluate_policy, file_read_request,
-    file_write_request, init_workspace, read_with_lease, write_with_lease,
-    write_workspace_registry, Consent, Decision,
+    file_write_request, init_workspace, parse_json_object, read_with_lease, write_with_lease,
+    write_workspace_registry, Consent, Decision, ParsedJsonObject,
 };
 use std::env;
+use std::fs;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
@@ -67,17 +68,29 @@ fn run_rpc() -> Result<(), String> {
 }
 
 fn handle_rpc_line(line: &str) -> String {
-    let id = string_field(line, "id").unwrap_or_else(|| "rpc".to_string());
-    let method = string_field(line, "method").unwrap_or_default();
-    let workspace_root = match required_string_field(line, "workspace_root") {
+    let request = match parse_json_object(line) {
+        Ok(request) => request,
+        Err(error) => return error_response("rpc", &format!("invalid JSON RPC request: {error}")),
+    };
+    let id = match optional_string_field(&request, "id") {
+        Ok(Some(value)) if !value.is_empty() => value,
+        Ok(_) => "rpc".to_string(),
+        Err(error) => return error_response("rpc", &error),
+    };
+    let method = match optional_string_field(&request, "method") {
+        Ok(Some(value)) => value,
+        Ok(None) => String::new(),
+        Err(error) => return error_response(&id, &error),
+    };
+    let workspace_root = match required_string_field(&request, "workspace_root") {
         Ok(value) => value,
         Err(error) => return error_response(&id, &error),
     };
-    let workspace_id = match required_string_field(line, "workspace_id") {
+    let workspace_id = match required_string_field(&request, "workspace_id") {
         Ok(value) => value,
         Err(error) => return error_response(&id, &error),
     };
-    let run_id = match required_string_field(line, "run_id") {
+    let run_id = match required_string_field(&request, "run_id") {
         Ok(value) => value,
         Err(error) => return error_response(&id, &error),
     };
@@ -97,15 +110,18 @@ fn handle_rpc_line(line: &str) -> String {
         },
         "event.append" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let event_type = match required_string_field(line, "event_type") {
+                let event_type = match required_string_field(&request, "event_type") {
                     Ok(value) => value,
                     Err(error) => return error_response(&id, &error),
                 };
-                let summary = match required_string_field(line, "summary") {
+                let summary = match required_string_field(&request, "summary") {
                     Ok(value) => value,
                     Err(error) => return error_response(&id, &error),
                 };
-                let payload_ref = string_field(line, "payload_ref");
+                let payload_ref = match optional_string_field(&request, "payload_ref") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
                 match append_event_with_payload(
                     &workspace,
                     &event_type,
@@ -123,11 +139,11 @@ fn handle_rpc_line(line: &str) -> String {
             Err(error) => return error_response(&id, &error.to_string()),
         },
         "run.resume.evaluate" => {
-            let source = match required_string_field(line, "source") {
+            let source = match required_string_field(&request, "source") {
                 Ok(value) => value,
                 Err(error) => return error_response(&id, &error),
             };
-            let trigger_id = match required_string_field(line, "trigger_id") {
+            let trigger_id = match required_string_field(&request, "trigger_id") {
                 Ok(value) => value,
                 Err(error) => return error_response(&id, &error),
             };
@@ -154,7 +170,7 @@ fn handle_rpc_line(line: &str) -> String {
             }
         }
         "security.taint.evaluate" => {
-            let source_kind = match required_string_field(line, "source_kind") {
+            let source_kind = match required_string_field(&request, "source_kind") {
                 Ok(value) => value,
                 Err(error) => return error_response(&id, &error),
             };
@@ -193,11 +209,11 @@ fn handle_rpc_line(line: &str) -> String {
             }
         }
         "surface.outbox.evaluate" => {
-            let visibility = match required_string_field(line, "visibility") {
+            let visibility = match required_string_field(&request, "visibility") {
                 Ok(value) => value,
                 Err(error) => return error_response(&id, &error),
             };
-            let adapter = match required_string_field(line, "adapter") {
+            let adapter = match required_string_field(&request, "adapter") {
                 Ok(value) => value,
                 Err(error) => return error_response(&id, &error),
             };
@@ -246,23 +262,27 @@ fn handle_rpc_line(line: &str) -> String {
         }
         "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let path = match required_string_field(line, "path") {
+                let path = match required_string_field(&request, "path") {
                     Ok(value) => PathBuf::from(value),
                     Err(error) => return error_response(&id, &error),
                 };
-                let verb = match required_string_field(line, "verb") {
+                let verb = match required_string_field(&request, "verb") {
                     Ok(value) => value,
                     Err(error) => return error_response(&id, &error),
                 };
                 if verb != "read" && verb != "write" {
                     return error_response(&id, "verb must be read or write");
                 }
+                let approved = match bool_field(&request, "approved") {
+                    Ok(value) => value,
+                    Err(error) => return error_response(&id, &error),
+                };
                 let request = if verb == "write" {
                     file_write_request(&run_id, path)
                 } else {
                     file_read_request(&run_id, path)
                 };
-                let consent = if bool_field(line, "approved") {
+                let consent = if approved {
                     Some(Consent {
                         request_id: request.id.clone(),
                         approved: true,
@@ -283,7 +303,7 @@ fn handle_rpc_line(line: &str) -> String {
         },
         "file.read" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
-                let path = match required_string_field(line, "path") {
+                let path = match required_string_field(&request, "path") {
                     Ok(value) => PathBuf::from(value),
                     Err(error) => return error_response(&id, &error),
                 };
@@ -301,7 +321,7 @@ fn handle_rpc_line(line: &str) -> String {
                 if let Err(error) = write_workspace_registry(&workspace) {
                     return error_response(&id, &error.to_string());
                 }
-                let path = match required_string_field(line, "path") {
+                let path = match required_string_field(&request, "path") {
                     Ok(value) => PathBuf::from(value),
                     Err(error) => return error_response(&id, &error),
                 };
@@ -317,7 +337,7 @@ fn handle_rpc_line(line: &str) -> String {
                 if let Err(error) = write_workspace_registry(&workspace) {
                     return error_response(&id, &error.to_string());
                 }
-                let path = match required_string_field(line, "path") {
+                let path = match required_string_field(&request, "path") {
                     Ok(value) => PathBuf::from(value),
                     Err(error) => return error_response(&id, &error),
                 };
@@ -333,6 +353,18 @@ fn handle_rpc_line(line: &str) -> String {
                 };
                 let decision = evaluate_policy(&workspace, &request, None);
                 let decision_label = decision_name(&decision.decision);
+                let risk_event_id = match append_event(
+                    &workspace,
+                    "risk.composed",
+                    &run_id,
+                    &format!(
+                        "Composed {:?} risk for child workspace file read.",
+                        decision.risk_level
+                    ),
+                ) {
+                    Ok(event_id) => event_id,
+                    Err(error) => return error_response(&id, &error.to_string()),
+                };
                 let policy_event_id = match append_event(
                     &workspace,
                     "policy.decided",
@@ -346,6 +378,19 @@ fn handle_rpc_line(line: &str) -> String {
                 ) {
                     Ok(event_id) => event_id,
                     Err(error) => return error_response(&id, &error.to_string()),
+                };
+                let lease_event_id = if let Some(lease) = &decision.lease {
+                    match append_event(
+                        &workspace,
+                        "lease.issued",
+                        &run_id,
+                        &format!("Issued scoped child read lease {}.", lease.id),
+                    ) {
+                        Ok(event_id) => event_id,
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
+                } else {
+                    String::new()
                 };
                 match read_with_lease(&request, &decision) {
                     Ok(contents) => {
@@ -363,13 +408,17 @@ fn handle_rpc_line(line: &str) -> String {
                             Err(error) => return error_response(&id, &error.to_string()),
                         };
                         format!(
-                            "{{\"contents\":\"{}\",\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"allow\",\"risk_level\":\"L1\",\"lease_id\":\"{}\"}}",
+                            "{{\"contents\":\"{}\",\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"risk_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
                             escape(&contents),
                             escape(&request.id),
                             escape(&request_event_id),
+                            escape(&risk_event_id),
                             escape(&decision.id),
                             escape(&policy_event_id),
+                            escape(&lease_event_id),
                             escape(&result_event_id),
+                            decision_name(&decision.decision),
+                            decision.risk_level,
                             escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
                         )
                     }
@@ -390,12 +439,16 @@ fn handle_rpc_line(line: &str) -> String {
                             }
                         };
                         format!(
-                            "{{\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"deny\",\"risk_level\":\"L5\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
+                            "{{\"request_id\":\"{}\",\"request_event_id\":\"{}\",\"risk_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"result_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
                             escape(&request.id),
                             escape(&request_event_id),
+                            escape(&risk_event_id),
                             escape(&decision.id),
                             escape(&policy_event_id),
+                            escape(&lease_event_id),
                             escape(&result_event_id),
+                            decision_name(&decision.decision),
+                            decision.risk_level,
                             escape(&error.to_string())
                         )
                     }
@@ -403,62 +456,85 @@ fn handle_rpc_line(line: &str) -> String {
             }
             Err(error) => return error_response(&id, &error.to_string()),
         },
-        "file.write.prepare" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                if let Err(error) = write_workspace_registry(&workspace) {
-                    return error_response(&id, &error.to_string());
+        "file.write.prepare" => {
+            let path = match required_string_field(&request, "path") {
+                Ok(value) => PathBuf::from(value),
+                Err(error) => return error_response(&id, &error),
+            };
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    if let Err(error) = write_workspace_registry(&workspace) {
+                        return error_response(&id, &error.to_string());
+                    }
+                    match traced_write_prepare(&workspace, &run_id, path) {
+                        Ok(response) => response,
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
                 }
-                let path = match required_string_field(line, "path") {
-                    Ok(value) => PathBuf::from(value),
-                    Err(error) => return error_response(&id, &error),
-                };
-                match traced_write_prepare(&workspace, &run_id, path) {
-                    Ok(response) => response,
-                    Err(error) => return error_response(&id, &error.to_string()),
-                }
+                Err(error) => return error_response(&id, &error.to_string()),
             }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
-        "file.write.commit" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                let path = match required_string_field(line, "path") {
-                    Ok(value) => PathBuf::from(value),
-                    Err(error) => return error_response(&id, &error),
-                };
-                let contents = match required_string_field(line, "contents") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                match traced_write_commit(
-                    &workspace,
-                    &run_id,
-                    path,
-                    &contents,
-                    bool_field(line, "approved"),
-                ) {
-                    Ok(response) => response,
-                    Err(error) => return error_response(&id, &error.to_string()),
+        }
+        "file.write.commit" => {
+            let path = match required_string_field(&request, "path") {
+                Ok(value) => PathBuf::from(value),
+                Err(error) => return error_response(&id, &error),
+            };
+            let contents = match required_string_field(&request, "contents") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let approved = match bool_field(&request, "approved") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let consent_record_json = match optional_string_field(&request, "consent_record_json") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let consent_payload_ref = match optional_string_field(&request, "consent_payload_ref") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    match traced_write_commit(
+                        &workspace,
+                        &run_id,
+                        path,
+                        &contents,
+                        approved,
+                        consent_record_json.as_deref(),
+                        consent_payload_ref.as_deref(),
+                    ) {
+                        Ok(response) => response,
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
                 }
+                Err(error) => return error_response(&id, &error.to_string()),
             }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
-        "file.write" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                let path = match required_string_field(line, "path") {
-                    Ok(value) => PathBuf::from(value),
-                    Err(error) => return error_response(&id, &error),
-                };
-                let contents = match required_string_field(line, "contents") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                let request = file_write_request(&run_id, path);
-                let consent = Consent {
-                    request_id: request.id.clone(),
-                    approved: bool_field(line, "approved"),
-                };
-                let decision = evaluate_policy(&workspace, &request, Some(&consent));
-                match write_with_lease(&request, &decision, &contents) {
+        }
+        "file.write" => {
+            let path = match required_string_field(&request, "path") {
+                Ok(value) => PathBuf::from(value),
+                Err(error) => return error_response(&id, &error),
+            };
+            let contents = match required_string_field(&request, "contents") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let approved = match bool_field(&request, "approved") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    let request = file_write_request(&run_id, path);
+                    let consent = Consent {
+                        request_id: request.id.clone(),
+                        approved,
+                    };
+                    let decision = evaluate_policy(&workspace, &request, Some(&consent));
+                    match write_with_lease(&request, &decision, &contents) {
                     Ok(()) => format!(
                         "{{\"written\":true,\"request_id\":\"{}\",\"decision\":\"allow\",\"risk_level\":\"L3\",\"lease_id\":\"{}\"}}",
                         escape(&request.id),
@@ -466,9 +542,10 @@ fn handle_rpc_line(line: &str) -> String {
                     ),
                     Err(error) => return error_response(&id, &error.to_string()),
                 }
+                }
+                Err(error) => return error_response(&id, &error.to_string()),
             }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
+        }
         "trace.replay" => "{\"live_side_effects_replayed\":false}".to_string(),
         _ => return error_response(&id, "unsupported method"),
     };
@@ -480,10 +557,12 @@ fn handle_rpc_line(line: &str) -> String {
     )
 }
 
-fn required_string_field(line: &str, key: &str) -> Result<String, String> {
-    string_field(line, key)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("missing required string field {key}"))
+fn required_string_field(request: &ParsedJsonObject, key: &str) -> Result<String, String> {
+    request.required_string(key)
+}
+
+fn optional_string_field(request: &ParsedJsonObject, key: &str) -> Result<Option<String>, String> {
+    request.optional_string(key)
 }
 
 fn traced_read(
@@ -641,6 +720,8 @@ fn traced_write_commit(
     path: PathBuf,
     contents: &str,
     approved: bool,
+    consent_record_json: Option<&str>,
+    consent_payload_ref: Option<&str>,
 ) -> std::io::Result<String> {
     let request = file_write_request(run_id, path);
     let consent = Consent {
@@ -648,6 +729,27 @@ fn traced_write_commit(
         approved,
     };
     let decision = evaluate_policy(workspace, &request, Some(&consent));
+    let consent_event_id = if approved && decision.decision == Decision::Allow {
+        write_consent_artifact_for_commit(
+            workspace,
+            run_id,
+            &request.id,
+            consent_record_json,
+            consent_payload_ref,
+        )?;
+        append_event_with_payload(
+            workspace,
+            "consent.recorded",
+            run_id,
+            &format!(
+                "User consent approved supervisor workspace write {}.",
+                request.path.display()
+            ),
+            consent_payload_ref,
+        )?
+    } else {
+        String::new()
+    };
     let policy_event_id = append_event(
         workspace,
         "policy.decided",
@@ -680,21 +782,71 @@ fn traced_write_commit(
                     request.path.display()
                 ),
             )?;
+            let observed_contents = fs::read_to_string(&request.path);
+            let verification_passed = observed_contents
+                .as_ref()
+                .is_ok_and(|observed| observed == contents);
+            let observed_bytes = observed_contents
+                .as_ref()
+                .map(|observed| observed.len())
+                .unwrap_or(0);
+            let observation_summary = if verification_passed {
+                format!(
+                    "Supervisor observed expected workspace file state for {} with {} bytes.",
+                    request.path.display(),
+                    observed_bytes
+                )
+            } else if let Err(error) = &observed_contents {
+                format!(
+                    "Supervisor could not observe workspace file {} after write: {}.",
+                    request.path.display(),
+                    error
+                )
+            } else {
+                format!(
+                    "Supervisor observed unexpected workspace file state for {}.",
+                    request.path.display()
+                )
+            };
+            let observation_event_id =
+                append_event(workspace, "observation.recorded", run_id, &observation_summary)?;
+            let verification_status = if verification_passed {
+                "passed"
+            } else {
+                "failed"
+            };
+            let verification_summary = if verification_passed {
+                "Supervisor verified exact workspace file contents after scoped write."
+            } else {
+                "Supervisor verification failed after scoped workspace file write."
+            };
+            let verification_event_id =
+                append_event(workspace, "verification.recorded", run_id, verification_summary)?;
             Ok(format!(
-                "{{\"written\":true,\"request_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_event_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
+                "{{\"written\":true,\"request_id\":\"{}\",\"consent_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_id\":\"{}\",\"action_event_id\":\"{}\",\"observation_id\":\"{}\",\"observation_event_id\":\"{}\",\"observation_summary\":\"{}\",\"verification_id\":\"{}\",\"verification_event_id\":\"{}\",\"verification_status\":\"{}\",\"verification_summary\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
                 escape(&request.id),
+                escape(&consent_event_id),
                 escape(&decision.id),
                 escape(&policy_event_id),
                 escape(&lease_event_id),
+                escape(&format!("action_{}_write", run_id)),
                 escape(&action_event_id),
+                escape(&format!("obs_{}_file", run_id)),
+                escape(&observation_event_id),
+                escape(&observation_summary),
+                escape(&format!("verify_{}_file", run_id)),
+                escape(&verification_event_id),
+                verification_status,
+                escape(verification_summary),
                 decision_name(&decision.decision),
                 decision.risk_level,
                 escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
             ))
         }
         Err(error) => Ok(format!(
-            "{{\"written\":false,\"request_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_event_id\":\"\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
+            "{{\"written\":false,\"request_id\":\"{}\",\"consent_event_id\":\"{}\",\"policy_decision_id\":\"{}\",\"policy_event_id\":\"{}\",\"lease_event_id\":\"{}\",\"action_event_id\":\"\",\"observation_event_id\":\"\",\"verification_event_id\":\"\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"\",\"reason\":\"{}\"}}",
             escape(&request.id),
+            escape(&consent_event_id),
             escape(&decision.id),
             escape(&policy_event_id),
             escape(&lease_event_id),
@@ -705,6 +857,80 @@ fn traced_write_commit(
     }
 }
 
+fn write_consent_artifact_for_commit(
+    workspace: &aetherion_supervisor::Workspace,
+    run_id: &str,
+    request_id: &str,
+    consent_record_json: Option<&str>,
+    consent_payload_ref: Option<&str>,
+) -> std::io::Result<()> {
+    let expected_ref = format!("artifact://consent/{run_id}/write");
+    match consent_payload_ref {
+        Some(value) if value == expected_ref => {}
+        Some(value) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("consent payload ref {value} does not match {expected_ref}"),
+            ));
+        }
+        None => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "approved write commit requires consent_payload_ref",
+            ));
+        }
+    }
+    let consent_json = consent_record_json.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "approved write commit requires consent_record_json",
+        )
+    })?;
+    let consent = parse_json_object(consent_json).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid consent record JSON: {error}"),
+        )
+    })?;
+    let expected_id = format!("consent_{run_id}_write");
+    require_consent_field(&consent, "id", &expected_id)?;
+    require_consent_field(&consent, "workspace_id", &workspace.id)?;
+    require_consent_field(&consent, "tool_request_id", request_id)?;
+    require_consent_field(&consent, "decision", "approved")?;
+    require_consent_field(&consent, "risk_level", "L3")?;
+
+    let dir = workspace
+        .root
+        .join(".aetherion")
+        .join("artifacts")
+        .join("consent")
+        .join(run_id);
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join(format!("{expected_id}.json")), consent_json)
+}
+
+fn require_consent_field(
+    consent: &ParsedJsonObject,
+    key: &str,
+    expected: &str,
+) -> std::io::Result<()> {
+    let actual = consent.required_string(key).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid consent record field {key}: {error}"),
+        )
+    })?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("consent record field {key} expected {expected}, got {actual}"),
+        ))
+    }
+}
+
+#[cfg(test)]
 fn string_field(line: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\":\"", key);
     let start = line.find(&needle)? + needle.len();
@@ -749,8 +975,10 @@ fn string_field(line: &str, key: &str) -> Option<String> {
     None
 }
 
-fn bool_field(line: &str, key: &str) -> bool {
-    line.contains(&format!("\"{}\":true", key))
+fn bool_field(request: &ParsedJsonObject, key: &str) -> Result<bool, String> {
+    request
+        .optional_bool(key)
+        .map(|value| value.unwrap_or(false))
 }
 
 fn decision_name(decision: &Decision) -> &'static str {
@@ -783,6 +1011,12 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn consent_record_json(run_id: &str, workspace_id: &str) -> String {
+        format!(
+            "{{\"id\":\"consent_{run_id}_write\",\"user_id\":\"user_local\",\"workspace_id\":\"{workspace_id}\",\"tool_request_id\":\"toolreq_{run_id}_write\",\"decision\":\"approved\",\"risk_level\":\"L3\",\"approved_at\":\"2026-06-05T20:00:01.000Z\",\"expires_at\":null,\"scope\":{{\"actions\":[\"write\"],\"paths\":[\"SUMMARY.md\"]}}}}\n"
+        )
+    }
+
     #[test]
     fn rpc_file_write_decodes_json_string_contents() {
         let nonce = SystemTime::now()
@@ -803,6 +1037,42 @@ mod tests {
             fs::read_to_string(target).unwrap(),
             "line one\nline \"two\"\n"
         );
+    }
+
+    #[test]
+    fn rpc_json_input_fails_closed_for_duplicate_or_wrong_typed_fields() {
+        let malformed = handle_rpc_line("{\"id\":\"rpc_malformed\",\"method\":\"workspace.init\"");
+        assert!(malformed.contains("\"id\":\"rpc\""));
+        assert!(malformed.contains("invalid JSON RPC request"));
+
+        let duplicate = handle_rpc_line(
+            "{\"id\":\"rpc_duplicate\",\"id\":\"rpc_shadow\",\"method\":\"workspace.init\",\"workspace_root\":\"/tmp\",\"workspace_id\":\"ws_duplicate\",\"run_id\":\"run_duplicate\"}",
+        );
+        assert!(duplicate.contains("\"id\":\"rpc\""));
+        assert!(duplicate.contains("duplicate JSON object key id"));
+
+        let wrong_workspace_root = handle_rpc_line(
+            "{\"id\":\"rpc_wrong_root\",\"method\":\"workspace.init\",\"workspace_root\":42,\"workspace_id\":\"ws_wrong_root\",\"run_id\":\"run_wrong_root\"}",
+        );
+        assert!(wrong_workspace_root.contains("\"id\":\"rpc_wrong_root\""));
+        assert!(wrong_workspace_root.contains("field workspace_root must be a string"));
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-json-types-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("SUMMARY.md");
+        let wrong_approval = format!(
+            "{{\"id\":\"rpc_wrong_approval\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_wrong_approval\",\"run_id\":\"run_wrong_approval\",\"path\":\"{}\",\"approved\":\"true\",\"contents\":\"must not write\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&target.display().to_string())
+        );
+        let approval_response = handle_rpc_line(&wrong_approval);
+        assert!(approval_response.contains("\"id\":\"rpc_wrong_approval\""));
+        assert!(approval_response.contains("field approved must be a boolean"));
+        assert!(!target.exists());
     }
 
     #[test]
@@ -900,12 +1170,25 @@ mod tests {
         assert!(response.contains("\"lease_id\":\"lease_"));
         assert!(response.contains("\"contents\":\"child evidence\\n\""));
         assert!(response.contains("\"request_event_id\":\"evt_"));
+        assert!(response.contains("\"risk_event_id\":\"evt_"));
         assert!(response.contains("\"policy_event_id\":\"evt_"));
+        assert!(response.contains("\"lease_event_id\":\"evt_"));
         assert!(response.contains("\"result_event_id\":\"evt_"));
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
-        assert!(ledger.contains("\"event_type\":\"tool.requested\""));
-        assert!(ledger.contains("\"event_type\":\"policy.decided\""));
-        assert!(ledger.contains("\"event_type\":\"tool.result\""));
+        let event_types = ledger
+            .lines()
+            .filter_map(|line| string_field(line, "event_type"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            event_types,
+            vec![
+                "tool.requested",
+                "risk.composed",
+                "policy.decided",
+                "lease.issued",
+                "tool.result"
+            ]
+        );
 
         let conflicting_request = format!(
             "{{\"id\":\"rpc_child_read_conflict\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_conflict\",\"run_id\":\"run_child_conflict\",\"path\":\"{}\"}}",
@@ -914,6 +1197,50 @@ mod tests {
         );
         let conflict_response = handle_rpc_line(&conflicting_request);
         assert!(conflict_response.contains("\"error\":\"workspace registry identity mismatch\""));
+    }
+
+    #[test]
+    fn rpc_child_read_denial_records_risk_without_lease() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-child-deny-{nonce}"));
+        let outside_root =
+            std::env::temp_dir().join(format!("aetherion-rpc-child-deny-outside-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside_root).unwrap();
+        let outside = outside_root.join("README.md");
+        fs::write(&outside, "outside child evidence\n").unwrap();
+        let request = format!(
+            "{{\"id\":\"rpc_child_read_deny\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_deny\",\"run_id\":\"run_child_deny\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            escape(&outside.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"decision\":\"deny\""));
+        assert!(response.contains("\"risk_level\":\"L5\""));
+        assert!(response.contains("\"risk_event_id\":\"evt_"));
+        assert!(response.contains("\"policy_event_id\":\"evt_"));
+        assert!(response.contains("\"lease_event_id\":\"\""));
+        assert!(response.contains("\"result_event_id\":\"evt_"));
+        assert!(response.contains("\"lease_id\":\"\""));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        let event_types = ledger
+            .lines()
+            .filter_map(|line| string_field(line, "event_type"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            event_types,
+            vec![
+                "tool.requested",
+                "risk.composed",
+                "policy.decided",
+                "tool.result"
+            ]
+        );
+        assert!(ledger.contains("Target is outside workspace boundary"));
+        assert!(!ledger.contains("\"event_type\":\"lease.issued\""));
     }
 
     #[test]
@@ -951,22 +1278,37 @@ mod tests {
         assert!(prepare_response.contains("\"risk_event_id\":\"evt_"));
         assert!(prepare_response.contains("\"lease_id\":\"\""));
 
+        let consent_json = consent_record_json("run_traced_test", "ws_traced_test");
         let commit_request = format!(
-            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"contents\":\"Summary: traced evidence\\n\"}}",
+            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_test/write\",\"contents\":\"Summary: traced evidence\\n\"}}",
             escape(&root.display().to_string()),
-            escape(&output.display().to_string())
+            escape(&output.display().to_string()),
+            escape(&consent_json)
         );
         let commit_response = handle_rpc_line(&commit_request);
         assert!(commit_response.contains("\"written\":true"));
         assert!(commit_response.contains("\"policy_event_id\":\"evt_"));
         assert!(commit_response.contains("\"lease_event_id\":\"evt_"));
         assert!(commit_response.contains("\"action_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"consent_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"observation_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"verification_event_id\":\"evt_"));
+        assert!(commit_response.contains("\"verification_status\":\"passed\""));
         assert_eq!(
             fs::read_to_string(&output).unwrap(),
             "Summary: traced evidence\n"
         );
 
+        let consent_artifact = root
+            .join(".aetherion")
+            .join("artifacts")
+            .join("consent")
+            .join("run_traced_test")
+            .join("consent_run_traced_test_write.json");
+        assert_eq!(fs::read_to_string(consent_artifact).unwrap(), consent_json);
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("\"event_type\":\"consent.recorded\""));
+        assert!(ledger.contains("\"payload_ref\":\"artifact://consent/run_traced_test/write\""));
         let event_types = ledger
             .lines()
             .filter_map(|line| string_field(line, "event_type"))
@@ -982,9 +1324,12 @@ mod tests {
                 "tool.requested",
                 "risk.composed",
                 "policy.decided",
+                "consent.recorded",
                 "policy.decided",
                 "lease.issued",
-                "action.recorded"
+                "action.recorded",
+                "observation.recorded",
+                "verification.recorded"
             ]
         );
     }
@@ -999,7 +1344,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let output = root.join("SUMMARY.md");
         let request = format!(
-            "{{\"id\":\"rpc_write_commit_deny\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_deny\",\"run_id\":\"run_traced_deny\",\"path\":\"{}\",\"contents\":\"no approval\\n\"}}",
+            "{{\"id\":\"rpc_write_commit_deny\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_deny\",\"run_id\":\"run_traced_deny\",\"path\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_deny/write\",\"contents\":\"no approval\\n\"}}",
             escape(&root.display().to_string()),
             escape(&output.display().to_string())
         );
@@ -1010,7 +1355,54 @@ mod tests {
         assert!(!output.exists());
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
         assert!(ledger.contains("\"event_type\":\"policy.decided\""));
+        assert!(!ledger.contains("\"event_type\":\"consent.recorded\""));
+        assert!(!ledger.contains("artifact://consent/run_traced_deny/write"));
         assert!(!ledger.contains("\"event_type\":\"action.recorded\""));
+    }
+
+    #[test]
+    fn rpc_write_commit_requires_matching_consent_artifact_evidence_before_ledger_ref() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-consent-required-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("SUMMARY.md");
+        let missing_consent_request = format!(
+            "{{\"id\":\"rpc_missing_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_consent_required\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&output.display().to_string())
+        );
+        let missing_response = handle_rpc_line(&missing_consent_request);
+        assert!(missing_response.contains("approved write commit requires consent_record_json"));
+        assert!(!output.exists());
+        let ledger_path = root.join(".aetherion/events/events.jsonl");
+        let ledger = fs::read_to_string(&ledger_path).unwrap();
+        assert!(!ledger.contains("\"event_type\":\"consent.recorded\""));
+        assert!(!ledger.contains("artifact://consent/run_consent_required/write"));
+
+        let mismatched_consent = consent_record_json("run_other", "ws_consent_required");
+        let mismatch_request = format!(
+            "{{\"id\":\"rpc_mismatched_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_consent_required\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
+            escape(&root.display().to_string()),
+            escape(&output.display().to_string()),
+            escape(&mismatched_consent)
+        );
+        let mismatch_response = handle_rpc_line(&mismatch_request);
+        assert!(mismatch_response
+            .contains("consent record field id expected consent_run_consent_required_write"));
+        assert!(!output.exists());
+        let ledger = fs::read_to_string(ledger_path).unwrap();
+        assert!(!ledger.contains("\"event_type\":\"consent.recorded\""));
+        assert!(!ledger.contains("artifact://consent/run_consent_required/write"));
+        assert!(!root
+            .join(".aetherion")
+            .join("artifacts")
+            .join("consent")
+            .join("run_consent_required")
+            .join("consent_run_consent_required_write.json")
+            .exists());
     }
 
     #[test]

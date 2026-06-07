@@ -85,6 +85,36 @@ enum JsonValue {
     Object(BTreeMap<String, JsonValue>),
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedJsonObject {
+    fields: BTreeMap<String, JsonValue>,
+}
+
+impl ParsedJsonObject {
+    pub fn optional_string(&self, key: &str) -> Result<Option<String>, String> {
+        match self.fields.get(key) {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(format!("field {key} must be a string")),
+        }
+    }
+
+    pub fn required_string(&self, key: &str) -> Result<String, String> {
+        match self.optional_string(key)? {
+            Some(value) if !value.is_empty() => Ok(value),
+            _ => Err(format!("missing required string field {key}")),
+        }
+    }
+
+    pub fn optional_bool(&self, key: &str) -> Result<Option<bool>, String> {
+        match self.fields.get(key) {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::Bool(value)) => Ok(Some(*value)),
+            Some(_) => Err(format!("field {key} must be a boolean")),
+        }
+    }
+}
+
 pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Result<Workspace> {
     let root = root.as_ref().to_path_buf();
     let ledger_path = root.join(".aetherion").join("events").join("events.jsonl");
@@ -784,6 +814,13 @@ fn canonical_legacy_event_json(input: &EventHashInput<'_>) -> String {
         format!("\"workspace_id\":\"{}\"", escape_json(input.workspace_id)),
     ]);
     format!("{{{}}}", fields.join(","))
+}
+
+pub fn parse_json_object(input: &str) -> Result<ParsedJsonObject, String> {
+    match parse_json(input)? {
+        JsonValue::Object(fields) => Ok(ParsedJsonObject { fields }),
+        _ => Err("JSON value must be an object".to_string()),
+    }
 }
 
 fn parse_json(input: &str) -> Result<JsonValue, String> {

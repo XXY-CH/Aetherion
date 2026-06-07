@@ -20,6 +20,7 @@ P0 contracts are required for the current Ether + Rust supervisor kernel loop. C
 - `event`
 - `workspace-registry`
 - `run-manifest`
+- `boundary-facts`
 - `tool-request`
 - `risk-composition`
 - `policy-decision`
@@ -40,7 +41,7 @@ Gate for P0 changes:
 
 ### P1: Trace-Backed Product Runtime
 
-P1 contracts support implemented but intentionally narrow local runtime slices. Changes here must cite source Ledger events or persisted registries and must not synthesize missing evidence.
+P1 contracts support implemented but intentionally narrow local runtime slices. Changes here must cite source Ledger events or persisted registries with auditable Ledger provenance, and must not synthesize missing evidence.
 
 - Memory OS: memory candidate, memory card, memory tombstone, memory patch, episodic timeline, user model, context pack.
 - Capability OS: capability capsule, capability package, capsule install, migration plan/report, legacy capsule.
@@ -51,9 +52,10 @@ P1 contracts support implemented but intentionally narrow local runtime slices. 
 
 Gate for P1 changes:
 
-- Show the command or module path that produces the contract from real Ledger or registry evidence.
+- Show the command or module path that produces the contract from real Ledger evidence, or from registry evidence whose Ledger event references pass the read-only registry provenance audit.
 - Add a negative test for missing source events, inherited authority, raw secrets, or live side-effect replay where relevant.
 - Keep advanced behavior report-only or sandbox-only unless Rust supervisor authority exists.
+- Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records` is the first scoped artifact rebuild/parity preview for one registry family. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifact contracts, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for other registries remains future work.
 
 ### P2: Frozen Innovation Contracts
 
@@ -90,7 +92,19 @@ The first loop is now closed for local file read/write through Ether and the Rus
 2. Trace-backed Memory Card lifecycle: real run trace to candidate, review, active card, context pack, and tombstone.
 3. Trace-backed Capability Draft lifecycle: repeated successful traces to draft Capsule, replay tests, sandbox trial, and staged status without production execution.
 
-For the action lifecycle, the default Ether supervisor path now uses Rust traced file-action RPCs for read, write prepare, and write commit. Those RPCs create the file-action Ledger events and return event ids for the run manifest projection. Ether still creates the user-intent event, approval card, consent event, verification records, and run manifest status. Future work should keep moving authority-bearing lifecycle logic into Rust RPC methods before adding new action families.
+The P1 Memory lifecycle event types `memory.candidate.created`, `memory.accepted`, `memory.rejected`, and `memory.blocked` are runtime-backed extensions, not speculative schema growth. Ether writes a Memory lifecycle artifact, asks the Rust supervisor to append the corresponding Ledger event with `payload_ref`, and only then updates the registry projection. `memory.deleted` remains the tombstone event for delete review.
+
+Memory registry reads that assemble downstream context must not treat projections as source truth. `context explain`, `memory user-model`, and hibernation resume context assembly require Memory Card/Tombstone registry entries to pass the read-only registry provenance reference gate before use. Passing this gate means referenced Ledger event ids exist; it still does not prove deterministic registry rebuild parity. `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards.
+
+For the action lifecycle, the default Ether supervisor path now writes a `run.started` event with a Boundary Facts `payload_ref` before the file-action lifecycle. That artifact records only the facts the kernel can prove today (`run_id`, `workspace_id`, `entry_surface`, and authority) and explicitly keeps `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded`. It is not a full identity, pairing, channel, or vault system.
+
+The default Ether supervisor path now uses Rust traced file-action RPCs for read, write prepare, and write commit. Those RPCs create the file-action Ledger events and return event ids for the run manifest projection. Ether still creates the user-intent event, approval card, and run manifest status; approved write consent, observation, and verification evidence now come from the Rust `file.write.commit` RPC. Ether builds and schema-validates the Consent Record JSON, then passes it with `artifact://consent/<run_id>/write`; Rust validates that the consent record binds to the run, workspace, and write request, writes the artifact under `.aetherion/artifacts/consent/<run_id>/`, and only then attaches the existing `consent.recorded` event to that `payload_ref`. Future work should keep moving authority-bearing lifecycle logic into Rust RPC methods before adding new action families.
+
+Consent Record artifacts prove one approved local write request. They do not establish full user identity, device pairing, remote channel identity, a vault backend, or any reusable authority grant. Unapproved writes must not create a Consent Record artifact or a `consent.recorded` event.
+
+`ether boundary <run_id>` may derive a read-only action matrix from those existing lifecycle events for TUI inspection. That matrix is a projection only: it must not add schema fields, append `boundary.*` events, write artifacts, mutate registries, or claim to be a durable per-action boundary card.
+
+`ether audit payload-refs` may inspect Ledger `payload_ref` values and resolve known local `artifact://` paths for Boundary Facts, Consent Records, Replay Records, and generic Ether artifacts. It may schema-validate Boundary Facts, Consent Records, and Replay Records using the existing contracts; unsupported or generic artifacts remain `not_checked`. It is a read-only visibility pass: it must not append events, write or repair artifacts, mutate registries, or imply that referenced artifacts grant authority.
 
 ## Node Baseline
 

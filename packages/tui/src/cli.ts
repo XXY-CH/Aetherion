@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
+import { appendEvent, auditLedgerPayloadRefs, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -354,9 +354,270 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "store":
       await runStore(options);
       return true;
+    case "audit":
+      await runAudit(options);
+      return true;
+    case "boundary":
+      await runBoundary(options);
+      return true;
     default:
       return false;
   }
+}
+
+async function runAudit(options: CliOptions): Promise<void> {
+  if (options.topic === "registries") {
+    const workspaceRoot = resolve(options.workspace);
+    const workspace = await openWorkspace(workspaceRoot);
+    const audit = auditRegistryProvenance(workspaceRoot, await readEvents(workspace));
+    printRawJson(audit);
+    return;
+  }
+  if (options.topic === "replay-records") {
+    printRawJson(auditReplayRecordRegistryRebuild(resolve(options.workspace)));
+    return;
+  }
+  if (options.topic === "payload-refs") {
+    const workspaceRoot = resolve(options.workspace);
+    const workspace = await openWorkspace(workspaceRoot);
+    const audit = await auditLedgerPayloadRefs(repoRoot, workspaceRoot, await readEvents(workspace));
+    printRawJson(audit);
+    return;
+  }
+  throw new Error("audit requires topic registries, replay-records, or payload-refs");
+}
+
+async function runBoundary(options: CliOptions): Promise<void> {
+  const runId = options.topic;
+  if (!runId?.startsWith("run_")) {
+    throw new Error("boundary requires a run id as the first argument");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const { workspace, registry } = await loadWorkspaceFromRegistry(workspaceRoot);
+  const manifest = await loadRunManifest(workspace, runId);
+  const ledger = await readEvents(workspace);
+  const runEvents = ledger.filter((event) => event.run_id === runId);
+  const trace = await reconstructTrace(workspace, runId);
+  const eventTypes = runEvents.map((event) => event.event_type);
+  const policyEvents = eventsOfType(runEvents, "policy.decided");
+  const riskEvents = eventsOfType(runEvents, "risk.composed");
+  const consentEvents = eventsOfType(runEvents, "consent.recorded");
+  const leaseEvents = eventsOfType(runEvents, "lease.issued");
+  const actionEvents = eventsOfType(runEvents, "action.recorded");
+  const toolRequestEvents = eventsOfType(runEvents, "tool.requested");
+  const startedEvent = eventsOfType(runEvents, "run.started").at(0);
+  const userMessage = eventsOfType(runEvents, "user.message").at(0);
+  const materialActions = boundaryMaterialActions(runEvents, userMessage?.summary ?? manifest.summary ?? "not_recorded");
+  const boundaryFacts = await readBoundaryFactsArtifact(workspaceRoot, runId);
+  const actorIds = (actorType: EventRecord["actor"]["type"]) => uniqueStrings(runEvents
+    .filter((event) => event.actor.type === actorType)
+    .map((event) => event.actor.id));
+  const missingBoundaryFacts = boundaryFacts?.not_recorded ?? [
+    actorIds("user").length === 0 ? "user_id" : "",
+    "device_id",
+    "channel_id",
+    "secret_vault"
+  ].filter(Boolean);
+
+  console.log(`boundary_run=${runId}`);
+  console.log("boundary_scope=read_only_ledger_manifest");
+  console.log(`boundary_status=${runEvents.length > 0 ? "recorded" : "missing_events"}`);
+  console.log(`boundary_facts_ref=${startedEvent?.payload_ref ?? "not_recorded"}`);
+  console.log(`boundary_known_facts=${joinOrNotRecorded(boundaryFacts?.known_facts ?? [])}`);
+  console.log(`who_user_ids=${joinOrNotRecorded(actorIds("user"))}`);
+  console.log(`who_agent_ids=${joinOrNotRecorded(actorIds("agent"))}`);
+  console.log(`who_system_ids=${joinOrNotRecorded(actorIds("system"))}`);
+  console.log(`where_workspace_id=${manifest.workspace_id}`);
+  console.log(`where_workspace_root=${singleLine(registry.root)}`);
+  console.log(`where_entry_surface=${manifest.entry_surface}`);
+  console.log(`where_authority=${registry.authority}`);
+  console.log(`what_event_types=${joinOrNotRecorded(eventTypes)}`);
+  console.log(`what_tool_requests=${toolRequestEvents.length}`);
+  console.log(`what_policy_decisions=${policyEvents.length}`);
+  console.log(`what_consents=${consentEvents.length}`);
+  console.log(`what_leases=${leaseEvents.length}`);
+  console.log(`what_actions=${actionEvents.length}`);
+  console.log(`boundary_material_actions=${materialActions.length}`);
+  console.log(`why_manifest=${singleLine(manifest.summary ?? "not_recorded")}`);
+  console.log(`why_user_message=${singleLine(userMessage?.summary ?? "not_recorded")}`);
+  console.log(`risk_levels=${joinOrNotRecorded(riskLevels(riskEvents))}`);
+  console.log(`risk_latest_policy=${singleLine(policyEvents.at(-1)?.summary ?? "not_recorded")}`);
+  console.log(`consent_status=${consentEvents.length > 0 ? "recorded" : "not_recorded"}`);
+  console.log(`consent_event_ids=${joinOrNotRecorded(consentEvents.map((event) => event.id))}`);
+  console.log(`consent_payload_refs=${joinOrNotRecorded(consentEvents.map((event) => event.payload_ref).filter((value): value is string => typeof value === "string" && value.length > 0))}`);
+  console.log(`policy_event_ids=${joinOrNotRecorded(policyEvents.map((event) => event.id))}`);
+  console.log(`lease_event_ids=${joinOrNotRecorded(leaseEvents.map((event) => event.id))}`);
+  console.log(`proof_chain_valid=${trace.chain_valid}`);
+  if (trace.head_event_id) {
+    console.log(`proof_head_event_id=${trace.head_event_id}`);
+  }
+  if (trace.head_event_hash) {
+    console.log(`proof_head_event_hash=${trace.head_event_hash}`);
+  }
+  console.log(`proof_manifest_status=${manifest.status}`);
+  console.log(`proof_manifest_events=${manifest.event_ids.length}`);
+  console.log(`proof_ledger=${workspace.ledgerPath}`);
+  console.log(`proof_live_side_effects_replayed=${trace.live_side_effects_replayed}`);
+  console.log(`boundary_not_recorded=${joinOrNotRecorded(missingBoundaryFacts)}`);
+  printBoundaryMaterialActions(materialActions);
+  printBoundaryFactDetails(boundaryFacts);
+}
+
+type BoundaryMaterialAction = {
+  index: number;
+  operation: string;
+  actor: string;
+  where: string;
+  why: string;
+  risk: string;
+  policy: string;
+  consent: string;
+  lease: string;
+  result: string;
+  proof: string;
+  memory_impact: string;
+  permission_impact: string;
+  source_events: string[];
+};
+
+function boundaryMaterialActions(events: EventRecord[], fallbackWhy: string): BoundaryMaterialAction[] {
+  const rows: BoundaryMaterialAction[] = [];
+  let current: BoundaryMaterialAction | null = null;
+
+  for (const event of events) {
+    if (event.event_type === "tool.requested") {
+      current = {
+        index: rows.length + 1,
+        operation: boundaryOperation(event),
+        actor: `${event.actor.type}:${event.actor.id}`,
+        where: boundaryTarget(event.summary),
+        why: fallbackWhy,
+        risk: "not_recorded",
+        policy: "not_recorded",
+        consent: "not_required_or_not_recorded",
+        lease: "not_recorded",
+        result: "pending",
+        proof: "not_recorded",
+        memory_impact: "not_recorded",
+        permission_impact: "not_recorded",
+        source_events: [event.id]
+      };
+      rows.push(current);
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    if (event.event_type === "risk.composed") {
+      current.risk = riskLevels([event]).at(0) ?? "not_recorded";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "policy.decided") {
+      current.policy = boundaryPolicy(event.summary);
+      current.permission_impact = "policy_checked";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "consent.recorded") {
+      current.consent = "recorded";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "lease.issued") {
+      current.lease = "issued";
+      current.permission_impact = "scoped_lease_issued";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "tool.result") {
+      current.result = boundaryResult(event.summary);
+      current.proof = "tool_result";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "action.recorded") {
+      current.result = "side_effect_recorded";
+      current.proof = "action_recorded";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "observation.recorded") {
+      current.proof = "observation_recorded";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "verification.recorded") {
+      current.proof = /fail/i.test(event.summary) ? "verification_failed" : "verification_passed";
+      current.source_events.push(event.id);
+    } else if (event.event_type === "memory.candidate.created" || event.event_type === "memory.patch.proposed" || event.event_type === "memory.fold.proposed") {
+      current.memory_impact = "recorded";
+      current.source_events.push(event.id);
+    }
+  }
+
+  return rows;
+}
+
+function printBoundaryMaterialActions(actions: BoundaryMaterialAction[]): void {
+  if (actions.length === 0) {
+    console.log("boundary_action_matrix=not_recorded");
+    return;
+  }
+  for (const action of actions) {
+    const prefix = `boundary_action_${action.index}`;
+    console.log(`${prefix}_operation=${singleLine(action.operation)}`);
+    console.log(`${prefix}_actor=${singleLine(action.actor)}`);
+    console.log(`${prefix}_where=${singleLine(action.where)}`);
+    console.log(`${prefix}_why=${singleLine(action.why)}`);
+    console.log(`${prefix}_risk=${singleLine(action.risk)}`);
+    console.log(`${prefix}_policy=${singleLine(action.policy)}`);
+    console.log(`${prefix}_consent=${singleLine(action.consent)}`);
+    console.log(`${prefix}_lease=${singleLine(action.lease)}`);
+    console.log(`${prefix}_result=${singleLine(action.result)}`);
+    console.log(`${prefix}_proof=${singleLine(action.proof)}`);
+    console.log(`${prefix}_memory_impact=${singleLine(action.memory_impact)}`);
+    console.log(`${prefix}_permission_impact=${singleLine(action.permission_impact)}`);
+    console.log(`${prefix}_source_events=${joinOrNotRecorded(action.source_events)}`);
+  }
+}
+
+function boundaryOperation(event: EventRecord): string {
+  const summary = event.summary.toLowerCase();
+  if (summary.includes("write")) return "filesystem.write";
+  if (summary.includes("read")) return "filesystem.read";
+  if (summary.includes("outbox") || summary.includes("send")) return "outbox.send";
+  return event.summary;
+}
+
+function boundaryTarget(summary: string): string {
+  const match = summary.match(/(?:read|write)\s+(.+)$/i);
+  return match ? match[1].replace(/[.。]$/, "") : "workspace";
+}
+
+function boundaryPolicy(summary: string): string {
+  const lower = summary.toLowerCase();
+  if (lower.includes(" deny") || lower.startsWith("denied")) return "deny";
+  if (lower.includes(" ask") || lower.includes("requires explicit consent") || lower.includes("requires approval")) return "ask";
+  if (lower.includes(" allow") || lower.includes("approved") || lower.includes("allowed")) return "allow";
+  return summary;
+}
+
+function boundaryResult(summary: string): string {
+  const lower = summary.toLowerCase();
+  if (lower.includes("denied") || lower.includes("error") || lower.includes("failed")) return "denied_or_failed";
+  if (lower.includes("read")) return "read_recorded";
+  if (lower.includes("wrote") || lower.includes("write")) return "write_recorded";
+  return "recorded";
+}
+
+function printBoundaryFactDetails(facts: BoundaryFacts | null): void {
+  if (!facts) {
+    console.log("boundary_limits=not_recorded");
+    console.log("boundary_impact=not_recorded");
+    return;
+  }
+  console.log(`boundary_limits_full_user_identity=${facts.limits.full_user_identity}`);
+  console.log(`boundary_limits_device_pairing=${facts.limits.device_pairing}`);
+  console.log(`boundary_limits_remote_channel_identity=${facts.limits.remote_channel_identity}`);
+  console.log(`boundary_limits_secret_vault_backend=${facts.limits.secret_vault_backend}`);
+  console.log(`boundary_impact_memory_candidate_created=${facts.impact.memory_candidate_created}`);
+  console.log(`boundary_impact_user_model_updated=${facts.impact.user_model_updated}`);
+  console.log(`boundary_impact_capability_changed=${facts.impact.capability_changed}`);
+  console.log(`boundary_impact_runtime_permissions_changed=${facts.impact.runtime_permissions_changed}`);
+  console.log(`boundary_impact_workspace_file_write_requested=${facts.impact.workspace_file_write_requested}`);
+  console.log(`boundary_impact_external_delivery_attempted=${facts.impact.external_delivery_attempted}`);
+  console.log(`boundary_impact_browser_automation_attempted=${facts.impact.browser_automation_attempted}`);
+  console.log(`boundary_impact_connector_called=${facts.impact.connector_called}`);
+  console.log(`boundary_impact_package_code_executed=${facts.impact.package_code_executed}`);
 }
 
 async function runImport(options: CliOptions): Promise<void> {
@@ -369,10 +630,12 @@ async function runImport(options: CliOptions): Promise<void> {
 
 async function runMemory(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
+
   if (options.topic === "list") {
     printJson(readRegistry(workspaceRoot, "memory-cards"));
     return;
   }
+
   if (options.topic === "inspect") {
     const memoryId = requirePositional(options.target, "memory inspect requires a memory id");
     const memory = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard).find((entry) => entry.id === memoryId);
@@ -383,6 +646,7 @@ async function runMemory(options: CliOptions): Promise<void> {
     printJson({ id: `memory_inspect_${sanitizePathSegment(memoryId)}`, memory, tombstone, active: Boolean(memory) && !tombstone });
     return;
   }
+
   if (options.topic === "candidates") {
     if (options.fromRun) {
       const workspace = await openWorkspace(workspaceRoot);
@@ -390,9 +654,21 @@ async function runMemory(options: CliOptions): Promise<void> {
       if (candidates.length === 0) {
         throw new Error(`No memory candidates can be derived from run ${options.fromRun}`);
       }
-      printJson(candidates);
+      for (const candidate of candidates) {
+        await recordMemoryLifecycleEvent(
+          workspaceRoot,
+          "memory.candidate.created",
+          "candidates",
+          candidate.id,
+          candidate,
+          `Recorded Memory Candidate ${candidate.id} from run ${options.fromRun}; registry projection is updated after the Ledger fact.`
+        );
+      }
+      upsertRegistryItems(workspaceRoot, "memory-candidates", candidates.map(registryItem));
+      printRawJson(candidates);
       return;
     }
+
     if (!options.sourceEvent || options.content === undefined || options.confidence === undefined) {
       throw new Error("memory candidates requires --from-run <run_id> or --source-event <event_id> --content <text> --confidence <0..1>");
     }
@@ -403,39 +679,75 @@ async function runMemory(options: CliOptions): Promise<void> {
       candidate: { type: "preference", subject: "user", content: options.content },
       confidence: options.confidence
     });
-    printJson(candidate);
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.candidate.created",
+      "candidates",
+      candidate.id,
+      candidate,
+      `Recorded Memory Candidate ${candidate.id} from source event ${options.sourceEvent}; registry projection is updated after the Ledger fact.`
+    );
+    upsertRegistryItem(workspaceRoot, "memory-candidates", registryItem(candidate));
+    printRawJson(candidate);
     return;
   }
+
   if (options.topic === "timeline") {
     const runId = options.target ?? options.input;
     const workspace = await openWorkspace(workspaceRoot);
     printJson(buildEpisodicTimeline(await readEvents(workspace), runId));
     return;
   }
+
   if (options.topic === "user-model") {
+    const workspace = await openWorkspace(workspaceRoot);
+    await requireStrongRegistryProvenance(workspaceRoot, await readEvents(workspace), ["memory-cards"]);
     const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
     const userModel = createBasicUserModel(memories);
     writeDurableMemoryFile(workspaceRoot, "user-model.json", userModel);
     printJson(userModel);
     return;
   }
+
   if (options.topic === "accept") {
     const candidateId = requirePositional(options.target, "memory accept requires a candidate id");
     const candidates = readRegistry(workspaceRoot, "memory-candidates").filter(isMemoryCandidate);
     const { candidate, card } = acceptCandidateFromRegistry(candidates, candidateId);
-    upsertRegistryItem(workspaceRoot, "memory-candidates", candidate);
-    printJson(card);
+    await requireValidContract("memory-card.schema.json", card);
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.accepted",
+      "accept",
+      card.id,
+      card,
+      `Accepted Memory Candidate ${candidate.id} as Memory Card ${card.id}; registry projection is updated after the Ledger fact.`
+    );
+    upsertRegistryItem(workspaceRoot, "memory-candidates", registryItem(candidate));
+    upsertRegistryItem(workspaceRoot, "memory-cards", registryItem(card));
+    printRawJson(card);
     return;
   }
+
   if (options.topic === "reject") {
     const candidateId = requirePositional(options.target, "memory reject requires a candidate id");
     const candidate = readRegistry(workspaceRoot, "memory-candidates").filter(isMemoryCandidate).find((entry) => entry.id === candidateId);
     if (!candidate) {
       throw new Error(`Memory candidate ${candidateId} not found`);
     }
-    printJson(rejectMemoryCandidate(candidate));
+    const rejected = rejectMemoryCandidate(candidate);
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.rejected",
+      "reject",
+      rejected.id,
+      rejected,
+      `Rejected Memory Candidate ${rejected.id}; active memory projection is not changed by this review event.`
+    );
+    upsertRegistryItem(workspaceRoot, "memory-candidates", registryItem(rejected));
+    printRawJson(rejected);
     return;
   }
+
   if (options.topic === "delete") {
     const memoryId = requirePositional(options.target, "memory delete requires a memory id");
     const memory = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard).find((entry) => entry.id === memoryId);
@@ -444,10 +756,20 @@ async function runMemory(options: CliOptions): Promise<void> {
     }
     const tombstone = createMemoryDeleteTombstone(memory, "user_delete_request");
     await requireValidContract("memory-tombstone.schema.json", tombstone);
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.deleted",
+      "delete",
+      tombstone.id,
+      tombstone,
+      `Deleted active Memory Card ${memory.id} through tombstone ${tombstone.id}; Ledger history was not rewritten.`
+    );
     removeRegistryItem(workspaceRoot, "memory-cards", memory.id);
-    printJson(tombstone);
+    upsertRegistryItem(workspaceRoot, "memory-tombstones", registryItem(tombstone));
+    printRawJson(tombstone);
     return;
   }
+
   if (options.topic === "block") {
     const memoryId = requirePositional(options.target, "memory block requires a memory id");
     const context = options.context ?? "external_send";
@@ -457,10 +779,19 @@ async function runMemory(options: CliOptions): Promise<void> {
     }
     const blocked = blockMemoryContext(memory, context);
     await requireValidContract("memory-card.schema.json", blocked);
-    upsertRegistryItem(workspaceRoot, "memory-cards", blocked);
-    printJson(blocked);
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.blocked",
+      "block",
+      blocked.id,
+      blocked,
+      `Blocked Memory Card ${blocked.id} for context ${context}; source provenance is unchanged.`
+    );
+    upsertRegistryItem(workspaceRoot, "memory-cards", registryItem(blocked));
+    printRawJson(blocked);
     return;
   }
+
   throw new Error("memory supports candidates, timeline, user-model, list, inspect, accept, reject, block, and delete");
 }
 
@@ -475,6 +806,7 @@ async function runContext(options: CliOptions): Promise<void> {
   if (!events.some((event) => event.run_id === runId)) {
     throw new Error(`Run ${runId} has no ledger events`);
   }
+  await requireStrongRegistryProvenance(workspaceRoot, events, ["memory-cards", "memory-tombstones"]);
   const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
   const tombstones = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone);
   printJson(assembleContextPack(runId, memories, "planning", tombstones));
@@ -643,6 +975,7 @@ async function runCapsule(options: CliOptions): Promise<void> {
     await requireValidContract("capability-capsule.schema.json", draft);
     archiveCapsuleVersion(workspaceRoot, draft);
     upsertRegistryItem(workspaceRoot, "capsule-drafts", draft);
+    await recordCapsuleLifecycleEvent(workspaceRoot, "draft", draft, `Recorded Capsule draft ${draft.id}@${draft.version}; lifecycle state remains non-executable and registry-backed.`);
     printJson(draft);
     return;
   }
@@ -663,6 +996,7 @@ async function runCapsule(options: CliOptions): Promise<void> {
     await requireValidContract("capability-capsule.schema.json", tested);
     archiveCapsuleVersion(workspaceRoot, tested);
     upsertRegistryItem(workspaceRoot, "capsule-drafts", tested);
+    await recordCapsuleLifecycleEvent(workspaceRoot, "test", tested, `Recorded Capsule test evidence for ${tested.id}@${tested.version}; replay and sandbox evidence were captured without live side effects.`);
     printJson(tested);
     return;
   }
@@ -684,6 +1018,7 @@ async function runCapsule(options: CliOptions): Promise<void> {
     archiveCapsuleVersion(workspaceRoot, published);
     upsertRegistryItem(workspaceRoot, "capsules", published);
     removeRegistryItem(workspaceRoot, "capsule-drafts", published.id);
+    await recordCapsuleLifecycleEvent(workspaceRoot, "publish", published, `Recorded local unsigned Capsule publication ${published.id}@${published.version}; Capsule still owns no runtime permissions.`);
     printJson(published);
     return;
   }
@@ -698,6 +1033,14 @@ async function runCapsule(options: CliOptions): Promise<void> {
     archiveCapsuleVersion(workspaceRoot, result.deprecated);
     archiveCapsuleVersion(workspaceRoot, result.active);
     upsertRegistryItem(workspaceRoot, "capsules", result.active);
+    await recordCapsuleLifecycleEvent(
+      workspaceRoot,
+      "rollback",
+      result.active,
+      `Recorded Capsule rollback for ${result.active.id} from ${result.deprecated.version} to ${result.active.version}; no live tool authority was changed.`,
+      result,
+      `${result.active.id}_${result.deprecated.version}_to_${result.active.version}`
+    );
     printJson(result);
     return;
   }
@@ -754,6 +1097,62 @@ async function requireCapsuleProvenance(workspaceRoot: string, capsule: Capsule)
       throw new Error(`Capsule source task ${sourceTask} has no Event Ledger evidence`);
     }
   }
+}
+
+async function recordCapsuleLifecycleEvent(
+  workspaceRoot: string,
+  lifecycle: "draft" | "test" | "publish" | "rollback",
+  capsule: Capsule,
+  summary: string,
+  artifactValue: unknown = capsule,
+  artifactId = `${capsule.id}_${capsule.version}`
+): Promise<void> {
+  const payloadRef = writeCapsuleLifecycleArtifact(workspaceRoot, lifecycle, artifactId, artifactValue);
+  await recordGovernanceEvent(
+    workspaceRoot,
+    `capsule.${lifecycle}.recorded`,
+    summary,
+    payloadRef
+  );
+}
+
+function writeCapsuleLifecycleArtifact(workspaceRoot: string, lifecycle: string, artifactId: string, value: unknown): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "capsule", sanitizePathSegment(lifecycle));
+  const safeId = sanitizePathSegment(artifactId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${safeId}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("capsule", lifecycle, safeId);
+}
+
+type MemoryLifecycleEventType =
+  | "memory.candidate.created"
+  | "memory.accepted"
+  | "memory.rejected"
+  | "memory.blocked"
+  | "memory.deleted";
+
+async function recordMemoryLifecycleEvent(
+  workspaceRoot: string,
+  eventType: MemoryLifecycleEventType,
+  topic: string,
+  artifactId: string,
+  value: unknown,
+  summary: string
+): Promise<void> {
+  const payloadRef = writeMemoryLifecycleArtifact(workspaceRoot, topic, artifactId, value);
+  await recordGovernanceEvent(workspaceRoot, eventType, summary, payloadRef);
+}
+
+function writeMemoryLifecycleArtifact(workspaceRoot: string, topic: string, artifactId: string, value: unknown): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "memory", sanitizePathSegment(topic));
+  const safeId = sanitizePathSegment(artifactId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${safeId}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("memory", topic, safeId);
+}
+
+function registryItem<T extends Record<string, unknown> & { id: string }>(value: T): Record<string, unknown> & { id: string } {
+  return value;
 }
 
 async function requireValidContract(schemaName: string, value: unknown): Promise<void> {
@@ -889,11 +1288,13 @@ async function runSleep(options: CliOptions): Promise<void> {
   if (!manifest) {
     throw new Error(`Cannot hibernate unknown run ${runId}`);
   }
-  const runEvents = (await readEvents(workspace)).filter((event) => event.run_id === runId);
+  const ledgerEvents = await readEvents(workspace);
+  const runEvents = ledgerEvents.filter((event) => event.run_id === runId);
   const head = runEvents.at(-1);
   if (!head?.event_hash) {
     throw new Error(`Cannot hibernate run ${runId} without a hash-bound Ledger cursor`);
   }
+  await requireStrongRegistryProvenance(workspaceRoot, ledgerEvents, ["memory-cards"]);
   const contextPack = assembleContextPack(runId, readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard), "resume");
   contextPack.id = `ctx_resume_${runId}`;
   contextPack.active_leases = [];
@@ -1327,13 +1728,22 @@ async function runAgent(options: CliOptions): Promise<void> {
   }
   const supervisorEventIds = [
     readResult.request_event_id,
+    readResult.risk_event_id,
+    readResult.policy_event_id,
+    readResult.lease_event_id,
+    readResult.result_event_id
+  ];
+  const requiredSupervisorEventIds = [
+    readResult.request_event_id,
+    readResult.risk_event_id,
     readResult.policy_event_id,
     readResult.result_event_id
   ];
-  if (!supervisorEventIds.every((eventId) => typeof eventId === "string" && eventId.length > 0)) {
+  if (!requiredSupervisorEventIds.every((eventId) => typeof eventId === "string" && eventId.length > 0)) {
     throw new Error(`Supervisor child read did not return Ledger event evidence for ${childRunId}`);
   }
-  for (const eventId of supervisorEventIds as string[]) {
+  const recordedSupervisorEventIds = supervisorEventIds.filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0);
+  for (const eventId of recordedSupervisorEventIds) {
     await recordRunEvent(repoRoot, workspace, manifest, eventId);
   }
   if (readResult.decision !== "allow") {
@@ -1356,6 +1766,9 @@ async function runAgent(options: CliOptions): Promise<void> {
   if (typeof readResult.contents !== "string" || typeof readResult.request_id !== "string" || typeof readResult.policy_decision_id !== "string" || typeof readResult.lease_id !== "string" || !readResult.lease_id) {
     throw new Error(`Supervisor child read did not return completion evidence for ${childRunId}`);
   }
+  if (typeof readResult.lease_event_id !== "string" || !readResult.lease_event_id) {
+    throw new Error(`Supervisor child read did not return lease event evidence for ${childRunId}`);
+  }
   account = recordLeaseUse(account);
   const resultRef = artifactRef("agent", "execute", `child_result_${childRunId}`);
   const completedEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.completed", `Child read completed with hash-only parent evidence.`, resultRef);
@@ -1367,7 +1780,7 @@ async function runAgent(options: CliOptions): Promise<void> {
     capsule_id: capsuleId,
     status: "completed",
     completion_evidence: {
-      source_event_ids: [startedEventId, ...(supervisorEventIds as string[]), completedEventId],
+      source_event_ids: [startedEventId, ...recordedSupervisorEventIds, completedEventId],
       request_id: readResult.request_id,
       policy_decision_id: readResult.policy_decision_id,
       lease_id: readResult.lease_id,
@@ -1714,6 +2127,10 @@ function printJson(value: unknown): void {
   console.log(serialized.trimEnd());
 }
 
+function printRawJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
 function persistJsonArtifact(value: unknown, serialized: string): void {
   if (!activeOptions) {
     return;
@@ -1846,6 +2263,16 @@ async function printTrace(options: CliOptions): Promise<void> {
     writeReplayArtifact(resolve(options.workspace), replayRecord);
     upsertRegistryItem(resolve(options.workspace), "replay-records", replayRecord);
     console.log(`replay_record=${replayRecord.id}`);
+    const replayParity = auditReplayRecordRegistryRebuild(resolve(options.workspace));
+    const replayDrift = replayParity.summary.missing_registry
+      + replayParity.summary.mismatched
+      + replayParity.summary.stale_registry
+      + replayParity.summary.invalid_artifact
+      + replayParity.summary.invalid_registry;
+    console.log(`replay_registry_parity=${replayDrift === 0 ? "matched" : "drift"}`);
+    console.log(`replay_registry_drift=${replayDrift}`);
+    console.log(`replay_registry_expected=${replayParity.summary.expected}`);
+    console.log(`replay_registry_actual=${replayParity.summary.actual}`);
   }
   console.log(`run_id=${trace.run_id}`);
   console.log(`trace_events=${trace.event_count}`);
@@ -1867,6 +2294,26 @@ async function printTrace(options: CliOptions): Promise<void> {
       console.log("manifest_status=missing");
     }
   }
+}
+
+function eventsOfType(events: EventRecord[], eventType: string): EventRecord[] {
+  return events.filter((event) => event.event_type === eventType);
+}
+
+function riskLevels(events: EventRecord[]): string[] {
+  return uniqueStrings(events.flatMap((event) => event.summary.match(/\bL[0-5]\b/g) ?? []));
+}
+
+function joinOrNotRecorded(values: string[]): string {
+  return values.length > 0 ? values.join(",") : "not_recorded";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].filter(Boolean);
+}
+
+function singleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function requireValue(flag: string, value: string | undefined): string {
@@ -1895,6 +2342,19 @@ async function requireSourceEvent(workspaceRoot: string, eventId: string): Promi
   if (!exists) {
     throw new Error(`Source event ${eventId} not found`);
   }
+}
+
+async function requireStrongRegistryProvenance(workspaceRoot: string, ledgerEvents: EventRecord[], registries: string[]): Promise<void> {
+  const audit = auditRegistryProvenance(workspaceRoot, ledgerEvents);
+  const registrySet = new Set(registries);
+  const unsafeFindings = audit.findings.filter((finding) => registrySet.has(finding.registry) && finding.status !== "strong");
+  if (unsafeFindings.length === 0) {
+    return;
+  }
+  const details = unsafeFindings
+    .map((finding) => `${finding.registry}/${finding.item_id}:${finding.status}${finding.missing_event_ids.length > 0 ? `[missing=${finding.missing_event_ids.join(",")}]` : ""}`)
+    .join("; ");
+  throw new Error(`Memory registry provenance is not strong enough for context assembly: ${details}`);
 }
 
 function artifactRef(command: string, topic: string, id: string): string {
@@ -1978,10 +2438,14 @@ function printHelp(): void {
   console.log(`Ether CLI
 
 Usage:
+  V1 core:
   npm run ether -- run --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
   npm run ether -- run --supervisor stdio --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
   npm run ether -- replay <run_id> --workspace <path>
   npm run ether -- trace <run_id> --workspace <path>
+  npm run ether -- boundary <run_id> --workspace <path>
+
+  Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
   npm run ether -- memory candidates --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- memory candidates --from-run <run_id> --workspace <path>
@@ -2017,13 +2481,21 @@ Usage:
   npm run ether -- security ack <signal_id>
   npm run ether -- security trial <signal_id> [--capsule <capsule_id>]
   npm run ether -- security fixture <signal_id>
+
+  Post-V1 contract surfaces (no real delivery, automation, or package-code execution):
   npm run ether -- surface browser-observe --path <observation-input.json> --source-event <event_id>
   npm run ether -- surface im-inbox --path <inbox-input.json>
   npm run ether -- surface im-outbox --path <outbox-input.json>
   npm run ether -- store install --path <signed-package.json> [--approve-permissions]
 
+  Read-only audits:
+  npm run ether -- audit registries --workspace <path>
+  npm run ether -- audit replay-records --workspace <path>
+  npm run ether -- audit payload-refs --workspace <path>
+
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
+  boundary               Read-only User Boundary card from Ledger and run manifest
   import                 Phase 4 dry-run migration report
   memory/context         Phase 3 source-backed Memory OS surfaces
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
@@ -2033,15 +2505,16 @@ Commands:
   dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
   agent                  Phase 10 governed document-read child run and evidence
   security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
-  surface                Phase 12 hash-only browser/IM ingress and approval-gated outbox queue
-  store                  Phase 12 signed Capsule install into local registry without code execution
+  surface                Phase 12 contract surface: hash-only browser/IM ingress and queued outbox
+  store                  Phase 12 contract surface: signed Capsule declaration install, no code execution
+  audit                  Read-only registry provenance, replay-record parity, and Ledger payload-ref audits
   help                   Show this help
 
 Options:
   --workspace <path>   Workspace root. Defaults to cwd.
   --input <path>       Workspace-relative file to read. Defaults to README.md.
   --output <path>      Workspace-relative file to write. Defaults to .aetherion/SUMMARY.md.
-  --summary <text>     Explicit summary text to write.
+  --summary <text>     Explicit summary text to write; default output does not copy source content.
   --approve-write      Required to execute the write stage.
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
 `);

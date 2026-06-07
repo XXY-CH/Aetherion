@@ -8,6 +8,8 @@ import {
   type Workspace
 } from "./ledger.ts";
 import { createApprovalCard, type ApprovalCard } from "./approval.ts";
+import { createBoundaryFacts, writeBoundaryFactsArtifact } from "./boundary.ts";
+import { createWriteConsentRecord, writeConsentRecordArtifact } from "./consent.ts";
 import {
   approveWriteWithConsent,
   createFileReadRequest,
@@ -22,6 +24,7 @@ import {
   readLocalFileThroughPolicy,
   writeLocalFileThroughPolicy
 } from "./local-file.ts";
+import { defaultSafeSummary } from "./output-summary.ts";
 import { reconstructTrace, type ReconstructedTrace } from "./replay.ts";
 import { validateAgainstSchema } from "./schema.ts";
 import { verifyFileContains, type ObservationRecord, type VerificationRecord } from "./verify.ts";
@@ -74,6 +77,23 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);
   await mkdir(dirname(outputPath), { recursive: true });
+
+  const boundaryFacts = createBoundaryFacts({
+    workspace,
+    registry: workspaceRegistry,
+    manifest: runManifest,
+    workspaceFileWriteRequested: true
+  });
+  const boundaryRef = await writeBoundaryFactsArtifact(input.repoRoot, workspace, boundaryFacts);
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+    id: `evt_${runId}_started`,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "ether.test_orchestrator" },
+    summary: "Ether test-only run started on tui; user_id, device_id, channel_id, and secret_vault are not recorded.",
+    payload_ref: boundaryRef
+  }));
 
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_user_message`,
@@ -200,21 +220,14 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     };
   }
 
-  consent = {
-    id: `consent_${runId}_write`,
-    user_id: "user_local",
-    workspace_id: workspace.id,
-    tool_request_id: writeRequest.id,
-    decision: "approved",
-    risk_level: "L3",
-    approved_at: new Date().toISOString(),
-    expires_at: null,
-    scope: {
-      actions: ["write"],
-      paths: [outputPath]
-    }
-  };
+  consent = createWriteConsentRecord({
+    runId,
+    workspaceId: workspace.id,
+    toolRequestId: writeRequest.id,
+    path: outputPath
+  });
   await assertValid(input.repoRoot, "consent-record.schema.json", consent);
+  const consentRef = await writeConsentRecordArtifact(input.repoRoot, workspace, runId, consent);
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_consent`,
     workspace_id: workspace.id,
@@ -222,6 +235,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     event_type: "consent.recorded",
     actor: { type: "user", id: "user_local" },
     summary: "Ether user approved workspace-scoped write.",
+    payload_ref: consentRef,
     taint: { sources: ["user"], can_authorize_actions: true }
   }));
 
@@ -246,7 +260,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     }));
   }
 
-  const summaryText = input.summaryText ?? defaultSummary(readResult.contents);
+  const summaryText = input.summaryText ?? defaultSafeSummary();
   const writeResult = await writeLocalFileThroughPolicy(writeRequest, writeDecision, summaryText);
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
     id: `evt_${runId}_write_action`,
@@ -314,11 +328,6 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 async function appendRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, event: ReturnType<typeof eventRecord>): Promise<void> {
   await appendEvent(repoRoot, workspace, event);
   await recordRunEvent(repoRoot, workspace, manifest, event.id);
-}
-
-function defaultSummary(contents: string): string {
-  const firstLine = contents.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "Untitled file";
-  return `Summary: ${firstLine.trim()}\n`;
 }
 
 async function assertValid(repoRoot: string, schemaName: string, value: unknown): Promise<void> {
