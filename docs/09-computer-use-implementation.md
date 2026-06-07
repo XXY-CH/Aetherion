@@ -140,11 +140,21 @@ Browser extension constraints:
 
 ## Reference Implementation Lessons
 
-The 2026-06-07 reference scan looked at the public OpenAI Codex repository and Claude Code public documentation. The useful lessons are architectural, not code-copy targets:
+The 2026-06-07 reference scan looked at the public OpenAI Codex repository (`openai/codex`, commit `b89ce9a2bcedcfddf3a48f387b7912d602d6d87c`) and Claude Code public documentation. The useful lessons are architectural, not code-copy targets.
+
+Concrete Codex source points reviewed:
+
+- `codex-rs/features/src/lib.rs`: desktop/browser/computer-use capabilities are requirements-only feature gates, not casual user-config switches.
+- `codex-rs/core/src/hook_runtime.rs`: `PreToolUse`, `PermissionRequest`, and `PostToolUse` are stable hook contracts with adapted tool inputs rather than raw internal tool state.
+- `codex-rs/core/src/tools/sandboxing.rs`: approval decisions are keyed and can be cached for a session, but sandbox restrictions such as denied reads must not be silently dropped.
+- `codex-rs/execpolicy/README.md`: executable policy rules include human-readable justification plus match/not-match examples that act like rule tests.
+- `codex-rs/tui/src/bottom_pane/app_link_view.rs`: external browser/app flows validate HTTPS URLs, separate auth/external-action suggestions, and route completion back through elicitation instead of granting authority directly.
 
 - Codex exposes sandbox and approval state as explicit protocol objects. Aetherion should do the same for every GUI, browser, IM, and app-server surface, but the protocol object is only a view over Supervisor policy and Ledger evidence.
 - Codex records session/rollout streams separately from projections. Aetherion should preserve this split: Event Ledger remains the source of truth; indexes, GUI timelines, and computer-use observations are rebuildable.
 - Codex has separate command approval, file-change approval, permission profiles, network context, and guardian-style review payloads. Aetherion should model browser/desktop/shell actions with similarly precise action kinds, but bind every approval to a scoped lease and source event.
+- Codex's requirements-only feature gates map directly to Aetherion adapter manifests: browser/desktop/computer-use adapters must cite source events proving the capability was enabled by product requirements, not by a user-config escape hatch.
+- Codex's approval-key pattern maps to Aetherion scoped leases: session-level convenience may be cached per exact adapter/action/target key, but the cached approval is not a permission and cannot cross origin, tab, file path, window, or child-agent boundary.
 - Claude Code's permission evaluation order is useful: hooks/guards, deny rules, permission mode, allow rules, then runtime approval. Aetherion should keep the deny-first property, but should not implement a global `bypassPermissions` equivalent. The closest concept is a scoped, expiring lease for one action surface.
 - Claude Code's tool taxonomy separates read, write, shell, web fetch/search, subagents, monitor, worktree, checkpoint, and scheduled wakeups. Aetherion should keep tool families explicit because browser DOM reads, screenshot observations, shell commands, and outbound sends have different taint and egress risk.
 - Claude Code warns that inherited subagent permissions are dangerous. Aetherion's multi-agent model should never inherit browser, desktop, vault, network, or shell authority. Child runs receive separate budgets and separate leases.

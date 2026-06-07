@@ -6,6 +6,12 @@ const stagedBrowserAdapter: ComputerUseAdapterManifest = {
   id: "browser-current-tab-observer",
   kind: "browser",
   lifecycle: "staged",
+  requirements_gate: {
+    feature: "browser_use",
+    enabled_by_requirements: true,
+    enabled_by_user_config: false,
+    source_event_ids: ["evt_requirement_browser_observe"]
+  },
   supported_verbs: ["observe", "read"],
   channels: ["browser_dom", "browser_cdp", "browser_screenshot"],
   requires_policy_lease: true,
@@ -17,6 +23,12 @@ const activeBrowserActionAdapter: ComputerUseAdapterManifest = {
   id: "browser-current-tab-cdp",
   kind: "browser",
   lifecycle: "active",
+  requirements_gate: {
+    feature: "computer_use",
+    enabled_by_requirements: true,
+    enabled_by_user_config: false,
+    source_event_ids: ["evt_requirement_browser_action"]
+  },
   supported_verbs: ["click", "type", "observe"],
   channels: ["browser_cdp", "browser_screenshot"],
   requires_policy_lease: true,
@@ -42,6 +54,7 @@ test("computer-use scaffold requires policy and verifier", () => {
   assert.equal(plan.structured_first, true);
   assert.equal(plan.can_authorize_from_observation, false);
   assert.equal(plan.channel, "browser_dom");
+  assert.deepEqual(plan.approval_keys, []);
 });
 
 test("computer-use scaffold rejects quarantined adapters", () => {
@@ -85,6 +98,7 @@ test("computer-use action requires lease, approval, current tab, and structured 
   });
   assert.equal(plan.channel, "browser_cdp");
   assert.equal(plan.screenshot_fallback_allowed, true);
+  assert.deepEqual(plan.approval_keys, ["browser-current-tab-cdp:browser:click:https://example.com:#export"]);
 });
 
 test("computer-use rejects tainted external egress and non-current-tab browser control", () => {
@@ -109,4 +123,46 @@ test("computer-use rejects tainted external egress and non-current-tab browser c
     data_egress_destination: "local_artifact_store",
     taint_chain: ["public_web"]
   }, stagedBrowserAdapter), /current-tab scoped/);
+});
+
+test("computer-use adapters must be requirements-gated, not user-config enabled", () => {
+  const userConfigEnabledAdapter = {
+    ...stagedBrowserAdapter,
+    requirements_gate: {
+      feature: "browser_use",
+      enabled_by_requirements: true,
+      enabled_by_user_config: true,
+      source_event_ids: ["evt_requirement_browser_observe"]
+    }
+  } as unknown as ComputerUseAdapterManifest;
+
+  assert.throws(() => planComputerUse({
+    id: "cui_006",
+    run_id: "run_demo",
+    verb: "observe",
+    target: { kind: "browser", origin: "https://example.com", current_tab_only: true },
+    expected_effect: "Observe page",
+    target_confidence: 0.95,
+    data_egress_destination: "local_artifact_store",
+    taint_chain: ["public_web"]
+  }, userConfigEnabledAdapter), /enabled by requirements/);
+
+  assert.throws(() => planComputerUse({
+    id: "cui_007",
+    run_id: "run_demo",
+    verb: "observe",
+    target: { kind: "browser", origin: "https://example.com", current_tab_only: true },
+    expected_effect: "Observe page",
+    target_confidence: 0.95,
+    data_egress_destination: "local_artifact_store",
+    taint_chain: ["public_web"]
+  }, {
+    ...stagedBrowserAdapter,
+    requirements_gate: {
+      feature: "browser_use",
+      enabled_by_requirements: true,
+      enabled_by_user_config: false,
+      source_event_ids: []
+    }
+  }), /must cite source events/);
 });
