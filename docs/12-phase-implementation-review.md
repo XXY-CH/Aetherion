@@ -8,7 +8,7 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 32 passing tests.
+- `npm test`: 38 passing tests.
 - `cargo test`: 5 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
@@ -23,7 +23,7 @@ Verification from the latest pass:
 | 4. Migration Dry-Run MVP | Import OpenClaw/Hermes shapes without inheriting trust or secrets. | `packages/migration/src/index.ts`; migration plan, legacy capsule, and extended migration report schemas/examples; TUI import dry-run. | Migration tests redact token-like fields and quarantine legacy material; TUI import test checks no raw token output. | Dry-run seed implemented. No real takeover by design. |
 | 5. Sandbox Rehearsal and Branching | Turn audit into checkpoint, branch, isolated file rehearsal, and fresh-authority approval flow. | `packages/sandbox/src/index.ts`; checkpoint, branch, rehearsal, and sandbox-approval schemas/examples; Ether `checkpoint`, `branch`, `rehearse`, and `approve-rehearsal`; `.aetherion/sandboxes/<branch>/workspace/`; checkpoint/branch event id/hash pointers; Rust supervisor policy/write RPC. | Sandbox tests assert branch does not inherit live authority, copies checkpoint head pointers, rejects out-of-workspace/runtime-state targets, and leaves the real file unchanged; Ether integration verifies fresh Rust lease, exact live content, and new policy/action events after approval. | Local file temp-workspace rehearsal and approval implemented. Git worktree, external-system rollback, and branch-specific event streams remain pending. |
 | 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
-| 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; causal edge and counterfactual schemas/examples; Ether why/counterfactual. | Tests require source-event citations, typed projection basis, explicit unknowns, and no live side effects. | Low-confidence typed event-sequence projection implemented. It does not claim proven causality; graph/SQLite projection remains pending. |
+| 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; Causal Edge, Why Report, Counterfactual Report, and Causal Projection schemas/examples; Ether `why`/`counterfactual`; rebuildable `.aetherion/projections/causal.sqlite`. | Tests cover typed dependency chains, failure/correction links, report-only downstream counterfactuals, disposable SQLite rebuild, cross-run isolation, and redacted-source confidence reduction. Ether integration rebuilds from a real Rust-supervised Ledger and a real appended redaction event. | Evidence-aware report projection implemented. It labels edges as temporal dependency candidates, not proven causes. Domain state simulation, LLM replay, and alternate-history outcome evaluation remain pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, wake via local triggers with policy recheck. | `packages/hibernation/src/index.ts`; hibernation and wakeup schemas/examples; Ether sleep/wake registry path. | Hibernation tests assert active leases are not retained; Ether requires an existing run and context pack and rejects missing hibernation records. | Evidence-backed record lifecycle implemented. Trigger runner and resumed execution remain pending. |
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through folds, anchors, reset, fork, and inheritance policy. | `packages/soul/src/index.ts`; fold, anchor, soul fork, inheritance policy schemas/examples; Ether anchors/persona/soul commands. | Soul tests require evidence-backed anchors, explicit confidence, proposed-only reset/fork records, and no inherited live authority. | Proposal records implemented. Identity creation, policy materialization, inheritance export, and Dreaming patch pipeline remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; agent contract, resource budget, circuit breaker schemas/examples; Ether contract creation requires an existing parent run, budget, and published capsule. | Multi-agent tests trigger budget breakers and isolate capsules; Ether test verifies contract creation does not pretend to execute or consume budget. | Contract creation only. Real child run orchestration and accounting remain pending. |
@@ -104,6 +104,33 @@ Correction and remaining boundary:
 - Static pattern scanning is deliberately narrow and cannot establish code safety. Executable package typecheck, unit tests, process isolation, structured IPC, resource limits, and network policy remain unimplemented.
 - The lifecycle does not yet auto-propose Capsules from repeated episodes. Users provide a manifest whose provenance is verified.
 - Scoring fields are present and updateable in the domain module, but production task routing does not yet feed outcome metrics into them.
+
+## Phase 7 Review Notes
+
+Matched source docs:
+
+- `docs/05-audit-and-data-contracts.md`: JSONL Event Ledger remains authoritative; SQLite and graph indexes are rebuildable projections; redacted sources must be removed or marked.
+- `docs/11-migration-and-runtime-economics.md`: the first causal-memory version should connect intent, policy, tools, observations, failures, corrections, and outcomes; counterfactuals remain reports or patches and full alternate-history simulation is deferred.
+- `docs/10-technical-strategy.md`: SQLite is the first local projection technology; graph projection is later and must not enter the authority path.
+- Original Phase 7 plan: every edge cites source events; missing evidence lowers confidence; counterfactuals do not execute tools; reports expose evidence, assumptions, and unknowns.
+
+Implemented correspondence:
+
+- The Rust/TS kernel trace now records distinct read and write `tool.requested` events, preventing write policy decisions from being projected against the earlier read request.
+- `buildCausalEdges` groups by `run_id` and projects typed links for intent, request, policy, consent, tool result, action, observation, verification, failures, corrections, and run outcome.
+- Every edge records event types, sequence distance, confidence, source events, redaction status, and `inference=temporal_dependency_candidate`.
+- `buildWhyReport` walks backward from the recorded outcome, lists evidence/failures/corrections/assumptions/unknowns, and becomes partial or insufficient when stages are missing or ancestor evidence is redacted.
+- `counterfactualFromCheckpoint` walks only recorded downstream dependencies, lists affected events, and always sets `live_side_effects_allowed=false`. It does not predict an alternate outcome.
+- `rebuildCausalProjection` recreates per-run rows in `.aetherion/projections/causal.sqlite`, records the current Ledger head, and marks `source_of_truth=false`.
+- Appended `event.redacted`/`artifact.redacted`/`memory.deleted` events can link affected source ids. Rebuilding marks dependent edges redacted and lowers report confidence without rewriting Ledger history.
+
+Correction and remaining boundary:
+
+- Typed order is evidence of recorded sequence, not proof of causation. Relation names use `context_for` and the contract explicitly labels inference as a candidate.
+- SQLite is not consulted by policy, lease issuance, or live execution. Deleting it loses no authoritative state; `ether why` and `ether counterfactual` rebuild it from JSONL.
+- There is no domain state model, symbolic simulator, LLM replay, or asynchronous counterfactual worker yet. Therefore the MVP reports which recorded dependencies may change, not what the alternate world would become.
+- Redaction markers preserve event envelopes and provenance links. Cryptographic erasure of referenced encrypted artifacts remains a separate retention/vault capability.
+- Existing rehearsal promotion appends policy/action evidence to the checkpoint's original run after its `run.completed` event. Why Reports detect this and become partial; a later Phase 5 hardening pass should assign promoted work an independent run manifest instead of extending a completed run.
 
 ## Phase 2 Review Notes
 

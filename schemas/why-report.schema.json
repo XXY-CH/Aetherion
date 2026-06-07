@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/why-report.schema.json",
+  "title": "WhyReport",
+  "type": "object",
+  "required": ["id", "run_id", "mode", "status", "confidence", "outcome_event_id", "summary", "evidence", "source_events", "failures", "corrections", "assumptions", "unknowns", "source_redacted"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^why_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "mode": { "type": "string", "enum": ["report"] },
+    "status": { "type": "string", "enum": ["complete", "partial", "insufficient_evidence"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "outcome_event_id": { "type": ["string", "null"] },
+    "summary": { "type": "string" },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "source_events": { "type": "array", "items": { "type": "string" } },
+    "failures": { "type": "array", "items": { "type": "string" } },
+    "corrections": { "type": "array", "items": { "type": "string" } },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "source_redacted": { "type": "boolean" }
+  }
+}

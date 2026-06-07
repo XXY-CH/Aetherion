@@ -1,13 +1,16 @@
 {
-  "id": "counterfactual_run_example_no_write",
+  "id": "counterfactual_checkpoint_run_example_before_write",
   "checkpoint_id": "checkpoint_run_example_before_write",
+  "checkpoint_event_id": "evt_policy",
   "change": "Deny the write approval.",
   "mode": "report",
   "live_side_effects_allowed": false,
-  "confidence": 0.4,
-  "summary": "Report-only counterfactual based on typed event-sequence projections; no causal outcome is asserted.",
+  "confidence": 0.46,
+  "summary": "Report-only projection of recorded downstream dependencies. No alternate outcome is asserted or executed.",
   "status": "partial",
-  "evidence": ["causal_policy_to_action"],
-  "assumptions": ["Typed event order is relevant to the proposed change."],
-  "unknowns": ["Unobserved state changes", "External effects", "Model and tool behavior under the proposed change"]
+  "evidence": ["causal_evt_policy_to_evt_action"],
+  "affected_events": ["evt_action"],
+  "assumptions": ["The proposed change invalidates or alters dependencies downstream of the checkpoint."],
+  "unknowns": ["Alternate model output", "Alternate policy decision", "External effects", "Tool behavior under the proposed change"],
+  "source_redacted": false
 }

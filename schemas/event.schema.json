@@ -26,6 +26,9 @@
         "capability.candidate",
         "proactive.opportunity",
         "replay.recorded",
+        "artifact.redacted",
+        "event.redacted",
+        "memory.deleted",
         "run.completed"
       ]
     },

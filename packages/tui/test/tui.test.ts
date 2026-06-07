@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { test } from "node:test";
+import { appendEvent, eventRecord, loadWorkspaceFromRegistry } from "../../harness-core/src/index.ts";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -209,12 +210,37 @@ test("TUI exposes local-only phase command surfaces", async () => {
 
   const why = await execFileAsync(process.execPath, [cliPath, "why", runId, "--workspace", workspace]);
   assert.match(why.stdout, /"edges"/);
-  const edgeRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "causal-edges.json"), "utf8")) as Array<{ source_events: string[] }>;
+  assert.match(why.stdout, /"inference": "temporal_dependency_candidate"/);
+  assert.match(why.stdout, /proven causation/);
+  const edgeRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "causal-edges.json"), "utf8")) as Array<{ source_events: string[]; run_id: string; from_event: string; from_event_type: string; relation: string }>;
   assert.ok(edgeRegistry.length > 0);
+  assert.ok(edgeRegistry.every((edge) => edge.run_id === runId));
+  const whyRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "why-reports.json"), "utf8")) as Array<{ run_id: string; mode: string }>;
+  assert.ok(whyRegistry.some((report) => report.run_id === runId && report.mode === "report"));
+  const projectionRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "causal-projections.json"), "utf8")) as Array<{ db_path: string; source_of_truth: boolean }>;
+  assert.equal(projectionRegistry[0].source_of_truth, false);
+  await readFile(join(workspace, projectionRegistry[0].db_path));
+
+  const policySource = edgeRegistry.find((edge) => edge.relation === "policy_context_for_action")?.from_event;
+  assert.ok(policySource);
+  const { workspace: registeredWorkspace } = await loadWorkspaceFromRegistry(workspace);
+  await appendEvent(repoRoot, registeredWorkspace, eventRecord({
+    id: `evt_${runId}_policy_redacted`,
+    workspace_id: registeredWorkspace.id,
+    run_id: runId,
+    event_type: "event.redacted",
+    actor: { type: "user", id: "user_local" },
+    summary: "User requested redaction of policy evidence.",
+    links: [policySource]
+  }));
+  const redactedWhy = await execFileAsync(process.execPath, [cliPath, "why", runId, "--workspace", workspace]);
+  assert.match(redactedWhy.stdout, /"source_redacted": true/);
+  assert.match(redactedWhy.stdout, /"status": "partial"/);
 
   const counterfactual = await execFileAsync(process.execPath, [cliPath, "counterfactual", checkpointId, "--change", "deny write", "--workspace", workspace]);
   assert.match(counterfactual.stdout, /"live_side_effects_allowed": false/);
   assert.match(counterfactual.stdout, /"status": "(partial|insufficient_evidence)"/);
+  assert.match(counterfactual.stdout, /"affected_events"/);
 
   const sleep = await execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]);
   assert.match(sleep.stdout, /"active_leases_retained": false/);

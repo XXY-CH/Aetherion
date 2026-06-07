@@ -1,0 +1,11 @@
+{
+  "id": "causal_projection_run_contract_example",
+  "run_id": "run_contract_example",
+  "db_path": ".aetherion/projections/causal.sqlite",
+  "source_events": ["evt_policy", "evt_action"],
+  "source_ledger_head": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "edge_count": 1,
+  "redacted_source_events": [],
+  "rebuilt_at": "2026-06-07T00:00:00.000Z",
+  "source_of_truth": false
+}

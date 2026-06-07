@@ -1,0 +1,16 @@
+{
+  "id": "why_run_contract_example",
+  "run_id": "run_contract_example",
+  "mode": "report",
+  "status": "complete",
+  "confidence": 0.6,
+  "outcome_event_id": "evt_completed",
+  "summary": "The report traces recorded context to the run outcome without asserting proven causation.",
+  "evidence": ["causal_evt_policy_to_evt_action"],
+  "source_events": ["evt_policy", "evt_action"],
+  "failures": [],
+  "corrections": [],
+  "assumptions": ["Recorded typed event order is relevant to the observed outcome."],
+  "unknowns": ["Unrecorded external state", "Unrecorded model reasoning"],
+  "source_redacted": false
+}

@@ -99,6 +99,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
 
   const writeRequest = createFileWriteRequest(runId, outputPath);
   const writeRisk = composeRisk(writeRequest);
+  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.requested", "Requested supervisor workspace file write.");
   const writePreEval = await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_write_policy_ask`,
     method: "tool.evaluate",

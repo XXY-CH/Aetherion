@@ -123,6 +123,14 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
   await assertValid(input.repoRoot, "tool-request.schema.json", writeRequest);
   const writeRisk = composeRisk(writeRequest);
   await assertValid(input.repoRoot, "risk-composition.schema.json", writeRisk);
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+    id: `evt_${runId}_write_requested`,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "tool.requested",
+    actor: { type: "agent", id: "ether.test_orchestrator" },
+    summary: "Requested workspace file write."
+  }));
   const writePreDecision = evaluateSeedPolicy(workspaceRoot, writeRequest);
   const approvalCard = createApprovalCard(writeRequest, writePreDecision);
   await assertValid(input.repoRoot, "approval-card.schema.json", approvalCard);

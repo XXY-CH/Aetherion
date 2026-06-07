@@ -1,9 +1,15 @@
 {
-  "id": "causal_policy_to_action",
-  "from_event": "evt_run_example_write_policy",
-  "to_event": "evt_run_example_write_action",
-  "relation": "allow_decision_precedes_action",
-  "confidence": 0.55,
-  "source_events": ["evt_run_example_write_policy", "evt_run_example_write_action"],
+  "id": "causal_evt_policy_to_evt_action",
+  "run_id": "run_contract_example",
+  "from_event": "evt_policy",
+  "from_event_type": "policy.decided",
+  "to_event": "evt_action",
+  "to_event_type": "action.recorded",
+  "relation": "policy_context_for_action",
+  "inference": "temporal_dependency_candidate",
+  "confidence": 0.7,
+  "sequence_distance": 1,
+  "source_events": ["evt_policy", "evt_action"],
+  "source_status": "active",
   "projection_basis": "typed_event_sequence"
 }

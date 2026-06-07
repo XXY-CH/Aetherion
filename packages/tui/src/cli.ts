@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
-import { buildCausalEdges, counterfactualFromCheckpoint, isCausalEdge } from "../../causal-memory/src/index.ts";
+import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
@@ -262,7 +262,7 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       await runWhy(options);
       return true;
     case "counterfactual":
-      runCounterfactual(options);
+      await runCounterfactual(options);
       return true;
     case "sleep":
       await runSleep(options);
@@ -728,17 +728,28 @@ function requireManifestObject(manifest: Record<string, unknown>, key: string): 
 
 async function runWhy(options: CliOptions): Promise<void> {
   const runId = options.topic ?? options.input;
-  const workspace = await openWorkspace(resolve(options.workspace));
-  const events = (await readEvents(workspace)).filter((event) => event.run_id === runId);
-  if (events.length === 0) {
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledgerEvents = await readEvents(workspace);
+  const runEvents = ledgerEvents.filter((event) => event.run_id === runId);
+  if (runEvents.length === 0) {
     throw new Error(`Run ${runId} has no ledger events`);
   }
-  const edges = buildCausalEdges(events);
-  upsertRegistryItems(resolve(options.workspace), "causal-edges", edges);
-  printJson({ id: `why_${runId}`, run_id: runId, edges });
+  const edges = buildCausalEdges(runEvents, redactedSources(ledgerEvents));
+  const report = buildWhyReport(runEvents, edges);
+  const projection = rebuildCausalProjection(workspaceRoot, runId, ledgerEvents, edges);
+  for (const edge of edges) {
+    await requireValidContract("causal-edge.schema.json", edge);
+  }
+  await requireValidContract("why-report.schema.json", report);
+  await requireValidContract("causal-projection.schema.json", projection);
+  upsertRegistryItems(workspaceRoot, "causal-edges", edges);
+  upsertRegistryItem(workspaceRoot, "why-reports", report);
+  upsertRegistryItem(workspaceRoot, "causal-projections", projection);
+  printJson({ id: report.id, report, projection, edges });
 }
 
-function runCounterfactual(options: CliOptions): void {
+async function runCounterfactual(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   const checkpointId = requirePositional(options.topic, "counterfactual requires a checkpoint id");
   const checkpoint = findCheckpoint(readRegistry(workspaceRoot, "checkpoints").filter(isCheckpoint), checkpointId);
@@ -748,8 +759,20 @@ function runCounterfactual(options: CliOptions): void {
   if (!options.change) {
     throw new Error("counterfactual requires --change <description>");
   }
-  const edges = readRegistry(workspaceRoot, "causal-edges").filter(isCausalEdge);
-  printJson(counterfactualFromCheckpoint(checkpointId, checkpoint.event_id, options.change, edges));
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledgerEvents = await readEvents(workspace);
+  const runEvents = ledgerEvents.filter((event) => event.run_id === checkpoint.run_id);
+  if (runEvents.length === 0) {
+    throw new Error(`Checkpoint run ${checkpoint.run_id} has no ledger events`);
+  }
+  const edges = buildCausalEdges(runEvents, redactedSources(ledgerEvents));
+  const projection = rebuildCausalProjection(workspaceRoot, checkpoint.run_id, ledgerEvents, edges);
+  const report = counterfactualFromCheckpoint(checkpointId, checkpoint.event_id, options.change, edges);
+  await requireValidContract("counterfactual-report.schema.json", report);
+  await requireValidContract("causal-projection.schema.json", projection);
+  upsertRegistryItems(workspaceRoot, "causal-edges", edges);
+  upsertRegistryItem(workspaceRoot, "causal-projections", projection);
+  printJson(report);
 }
 
 async function runSleep(options: CliOptions): Promise<void> {

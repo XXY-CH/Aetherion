@@ -137,6 +137,12 @@ result:
 
 Replay defaults to trace reconstruction or sandbox simulation. Live side-effect replay is disabled unless explicitly approved.
 
+## Causal Reports And Projections
+
+Causal graph rows and SQLite indexes are rebuildable projections over Event Ledger facts. A projected edge must cite source events and label its inference basis. Typed event order may support a temporal dependency candidate, but it does not prove causation.
+
+Why Reports and Counterfactual Reports must list evidence, assumptions, unknowns, confidence, and redaction status. Counterfactual output is report-only unless a separate sandbox evaluation contract is explicitly approved; it never authorizes or repeats live side effects.
+
 ## Migration Report
 
 ```yaml

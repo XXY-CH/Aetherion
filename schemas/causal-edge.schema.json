@@ -3,15 +3,21 @@
   "$id": "https://aetherion.local/schemas/causal-edge.schema.json",
   "title": "CausalEdge",
   "type": "object",
-  "required": ["id", "from_event", "to_event", "relation", "confidence", "source_events", "projection_basis"],
+  "required": ["id", "run_id", "from_event", "from_event_type", "to_event", "to_event_type", "relation", "inference", "confidence", "sequence_distance", "source_events", "source_status", "projection_basis"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^causal_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
     "from_event": { "type": "string" },
+    "from_event_type": { "type": "string" },
     "to_event": { "type": "string" },
+    "to_event_type": { "type": "string" },
     "relation": { "type": "string" },
+    "inference": { "type": "string", "enum": ["temporal_dependency_candidate"] },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "sequence_distance": { "type": "number", "minimum": 1 },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+    "source_status": { "type": "string", "enum": ["active", "redacted"] },
     "projection_basis": { "type": "string", "enum": ["typed_event_sequence"] }
   }
 }

@@ -54,6 +54,8 @@ const schemaExamplePairs = [
   ["sandbox-rehearsal.schema.json", "sandbox-rehearsal.json"],
   ["sandbox-approval.schema.json", "sandbox-approval.json"],
   ["causal-edge.schema.json", "causal-edge.json"],
+  ["why-report.schema.json", "why-report.json"],
+  ["causal-projection.schema.json", "causal-projection.json"],
   ["counterfactual-report.schema.json", "counterfactual-report.json"],
   ["hibernation-record.schema.json", "hibernation-record.json"],
   ["wakeup-trigger.schema.json", "wakeup-trigger.json"],

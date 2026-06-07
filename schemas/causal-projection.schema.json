@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/causal-projection.schema.json",
+  "title": "CausalProjectionRecord",
+  "type": "object",
+  "required": ["id", "run_id", "db_path", "source_events", "source_ledger_head", "edge_count", "redacted_source_events", "rebuilt_at", "source_of_truth"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^causal_projection_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string" },
+    "db_path": { "type": "string" },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "source_ledger_head": { "type": "string" },
+    "edge_count": { "type": "number", "minimum": 0 },
+    "redacted_source_events": { "type": "array", "items": { "type": "string" } },
+    "rebuilt_at": { "type": "string" },
+    "source_of_truth": { "type": "boolean", "enum": [false] }
+  }
+}
