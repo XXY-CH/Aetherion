@@ -96,6 +96,12 @@ test("contract examples validate against seed JSON schemas", async () => {
 
 test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {
   await primeSchemaCache(repoRoot);
+  const event = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "event.json"), "utf8"));
+  event.timestamp = "unix-ms-1700000000000";
+  const eventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", event);
+  assert.equal(eventValidation.valid, false);
+  assert.ok(eventValidation.errors.some((error) => error.includes("date-time format")));
+
   const fork = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "soul-fork.json"), "utf8"));
   fork.policy.active_leases = ["lease_inherited"];
   fork.workspace_scope.allowed_paths = ["."];

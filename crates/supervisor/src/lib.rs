@@ -109,10 +109,10 @@ pub fn write_workspace_registry(workspace: &Workspace) -> io::Result<PathBuf> {
     fs::write(
         &registry_path,
         format!(
-            "{{\n  \"id\": \"{}\",\n  \"root\": \"{}\",\n  \"created_at\": \"unix-ms-{}\",\n  \"authority\": \"rust-supervisor\",\n  \"runtime_dir\": \"{}\",\n  \"ledger_path\": \"{}\"\n}}\n",
+            "{{\n  \"id\": \"{}\",\n  \"root\": \"{}\",\n  \"created_at\": \"{}\",\n  \"authority\": \"rust-supervisor\",\n  \"runtime_dir\": \"{}\",\n  \"ledger_path\": \"{}\"\n}}\n",
             escape_json(&workspace.id),
             escape_json(&workspace.root.display().to_string()),
-            now_millis(),
+            escape_json(&now_rfc3339_millis()),
             escape_json(&runtime_dir.display().to_string()),
             escape_json(&workspace.ledger_path.display().to_string())
         ),
@@ -142,7 +142,7 @@ pub fn append_event_with_payload(
         sanitize_id(event_type),
         now_nanos()
     );
-    let timestamp = format!("unix-ms-{}", now_millis());
+    let timestamp = now_rfc3339_millis();
     let previous = fs::read_to_string(&workspace.ledger_path)
         .ok()
         .and_then(|contents| {
@@ -391,6 +391,44 @@ fn now_nanos() -> u128 {
         .unwrap_or_default()
 }
 
+fn now_rfc3339_millis() -> String {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    rfc3339_from_unix_millis(duration.as_secs() as i64, duration.subsec_millis())
+}
+
+fn rfc3339_from_unix_millis(seconds: i64, millis: u32) -> String {
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
+}
+
+fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
+    let shifted = days_since_unix_epoch + 719_468;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+    (year, month as u32, day as u32)
+}
+
 fn escape_json(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -617,6 +655,7 @@ mod tests {
         assert!(ledger.contains("\"parent_event_hash\":\"sha256:"));
         let registry = fs::read_to_string(registry_path).unwrap();
         assert!(registry.contains("\"authority\": \"rust-supervisor\""));
+        assert!(!registry.contains("unix-ms-"));
     }
 
     #[test]
@@ -667,6 +706,15 @@ mod tests {
         assert_eq!(
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn rust_events_use_schema_compatible_utc_timestamps() {
+        assert_eq!(rfc3339_from_unix_millis(0, 0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            rfc3339_from_unix_millis(1_704_067_200, 123),
+            "2024-01-01T00:00:00.123Z"
         );
     }
 }

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { appendEvent, eventRecord, loadWorkspaceFromRegistry, readEvents, verifyEventHashChain } from "../../harness-core/src/index.ts";
+import { appendEvent, eventRecord, loadWorkspaceFromRegistry, readEvents, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
 import { storeSignaturePayload, type StorePackage } from "../../surface-os/src/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -116,6 +116,10 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   assert.match(ledger, /local_supervisor/);
   assert.match(ledger, /evt_/);
+  assert.doesNotMatch(ledger, /unix-ms-/);
+  const rustEvent = JSON.parse(ledger.trim().split("\n")[0]);
+  const rustEventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", rustEvent);
+  assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));
 });
 
 test("TUI exposes local-only phase command surfaces", async () => {

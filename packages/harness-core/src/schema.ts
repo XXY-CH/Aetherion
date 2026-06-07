@@ -63,6 +63,9 @@ function validateValue(value: unknown, schema: JsonSchema, path: string, context
     if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value)) {
       errors.push(`${path}: does not match pattern ${schema.pattern}`);
     }
+    if (schema.format === "date-time" && !isDateTime(value)) {
+      errors.push(`${path}: expected date-time format`);
+    }
   }
 
   if (typeof value === "number") {
@@ -187,6 +190,14 @@ function canonicalValue(value: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDateTime(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    return false;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed);
 }
 
 function isObject(value: unknown): value is JsonSchema {

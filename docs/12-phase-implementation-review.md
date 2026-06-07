@@ -9,7 +9,7 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 Verification from the latest pass:
 
 - `npm test`: 55 passing tests.
-- `cargo test`: 9 passing Rust tests.
+- `cargo test`: 10 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
 
@@ -75,7 +75,7 @@ Implemented correspondence:
 Correction from review:
 
 - This is not the final production Event Ledger. Per `docs/10-technical-strategy.md`, the production hash-chain authority still belongs in the Rust Local Supervisor/Event Ledger core.
-- Rust now emits the same hash-chain fields consumed by trace verification. The remaining ledger gap is durability hardening: file locking, crash-safe append, strict timestamp format, redaction, signatures, and branch-specific append streams.
+- Rust now emits the same hash-chain fields consumed by trace verification, and supervisor-authored event timestamps are RFC3339 UTC strings validated against `event.schema.json`. The remaining ledger gap is durability hardening: file locking, crash-safe append, redaction, signatures, and branch-specific append streams.
 - Branching preserves checkpoint identity and hash pointers and can create an Aetherion-managed temp file workspace under `.aetherion/sandboxes/`; it does not yet create Git worktrees or branch-specific event append streams.
 
 ## Phase 5 Review Notes
@@ -285,7 +285,7 @@ Implemented correspondence:
 Known gaps before Phase 2 can be called production-ready:
 
 - The Rust stdio RPC parser is dependency-free and intentionally minimal; required fields now fail closed, but it is not a robust general JSON-RPC server.
-- Rust ledger timestamps use a POC no-dependency format, not strict RFC3339 schema validation.
+- Rust ledger timestamps now use RFC3339 UTC strings, and Ether integration validates supervisor-authored events against `event.schema.json`.
 - TS seed path remains test-only and is blocked unless `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - No vault, sandbox process isolation, long-running daemon, connector runtime, or generated-code isolation is implemented.
 
