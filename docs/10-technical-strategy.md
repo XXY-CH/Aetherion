@@ -55,7 +55,7 @@ This constraint prevents surface-area sprawl before the authority boundary is re
 | TUI v0 | TypeScript | Fastest integration with harness-core |
 | Agent Orchestrator prototype | TypeScript | LLM, connector, and schema iteration speed |
 | Local Supervisor | Rust | Root authority, native integration, process control |
-| Event Ledger | Rust core plus JSONL | Durable audit and current SHA-256 parent chain; signatures and crash-safe concurrency later |
+| Event Ledger | Rust core plus JSONL | Durable audit, SHA-256 parent chain, and supervisor-local append lock; signatures and crash-safe recovery later |
 | Tool Policy Proxy | Rust core | Access/action choke point |
 | Policy language | Typed JSON/YAML first, OPA/Rego later | Stabilize product semantics before advanced DSL |
 | Secret Vault | Rust wrapper | OS keychain and encrypted artifacts |
@@ -119,12 +119,13 @@ Later:
 
 - Initialize a local workspace ledger under `.aetherion/events/events.jsonl`.
 - Append human-readable SHA-256-linked JSONL events.
+- Serialize supervisor-authored event appends with a workspace-local lock file while computing parent pointers and event hashes.
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
 - Execute local file read/write only through an allowed scoped lease.
 - Expose a minimal stdio RPC command used by the TypeScript Ether client by default.
 
-This crate is not yet the production supervisor. It does not implement a vault, crash-safe concurrent ledger append, signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
+This crate is not yet the production supervisor. It does not implement a vault, crash-safe ledger recovery, signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
 
 ## Storage Strategy
 

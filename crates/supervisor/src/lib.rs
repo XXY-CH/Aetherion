@@ -1,7 +1,8 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct Workspace {
@@ -136,6 +137,7 @@ pub fn append_event_with_payload(
     summary: &str,
     payload_ref: Option<&str>,
 ) -> io::Result<String> {
+    let _lock = LedgerLock::acquire(&workspace.ledger_path)?;
     let event_id = format!(
         "evt_{}_{}_{}",
         sanitize_id(run_id),
@@ -199,6 +201,65 @@ pub fn append_event_with_payload(
         event_hash
     )?;
     Ok(event_id)
+}
+
+struct LedgerLock {
+    path: PathBuf,
+}
+
+impl LedgerLock {
+    fn acquire(ledger_path: &Path) -> io::Result<Self> {
+        let lock_path = ledger_path.with_extension("jsonl.lock");
+        let started = SystemTime::now();
+        loop {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut file) => {
+                    writeln!(
+                        file,
+                        "pid={} acquired_at={}",
+                        std::process::id(),
+                        now_rfc3339_millis()
+                    )?;
+                    return Ok(Self { path: lock_path });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    if lock_is_stale(&lock_path) {
+                        let _ = fs::remove_file(&lock_path);
+                        continue;
+                    }
+                    if started
+                        .elapsed()
+                        .unwrap_or_default()
+                        .gt(&Duration::from_secs(5))
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            format!("timed out waiting for ledger lock {}", lock_path.display()),
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+impl Drop for LedgerLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn lock_is_stale(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .and_then(|modified| modified.elapsed().map_err(io::Error::other))
+        .is_ok_and(|age| age > Duration::from_secs(30))
 }
 
 pub fn file_read_request(run_id: &str, path: impl AsRef<Path>) -> ToolRequest {
@@ -699,6 +760,62 @@ mod tests {
 
         decision.lease.as_mut().unwrap().expires_at_millis = 1;
         assert!(read_with_lease(&request, &decision).is_err());
+    }
+
+    #[test]
+    fn concurrent_appends_are_serialized_by_a_ledger_lock() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-concurrent-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let workspace = init_workspace(&root, "ws_rust_concurrent").unwrap();
+        let worker_count = 24;
+        let mut handles = Vec::new();
+
+        for index in 0..worker_count {
+            let workspace = workspace.clone();
+            handles.push(thread::spawn(move || {
+                append_event(
+                    &workspace,
+                    "observation.recorded",
+                    &format!("run_concurrent_{index}"),
+                    &format!("Concurrent event {index}"),
+                )
+                .unwrap()
+            }));
+        }
+
+        let mut event_ids = Vec::new();
+        for handle in handles {
+            event_ids.push(handle.join().unwrap());
+        }
+        event_ids.sort();
+        event_ids.dedup();
+        assert_eq!(event_ids.len(), worker_count);
+
+        let ledger = fs::read_to_string(&workspace.ledger_path).unwrap();
+        let lines = ledger.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), worker_count);
+        assert!(!workspace.ledger_path.with_extension("jsonl.lock").exists());
+
+        for (index, line) in lines.iter().enumerate() {
+            assert!(json_string_field(line, "event_hash")
+                .unwrap()
+                .starts_with("sha256:"));
+            if index == 0 {
+                assert!(json_string_field(line, "parent_event_id").is_none());
+                assert!(json_string_field(line, "parent_event_hash").is_none());
+            } else {
+                let previous = lines[index - 1];
+                assert_eq!(
+                    json_string_field(line, "parent_event_id").as_deref(),
+                    json_string_field(previous, "id").as_deref()
+                );
+                assert_eq!(
+                    json_string_field(line, "parent_event_hash").as_deref(),
+                    json_string_field(previous, "event_hash").as_deref()
+                );
+            }
+        }
     }
 
     #[test]
