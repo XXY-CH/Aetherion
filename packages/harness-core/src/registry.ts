@@ -103,6 +103,47 @@ export type ReplayRegistryRebuildAudit = {
   findings: ReplayRegistryRebuildFinding[];
 };
 
+export type MemoryRegistryName = "memory-cards" | "memory-tombstones";
+
+export type MemoryRegistryRebuildFinding = {
+  registry: MemoryRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  event_id?: string;
+  artifact_ref?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type MemoryRegistryRebuildAudit = {
+  id: "memory_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: MemoryRegistryName[];
+  scope: {
+    mode: "read_only_ledger_artifact_rebuild_parity";
+    mutates_registry: false;
+    rebuilds_from: "memory lifecycle Ledger events plus payload_ref artifacts";
+  };
+  summary: {
+    expected_memory_cards: number;
+    expected_memory_tombstones: number;
+    actual_memory_cards: number;
+    actual_memory_tombstones: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_memory_cards: RegistryItem[];
+  expected_memory_tombstones: RegistryItem[];
+  findings: MemoryRegistryRebuildFinding[];
+};
+
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
 export type LedgerPayloadRefSchemaStatus = "valid" | "invalid" | "not_checked";
 
@@ -376,6 +417,111 @@ export function auditReplayRecordRegistryRebuild(workspaceRoot: string): ReplayR
   };
 }
 
+export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventRecord[]): MemoryRegistryRebuildAudit {
+  const expectedCards = new Map<string, RegistryItem>();
+  const expectedTombstones = new Map<string, RegistryItem>();
+  const findings: MemoryRegistryRebuildFinding[] = [];
+
+  for (const event of events) {
+    if (!isMemoryLifecycleRebuildEvent(event.event_type)) {
+      continue;
+    }
+    if (!event.payload_ref) {
+      findings.push({
+        registry: memoryRegistryForEvent(event.event_type),
+        item_id: event.id,
+        status: "invalid_artifact",
+        event_id: event.id,
+        reason: "memory lifecycle event has no payload_ref"
+      });
+      continue;
+    }
+    const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+    if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+      findings.push({
+        registry: memoryRegistryForEvent(event.event_type),
+        item_id: event.id,
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: resolved.status === "unresolved" ? undefined : resolved.path,
+        reason: resolved.status === "unresolved" ? resolved.reason : "memory lifecycle artifact is missing"
+      });
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(resolved.path, "utf8")) as unknown;
+    } catch {
+      findings.push({
+        registry: memoryRegistryForEvent(event.event_type),
+        item_id: basename(resolved.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: resolved.path,
+        reason: "memory lifecycle artifact JSON could not be parsed"
+      });
+      continue;
+    }
+
+    if ((event.event_type === "memory.accepted" || event.event_type === "memory.blocked") && isMemoryCardRecord(parsed)) {
+      expectedCards.set(parsed.id, parsed);
+      continue;
+    }
+    if (event.event_type === "memory.deleted" && isMemoryTombstoneRecord(parsed)) {
+      expectedCards.delete(parsed.target_memory_id);
+      expectedTombstones.set(parsed.id, parsed);
+      continue;
+    }
+
+    findings.push({
+      registry: memoryRegistryForEvent(event.event_type),
+      item_id: isRegistryItem(parsed) ? parsed.id : basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: `artifact is not valid for ${event.event_type}`
+    });
+  }
+
+  const actualCards = readMemoryRegistryItems(workspaceRoot, "memory-cards", isMemoryCardRecord, findings);
+  const actualTombstones = readMemoryRegistryItems(workspaceRoot, "memory-tombstones", isMemoryTombstoneRecord, findings);
+  compareRegistryProjection("memory-cards", expectedCards, actualCards, findings);
+  compareRegistryProjection("memory-tombstones", expectedTombstones, actualTombstones, findings);
+
+  const expectedMemoryCards = [...expectedCards.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const expectedMemoryTombstones = [...expectedTombstones.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "memory_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["memory-cards", "memory-tombstones"],
+    scope: {
+      mode: "read_only_ledger_artifact_rebuild_parity",
+      mutates_registry: false,
+      rebuilds_from: "memory lifecycle Ledger events plus payload_ref artifacts"
+    },
+    summary: {
+      expected_memory_cards: expectedMemoryCards.length,
+      expected_memory_tombstones: expectedMemoryTombstones.length,
+      actual_memory_cards: actualCards.size,
+      actual_memory_tombstones: actualTombstones.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_memory_cards: expectedMemoryCards,
+    expected_memory_tombstones: expectedMemoryTombstones,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
 export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<LedgerPayloadRefAudit> {
   const findings: LedgerPayloadRefFinding[] = [];
 
@@ -615,6 +761,129 @@ function summarizeReplayRebuild(expected: number, actual: number, findings: Repl
     invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
     invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
   };
+}
+
+function isMemoryLifecycleRebuildEvent(eventType: string): eventType is "memory.accepted" | "memory.blocked" | "memory.deleted" {
+  return eventType === "memory.accepted" || eventType === "memory.blocked" || eventType === "memory.deleted";
+}
+
+function memoryRegistryForEvent(eventType: "memory.accepted" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
+  return eventType === "memory.deleted" ? "memory-tombstones" : "memory-cards";
+}
+
+function readMemoryRegistryItems(
+  workspaceRoot: string,
+  registry: MemoryRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: MemoryRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
+function compareRegistryProjection(
+  registry: MemoryRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: MemoryRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from Ledger artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function isMemoryCardRecord(value: unknown): value is RegistryItem {
+  if (!isRegistryItem(value)) {
+    return false;
+  }
+  return typeof value.type === "string"
+    && typeof value.subject === "string"
+    && typeof value.content === "string"
+    && Array.isArray(value.source_events)
+    && value.source_events.length > 0
+    && value.source_events.every((eventId) => typeof eventId === "string")
+    && typeof value.confidence === "number"
+    && typeof value.sensitivity === "string"
+    && (value.blocked_contexts === undefined || (Array.isArray(value.blocked_contexts) && value.blocked_contexts.every((context) => typeof context === "string")));
+}
+
+function isMemoryTombstoneRecord(value: unknown): value is RegistryItem & { target_memory_id: string } {
+  if (!isRegistryItem(value)) {
+    return false;
+  }
+  return value.event_type === "memory.deleted"
+    && typeof value.target_memory_id === "string"
+    && Array.isArray(value.source_events)
+    && value.source_events.length > 0
+    && value.source_events.every((eventId) => typeof eventId === "string")
+    && typeof value.reason === "string"
+    && typeof value.created_at === "string"
+    && value.active_memory_removed === true
+    && value.history_rewritten === false
+    && typeof value.redaction_status === "string";
 }
 
 function invalidRegistryFinding(registry: string, itemId: string, reason: string): RegistryProvenanceFinding {

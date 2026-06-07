@@ -55,7 +55,7 @@ Gate for P1 changes:
 - Show the command or module path that produces the contract from real Ledger evidence, or from registry evidence whose Ledger event references pass the read-only registry provenance audit.
 - Add a negative test for missing source events, inherited authority, raw secrets, or live side-effect replay where relevant.
 - Keep advanced behavior report-only or sandbox-only unless Rust supervisor authority exists.
-- Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records` is the first scoped artifact rebuild/parity preview for one registry family. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifact contracts, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for other registries remains future work.
+- Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records` and `audit memory-records` are scoped read-only rebuild/parity previews for Replay Records and active Memory Card/Tombstone projections. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifact contracts, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for other registries remains future work.
 
 ### P2: Frozen Innovation Contracts
 
@@ -95,6 +95,8 @@ The first loop is now closed for local file read/write through Ether and the Rus
 The P1 Memory lifecycle event types `memory.candidate.created`, `memory.accepted`, `memory.rejected`, and `memory.blocked` are runtime-backed extensions, not speculative schema growth. Ether writes a Memory lifecycle artifact, asks the Rust supervisor to append the corresponding Ledger event with `payload_ref`, and only then updates the registry projection. `memory.deleted` remains the tombstone event for delete review.
 
 Memory registry reads that assemble downstream context must not treat projections as source truth. `context explain`, `memory user-model`, and hibernation resume context assembly require Memory Card/Tombstone registry entries to pass the read-only registry provenance reference gate before use. Passing this gate means referenced Ledger event ids exist; it still does not prove deterministic registry rebuild parity. `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards.
+
+`ether audit memory-records` provides the first scoped Memory parity preview. It walks Memory lifecycle Ledger events in order and reads `payload_ref` artifacts for `memory.accepted`, `memory.blocked`, and `memory.deleted` to reconstruct expected active `memory-cards` and `memory-tombstones` state. It is read-only, excludes pending/rejected candidates, does not repair registries, and does not perform artifact redaction.
 
 For the action lifecycle, the default Ether supervisor path now writes a `run.started` event with a Boundary Facts `payload_ref` before the file-action lifecycle. That artifact records only the facts the kernel can prove today (`run_id`, `workspace_id`, `entry_surface`, and authority) and explicitly keeps `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded`. It is not a full identity, pairing, channel, or vault system.
 

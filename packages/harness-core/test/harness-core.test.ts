@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   appendEvent,
   auditLedgerPayloadRefs,
+  auditMemoryRegistryRebuild,
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
@@ -593,6 +594,82 @@ test("replay registry rebuild audit compares replay artifacts to registry withou
   assert.equal(await readFile(join(registryDir, "replay-records.json"), "utf8"), beforeRegistry);
 });
 
+test("memory registry rebuild audit derives active memory from ledger artifacts without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-memory-rebuild-"));
+  const artifactRoot = join(root, ".aetherion", "artifacts", "memory");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactRoot, "accept"), { recursive: true });
+  await mkdir(join(artifactRoot, "block"), { recursive: true });
+  await mkdir(join(artifactRoot, "delete"), { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const accepted = memoryCard("mem_keep", "initial");
+  const blocked = { ...accepted, blocked_contexts: ["external_send"] };
+  const missing = memoryCard("mem_missing", "missing registry");
+  const stale = memoryCard("mem_stale", "stale registry");
+  const deleted = memoryCard("mem_deleted", "deleted memory");
+  const tombstone = memoryTombstone("tombstone_mem_deleted", "mem_deleted");
+  const staleTombstone = memoryTombstone("tombstone_mem_stale", "mem_stale");
+
+  await writeFile(join(artifactRoot, "accept", "mem_keep.json"), `${JSON.stringify(accepted, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "block", "mem_keep.json"), `${JSON.stringify(blocked, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "accept", "mem_missing.json"), `${JSON.stringify(missing, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "accept", "mem_deleted.json"), `${JSON.stringify(deleted, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "delete", "tombstone_mem_deleted.json"), `${JSON.stringify(tombstone, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "accept", "broken.json"), "{not json");
+
+  await writeFile(join(registryDir, "memory-cards.json"), `${JSON.stringify([
+    blocked,
+    { ...missing, content: "tampered registry projection" },
+    stale,
+    { id: "mem_invalid_registry", content: "no source events" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "memory-tombstones.json"), `${JSON.stringify([
+    tombstone,
+    staleTombstone
+  ], null, 2)}\n`);
+
+  const beforeCards = await readFile(join(registryDir, "memory-cards.json"), "utf8");
+  const events = [
+    payloadEvent("evt_mem_accept_keep", "run_mem", "memory.accepted", "artifact://memory/accept/mem_keep"),
+    payloadEvent("evt_mem_block_keep", "run_mem", "memory.blocked", "artifact://memory/block/mem_keep"),
+    payloadEvent("evt_mem_accept_missing", "run_mem", "memory.accepted", "artifact://memory/accept/mem_missing"),
+    payloadEvent("evt_mem_accept_deleted", "run_mem", "memory.accepted", "artifact://memory/accept/mem_deleted"),
+    payloadEvent("evt_mem_delete_deleted", "run_mem", "memory.deleted", "artifact://memory/delete/tombstone_mem_deleted"),
+    payloadEvent("evt_mem_broken", "run_mem", "memory.accepted", "artifact://memory/accept/broken"),
+    payloadEvent("evt_mem_missing_artifact", "run_mem", "memory.accepted", "artifact://memory/accept/mem_no_artifact")
+  ];
+
+  const audit = auditMemoryRegistryRebuild(root, events);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "memory_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.deepEqual(audit.summary, {
+    expected_memory_cards: 2,
+    expected_memory_tombstones: 1,
+    actual_memory_cards: 3,
+    actual_memory_tombstones: 2,
+    matched: 2,
+    missing_registry: 0,
+    mismatched: 1,
+    stale_registry: 2,
+    invalid_artifact: 2,
+    invalid_registry: 1
+  });
+  assert.ok(finding("mem_keep", "matched"));
+  assert.ok(finding("mem_missing", "mismatched"));
+  assert.ok(finding("tombstone_mem_deleted", "matched"));
+  assert.ok(finding("mem_stale", "stale_registry"));
+  assert.ok(finding("tombstone_mem_stale", "stale_registry"));
+  assert.ok(finding("broken", "invalid_artifact"));
+  assert.ok(audit.findings.some((entry) => entry.event_id === "evt_mem_missing_artifact" && entry.status === "invalid_artifact"));
+  assert.ok(finding("mem_invalid_registry", "invalid_registry"));
+  assert.deepEqual(audit.expected_memory_cards.map((item) => item.id), ["mem_keep", "mem_missing"]);
+  assert.deepEqual(audit.expected_memory_tombstones.map((item) => item.id), ["tombstone_mem_deleted"]);
+  assert.equal(await readFile(join(registryDir, "memory-cards.json"), "utf8"), beforeCards);
+});
+
 test("ledger payload-ref audit resolves local artifact refs without mutating", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-payload-ref-audit-"));
   const boundaryDir = join(root, ".aetherion", "artifacts", "boundary", "run_payload_resolved");
@@ -700,6 +777,33 @@ function replayRecord(id: string, runId: string, summary: string) {
       status: "passed" as const,
       summary
     }
+  };
+}
+
+function memoryCard(id: string, content: string) {
+  return {
+    id,
+    type: "project",
+    subject: "run_mem",
+    content,
+    source_events: [`evt_source_${id}`],
+    confidence: 0.9,
+    sensitivity: "private",
+    blocked_contexts: []
+  };
+}
+
+function memoryTombstone(id: string, targetMemoryId: string) {
+  return {
+    id,
+    event_type: "memory.deleted" as const,
+    target_memory_id: targetMemoryId,
+    source_events: [`evt_source_${targetMemoryId}`],
+    reason: "test_delete",
+    created_at: "2026-06-07T10:00:00.000Z",
+    active_memory_removed: true,
+    history_rewritten: false,
+    redaction_status: "tombstone_only"
   };
 }
 

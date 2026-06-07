@@ -1618,6 +1618,65 @@ test("Ether audit replay-records previews artifact rebuild parity without mutati
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 });
 
+test("Ether audit memory-records previews memory artifact rebuild parity without mutating registry", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-memory-audit-"));
+  await writeFile(join(workspace, "README.md"), "Memory audit source\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+
+  await execFileAsync(process.execPath, [cliPath, "memory", "candidates", "--from-run", runId, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "accept", `memcand_${runId}_episode`, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "block", `mem_${runId}_episode`, "--context", "external_send", "--workspace", workspace]);
+
+  const registryPath = join(workspace, ".aetherion", "registries", "memory-cards.json");
+  const registry = JSON.parse(await readFile(registryPath, "utf8")) as Array<{ id: string; content: string }>;
+  const tampered = registry.map((entry) => entry.id === `mem_${runId}_episode`
+    ? { ...entry, content: "tampered memory projection" }
+    : entry);
+  tampered.push({
+    id: "mem_stale_projection",
+    type: "project",
+    subject: "stale",
+    content: "stale registry-only memory",
+    source_events: ["evt_stale_memory"],
+    confidence: 0.5,
+    sensitivity: "private",
+    blocked_contexts: []
+  } as never);
+  await writeFile(registryPath, `${JSON.stringify(tampered, null, 2)}\n`);
+  const beforeAudit = await readFile(registryPath, "utf8");
+
+  const audit = await execFileAsync(process.execPath, [cliPath, "audit", "memory-records", "--workspace", workspace]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean };
+    summary: { expected_memory_cards: number; actual_memory_cards: number; mismatched: number; stale_registry: number };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(report.id, "memory_registry_rebuild_audit");
+  assert.equal(report.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(report.scope.mutates_registry, false);
+  assert.equal(report.summary.expected_memory_cards, 1);
+  assert.equal(report.summary.actual_memory_cards, 2);
+  assert.equal(report.summary.mismatched, 1);
+  assert.equal(report.summary.stale_registry, 1);
+  assert.equal(report.findings.find((finding) => finding.item_id === `mem_${runId}_episode`)?.status, "mismatched");
+  assert.equal(report.findings.find((finding) => finding.item_id === "mem_stale_projection")?.status, "stale_registry");
+  assert.equal(await readFile(registryPath, "utf8"), beforeAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
+});
+
 test("Ether security trial quarantines an explicitly named Capsule without executing it", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-security-capsule-"));
   await writeFile(join(workspace, "README.md"), "Security source\n");

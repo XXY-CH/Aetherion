@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, auditLedgerPayloadRefs, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
+import { appendEvent, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -377,6 +377,12 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(auditReplayRecordRegistryRebuild(resolve(options.workspace)));
     return;
   }
+  if (options.topic === "memory-records") {
+    const workspaceRoot = resolve(options.workspace);
+    const workspace = await openWorkspace(workspaceRoot);
+    printRawJson(auditMemoryRegistryRebuild(workspaceRoot, await readEvents(workspace)));
+    return;
+  }
   if (options.topic === "payload-refs") {
     const workspaceRoot = resolve(options.workspace);
     const workspace = await openWorkspace(workspaceRoot);
@@ -384,7 +390,7 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(audit);
     return;
   }
-  throw new Error("audit requires topic registries, replay-records, or payload-refs");
+  throw new Error("audit requires topic registries, replay-records, memory-records, or payload-refs");
 }
 
 async function runBoundary(options: CliOptions): Promise<void> {
@@ -2491,6 +2497,7 @@ Usage:
   Read-only audits:
   npm run ether -- audit registries --workspace <path>
   npm run ether -- audit replay-records --workspace <path>
+  npm run ether -- audit memory-records --workspace <path>
   npm run ether -- audit payload-refs --workspace <path>
 
 Commands:
@@ -2507,7 +2514,7 @@ Commands:
   security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
   surface                Phase 12 contract surface: hash-only browser/IM ingress and queued outbox
   store                  Phase 12 contract surface: signed Capsule declaration install, no code execution
-  audit                  Read-only registry provenance, replay-record parity, and Ledger payload-ref audits
+  audit                  Read-only registry provenance, replay/memory parity, and Ledger payload-ref audits
   help                   Show this help
 
 Options:

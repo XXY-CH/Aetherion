@@ -32,6 +32,7 @@ Current scope:
 - Support registry upsert/read helpers used by Memory OS, Capsule OS, hibernation, migration, and security contract surfaces.
 - Audit registry provenance references without mutating runtime state: `auditRegistryProvenance` classifies entries by whether their Ledger event references are present, missing, absent, or malformed, while explicitly not claiming deterministic rebuild parity.
 - Preview rebuild parity for the `replay-records` registry without mutating runtime state: `auditReplayRecordRegistryRebuild` recomputes expected registry entries from persisted Replay Record artifacts and reports matched, missing, mismatched, stale, or invalid projection state.
+- Preview rebuild parity for Memory Card/Tombstone registries without mutating runtime state: `auditMemoryRegistryRebuild` replays Memory lifecycle Ledger events and their `payload_ref` artifacts to compute expected active Memory Cards and Tombstones.
 - Audit Event Ledger `payload_ref` values without mutating runtime state: `auditLedgerPayloadRefs` resolves known local `artifact://` references for Boundary Facts, Consent Records, Replay Records, and generic Ether artifacts, validates known contract artifacts against their existing schemas, then reports resolved, missing, invalid JSON, unresolved, schema-valid, schema-invalid, or not-checked references.
 - Feed later Memory OS context assembly by making run ledger events and manifests readable by TUI commands.
 

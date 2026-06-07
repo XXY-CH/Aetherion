@@ -25,6 +25,7 @@ Current scope:
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Run `audit registries` as a read-only provenance reference audit. It reports whether registry entries cite existing Ledger event ids, missing event ids, no event provenance, or malformed entries; it does not persist audit artifacts and does not prove deterministic rebuild parity.
 - Run `audit replay-records` as a read-only rebuild/parity preview for the `replay-records` registry only. It rebuilds expected entries from `.aetherion/artifacts/replay/**/*.json` and reports matched, missing, mismatched, stale, or invalid projection state without repairing it.
+- Run `audit memory-records` as a read-only rebuild/parity preview for `memory-cards` and `memory-tombstones`. It replays Memory lifecycle Ledger events with `payload_ref` artifacts for accepted, blocked, and deleted memory, then reports projection drift without repairing it.
 - Run `audit payload-refs` as a read-only Event Ledger artifact-reference audit. It scans events with `payload_ref`, resolves known local `artifact://` references, validates known Boundary Facts, Consent Record, and Replay Record artifacts against their existing schemas, and reports resolved, missing, invalid JSON, unresolved, schema-valid, schema-invalid, or not-checked references without repairing artifacts or treating payloads as authority.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
 - Record Memory Candidate, accept, reject, block, and delete lifecycle changes as supervisor-authored Ledger events with `.aetherion/artifacts/memory/<topic>/` payload snapshots before updating registry projections.
@@ -84,12 +85,15 @@ Registry audit flow:
 ```bash
 npm run ether -- audit registries --workspace .
 npm run ether -- audit replay-records --workspace .
+npm run ether -- audit memory-records --workspace .
 npm run ether -- audit payload-refs --workspace .
 ```
 
 The audit writes only to stdout. `strong` means every event id referenced by a registry entry exists in the JSONL Ledger; it does not mean the registry can already be rebuilt from Ledger/artifacts. `weak`, `missing`, and `invalid` entries show the current projection debt explicitly.
 
 For `replay-records`, Ether can also perform a scoped artifact rebuild parity preview. That command compares the registry against persisted Replay Record artifacts and reports drift, but it still does not mutate `.aetherion/registries/replay-records.json`. The `replay` command runs the same read-only check after writing a Replay Record and prints `replay_registry_parity`, drift count, expected count, and actual count.
+
+For `memory-records`, Ether performs a scoped Ledger-plus-artifact rebuild parity preview for active Memory Cards and Tombstones. It does not include pending/rejected Memory Candidates, does not repair `.aetherion/registries/memory-*.json`, and does not perform encrypted artifact redaction.
 
 For Ledger `payload_ref`s, Ether resolves the local artifact paths it can prove today, including Boundary Facts, Consent Records, Replay Records, and generic `.aetherion/artifacts/<command>/<topic>/<id>.json` artifacts. Boundary Facts, Consent Records, and Replay Records are schema-checked after JSON parse; generic artifacts are reported as `schema_status=not_checked`. Non-local or unsupported reference shapes are reported as `unresolved`; missing or unparsable local files are reported without writing repair artifacts.
 

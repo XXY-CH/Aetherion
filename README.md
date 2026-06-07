@@ -157,6 +157,8 @@ These files are still human-readable local runtime state, not a database daemon.
 
 `audit replay-records` is the first scoped rebuild/parity preview for a single registry family. It reads `.aetherion/artifacts/replay/**/*.json`, computes the expected `replay-records` projection, and reports matched, missing, mismatched, stale, or invalid entries without mutating the registry. `replay` runs the same read-only parity check after writing its Replay Record and prints a compact matched/drift summary.
 
+`audit memory-records` is a scoped rebuild/parity preview for active Memory Card and Memory Tombstone registries. It walks Memory lifecycle Ledger events in order, reads their `payload_ref` artifacts for `memory.accepted`, `memory.blocked`, and `memory.deleted`, reconstructs the expected `memory-cards` and `memory-tombstones` projection state, and reports matched, missing, mismatched, stale, or invalid entries without mutating registries.
+
 `audit payload-refs` is a read-only Event Ledger artifact-reference audit. It scans Ledger events with `payload_ref`, resolves known local `artifact://` references such as Boundary Facts, Consent Records, Replay Records, and generic Ether artifacts, and reports `resolved`, `missing`, `invalid_json`, or `unresolved` without writing artifacts, mutating registries, appending events, or treating artifacts as authority. For Boundary Facts, Consent Records, and Replay Records, it also validates the parsed artifact JSON against the existing contract schema and reports `schema_valid`, `schema_invalid`, and `schema_not_checked` counters; generic artifacts remain path/JSON checks only.
 
 Each Ether kernel run now appends a `run.started` event whose `payload_ref` points to a Boundary Facts artifact under `.aetherion/artifacts/boundary/<run_id>/`. That artifact records the facts the kernel can prove today (`run_id`, `workspace_id`, `entry_surface`, and authority) plus explicit `not_recorded` markers for `user_id`, `device_id`, `channel_id`, and `secret_vault`.
@@ -221,5 +223,6 @@ npm run ether -- surface im-outbox --path <outbox-input.json> --workspace .
 npm run ether -- store install --path <signed-package.json> --approve-permissions --workspace .
 npm run ether -- audit registries --workspace .
 npm run ether -- audit replay-records --workspace .
+npm run ether -- audit memory-records --workspace .
 npm run ether -- audit payload-refs --workspace .
 ```
