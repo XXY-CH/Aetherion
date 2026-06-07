@@ -9,6 +9,7 @@ Current scope:
 - Write a summary file through scoped policy.
 - Route `run` through the Rust supervisor POC by default. The TypeScript seed policy path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
 - Emit events to `.aetherion/events/events.jsonl`.
+- Emit the P0 local-file action lifecycle for `run`: `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, `verification.recorded`, and `run.completed`.
 - Print Rust or test-seed event hash-chain status and head pointers in `run`, `replay`, and `trace` output.
 - Write `.aetherion/workspace.json` and `.aetherion/runs/<run_id>.json`.
 - Compose and validate risk records plus approval cards before writes.

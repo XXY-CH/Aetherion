@@ -97,6 +97,14 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "agent", id: "ether.test_orchestrator" },
     summary: "Requested workspace file read."
   }));
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+    id: `evt_${runId}_read_risk`,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "risk.composed",
+    actor: { type: "system", id: "risk_composer" },
+    summary: `Composed ${readRisk.risk_level} risk for workspace file read.`
+  }));
 
   const readDecision = evaluateSeedPolicy(workspaceRoot, readRequest);
   await assertValid(input.repoRoot, "policy-decision.schema.json", readDecision);
@@ -108,6 +116,16 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "tool_policy_proxy" },
     summary: readDecision.reason
   }));
+  if (readDecision.lease) {
+    await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+      id: `evt_${runId}_read_lease`,
+      workspace_id: workspace.id,
+      run_id: runId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "lease_manager" },
+      summary: `Issued scoped read lease ${readDecision.lease.id}.`
+    }));
+  }
 
   const readResult = await readLocalFileThroughPolicy(readRequest, readDecision);
   await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
@@ -130,6 +148,14 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     event_type: "tool.requested",
     actor: { type: "agent", id: "ether.test_orchestrator" },
     summary: "Requested workspace file write."
+  }));
+  await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+    id: `evt_${runId}_write_risk`,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "risk.composed",
+    actor: { type: "system", id: "risk_composer" },
+    summary: `Composed ${writeRisk.risk_level} risk for workspace file write.`
   }));
   const writePreDecision = evaluateSeedPolicy(workspaceRoot, writeRequest);
   const approvalCard = createApprovalCard(writeRequest, writePreDecision);
@@ -209,6 +235,16 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "tool_policy_proxy" },
     summary: writeDecision.reason
   }));
+  if (writeDecision.lease) {
+    await appendRunEvent(input.repoRoot, workspace, runManifest, eventRecord({
+      id: `evt_${runId}_write_lease`,
+      workspace_id: workspace.id,
+      run_id: runId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "lease_manager" },
+      summary: `Issued scoped write lease ${writeDecision.lease.id}.`
+    }));
+  }
 
   const summaryText = input.summaryText ?? defaultSummary(readResult.contents);
   const writeResult = await writeLocalFileThroughPolicy(writeRequest, writeDecision, summaryText);

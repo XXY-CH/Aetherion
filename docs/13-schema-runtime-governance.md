@@ -84,11 +84,13 @@ Real click/type/browser/desktop automation must wait until the Local Supervisor 
 
 ## Runtime Focus
 
-The next implementation work should close three loops before broadening schema surface:
+The first loop is now closed for local file read/write through Ether and the Rust supervisor path. The next implementation work should harden or extend these loops before broadening schema surface:
 
-1. Full action lifecycle in the Rust supervisor path: `tool.requested -> risk.composed -> policy.decided -> consent.recorded -> lease.issued -> action.recorded -> observation.recorded -> verification.recorded -> run.completed`.
+1. Full action lifecycle in the Rust supervisor path. Workspace reads emit `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result`; approval-gated writes emit `tool.requested -> risk.composed -> policy.decided(ask) -> consent.recorded -> policy.decided(allow) -> lease.issued -> action.recorded -> observation.recorded -> verification.recorded -> run.completed`.
 2. Trace-backed Memory Card lifecycle: real run trace to candidate, review, active card, context pack, and tombstone.
 3. Trace-backed Capability Draft lifecycle: repeated successful traces to draft Capsule, replay tests, sandbox trial, and staged status without production execution.
+
+For the action lifecycle, future work should move more of the lifecycle creation into Rust supervisor RPC methods instead of relying on the TypeScript Ether orchestrator to append every intermediate event. Until that boundary exists, tests must verify the Ledger sequence emitted by `ether run --supervisor stdio`.
 
 ## Node Baseline
 

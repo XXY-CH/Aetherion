@@ -14,6 +14,7 @@ import {
   eventRecord,
   readEvents,
   evaluateSeedPolicy,
+  composeRisk,
   primeSchemaCache,
   readLocalFileThroughPolicy,
   reconstructTrace,
@@ -195,6 +196,18 @@ test("user request -> policy decision -> local file read/write -> verification -
     summary: "Requested workspace file read."
   }));
 
+  const readRisk = composeRisk(request);
+  const readRiskValidation = await validateAgainstSchema(repoRoot, "risk-composition.schema.json", readRisk);
+  assert.equal(readRiskValidation.valid, true, readRiskValidation.errors.join("; "));
+  await appendEvent(repoRoot, workspace, eventRecord({
+    id: "evt_contract_read_risk_composed",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "risk.composed",
+    actor: { type: "system", id: "risk_composer" },
+    summary: `Composed ${readRisk.risk_level} risk for workspace file read.`
+  }));
+
   const decision = evaluateSeedPolicy(root, request);
   const decisionValidation = await validateAgainstSchema(repoRoot, "policy-decision.schema.json", decision);
   assert.equal(decisionValidation.valid, true, decisionValidation.errors.join("; "));
@@ -207,6 +220,16 @@ test("user request -> policy decision -> local file read/write -> verification -
     event_type: "policy.decided",
     actor: { type: "system", id: "tool_policy_proxy" },
     summary: decision.reason
+  }));
+
+  assert.ok(decision.lease);
+  await appendEvent(repoRoot, workspace, eventRecord({
+    id: "evt_contract_read_lease_issued",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "lease.issued",
+    actor: { type: "system", id: "lease_manager" },
+    summary: `Issued scoped read lease ${decision.lease.id}.`
   }));
 
   const readResult = await readLocalFileThroughPolicy(request, decision);
@@ -225,6 +248,25 @@ test("user request -> policy decision -> local file read/write -> verification -
   const writeRequest = createFileWriteRequest(runId, summaryPath);
   const writeRequestValidation = await validateAgainstSchema(repoRoot, "tool-request.schema.json", writeRequest);
   assert.equal(writeRequestValidation.valid, true, writeRequestValidation.errors.join("; "));
+  await appendEvent(repoRoot, workspace, eventRecord({
+    id: "evt_contract_write_requested",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "tool.requested",
+    actor: { type: "agent", id: "agent.local" },
+    summary: "Requested workspace file write."
+  }));
+  const writeRisk = composeRisk(writeRequest);
+  const writeRiskValidation = await validateAgainstSchema(repoRoot, "risk-composition.schema.json", writeRisk);
+  assert.equal(writeRiskValidation.valid, true, writeRiskValidation.errors.join("; "));
+  await appendEvent(repoRoot, workspace, eventRecord({
+    id: "evt_contract_write_risk_composed",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "risk.composed",
+    actor: { type: "system", id: "risk_composer" },
+    summary: `Composed ${writeRisk.risk_level} risk for workspace file write.`
+  }));
   const writePreDecision = evaluateSeedPolicy(root, writeRequest);
   assert.equal(writePreDecision.decision, "ask");
 
@@ -276,6 +318,16 @@ test("user request -> policy decision -> local file read/write -> verification -
     event_type: "policy.decided",
     actor: { type: "system", id: "tool_policy_proxy" },
     summary: writeDecision.reason
+  }));
+
+  assert.ok(writeDecision.lease);
+  await appendEvent(repoRoot, workspace, eventRecord({
+    id: "evt_contract_write_lease_issued",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "lease.issued",
+    actor: { type: "system", id: "lease_manager" },
+    summary: `Issued scoped write lease ${writeDecision.lease.id}.`
   }));
 
   const writeResult = await writeLocalFileThroughPolicy(writeRequest, writeDecision, summary);
@@ -336,11 +388,16 @@ test("user request -> policy decision -> local file read/write -> verification -
   assert.deepEqual(trace.event_types, [
     "user.message",
     "tool.requested",
+    "risk.composed",
     "policy.decided",
+    "lease.issued",
     "tool.result",
+    "tool.requested",
+    "risk.composed",
     "policy.decided",
     "consent.recorded",
     "policy.decided",
+    "lease.issued",
     "action.recorded",
     "observation.recorded",
     "verification.recorded",

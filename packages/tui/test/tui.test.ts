@@ -117,6 +117,25 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   assert.match(ledger, /local_supervisor/);
   assert.match(ledger, /evt_/);
   assert.doesNotMatch(ledger, /unix-ms-/);
+  const eventTypes = ledger.trim().split("\n").map((line) => JSON.parse(line).event_type as string);
+  assert.deepEqual(eventTypes, [
+    "user.message",
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "lease.issued",
+    "tool.result",
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "consent.recorded",
+    "policy.decided",
+    "lease.issued",
+    "action.recorded",
+    "observation.recorded",
+    "verification.recorded",
+    "run.completed"
+  ]);
   const rustEvent = JSON.parse(ledger.trim().split("\n")[0]);
   const rustEventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", rustEvent);
   assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));

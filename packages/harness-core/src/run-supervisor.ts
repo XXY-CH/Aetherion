@@ -71,6 +71,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   const readRequest = createFileReadRequest(runId, inputPath);
   const readRisk = composeRisk(readRequest);
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.requested", "Requested supervisor workspace file read.");
+  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "risk.composed", `Composed ${readRisk.risk_level} risk for supervisor workspace file read.`);
   const readEval = await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_read_policy`,
     method: "tool.evaluate",
@@ -82,6 +83,9 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   });
   const readDecision = policyFromSupervisor(runId, readRequest, readEval, "Explicit workspace-scoped read evaluated by Rust supervisor.");
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "policy.decided", readDecision.reason);
+  if (readDecision.lease) {
+    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "lease.issued", `Issued scoped read lease ${readDecision.lease.id}.`);
+  }
 
   const readResult = await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_read`,
@@ -100,6 +104,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   const writeRequest = createFileWriteRequest(runId, outputPath);
   const writeRisk = composeRisk(writeRequest);
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "tool.requested", "Requested supervisor workspace file write.");
+  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "risk.composed", `Composed ${writeRisk.risk_level} risk for supervisor workspace file write.`);
   const writePreEval = await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_write_policy_ask`,
     method: "tool.evaluate",
@@ -150,6 +155,9 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     throw new Error("Rust supervisor did not return an allowed lease-backed write result");
   }
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "policy.decided", writeDecision.reason);
+  if (writeDecision.lease) {
+    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "lease.issued", `Issued scoped write lease ${writeDecision.lease.id}.`);
+  }
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "action.recorded", "Rust supervisor wrote workspace file through scoped policy.");
 
   const { observation, verification } = await verifyFileContains({
