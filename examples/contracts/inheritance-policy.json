@@ -1,6 +1,7 @@
 {
   "id": "inheritance_default",
-  "allowed": ["approved_memory", "public_history_refs"],
-  "denied": ["raw_secrets", "oauth_grants", "active_leases"],
-  "requires_fresh_approval": ["confidential_memory", "device_authority"]
+  "allowed": ["approved_memory_refs", "public_history_refs"],
+  "denied": ["raw_secrets", "oauth_grants", "active_leases", "vault_grants", "device_authority", "tool_sessions"],
+  "requires_fresh_approval": ["confidential_memory", "regulated_memory", "new_workspace_paths", "resource_budget_increase"],
+  "default_memory_sensitivities": ["public", "internal", "private"]
 }

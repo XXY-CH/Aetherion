@@ -66,6 +66,7 @@ struct EventHashInput<'a> {
     run_id: &'a str,
     event_type: &'a str,
     summary: &'a str,
+    payload_ref: Option<&'a str>,
     parent_event_id: Option<&'a str>,
     parent_event_hash: Option<&'a str>,
 }
@@ -125,6 +126,16 @@ pub fn append_event(
     run_id: &str,
     summary: &str,
 ) -> io::Result<String> {
+    append_event_with_payload(workspace, event_type, run_id, summary, None)
+}
+
+pub fn append_event_with_payload(
+    workspace: &Workspace,
+    event_type: &str,
+    run_id: &str,
+    summary: &str,
+    payload_ref: Option<&str>,
+) -> io::Result<String> {
     let event_id = format!(
         "evt_{}_{}_{}",
         sanitize_id(run_id),
@@ -154,6 +165,7 @@ pub fn append_event(
         run_id,
         event_type,
         summary,
+        payload_ref,
         parent_event_id: parent_event_id.as_deref(),
         parent_event_hash: parent_event_hash.as_deref(),
     });
@@ -166,19 +178,23 @@ pub fn append_event(
         ),
         _ => String::new(),
     };
+    let payload_field = payload_ref
+        .map(|value| format!(",\"payload_ref\":\"{}\"", escape_json(value)))
+        .unwrap_or_default();
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&workspace.ledger_path)?;
     writeln!(
         file,
-        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\"{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
+        "{{\"id\":\"{}\",\"timestamp\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"{}\",\"event_type\":\"{}\",\"actor\":{{\"type\":\"system\",\"id\":\"local_supervisor\"}},\"summary\":\"{}\"{}{},\"event_hash\":\"{}\",\"sensitivity\":\"private\",\"taint\":{{\"sources\":[\"trusted_system\"],\"can_authorize_actions\":false}}}}",
         escape_json(&event_id),
         escape_json(&timestamp),
         escape_json(&workspace.id),
         escape_json(run_id),
         escape_json(event_type),
         escape_json(summary),
+        payload_field,
         parent_fields,
         event_hash
     )?;
@@ -411,6 +427,9 @@ fn canonical_event_json(input: &EventHashInput<'_>) -> String {
             "\"parent_event_id\":\"{}\"",
             escape_json(parent_id)
         ));
+    }
+    if let Some(payload_ref) = input.payload_ref {
+        fields.push(format!("\"payload_ref\":\"{}\"", escape_json(payload_ref)));
     }
     fields.extend([
         format!("\"run_id\":\"{}\"", escape_json(input.run_id)),

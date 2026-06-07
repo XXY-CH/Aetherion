@@ -16,6 +16,7 @@ export type SupervisorRpcRequest = {
   contents?: string;
   event_type?: string;
   summary?: string;
+  payload_ref?: string;
 };
 
 export type SupervisorRpcResponse = {

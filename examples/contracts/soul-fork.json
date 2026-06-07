@@ -1,9 +1,41 @@
 {
-  "id": "soulfork_research_agent",
+  "id": "soulfork_agent_research_branch",
   "source_checkpoint_id": "checkpoint_run_example_before_write",
+  "source_run_id": "run_example",
+  "source_event_id": "evt_before_write",
+  "source_event_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "replay_record_id": "replay_run_example_trace",
   "new_agent_id": "agent_research_branch",
-  "inherits_history_refs": true,
+  "created_at": "2026-06-07T00:00:00.000Z",
+  "identity": {
+    "id": "agent_research_branch",
+    "parent_agent_id": "agent_local"
+  },
+  "policy": {
+    "id": "policy_agent_research_branch",
+    "max_auto_risk": "L2",
+    "vault_grants": [],
+    "oauth_grants": [],
+    "active_leases": []
+  },
+  "budget": {
+    "id": "budget_agent_research_branch",
+    "token_budget": 0,
+    "tool_call_budget": 0,
+    "risk_budget": "L2",
+    "lease_budget": 0,
+    "on_exhaustion": "ask"
+  },
+  "workspace_scope": {
+    "workspace_id": "ws_example",
+    "allowed_paths": []
+  },
+  "inheritance_policy_id": "inheritance_default",
+  "inherited_history_refs": ["evt_before_write"],
+  "inherited_memory_ids": ["mem_public_project"],
+  "excluded_memory_ids": ["mem_confidential_account"],
+  "sensitive_history_approved": false,
   "inherits_live_authority": false,
-  "policy_id": "policy_research_branch",
-  "status": "proposed"
+  "live_side_effects_allowed": false,
+  "status": "created"
 }

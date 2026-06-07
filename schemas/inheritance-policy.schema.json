@@ -3,12 +3,13 @@
   "$id": "https://aetherion.local/schemas/inheritance-policy.schema.json",
   "title": "InheritancePolicy",
   "type": "object",
-  "required": ["id", "allowed", "denied", "requires_fresh_approval"],
+  "required": ["id", "allowed", "denied", "requires_fresh_approval", "default_memory_sensitivities"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^inheritance_[A-Za-z0-9_-]+$" },
     "allowed": { "type": "array", "items": { "type": "string" } },
     "denied": { "type": "array", "items": { "type": "string" } },
-    "requires_fresh_approval": { "type": "array", "items": { "type": "string" } }
+    "requires_fresh_approval": { "type": "array", "items": { "type": "string" } },
+    "default_memory_sensitivities": { "type": "array", "items": { "type": "string" } }
   }
 }

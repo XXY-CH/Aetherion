@@ -1,0 +1,11 @@
+{
+  "id": "persona_reset_direct_1780790400000",
+  "from_branch": "default",
+  "to_branch": "direct",
+  "status": "applied",
+  "retained_business_memory_ids": ["mem_project_constraints"],
+  "activated_anchor_ids": ["anchor_direct_evidence"],
+  "deactivated_anchor_ids": ["anchor_verbose"],
+  "inherits_live_authority": false,
+  "created_at": "2026-06-07T00:00:00.000Z"
+}

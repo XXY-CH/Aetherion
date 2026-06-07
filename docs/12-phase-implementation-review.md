@@ -8,7 +8,7 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Verification from the latest pass:
 
-- `npm test`: 42 passing tests.
+- `npm test`: 46 passing tests.
 - `cargo test`: 6 passing Rust tests.
 - `git diff --check`: clean.
 - `git ls-files .aetherion target`: no tracked runtime/build artifacts.
@@ -25,7 +25,7 @@ Verification from the latest pass:
 | 6. Capability Capsule MVP | Govern capabilities through lifecycle, permission diff, replay tests, sandbox trial, and legacy quarantine. | `packages/capability-os/src/index.ts`; expanded Capsule schema/example; Ether `capsule draft/list/inspect/test/publish/rollback`; Capsule, replay, approval, and version registries. | Unit tests require two distinct provenance runs, reject executable playbooks, quarantine external execution, gate permission expansion, and exercise rollback. Ether integration creates two real Rust-supervised runs, validates the Ledger prefix, runs a document sandbox trial, publishes two local versions, and rolls back. | Document-only local lifecycle implemented. Publication is explicitly unsigned and does not execute playbooks. Package signing, imported/generated code execution, external sandbox processes, and Store installation remain pending. |
 | 7. Causal Memory and Counterfactual | Project evidence-linked relations and produce counterfactual reports without live actions or causal overclaiming. | `packages/causal-memory/src/index.ts`; Causal Edge, Why Report, Counterfactual Report, and Causal Projection schemas/examples; Ether `why`/`counterfactual`; rebuildable `.aetherion/projections/causal.sqlite`. | Tests cover typed dependency chains, failure/correction links, report-only downstream counterfactuals, disposable SQLite rebuild, cross-run isolation, and redacted-source confidence reduction. Ether integration rebuilds from a real Rust-supervised Ledger and a real appended redaction event. | Evidence-aware report projection implemented. It labels edges as temporal dependency candidates, not proven causes. Domain state simulation, LLM replay, and alternate-history outcome evaluation remain pending. |
 | 8. Digital Hibernation and Wakeup | Serialize long task state, drop active leases, evaluate local triggers, and recheck policy before resume. | `packages/hibernation/src/index.ts`; expanded hibernation/wakeup schemas/examples; Ether `sleep`, `wake`, and `sleepers`; Rust `run.resume.evaluate`; new resume-run Ledger events. | Unit tests cover lease rejection, cursor binding, deadlines, expiry, attention budgets, file change/deletion, workspace escape, and symlink escape. Ether integration proves fresh-policy queueing with no lease or action. | Local explicit-evaluation, queue-only MVP implemented. Background daemon and resumed task executor remain pending. |
-| 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through folds, anchors, reset, fork, and inheritance policy. | `packages/soul/src/index.ts`; fold, anchor, soul fork, inheritance policy schemas/examples; Ether anchors/persona/soul commands. | Soul tests require evidence-backed anchors, explicit confidence, proposed-only reset/fork records, and no inherited live authority. | Proposal records implemented. Identity creation, policy materialization, inheritance export, and Dreaming patch pipeline remain pending. |
+| 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; agent contract, resource budget, circuit breaker schemas/examples; Ether contract creation requires an existing parent run, budget, and published capsule. | Multi-agent tests trigger budget breakers and isolate capsules; Ether test verifies contract creation does not pretend to execute or consume budget. | Contract creation only. Real child run orchestration and accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, detect policy override/secret exfiltration attempts, quarantine suspicious signals. | `packages/security/src/index.ts`; poisoning signal schema/example; TUI security scan/ack. | Security tests create quarantined poisoning signals from override attempts. | Contract seed implemented. Honeypot capsule runtime pending. |
 | 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/computer-use/README.md`, `packages/connector-sdk/README.md`, scaffold tests that keep these surfaces post-V1/local-client only. | Existing tests reject quarantined adapters and enforce policy/verifier constraints for computer-use scaffold. | Intentionally deferred from V1. No GUI/IM/store implementation yet. |
@@ -158,6 +158,35 @@ Correction and remaining boundary:
 - This implementation is not a daemon, scheduler, process unloader, file watcher, webhook listener, or resumed Agent executor. Deadline and file conditions are checked only when `ether wake` is invoked.
 - A queued resume run is intentionally `blocked` until a future governed executor loads the minimal context and starts a new action lifecycle. It cannot reuse the source run's lease.
 - The Rust resume policy is deliberately narrow and deterministic. Rich opportunity scoring, user-presence policy, trigger signatures, and L4/L5 approval routing remain future work.
+
+## Phase 9 Review Notes
+
+Matched source docs:
+
+- `docs/03-memory-os.md`: Dreaming may compress episodes and propose memory patches, but it cannot directly modify active memory, policy, permissions, or external systems.
+- `docs/11-migration-and-runtime-economics.md`: folds preserve nuance and source evidence; anchors have confidence, TTL, allowed/blocked contexts, and sensitive approval; forks receive new identity, policy, budget, and lease scopes.
+- `docs/01-architecture.md`: Event Ledger remains the fact layer; Memory OS and client registries cannot become trust roots.
+- Original Phase 9 plan: over-folding preserves `folded_from`; persona reset retains business memory while switching style anchors; forks inherit no old lease/vault grant and replay history without side effects.
+
+Implemented correspondence:
+
+- `ether dream run` requires an existing run and at least two active Memory Cards whose source events belong to that run. The caller supplies the proposed high-level content and confidence; Ether does not invent a semantic summary.
+- A Memory Fold retains all source Memory Card ids and source event ids, carries a full proposed Memory Card, and sets `replaces_active_memory=false`. Only `dream accept` adds the proposed card; source cards remain addressable.
+- Sensitivity propagates at the highest source level. Confidential, secret, regulated, or credential-like folds require `--approve-sensitive`.
+- Persona Anchors now carry branch, kind, TTL, expiry, context boundaries, sensitivity, and review state. Accepted non-expired anchors materialize a named Persona Branch.
+- `persona reset` requires an existing branch, switches active anchor references, preserves project/fact/constraint/relationship business Memory Card ids, and records `inherits_live_authority=false`.
+- Soul Fork requires a hash-bound checkpoint and a valid hash-chain prefix. It persists a trace-only Replay Record with live side effects disabled.
+- Each fork embeds a distinct agent identity, policy id, zero token/tool/lease budget, empty workspace path scope, and empty vault/OAuth/active-lease grants. Default inheritance includes only approved public/internal/private Memory Card ids; sensitive memory ids remain excluded.
+- Governance state transitions are appended by the Rust Supervisor with stable artifact references. Ether registries are lifecycle projections over those artifact-linked events.
+- The lightweight contract validator now enforces integer, maximum-array-size, and unique-item constraints, so empty fork authority collections and distinct fold sources are contract gates rather than domain-function conventions only.
+
+Correction and remaining boundary:
+
+- The previous `status=proposed` Soul Fork record did not create a meaningful identity boundary and could not prove replay. It was replaced with a `created` but deliberately non-executable inheritance container.
+- “Digital soul” means versioned, source-linked preference/knowledge/decision-state references in this implementation. It does not claim consciousness, faithful personality emulation, legal succession, or posthumous autonomous agency.
+- Fork budgets and path scopes start empty. A future user-authorized provisioning flow must create new grants; the fork cannot run merely because the record exists.
+- Persona reset currently classifies preference/habit cards as style-adjacent and retains other Memory Card types as business memory. Richer memory taxonomy and conflict resolution remain future work.
+- Governance event payloads point to immutable command artifacts, but registry rebuild tooling from those artifacts is not yet implemented.
 
 ## Phase 2 Review Notes
 

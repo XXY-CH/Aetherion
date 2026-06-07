@@ -1,11 +1,17 @@
 {
   "id": "anchor_direct_evidence",
+  "branch": "direct",
+  "kind": "style",
   "content": "User prefers direct conclusions with concrete evidence.",
   "source_events": ["evt_user_corrected_style"],
   "confidence": 0.88,
   "ttl": "180d",
+  "created_at": "2026-06-07T00:00:00.000Z",
+  "expires_at": "2026-12-04T00:00:00.000Z",
   "allowed_contexts": ["planning", "coding"],
   "blocked_contexts": ["external_auto_send"],
   "review_status": "pending",
-  "sensitivity": "private"
+  "sensitivity": "private",
+  "sensitive_approval_required": false,
+  "sensitive_approved": false
 }

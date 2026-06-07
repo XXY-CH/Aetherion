@@ -203,6 +203,18 @@ Design rule:
 
 > A fork inherits history references and approved memory, not live authority.
 
+The first local implementation should remain deliberately non-executable:
+
+- Memory Folding produces a reviewable Memory Card patch from at least two source-backed cards and never deletes or replaces the source cards.
+- Persona branches contain accepted, non-expired anchors; branch reset changes active anchor references while retaining business-memory references.
+- Sensitive folds, anchors, memory, or history require explicit approval or remain excluded.
+- Soul Fork requires a hash-bound checkpoint and passing trace replay.
+- The fork receives a new identity, policy id, zero initial budget, and empty workspace path scope.
+- Vault grants, OAuth grants, active leases, device authority, tool sessions, and raw secret content are never inherited.
+- Lifecycle events carry artifact references in the Event Ledger so JSON registries remain rebuildable state.
+
+This creates a governed inheritance container, not a claim of consciousness, personality simulation, legal personhood, or autonomous execution.
+
 ### Anti-Poisoning And Honeypots
 
 Sandbox execution and event monitoring can support anti-poisoning probes and honeypot workflows.

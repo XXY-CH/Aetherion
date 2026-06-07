@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/persona-branch.schema.json",
+  "title": "PersonaBranch",
+  "type": "object",
+  "required": ["id", "name", "anchor_ids", "source_events", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^branch_[A-Za-z0-9_-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "anchor_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "source_events": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "created_at": { "type": "string" }
+  }
+}

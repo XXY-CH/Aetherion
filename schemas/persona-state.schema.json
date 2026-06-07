@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/persona-state.schema.json",
+  "title": "PersonaState",
+  "type": "object",
+  "required": ["id", "active_branch", "active_anchor_ids", "business_memory_ids", "updated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "enum": ["persona_state_local"] },
+    "active_branch": { "type": "string" },
+    "active_anchor_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "business_memory_ids": { "type": "array", "items": { "type": "string" } },
+    "updated_at": { "type": "string" }
+  }
+}

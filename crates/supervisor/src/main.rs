@@ -1,6 +1,7 @@
 use aetherion_supervisor::{
-    append_event, evaluate_policy, file_read_request, file_write_request, init_workspace,
-    read_with_lease, write_with_lease, write_workspace_registry, Consent, Decision,
+    append_event, append_event_with_payload, evaluate_policy, file_read_request,
+    file_write_request, init_workspace, read_with_lease, write_with_lease,
+    write_workspace_registry, Consent, Decision,
 };
 use std::env;
 use std::io::{self, BufRead};
@@ -104,7 +105,14 @@ fn handle_rpc_line(line: &str) -> String {
                     Ok(value) => value,
                     Err(error) => return error_response(&id, &error),
                 };
-                match append_event(&workspace, &event_type, &run_id, &summary) {
+                let payload_ref = string_field(line, "payload_ref");
+                match append_event_with_payload(
+                    &workspace,
+                    &event_type,
+                    &run_id,
+                    &summary,
+                    payload_ref.as_deref(),
+                ) {
                     Ok(event_id) => format!(
                         "{{\"appended\":true,\"event_id\":\"{}\"}}",
                         escape(&event_id)

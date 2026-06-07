@@ -1,0 +1,7 @@
+{
+  "id": "persona_state_local",
+  "active_branch": "direct",
+  "active_anchor_ids": ["anchor_direct_evidence"],
+  "business_memory_ids": ["mem_project_constraints"],
+  "updated_at": "2026-06-07T00:00:00.000Z"
+}

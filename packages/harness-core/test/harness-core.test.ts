@@ -63,6 +63,9 @@ const schemaExamplePairs = [
   ["episodic-timeline.schema.json", "episodic-timeline.json"],
   ["user-model.schema.json", "user-model.json"],
   ["persona-anchor.schema.json", "persona-anchor.json"],
+  ["persona-branch.schema.json", "persona-branch.json"],
+  ["persona-state.schema.json", "persona-state.json"],
+  ["persona-reset.schema.json", "persona-reset.json"],
   ["soul-fork.schema.json", "soul-fork.json"],
   ["inheritance-policy.schema.json", "inheritance-policy.json"],
   ["agent-contract.schema.json", "agent-contract.json"],
@@ -78,6 +81,22 @@ test("contract examples validate against seed JSON schemas", async () => {
     const result = await validateAgainstSchema(repoRoot, schemaName, example);
     assert.equal(result.valid, true, `${exampleName} failed ${schemaName}: ${result.errors.join("; ")}`);
   }
+});
+
+test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {
+  await primeSchemaCache(repoRoot);
+  const fork = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "soul-fork.json"), "utf8"));
+  fork.policy.active_leases = ["lease_inherited"];
+  fork.workspace_scope.allowed_paths = ["."];
+  const forkResult = await validateAgainstSchema(repoRoot, "soul-fork.schema.json", fork);
+  assert.equal(forkResult.valid, false);
+  assert.ok(forkResult.errors.some((error) => error.includes("expected at most 0 items")));
+
+  const fold = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "memory-fold.json"), "utf8"));
+  fold.folded_from = ["mem_style_a", "mem_style_a"];
+  const foldResult = await validateAgainstSchema(repoRoot, "memory-fold.schema.json", fold);
+  assert.equal(foldResult.valid, false);
+  assert.ok(foldResult.errors.some((error) => error.includes("expected unique items")));
 });
 
 test("user request -> policy decision -> local file read/write -> verification -> replay reconstruction", async () => {

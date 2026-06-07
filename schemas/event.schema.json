@@ -30,6 +30,14 @@
         "event.redacted",
         "memory.deleted",
         "wakeup.queued",
+        "memory.fold.proposed",
+        "memory.fold.accepted",
+        "memory.fold.rejected",
+        "persona.anchor.proposed",
+        "persona.anchor.accepted",
+        "persona.anchor.rejected",
+        "persona.reset.applied",
+        "soul.fork.created",
         "run.completed"
       ]
     },

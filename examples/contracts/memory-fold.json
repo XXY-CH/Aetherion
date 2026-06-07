@@ -1,7 +1,23 @@
 {
-  "id": "fold_direct_style",
-  "folded_from": ["memcand_1", "memcand_2"],
-  "proposed_memory_id": "mem_direct_style",
+  "id": "fold_run_example_mem_style_a_mem_style_b",
+  "source_run_id": "run_example",
+  "folded_from": ["mem_style_a", "mem_style_b"],
+  "source_events": ["evt_style_a", "evt_style_b"],
+  "proposed_memory": {
+    "id": "mem_fold_run_example_mem_style_a_mem_style_b",
+    "type": "preference",
+    "subject": "run_example",
+    "content": "User prefers concise conclusions backed by concrete evidence.",
+    "source_events": ["evt_style_a", "evt_style_b"],
+    "confidence": 0.84,
+    "sensitivity": "private",
+    "blocked_contexts": ["external_send"]
+  },
   "confidence": 0.84,
-  "review_status": "pending"
+  "created_at": "2026-06-07T00:00:00.000Z",
+  "review_status": "pending",
+  "accepted_memory_id": null,
+  "replaces_active_memory": false,
+  "sensitive_approval_required": false,
+  "sensitive_approved": false
 }

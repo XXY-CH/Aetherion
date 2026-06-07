@@ -16,7 +16,7 @@ Current scope:
 - Reconstruct trace without live side-effect replay.
 - Print replay and trace summaries through `replay` and `trace` commands.
 - Persist `replay` outputs as Replay Record artifacts and registry entries with `live_side_effects.allowed=false`.
-- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, persona/soul records, multi-agent contracts, and poisoning scan.
+- Expose local-only Ether commands for migration dry-run, source-backed memory/context explain, checkpoint/branch/rehearsal, document-only Capsule lifecycle, causal why/counterfactual reports, queue-only hibernation, governed folding/persona/Soul Fork, multi-agent contracts, and poisoning scan.
 - Persist JSON command outputs to `.aetherion/artifacts/<command>/<topic>/<artifact-id>.json`.
 - Upsert typed JSON registries such as `.aetherion/registries/memory-cards.json`, `capsules.json`, `migration-reports.json`, and `poisoning-signals.json`.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
@@ -26,7 +26,10 @@ Current scope:
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
 - Approve rehearsals through `approve-rehearsal`, which requests a fresh Rust supervisor policy decision/lease, performs the write, verifies exact content, and appends new policy/action events without inheriting prior authority.
 - Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Local publication is unsigned and does not execute the playbook.
-- Use registries for persona anchor proposal/accept/reject, persona reset records, and checkpoint-backed soul forks that never inherit live authority.
+- Use `dream` for reviewable Memory Fold patches. It requires two real Memory Cards, retains `folded_from` and source events, and requires explicit approval before a sensitive fold becomes active.
+- Use named, TTL-bound persona anchor branches. `persona reset` applies only a branch containing accepted, non-expired anchors and retains business Memory Card references.
+- Build checkpoint-backed Soul Fork records with a new identity, zero initial budget, empty path scope, no vault/OAuth/lease grants, reference-only inheritance, and `live_side_effects_allowed=false`.
+- Record Phase 9 lifecycle changes through Rust Supervisor events whose `payload_ref` points to the persisted Ether artifact; registries remain projections, not the only fact source.
 - Rebuild `.aetherion/projections/causal.sqlite` from Ledger events for `why` and `counterfactual`. The SQLite file is explicitly a disposable projection; typed edges are temporal dependency candidates, not proof of causation, and redacted source links lower report confidence.
 - Persist Digital Hibernation records with a hash-bound Ledger cursor, minimal `resume` Context Pack, no active leases, bounded wake attention, and manual/deadline/file triggers. `wake` evaluates a trigger only when invoked, requests a fresh Rust supervisor queue decision, and appends `policy.decided` plus `wakeup.queued` to a new blocked resume run. It does not run a daemon, issue a lease, or resume task actions.
 

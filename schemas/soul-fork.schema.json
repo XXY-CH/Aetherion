@@ -3,15 +3,67 @@
   "$id": "https://aetherion.local/schemas/soul-fork.schema.json",
   "title": "SoulFork",
   "type": "object",
-  "required": ["id", "source_checkpoint_id", "new_agent_id", "inherits_history_refs", "inherits_live_authority", "policy_id", "status"],
+  "required": ["id", "source_checkpoint_id", "source_run_id", "source_event_id", "source_event_hash", "replay_record_id", "new_agent_id", "created_at", "identity", "policy", "budget", "workspace_scope", "inheritance_policy_id", "inherited_history_refs", "inherited_memory_ids", "excluded_memory_ids", "sensitive_history_approved", "inherits_live_authority", "live_side_effects_allowed", "status"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^soulfork_[A-Za-z0-9_-]+$" },
     "source_checkpoint_id": { "type": "string" },
-    "new_agent_id": { "type": "string" },
-    "inherits_history_refs": { "type": "boolean" },
-    "inherits_live_authority": { "type": "boolean" },
-    "policy_id": { "type": "string" },
-    "status": { "type": "string", "enum": ["proposed"] }
+    "source_run_id": { "type": "string" },
+    "source_event_id": { "type": "string" },
+    "source_event_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "replay_record_id": { "type": "string" },
+    "new_agent_id": { "type": "string", "pattern": "^agent_[A-Za-z0-9_-]+$" },
+    "created_at": { "type": "string" },
+    "identity": {
+      "type": "object",
+      "required": ["id", "parent_agent_id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^agent_[A-Za-z0-9_-]+$" },
+        "parent_agent_id": { "type": "string", "pattern": "^agent_[A-Za-z0-9_-]+$" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["id", "max_auto_risk", "vault_grants", "oauth_grants", "active_leases"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "max_auto_risk": { "type": "string", "enum": ["L2"] },
+        "vault_grants": { "type": "array", "maxItems": 0 },
+        "oauth_grants": { "type": "array", "maxItems": 0 },
+        "active_leases": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["id", "token_budget", "tool_call_budget", "risk_budget", "lease_budget", "on_exhaustion"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^budget_[A-Za-z0-9_-]+$" },
+        "token_budget": { "type": "number", "enum": [0] },
+        "tool_call_budget": { "type": "number", "enum": [0] },
+        "risk_budget": { "type": "string", "enum": ["L2"] },
+        "lease_budget": { "type": "number", "enum": [0] },
+        "on_exhaustion": { "type": "string", "enum": ["ask"] }
+      }
+    },
+    "workspace_scope": {
+      "type": "object",
+      "required": ["workspace_id", "allowed_paths"],
+      "additionalProperties": false,
+      "properties": {
+        "workspace_id": { "type": "string" },
+        "allowed_paths": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "inheritance_policy_id": { "type": "string" },
+    "inherited_history_refs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "inherited_memory_ids": { "type": "array", "items": { "type": "string" } },
+    "excluded_memory_ids": { "type": "array", "items": { "type": "string" } },
+    "sensitive_history_approved": { "type": "boolean" },
+    "inherits_live_authority": { "type": "boolean", "enum": [false] },
+    "live_side_effects_allowed": { "type": "boolean", "enum": [false] },
+    "status": { "type": "string", "enum": ["created"] }
   }
 }

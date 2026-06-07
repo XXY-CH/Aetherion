@@ -1,0 +1,7 @@
+{
+  "id": "branch_direct",
+  "name": "direct",
+  "anchor_ids": ["anchor_direct_evidence"],
+  "source_events": ["evt_user_corrected_style"],
+  "created_at": "2026-06-07T00:00:00.000Z"
+}

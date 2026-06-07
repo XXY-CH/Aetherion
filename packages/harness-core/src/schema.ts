@@ -81,6 +81,15 @@ function validateValue(value: unknown, schema: JsonSchema, path: string, context
     if (typeof schema.minItems === "number" && value.length < schema.minItems) {
       errors.push(`${path}: expected at least ${schema.minItems} items`);
     }
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      errors.push(`${path}: expected at most ${schema.maxItems} items`);
+    }
+    if (schema.uniqueItems === true) {
+      const unique = new Set(value.map(canonicalValue));
+      if (unique.size !== value.length) {
+        errors.push(`${path}: expected unique items`);
+      }
+    }
     if (isObject(schema.items)) {
       for (const [index, item] of value.entries()) {
         errors.push(...validateValue(item, schema.items, `${path}[${index}]`, context).errors);
@@ -131,6 +140,8 @@ function matchesType(value: unknown, type: unknown): boolean {
       return typeof value === "string";
     case "number":
       return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
     case "boolean":
       return typeof value === "boolean";
     case "null":
@@ -138,6 +149,19 @@ function matchesType(value: unknown, type: unknown): boolean {
     default:
       return true;
   }
+}
+
+function canonicalValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalValue).join(",")}]`;
+  }
+  if (isPlainObject(value)) {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalValue(child)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

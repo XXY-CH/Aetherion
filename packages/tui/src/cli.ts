@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
@@ -7,10 +8,10 @@ import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheck
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
-import { acceptPersonaAnchor, createPersonaReset, findPersonaAnchor, foldMemories, forkSoul, isPersonaAnchor, proposePersonaAnchor, rejectPersonaAnchor } from "../../soul/src/index.ts";
+import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { createAgentContract, findBudget, isResourceBudget } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, detectPoisoning, isPoisoningSignal } from "../../security/src/index.ts";
-import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -35,6 +36,11 @@ type CliOptions = {
   version?: string;
   deadline?: string;
   watchFile?: string;
+  branch?: string;
+  kind?: "style" | "preference" | "principle";
+  ttl?: string;
+  sensitivity?: string;
+  approveSensitive: boolean;
   parentRun?: string;
   childAgent?: string;
   budget?: string;
@@ -100,7 +106,8 @@ function parseArgs(args: string[]): CliOptions {
     approveWrite: false,
     dryRun: false,
     replayRuns: [],
-    approvePermissions: false
+    approvePermissions: false,
+    approveSensitive: false
   };
 
   for (let index = 1; index < args.length; index += 1) {
@@ -189,6 +196,30 @@ function parseArgs(args: string[]): CliOptions {
         options.watchFile = requireValue(arg, next);
         index += 1;
         break;
+      case "--branch":
+        options.branch = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--kind": {
+        const kind = requireValue(arg, next);
+        if (kind !== "style" && kind !== "preference" && kind !== "principle") {
+          throw new Error("--kind must be style, preference, or principle");
+        }
+        options.kind = kind;
+        index += 1;
+        break;
+      }
+      case "--ttl":
+        options.ttl = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--sensitivity":
+        options.sensitivity = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--approve-sensitive":
+        options.approveSensitive = true;
+        break;
       case "--parent-run":
         options.parentRun = requireValue(arg, next);
         index += 1;
@@ -227,7 +258,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -283,14 +314,17 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "sleepers":
       runSleepers(options);
       return true;
+    case "dream":
+      await runDream(options);
+      return true;
     case "anchors":
       await runAnchors(options);
       return true;
     case "persona":
-      runPersona(options);
+      await runPersona(options);
       return true;
     case "soul":
-      runSoul(options);
+      await runSoul(options);
       return true;
     case "agent":
       await runAgent(options);
@@ -904,6 +938,53 @@ function runSleepers(options: CliOptions): void {
   printJson(readRegistry(resolve(options.workspace), "hibernations").filter(isHibernationRecord));
 }
 
+async function runDream(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  if (options.topic === "run") {
+    const runId = requirePositional(options.target, "dream run requires a run id");
+    const content = requirePositional(options.content, "dream run requires --content <proposed-memory>");
+    const confidence = options.confidence;
+    if (confidence === undefined) {
+      throw new Error("dream run requires --confidence <0..1>");
+    }
+    const workspace = await openWorkspace(workspaceRoot);
+    await loadRunManifest(workspace, runId).catch(() => {
+      throw new Error(`Dream source run ${runId} not found`);
+    });
+    const sourceEventIds = new Set((await readEvents(workspace)).filter((event) => event.run_id === runId).map((event) => event.id));
+    const memories = readRegistry(workspaceRoot, "memory-cards")
+      .filter(isMemoryCard)
+      .filter((memory) => memory.source_events.some((eventId) => sourceEventIds.has(eventId)));
+    const fold = proposeMemoryFold(runId, memories, content, confidence);
+    await requireValidContract("memory-fold.schema.json", fold);
+    await recordGovernanceEvent(workspaceRoot, "memory.fold.proposed", `Dreaming proposed ${fold.id} from ${fold.folded_from.join(", ")} without changing active memory.`, artifactRef("dream", "run", fold.id));
+    printJson(fold);
+    return;
+  }
+  if (options.topic === "accept" || options.topic === "reject") {
+    const foldId = requirePositional(options.target, `dream ${options.topic} requires a fold id`);
+    const fold = readRegistry(workspaceRoot, "memory-folds").filter(isMemoryFold).find((entry) => entry.id === foldId);
+    if (!fold) {
+      throw new Error(`Memory fold ${foldId} not found`);
+    }
+    if (options.topic === "accept") {
+      const accepted = acceptMemoryFold(fold, options.approveSensitive);
+      await requireValidContract("memory-card.schema.json", accepted.memory);
+      await requireValidContract("memory-fold.schema.json", accepted.fold);
+      await recordGovernanceEvent(workspaceRoot, "memory.fold.accepted", `Accepted ${fold.id} as ${accepted.memory.id}; source memories remain independently addressable.`, artifactRef("dream", "accept", accepted.fold.id));
+      upsertRegistryItem(workspaceRoot, "memory-cards", accepted.memory);
+      printJson(accepted.fold);
+    } else {
+      const rejected = rejectMemoryFold(fold);
+      await requireValidContract("memory-fold.schema.json", rejected);
+      await recordGovernanceEvent(workspaceRoot, "memory.fold.rejected", `Rejected ${fold.id}; active memory was unchanged.`, artifactRef("dream", "reject", rejected.id));
+      printJson(rejected);
+    }
+    return;
+  }
+  throw new Error("dream supports run <run_id>, accept <fold_id>, and reject <fold_id>");
+}
+
 async function runAnchors(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   if (options.topic === "list") {
@@ -915,15 +996,21 @@ async function runAnchors(options: CliOptions): Promise<void> {
       throw new Error("anchors propose requires --source-event <event_id> --content <text> --confidence <0..1>");
     }
     await requireSourceEvent(workspaceRoot, options.sourceEvent);
-    printJson(proposePersonaAnchor({
-      id: `anchor_${sanitizePathSegment(options.sourceEvent)}`,
+    const proposed = proposePersonaAnchor({
+      id: `anchor_${sanitizePathSegment(options.sourceEvent)}_${sanitizePathSegment(options.branch ?? "default")}`,
+      branch: options.branch ?? "default",
+      kind: options.kind ?? "style",
       content: options.content,
       source_events: [options.sourceEvent],
       confidence: options.confidence,
-      ttl: "180d",
+      ttl: options.ttl ?? "180d",
       allowed_contexts: ["planning", "coding"],
-      blocked_contexts: ["external_auto_send"]
-    }));
+      blocked_contexts: ["external_auto_send"],
+      sensitivity: options.sensitivity ?? "private"
+    });
+    await requireValidContract("persona-anchor.schema.json", proposed);
+    await recordGovernanceEvent(workspaceRoot, "persona.anchor.proposed", `Persona anchor ${proposed.id} was proposed for branch ${proposed.branch}; active persona was unchanged.`, artifactRef("anchors", "propose", proposed.id));
+    printJson(proposed);
     return;
   }
   if (options.topic === "accept" || options.topic === "reject") {
@@ -932,22 +1019,49 @@ async function runAnchors(options: CliOptions): Promise<void> {
     if (!anchor) {
       throw new Error(`Persona anchor ${anchorId} not found`);
     }
-    printJson(options.topic === "accept" ? acceptPersonaAnchor(anchor) : rejectPersonaAnchor(anchor));
+    const updated = options.topic === "accept"
+      ? acceptPersonaAnchor(anchor, options.approveSensitive)
+      : rejectPersonaAnchor(anchor);
+    await requireValidContract("persona-anchor.schema.json", updated);
+    let branch;
+    if (updated.review_status === "accepted") {
+      const allAnchors = readRegistry(workspaceRoot, "persona-anchors")
+        .filter(isPersonaAnchor)
+        .filter((entry) => entry.id !== updated.id)
+        .concat(updated);
+      branch = createPersonaBranch(updated.branch, allAnchors);
+      await requireValidContract("persona-branch.schema.json", branch);
+    }
+    await recordGovernanceEvent(workspaceRoot, `persona.anchor.${updated.review_status}`, `Persona anchor ${updated.id} moved to ${updated.review_status}; no tool authority changed.`, artifactRef("anchors", options.topic, updated.id));
+    if (branch) {
+      upsertRegistryItem(workspaceRoot, "persona-branches", branch);
+    }
+    printJson(updated);
     return;
   }
   throw new Error("anchors supports list, propose, accept, and reject");
 }
 
-function runPersona(options: CliOptions): void {
+async function runPersona(options: CliOptions): Promise<void> {
   if (options.topic !== "reset") {
     throw new Error("persona supports reset <branch>");
   }
   const workspaceRoot = resolve(options.workspace);
-  const anchors = readRegistry(workspaceRoot, "persona-anchors").filter(isPersonaAnchor);
-  printJson(createPersonaReset(options.target ?? "default", anchors));
+  const branchName = requirePositional(options.target, "persona reset requires a branch");
+  const branch = readRegistry(workspaceRoot, "persona-branches").filter(isPersonaBranch).find((entry) => entry.name === branchName);
+  if (!branch) {
+    throw new Error(`Persona branch ${branchName} not found`);
+  }
+  const current = readRegistry(workspaceRoot, "persona-states").filter(isPersonaState).find((entry) => entry.id === "persona_state_local");
+  const result = applyPersonaReset(current, branch, readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard));
+  await requireValidContract("persona-reset.schema.json", result.reset);
+  await requireValidContract("persona-state.schema.json", result.state);
+  await recordGovernanceEvent(workspaceRoot, "persona.reset.applied", `Persona branch changed from ${result.reset.from_branch ?? "unset"} to ${result.reset.to_branch}; business memory references were retained.`, artifactRef("persona", "reset", result.reset.id));
+  upsertRegistryItem(workspaceRoot, "persona-states", result.state);
+  printJson(result.reset);
 }
 
-function runSoul(options: CliOptions): void {
+async function runSoul(options: CliOptions): Promise<void> {
   if (options.topic !== "fork") {
     throw new Error("soul supports fork <checkpoint_id> --agent-id <new_agent_id>");
   }
@@ -958,7 +1072,61 @@ function runSoul(options: CliOptions): void {
   if (!checkpoint) {
     throw new Error(`Checkpoint ${checkpointId} not found`);
   }
-  printJson(forkSoul(checkpoint.id, newAgentId));
+  if (readRegistry(workspaceRoot, "soul-forks").filter(isSoulFork).some((entry) => entry.new_agent_id === newAgentId)) {
+    throw new Error(`Agent identity ${newAgentId} already exists`);
+  }
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledger = await readEvents(workspace);
+  const checkpointIndex = ledger.findIndex((event) => event.id === checkpoint.event_id);
+  if (checkpointIndex < 0) {
+    throw new Error(`Checkpoint event ${checkpoint.event_id} not found in Ledger`);
+  }
+  const prefix = ledger.slice(0, checkpointIndex + 1);
+  const sourceEvents = prefix.filter((event) => event.run_id === checkpoint.run_id);
+  const checkpointChain = verifyEventHashChain(prefix);
+  if (!checkpointChain.valid) {
+    throw new Error(`Checkpoint ${checkpoint.id} cannot be forked from an invalid Ledger prefix`);
+  }
+  const containsSensitiveHistory = sourceEvents.some((event) =>
+    event.sensitivity === "confidential"
+    || event.sensitivity === "secret"
+    || event.sensitivity === "regulated"
+    || event.sensitivity === "credential-like"
+  );
+  const replayRecord = {
+    id: `replay_${sanitizePathSegment(checkpoint.run_id)}_${sanitizePathSegment(checkpoint.id)}_trace`,
+    run_id: checkpoint.run_id,
+    mode: "trace" as const,
+    source_events: sourceEvents.map((event) => event.id),
+    artifact_ref: `artifact://replay/${checkpoint.run_id}/${checkpoint.id}`,
+    live_side_effects: {
+      allowed: false,
+      approval_id: null
+    },
+    result: {
+      status: "passed" as const,
+      summary: "Checkpoint history references reconstructed without live side effects."
+    }
+  };
+  await requireValidContract("replay-record.schema.json", replayRecord);
+  writeReplayArtifact(workspaceRoot, replayRecord);
+  upsertRegistryItem(workspaceRoot, "replay-records", replayRecord);
+  const inheritancePolicy = defaultInheritancePolicy();
+  await requireValidContract("inheritance-policy.schema.json", inheritancePolicy);
+  upsertRegistryItem(workspaceRoot, "inheritance-policies", inheritancePolicy);
+  const fork = forkSoul({
+    checkpoint,
+    replayRecordId: replayRecord.id,
+    newAgentId,
+    workspaceId: workspace.id,
+    memories: readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard),
+    containsSensitiveHistory,
+    approveSensitiveHistory: options.approveSensitive,
+    inheritancePolicy
+  });
+  await requireValidContract("soul-fork.schema.json", fork);
+  await recordGovernanceEvent(workspaceRoot, "soul.fork.created", `Created ${fork.new_agent_id} from checkpoint ${checkpoint.id} with history references only and no live authority.`, artifactRef("soul", "fork", fork.id));
+  printJson(fork);
 }
 
 async function runAgent(options: CliOptions): Promise<void> {
@@ -1095,6 +1263,8 @@ function registryNameFor(options: CliOptions): string | null {
       return "hibernations";
     case "wake":
       return "wakeups";
+    case "dream":
+      return "memory-folds";
     case "anchors":
       return "persona-anchors";
     case "persona":
@@ -1199,6 +1369,32 @@ async function requireSourceEvent(workspaceRoot: string, eventId: string): Promi
   }
 }
 
+function artifactRef(command: string, topic: string, id: string): string {
+  return `artifact://${sanitizePathSegment(command)}/${sanitizePathSegment(topic)}/${sanitizePathSegment(id)}`;
+}
+
+async function recordGovernanceEvent(workspaceRoot: string, eventType: string, summary: string, payloadRef: string): Promise<string> {
+  const workspace = await openWorkspace(workspaceRoot);
+  const runId = `run_governance_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const manifest = await createRunManifest(repoRoot, workspace, runId, summary);
+  const result = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${runId}_event`,
+    method: "event.append",
+    workspace_root: workspaceRoot,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: eventType,
+    summary,
+    payload_ref: payloadRef
+  }));
+  if (typeof result.event_id !== "string") {
+    throw new Error(`Supervisor did not append governance event ${eventType}`);
+  }
+  await recordRunEvent(repoRoot, workspace, manifest, result.event_id);
+  await completeRunManifest(repoRoot, workspace, manifest, "completed");
+  return result.event_id;
+}
+
 function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): void {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
@@ -1254,9 +1450,11 @@ Usage:
   npm run ether -- sleep <run_id> [--deadline <iso-date>] [--watch-file <workspace-file>]
   npm run ether -- wake <trigger_or_hibernation_id>
   npm run ether -- sleepers
-  npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1>
+  npm run ether -- dream run <run_id> --content <proposed-memory> --confidence <0..1>
+  npm run ether -- dream accept <fold_id> [--approve-sensitive]
+  npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1> [--branch <name>]
   npm run ether -- persona reset <branch>
-  npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id>
+  npm run ether -- soul fork <checkpoint_id> --agent-id <new_agent_id> [--approve-sensitive]
   npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --content <task>
   npm run ether -- security scan --source-event <event_id> --content <text>
 
@@ -1268,7 +1466,7 @@ Commands:
   capsule                Governed document-only draft/test/local-publish/rollback lifecycle
   why/counterfactual     Phase 7 causal memory report surfaces
   sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
-  anchors/persona/soul   Phase 9 evidence-backed persona and soul fork records
+  dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
   agent                  Phase 10 contract creation only; no child execution
   security               Phase 11 signature-based poisoning detection
   help                   Show this help
@@ -1279,6 +1477,7 @@ Options:
   --output <path>      Workspace-relative file to write. Defaults to .aetherion/SUMMARY.md.
   --summary <text>     Explicit summary text to write.
   --approve-write      Required to execute the write stage.
+  --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
 `);
 }
 

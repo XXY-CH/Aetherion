@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { appendEvent, eventRecord, loadWorkspaceFromRegistry } from "../../harness-core/src/index.ts";
+import { appendEvent, eventRecord, loadWorkspaceFromRegistry, readEvents, verifyEventHashChain } from "../../harness-core/src/index.ts";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -611,7 +611,7 @@ test("TUI agent contract requires existing run, budget, and published capsule wi
   assert.equal(budgetsAfter[0].tool_call_budget, 2);
 });
 
-test("TUI persona anchors and soul fork use registries for lifecycle state", async () => {
+test("Ether governs memory folding, persona branches, and authority-free Soul Fork inheritance", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-soul-"));
   await writeFile(join(workspace, "README.md"), "Soul fixture\n");
   const run = await execFileAsync(process.execPath, [
@@ -627,8 +627,72 @@ test("TUI persona anchors and soul fork use registries for lifecycle state", asy
   ]);
   const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
-  const sourceEvent = (JSON.parse((await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8")).split("\n").find(Boolean)!) as { id: string }).id;
-  const anchorId = `anchor_${sourceEvent.replace(/[^A-Za-z0-9_.-]+/g, "_")}`;
+  const sourceEvents = (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { id: string; run_id: string })
+    .filter((event) => event.run_id === runId);
+  assert.ok(sourceEvents.length >= 2);
+  const registryDir = join(workspace, ".aetherion", "registries");
+  await mkdir(registryDir, { recursive: true });
+  await writeFile(join(registryDir, "memory-cards.json"), JSON.stringify([
+    {
+      id: "mem_business",
+      type: "project",
+      subject: runId,
+      content: "Keep project constraints.",
+      source_events: [sourceEvents[0].id],
+      confidence: 0.9,
+      sensitivity: "private",
+      blocked_contexts: ["external_send"]
+    },
+    {
+      id: "mem_style",
+      type: "preference",
+      subject: runId,
+      content: "Use direct answers.",
+      source_events: [sourceEvents[1].id],
+      confidence: 0.9,
+      sensitivity: "private",
+      blocked_contexts: ["external_send"]
+    },
+    {
+      id: "mem_secret_account",
+      type: "fact",
+      subject: runId,
+      content: "Secret fixture content must not enter fork export.",
+      source_events: [sourceEvents[1].id],
+      confidence: 0.9,
+      sensitivity: "secret",
+      blocked_contexts: ["resume", "external_send"]
+    }
+  ], null, 2));
+
+  const dream = await execFileAsync(process.execPath, [
+    cliPath,
+    "dream",
+    "run",
+    runId,
+    "--content",
+    "Consolidated source-backed project and communication context.",
+    "--confidence",
+    "0.82",
+    "--workspace",
+    workspace
+  ]);
+  const fold = JSON.parse(dream.stdout) as { id: string; review_status: string; sensitive_approval_required: boolean };
+  assert.equal(fold.review_status, "pending");
+  assert.equal(fold.sensitive_approval_required, true);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "dream", "accept", fold.id, "--workspace", workspace]),
+    /requires explicit sensitive approval/
+  );
+  const acceptedFold = await execFileAsync(process.execPath, [cliPath, "dream", "accept", fold.id, "--approve-sensitive", "--workspace", workspace]);
+  assert.match(acceptedFold.stdout, /"review_status": "accepted"/);
+  assert.match(acceptedFold.stdout, /"replaces_active_memory": false/);
+
+  const sourceEvent = sourceEvents[0].id;
+  const anchorId = `anchor_${sourceEvent.replace(/[^A-Za-z0-9_.-]+/g, "_")}_direct`;
 
   const anchor = await execFileAsync(process.execPath, [
     cliPath,
@@ -640,6 +704,8 @@ test("TUI persona anchors and soul fork use registries for lifecycle state", asy
     sourceEvent,
     "--confidence",
     "0.85",
+    "--branch",
+    "direct",
     "--content",
     "Persisted anchor"
   ]);
@@ -648,21 +714,44 @@ test("TUI persona anchors and soul fork use registries for lifecycle state", asy
   const anchors = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "persona-anchors.json"), "utf8")) as Array<{ id: string; review_status: string }>;
   assert.equal(anchors.find((entry) => entry.id === anchorId)?.review_status, "accepted");
 
-  const reset = await execFileAsync(process.execPath, [cliPath, "persona", "reset", "branch_direct", "--workspace", workspace]);
+  const reset = await execFileAsync(process.execPath, [cliPath, "persona", "reset", "direct", "--workspace", workspace]);
   assert.match(reset.stdout, new RegExp(anchorId));
-  assert.match(reset.stdout, /"status": "proposed"/);
-  const resets = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "persona-resets.json"), "utf8")) as Array<{ branch: string; source_anchor_ids: string[] }>;
-  assert.equal(resets[0].branch, "branch_direct");
-  assert.deepEqual(resets[0].source_anchor_ids, [anchorId]);
+  assert.match(reset.stdout, /"status": "applied"/);
+  const resets = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "persona-resets.json"), "utf8")) as Array<{ to_branch: string; retained_business_memory_ids: string[]; inherits_live_authority: boolean }>;
+  assert.equal(resets[0].to_branch, "direct");
+  assert.ok(resets[0].retained_business_memory_ids.includes("mem_business"));
+  assert.ok(!resets[0].retained_business_memory_ids.includes("mem_style"));
+  assert.equal(resets[0].inherits_live_authority, false);
 
   const checkpoint = await execFileAsync(process.execPath, [cliPath, "checkpoint", runId, "--workspace", workspace]);
   const checkpointId = JSON.parse(checkpoint.stdout).id as string;
   const soul = await execFileAsync(process.execPath, [cliPath, "soul", "fork", checkpointId, "--agent-id", "agent_fork_test", "--workspace", workspace]);
   assert.match(soul.stdout, /"inherits_live_authority": false/);
-  assert.match(soul.stdout, /"status": "proposed"/);
-  const forks = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "soul-forks.json"), "utf8")) as Array<{ source_checkpoint_id: string; inherits_live_authority: boolean }>;
+  assert.match(soul.stdout, /"live_side_effects_allowed": false/);
+  assert.match(soul.stdout, /"status": "created"/);
+  assert.doesNotMatch(soul.stdout, /Secret fixture content/);
+  const forks = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "soul-forks.json"), "utf8")) as Array<{ source_checkpoint_id: string; inherits_live_authority: boolean; policy: { active_leases: string[]; vault_grants: string[]; oauth_grants: string[] }; budget: { token_budget: number }; workspace_scope: { allowed_paths: string[] }; excluded_memory_ids: string[] }>;
   assert.equal(forks[0].source_checkpoint_id, checkpointId);
   assert.equal(forks[0].inherits_live_authority, false);
+  assert.deepEqual(forks[0].policy.active_leases, []);
+  assert.deepEqual(forks[0].policy.vault_grants, []);
+  assert.deepEqual(forks[0].policy.oauth_grants, []);
+  assert.equal(forks[0].budget.token_budget, 0);
+  assert.deepEqual(forks[0].workspace_scope.allowed_paths, []);
+  assert.ok(forks[0].excluded_memory_ids.includes("mem_secret_account"));
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "soul", "fork", checkpointId, "--agent-id", "agent_fork_test", "--workspace", workspace]),
+    /already exists/
+  );
+  const governanceEvents = (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"));
+  assert.match(governanceEvents, /memory\.fold\.proposed/);
+  assert.match(governanceEvents, /memory\.fold\.accepted/);
+  assert.match(governanceEvents, /persona\.anchor\.accepted/);
+  assert.match(governanceEvents, /persona\.reset\.applied/);
+  assert.match(governanceEvents, /soul\.fork\.created/);
+  assert.match(governanceEvents, /"payload_ref":"artifact:\/\//);
+  const registered = await loadWorkspaceFromRegistry(workspace);
+  assert.equal(verifyEventHashChain(await readEvents(registered.workspace)).valid, true);
 });
 
 test("Ether refuses synthetic fallback state and test-only TypeScript authority", async () => {
