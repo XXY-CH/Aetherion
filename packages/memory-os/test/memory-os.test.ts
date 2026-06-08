@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { MemoryCard } from "../src/index.ts";
 import { acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents } from "../src/index.ts";
 
 test("memory candidates require source events and context explains selection", () => {
@@ -53,6 +54,99 @@ test("memory block updates context boundaries without changing provenance", () =
   assert.equal(pack.excluded_memories[0].reason, "blocked for external_send");
 });
 
+test("context assembly ranks source-backed memories before prompt use", () => {
+  const lowerConfidence = memoryCard({
+    id: "mem_lower_confidence",
+    content: "Lower confidence context.",
+    confidence: 0.52,
+    source_events: ["evt_low"]
+  });
+  const higherConfidence = memoryCard({
+    id: "mem_higher_confidence",
+    content: "Higher confidence context.",
+    confidence: 0.91,
+    source_events: ["evt_high"]
+  });
+  const tiedConfidenceMoreEvidence = memoryCard({
+    id: "mem_tied_more_evidence",
+    content: "Same confidence with more source evidence.",
+    confidence: 0.91,
+    source_events: ["evt_tied_a", "evt_tied_b"]
+  });
+
+  const pack = assembleContextPack("run_ranked_context", [lowerConfidence, higherConfidence, tiedConfidenceMoreEvidence], "planning");
+
+  assert.deepEqual(pack.selected_memories.map((memory) => memory.id), [
+    "mem_tied_more_evidence",
+    "mem_higher_confidence",
+    "mem_lower_confidence"
+  ]);
+  assert.deepEqual(pack.excluded_memories, []);
+});
+
+test("context assembly excludes overflow memories under memory token budget", () => {
+  const smallHighConfidence = memoryCard({
+    id: "mem_small_high_confidence",
+    content: "Short context that should fit the prompt memory budget.",
+    confidence: 0.95,
+    source_events: ["evt_small"]
+  });
+  const oversizedMediumConfidence = memoryCard({
+    id: "mem_oversized_medium_confidence",
+    content: "Large context. ".repeat(380),
+    confidence: 0.82,
+    source_events: ["evt_large"]
+  });
+  const smallLowConfidence = memoryCard({
+    id: "mem_small_low_confidence",
+    content: "Lower priority context that still fits after the oversized memory is skipped.",
+    confidence: 0.4,
+    source_events: ["evt_low"]
+  });
+
+  const pack = assembleContextPack("run_budgeted_context", [oversizedMediumConfidence, smallLowConfidence, smallHighConfidence], "planning");
+
+  assert.deepEqual(pack.selected_memories.map((memory) => memory.id), [
+    "mem_small_high_confidence",
+    "mem_small_low_confidence"
+  ]);
+  assert.deepEqual(pack.excluded_memories, [{ id: "mem_oversized_medium_confidence", reason: "memory budget exceeded" }]);
+  assert.equal(pack.token_budget.memory_tokens, 1000);
+});
+
+test("context assembly applies deletion blocking and sensitivity before budget selection", () => {
+  const oversizedBlocked = blockMemoryContext(memoryCard({
+    id: "mem_oversized_blocked",
+    content: "Blocked context. ".repeat(380),
+    confidence: 0.99,
+    source_events: ["evt_blocked"]
+  }), "planning");
+  const oversizedSecret = memoryCard({
+    id: "mem_oversized_secret",
+    content: "Secret context. ".repeat(380),
+    confidence: 0.98,
+    sensitivity: "secret",
+    source_events: ["evt_secret"]
+  });
+  const oversizedDeleted = memoryCard({
+    id: "mem_oversized_deleted",
+    content: "Deleted context. ".repeat(380),
+    confidence: 0.97,
+    source_events: ["evt_deleted"]
+  });
+
+  const pack = assembleContextPack("run_hard_exclusions", [oversizedBlocked, oversizedSecret, oversizedDeleted], "planning", [
+    createMemoryDeleteTombstone(oversizedDeleted, "user_delete_request")
+  ]);
+
+  assert.deepEqual(pack.selected_memories, []);
+  assert.deepEqual(pack.excluded_memories, [
+    { id: "mem_oversized_blocked", reason: "blocked for planning" },
+    { id: "mem_oversized_secret", reason: "sensitivity secret not allowed in planning" },
+    { id: "mem_oversized_deleted", reason: "deleted by memory tombstone" }
+  ]);
+});
+
 test("memory candidates can be derived from real run trace events", () => {
   const events = [
     {
@@ -100,3 +194,13 @@ test("memory candidates can be derived from real run trace events", () => {
   assert.equal(userModel.work_style.decision_pattern, "unknown");
   assert.deepEqual(userModel.automation_policy.auto_execute, []);
 });
+
+function memoryCard(input: Partial<MemoryCard> & Pick<MemoryCard, "id" | "content" | "confidence" | "source_events">): MemoryCard {
+  return {
+    type: "project",
+    subject: "Aetherion",
+    sensitivity: "private",
+    blocked_contexts: [],
+    ...input
+  };
+}

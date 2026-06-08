@@ -96,6 +96,8 @@ export type MemorySourceEvent = {
   payload_ref?: string;
 };
 
+const DEFAULT_CONTEXT_TOKEN_BUDGET = { memory_tokens: 1000, capability_tokens: 1000, task_tokens: 6000 };
+
 export function createMemoryCandidate(input: Omit<MemoryCandidate, "review">): MemoryCandidate {
   if (input.source_events.length === 0) {
     throw new Error("Memory candidates must cite source events");
@@ -233,8 +235,9 @@ export function blockMemoryContext(memory: MemoryCard, context: string): MemoryC
 }
 
 export function assembleContextPack(runId: string, memories: MemoryCard[], context: string, tombstones: MemoryTombstone[] = []): ContextPack {
-  const selected_memories = [];
-  const excluded_memories = [];
+  const selected_memories: ContextPack["selected_memories"] = [];
+  const excluded_memories: ContextPack["excluded_memories"] = [];
+  const eligible_memories: MemoryCard[] = [];
   const deletedMemoryIds = new Set(tombstones.map((tombstone) => tombstone.target_memory_id));
   for (const memory of memories) {
     if (deletedMemoryIds.has(memory.id)) {
@@ -244,8 +247,18 @@ export function assembleContextPack(runId: string, memories: MemoryCard[], conte
     } else if (memory.sensitivity === "secret" || (memory.sensitivity === "confidential" && context === "external_send")) {
       excluded_memories.push({ id: memory.id, reason: `sensitivity ${memory.sensitivity} not allowed in ${context}` });
     } else {
-      selected_memories.push({ id: memory.id, reason: "context-compatible source-backed memory", confidence: memory.confidence, source_events: memory.source_events });
+      eligible_memories.push(memory);
     }
+  }
+  let usedMemoryTokens = 0;
+  for (const memory of eligible_memories.sort(compareMemoryForContext)) {
+    const estimatedTokens = estimateMemoryTokenCost(memory);
+    if (usedMemoryTokens + estimatedTokens > DEFAULT_CONTEXT_TOKEN_BUDGET.memory_tokens) {
+      excluded_memories.push({ id: memory.id, reason: "memory budget exceeded" });
+      continue;
+    }
+    usedMemoryTokens += estimatedTokens;
+    selected_memories.push({ id: memory.id, reason: "context-compatible source-backed memory", confidence: memory.confidence, source_events: memory.source_events });
   }
   return {
     id: `ctx_${runId}`,
@@ -255,7 +268,7 @@ export function assembleContextPack(runId: string, memories: MemoryCard[], conte
     conflicts: [],
     active_leases: [],
     capability_cards: [],
-    token_budget: { memory_tokens: 1000, capability_tokens: 1000, task_tokens: 6000 }
+    token_budget: { ...DEFAULT_CONTEXT_TOKEN_BUDGET }
   };
 }
 
@@ -333,6 +346,33 @@ function compactEventIds(events: Array<MemorySourceEvent | undefined>): string[]
 
 function sanitizeId(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]+/g, "_");
+}
+
+function compareMemoryForContext(left: MemoryCard, right: MemoryCard): number {
+  const confidenceDifference = right.confidence - left.confidence;
+  if (confidenceDifference !== 0) {
+    return confidenceDifference;
+  }
+  const sourceEventDifference = right.source_events.length - left.source_events.length;
+  if (sourceEventDifference !== 0) {
+    return sourceEventDifference;
+  }
+  const tokenDifference = estimateMemoryTokenCost(left) - estimateMemoryTokenCost(right);
+  if (tokenDifference !== 0) {
+    return tokenDifference;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function estimateMemoryTokenCost(memory: MemoryCard): number {
+  const serializedMemory = [
+    memory.id,
+    memory.type,
+    memory.subject,
+    memory.content,
+    memory.source_events.join(" ")
+  ].join(" ");
+  return Math.max(1, Math.ceil(serializedMemory.length / 4));
 }
 
 function inferToolsUsed(events: MemorySourceEvent[]): string[] {
