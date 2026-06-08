@@ -1005,6 +1005,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
       forbidden_claims: string[];
       completion_rules: string[];
     };
+    readiness: {
+      ready_for_model_preview: boolean;
+      blockers: string[];
+      warnings: string[];
+      next_steps: string[];
+    };
     context_budget: { memory_tokens: number; capability_tokens: number; task_tokens: number; total_tokens: number };
     assembly_manifest: {
       context_pack_id: string;
@@ -1051,6 +1057,11 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptPlanRecord.response_format.required_blocks[0]?.source_event_ids_required, true);
   assert.ok(promptPlanRecord.response_format.forbidden_claims.some((claim) => claim.includes("tool was requested or executed")));
   assert.ok(promptPlanRecord.response_format.completion_rules.some((rule) => rule.includes("does not add durable memory")));
+  assert.equal(promptPlanRecord.readiness.ready_for_model_preview, true);
+  assert.deepEqual(promptPlanRecord.readiness.blockers, []);
+  assert.ok(promptPlanRecord.readiness.warnings.includes("artifact_refs_not_read"));
+  assert.ok(promptPlanRecord.readiness.warnings.includes("forbidden_tools_present"));
+  assert.ok(promptPlanRecord.readiness.next_steps.some((step) => step.includes("artifact refs")));
   assert.deepEqual(promptPlanRecord.context_budget, {
     memory_tokens: 1000,
     capability_tokens: 1000,
@@ -1086,6 +1097,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(promptPlanRecord.messages[2]?.source_event_ids.includes(promptSourceEvents[0]));
   assert.match(promptPlanRecord.messages[0]?.content ?? "", /Instruction Hierarchy/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Assembly Manifest/);
+  assert.match(promptPlanRecord.messages[1]?.content ?? "", /Readiness/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Response Format/);
   assert.match(promptPlanRecord.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(promptPlanRecord.preview, /System Boundary/);
@@ -1093,6 +1105,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /Assembly Manifest/);
   assert.match(promptPlanRecord.preview, /model_invoked=false/);
   assert.match(promptPlanRecord.preview, /runtime_authority_granted=false/);
+  assert.match(promptPlanRecord.preview, /Readiness/);
+  assert.match(promptPlanRecord.preview, /Ready for model preview: true/);
   assert.match(promptPlanRecord.preview, /Response Format/);
   assert.match(promptPlanRecord.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
   assert.match(promptPlanRecord.preview, /Forbidden claim: Do not claim a tool was requested or executed/);

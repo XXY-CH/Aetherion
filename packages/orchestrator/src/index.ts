@@ -77,6 +77,13 @@ export type PromptResponseFormat = {
   completion_rules: string[];
 };
 
+export type PromptReadiness = {
+  ready_for_model_preview: boolean;
+  blockers: string[];
+  warnings: string[];
+  next_steps: string[];
+};
+
 export type PromptPlan = {
   id: string;
   run_id: string;
@@ -112,6 +119,7 @@ export type PromptPlan = {
     verification_questions: string[];
   };
   response_format: PromptResponseFormat;
+  readiness: PromptReadiness;
   context_budget: {
     memory_tokens: number;
     capability_tokens: number;
@@ -150,6 +158,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const responseFormat = responseFormatFor(outputMode);
   const contextBudget = contextBudgetFor(input.contextPack);
   const assemblyManifest = assemblyManifestFor(input.contextPack, sourceEvents, allowedTools, forbiddenTools, activePermissions);
+  const readiness = readinessFor(assemblyManifest);
   const instructionHierarchy = instructionHierarchyFor();
   const sections: PromptSection[] = [
     {
@@ -178,6 +187,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       id: "assembly-manifest",
       title: "Assembly Manifest",
       content: assemblyManifestLines(assemblyManifest),
+      source_event_ids: []
+    },
+    {
+      id: "readiness",
+      title: "Readiness",
+      content: readinessLines(readiness),
       source_event_ids: []
     },
     {
@@ -284,6 +299,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       verification_questions: verificationQuestions
     },
     response_format: responseFormat,
+    readiness,
     context_budget: contextBudget,
     assembly_manifest: assemblyManifest,
     instruction_hierarchy: instructionHierarchy,
@@ -295,6 +311,61 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     messages,
     preview: renderPromptPreview(sections)
   };
+}
+
+function readinessFor(manifest: PromptAssemblyManifest): PromptReadiness {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const nextSteps: string[] = [];
+
+  if (manifest.included.source_event_ids.length === 0) {
+    blockers.push("run_evidence_missing");
+    nextSteps.push("Provide selected-run Ledger event envelopes before model-backed planning.");
+  }
+  if (manifest.included.selected_memory_ids.length === 0) {
+    warnings.push("selected_memory_missing");
+    nextSteps.push("Proceed only with task text and run evidence, or accept source-backed Memory Cards for richer context.");
+  }
+  if (manifest.excluded.conflicts.length > 0) {
+    warnings.push("context_conflicts_present");
+    nextSteps.push("Resolve or explicitly surface context conflicts in the assumptions block.");
+  }
+  if (manifest.excluded.memory_ids.length > 0) {
+    warnings.push("excluded_memory_present");
+    nextSteps.push("Keep excluded memories out of answer claims and mention their exclusion when relevant.");
+  }
+  if (manifest.included.tool_request_names.length === 0) {
+    warnings.push("no_allowed_tool_requests");
+    nextSteps.push("Keep the response descriptive unless a future Local Supervisor policy path grants requestable tools.");
+  }
+  if (manifest.excluded.forbidden_tool_names.length > 0) {
+    warnings.push("forbidden_tools_present");
+    nextSteps.push("Avoid forbidden tools and state any unavailable tool dependency as a blocker.");
+  }
+  if (manifest.included.artifact_refs.length > 0) {
+    warnings.push("artifact_refs_not_read");
+    nextSteps.push("Treat artifact refs as references only; do not infer raw payload contents.");
+  }
+  if (manifest.included.active_permission_ids.length > 0) {
+    warnings.push("active_permissions_are_context_only");
+    nextSteps.push("Treat active permissions as context until a concrete tool request receives fresh policy and lease evidence.");
+  }
+
+  return {
+    ready_for_model_preview: blockers.length === 0,
+    blockers,
+    warnings,
+    next_steps: uniqueInOrder(nextSteps)
+  };
+}
+
+function readinessLines(readiness: PromptReadiness): string[] {
+  return [
+    `Ready for model preview: ${readiness.ready_for_model_preview}.`,
+    `Blockers: ${readiness.blockers.length > 0 ? readiness.blockers.join(", ") : "none"}.`,
+    `Warnings: ${readiness.warnings.length > 0 ? readiness.warnings.join(", ") : "none"}.`,
+    ...readiness.next_steps.map((step) => `Next step: ${step}`)
+  ];
 }
 
 function responseFormatFor(outputMode: "plan" | "answer" | "patch"): PromptResponseFormat {
@@ -607,6 +678,7 @@ function renderPromptMessages(sections: PromptSection[]): PromptMessage[] {
       "capability-context",
       "context-budget",
       "assembly-manifest",
+      "readiness",
       "response-format",
       "response-contract",
       "planner-checklist",
