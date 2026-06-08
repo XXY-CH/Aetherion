@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -202,6 +202,76 @@ test("supervisor RPC client rejects mismatched response ids", async () => {
     );
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(socketPath, { force: true });
+  }
+});
+
+test("supervisor socket run sends approved write commit over the supplied socket", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  const { runSupervisorKernelLoop } = await import("../src/index.ts");
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "aetherion-socket-commit-transport-"));
+  const workspaceId = workspaceIdForRoot(workspaceRoot);
+  const runId = "run_socket_commit_transport";
+  const socketPath = join(tmpdir(), `aeth-socket-commit-${process.pid}-${Date.now()}.sock`);
+  await writeFile(join(workspaceRoot, "README.md"), "Socket commit transport fixture\n");
+  const workspace = await createWorkspace(workspaceRoot, workspaceId);
+  await writeWorkspaceRegistry(repoRoot, workspace, "rust-supervisor");
+  const received: Array<{ method: string; auth_token?: string }> = [];
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
+    socket.setEncoding("utf8");
+    let requestText = "";
+    let responded = false;
+    socket.on("data", async (chunk) => {
+      requestText += chunk;
+      if (responded || !requestText.includes("\n")) {
+        return;
+      }
+      responded = true;
+      const request = JSON.parse(requestText.trim()) as {
+        id: string;
+        method: string;
+        auth_token?: string;
+        event_type?: string;
+        summary?: string;
+        payload_ref?: string;
+      };
+      received.push({ method: request.method, auth_token: request.auth_token });
+      if (request.auth_token !== "commit-token") {
+        socket.end(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: "socket RPC auth failed" })}\n`);
+        return;
+      }
+      try {
+        const result = await socketRunShimResult(workspace, request, runId);
+        socket.end(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+      } catch (error) {
+        socket.end(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: error instanceof Error ? error.message : String(error) })}\n`);
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    const result = await runSupervisorKernelLoop({
+      repoRoot,
+      workspaceRoot,
+      runId,
+      inputPath: "README.md",
+      outputPath: ".aetherion/SUMMARY.md",
+      approveWrite: true,
+      socketPath,
+      socketAuthToken: "commit-token"
+    });
+    assert.equal(result.supervisor, "socket");
+    assert.equal(result.verification?.status, "passed");
+    assert.equal(received.filter((request) => request.method === "file.write.commit").length, 1);
+    assert.ok(received.every((request) => request.auth_token === "commit-token"), JSON.stringify(received));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(socketPath, { force: true });
   }
 });
 
@@ -2032,4 +2102,120 @@ function consentRecordFixture(runId: string) {
       paths: ["README.md"]
     }
   };
+}
+
+type SocketRunShimRequest = {
+  id: string;
+  method: string;
+  event_type?: string;
+  summary?: string;
+  payload_ref?: string;
+  contents?: string;
+  consent_payload_ref?: string;
+};
+
+async function socketRunShimResult(
+  workspace: Awaited<ReturnType<typeof createWorkspace>>,
+  request: SocketRunShimRequest,
+  runId: string
+): Promise<Record<string, unknown>> {
+  switch (request.method) {
+    case "workspace.init":
+      return { workspace_id: workspace.id, authority: "rust-supervisor" };
+    case "event.append": {
+      assert.ok(request.event_type);
+      assert.ok(request.summary);
+      const eventId = await appendShimEvent(workspace, runId, request.event_type, request.summary, request.payload_ref);
+      return { event_id: eventId };
+    }
+    case "file.read.traced": {
+      const requestEventId = await appendShimEvent(workspace, runId, "tool.requested", "Shim supervisor requested workspace read.");
+      const riskEventId = await appendShimEvent(workspace, runId, "risk.composed", "Shim supervisor composed L1 read risk.");
+      const policyEventId = await appendShimEvent(workspace, runId, "policy.decided", "Shim supervisor allowed workspace read.");
+      const leaseEventId = await appendShimEvent(workspace, runId, "lease.issued", "Shim supervisor issued read lease.");
+      const resultEventId = await appendShimEvent(workspace, runId, "tool.result", "Shim supervisor returned workspace read contents.");
+      return {
+        contents: "Socket commit transport fixture\n",
+        request_id: `toolreq_${runId}_read`,
+        request_event_id: requestEventId,
+        risk_event_id: riskEventId,
+        policy_decision_id: `policy_${runId}_allow_read`,
+        policy_event_id: policyEventId,
+        lease_event_id: leaseEventId,
+        result_event_id: resultEventId,
+        decision: "allow",
+        risk_level: "L1",
+        lease_id: `lease_${runId}_read`
+      };
+    }
+    case "file.write.prepare": {
+      const requestEventId = await appendShimEvent(workspace, runId, "tool.requested", "Shim supervisor requested workspace write.");
+      const riskEventId = await appendShimEvent(workspace, runId, "risk.composed", "Shim supervisor composed L3 write risk.");
+      const policyEventId = await appendShimEvent(workspace, runId, "policy.decided", "Shim supervisor asked for write consent.");
+      return {
+        request_id: `toolreq_${runId}_write`,
+        request_event_id: requestEventId,
+        risk_event_id: riskEventId,
+        policy_decision_id: `policy_${runId}_ask_write`,
+        policy_event_id: policyEventId,
+        decision: "ask",
+        risk_level: "L3",
+        lease_id: ""
+      };
+    }
+    case "file.write.commit": {
+      const consentEventId = await appendShimEvent(workspace, runId, "consent.recorded", "Shim supervisor recorded write consent.", request.consent_payload_ref);
+      const policyEventId = await appendShimEvent(workspace, runId, "policy.decided", "Shim supervisor allowed write commit.");
+      const leaseEventId = await appendShimEvent(workspace, runId, "lease.issued", "Shim supervisor issued write lease.");
+      const actionEventId = await appendShimEvent(workspace, runId, "action.recorded", "Shim supervisor wrote workspace file.");
+      const observationEventId = await appendShimEvent(workspace, runId, "observation.recorded", "Shim supervisor observed expected workspace file state.");
+      const verificationEventId = await appendShimEvent(workspace, runId, "verification.recorded", "Shim supervisor verified exact workspace file contents.");
+      return {
+        written: true,
+        request_id: `toolreq_${runId}_write`,
+        consent_event_id: consentEventId,
+        policy_decision_id: `policy_${runId}_allow_write`,
+        policy_event_id: policyEventId,
+        lease_event_id: leaseEventId,
+        action_id: `action_${runId}_write`,
+        action_event_id: actionEventId,
+        observation_id: `obs_${runId}_file`,
+        observation_event_id: observationEventId,
+        observation_summary: "Shim supervisor observed expected workspace file state.",
+        verification_id: `verify_${runId}_file`,
+        verification_event_id: verificationEventId,
+        verification_status: "passed",
+        verification_summary: "Shim supervisor verified exact workspace file contents.",
+        decision: "allow",
+        risk_level: "L3",
+        lease_id: `lease_${runId}_write`
+      };
+    }
+    default:
+      throw new Error(`unsupported shim method ${request.method}`);
+  }
+}
+
+async function appendShimEvent(
+  workspace: Awaited<ReturnType<typeof createWorkspace>>,
+  runId: string,
+  eventType: string,
+  summary: string,
+  payloadRef?: string
+): Promise<string> {
+  const index = (await readEvents(workspace)).filter((event) => event.run_id === runId).length + 1;
+  const eventId = `evt_${runId}_${String(index).padStart(2, "0")}_${eventType.replaceAll(".", "_")}`;
+  const event = eventRecord({
+    id: eventId,
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: eventType,
+    actor: { type: "system", id: "socket_transport_shim" },
+    summary
+  });
+  if (payloadRef) {
+    event.payload_ref = payloadRef;
+  }
+  await appendEvent(repoRoot, workspace, event);
+  return eventId;
 }

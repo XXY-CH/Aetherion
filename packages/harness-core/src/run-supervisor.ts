@@ -168,7 +168,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     consent_record_json: consentValidation,
     consent_payload_ref: consentRef,
     contents: summaryText
-  });
+  }, supervisorOptions);
   const writeDecision = policyFromSupervisor(runId, writeRequest, writeResult, "Explicit consent approved workspace-scoped write through Rust supervisor.");
   if (writeResult.written !== true || writeDecision.decision !== "allow" || !writeDecision.lease) {
     throw new Error("Rust supervisor did not return an allowed lease-backed write result");
