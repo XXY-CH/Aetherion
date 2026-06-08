@@ -1077,22 +1077,44 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const consentDir = join(root, ".aetherion", "artifacts", "consent", "run_payload_resolved");
   const genericDir = join(root, ".aetherion", "artifacts", "capsule", "draft");
   const invalidDir = join(root, ".aetherion", "artifacts", "capsule", "test");
+  const memoryCandidatesDir = join(root, ".aetherion", "artifacts", "memory", "candidates");
+  const memoryAcceptDir = join(root, ".aetherion", "artifacts", "memory", "accept");
+  const memoryRejectDir = join(root, ".aetherion", "artifacts", "memory", "reject");
+  const memoryBlockDir = join(root, ".aetherion", "artifacts", "memory", "block");
+  const memoryDeleteDir = join(root, ".aetherion", "artifacts", "memory", "delete");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
   await mkdir(consentDir, { recursive: true });
   await mkdir(genericDir, { recursive: true });
   await mkdir(invalidDir, { recursive: true });
+  await mkdir(memoryCandidatesDir, { recursive: true });
+  await mkdir(memoryAcceptDir, { recursive: true });
+  await mkdir(memoryRejectDir, { recursive: true });
+  await mkdir(memoryBlockDir, { recursive: true });
+  await mkdir(memoryDeleteDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(genericDir, "capsule_a.json"), `${JSON.stringify(capsuleRecord("cap_payload", "0.1.0", "draft"), null, 2)}\n`);
   await writeFile(join(invalidDir, "broken.json"), "{not json");
+  await writeFile(join(memoryCandidatesDir, "memcand_payload.json"), `${JSON.stringify(memoryCandidate("memcand_payload", "pending"), null, 2)}\n`);
+  await writeFile(join(memoryRejectDir, "memcand_payload_rejected.json"), `${JSON.stringify(memoryCandidate("memcand_payload_rejected", "rejected"), null, 2)}\n`);
+  await writeFile(join(memoryAcceptDir, "mem_payload.json"), `${JSON.stringify(memoryCard("mem_payload", "accepted memory"), null, 2)}\n`);
+  await writeFile(join(memoryBlockDir, "mem_payload_blocked.json"), `${JSON.stringify({ ...memoryCard("mem_payload_blocked", "blocked memory"), blocked_contexts: ["external_send"] }, null, 2)}\n`);
+  await writeFile(join(memoryDeleteDir, "tombstone_mem_payload.json"), `${JSON.stringify(memoryTombstone("tombstone_mem_payload", "mem_payload"), null, 2)}\n`);
+  await writeFile(join(memoryAcceptDir, "mem_payload_invalid.json"), `${JSON.stringify({ id: "mem_payload_invalid" }, null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
     payloadEvent("evt_payload_boundary", "run_payload_resolved", "run.started", "artifact://boundary/run_payload_resolved/facts"),
     payloadEvent("evt_payload_consent", "run_payload_resolved", "consent.recorded", "artifact://consent/run_payload_resolved/write"),
     payloadEvent("evt_payload_generic", "run_payload_resolved", "capsule.draft.recorded", "artifact://capsule/draft/capsule_a"),
+    payloadEvent("evt_payload_memory_candidate", "run_payload_resolved", "memory.candidate.created", "artifact://memory/candidates/memcand_payload"),
+    payloadEvent("evt_payload_memory_reject", "run_payload_resolved", "memory.rejected", "artifact://memory/reject/memcand_payload_rejected"),
+    payloadEvent("evt_payload_memory_accept", "run_payload_resolved", "memory.accepted", "artifact://memory/accept/mem_payload"),
+    payloadEvent("evt_payload_memory_block", "run_payload_resolved", "memory.blocked", "artifact://memory/block/mem_payload_blocked"),
+    payloadEvent("evt_payload_memory_delete", "run_payload_resolved", "memory.deleted", "artifact://memory/delete/tombstone_mem_payload"),
+    payloadEvent("evt_payload_memory_invalid", "run_payload_schema_invalid", "memory.accepted", "artifact://memory/accept/mem_payload_invalid"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1105,13 +1127,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 7,
-    resolved: 4,
+    events_with_payload_ref: 13,
+    resolved: 10,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 3,
-    schema_invalid: 1,
+    schema_valid: 8,
+    schema_invalid: 2,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1124,6 +1146,19 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_generic")?.status, "resolved");
   assert.equal(byId.get("evt_payload_generic")?.schema_name, "capability-capsule.schema.json");
   assert.equal(byId.get("evt_payload_generic")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_candidate")?.schema_name, "memory-candidate.schema.json");
+  assert.equal(byId.get("evt_payload_memory_candidate")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_reject")?.schema_name, "memory-candidate.schema.json");
+  assert.equal(byId.get("evt_payload_memory_reject")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_accept")?.schema_name, "memory-card.schema.json");
+  assert.equal(byId.get("evt_payload_memory_accept")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_block")?.schema_name, "memory-card.schema.json");
+  assert.equal(byId.get("evt_payload_memory_block")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_delete")?.schema_name, "memory-tombstone.schema.json");
+  assert.equal(byId.get("evt_payload_memory_delete")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_memory_invalid")?.schema_name, "memory-card.schema.json");
+  assert.equal(byId.get("evt_payload_memory_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_memory_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -1191,6 +1226,16 @@ function memoryCard(id: string, content: string) {
     confidence: 0.9,
     sensitivity: "private",
     blocked_contexts: []
+  };
+}
+
+function memoryCandidate(id: string, status: "pending" | "accepted" | "rejected") {
+  return {
+    id,
+    source_events: [`evt_source_${id}`],
+    candidate: memoryCard(`mem_${id.replace(/^memcand_/, "")}`, `candidate ${id}`),
+    confidence: 0.8,
+    review: { status }
   };
 }
 

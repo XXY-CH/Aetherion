@@ -1372,6 +1372,17 @@ function schemaNameForArtifactReference(artifactRef: string): string | undefined
   if (parts[0] === "capsule" && parts.length === 3 && ["draft", "test", "publish"].includes(parts[1])) {
     return "capability-capsule.schema.json";
   }
+  if (parts[0] === "memory" && parts.length === 3) {
+    if (parts[1] === "candidates" || parts[1] === "reject") {
+      return "memory-candidate.schema.json";
+    }
+    if (parts[1] === "accept" || parts[1] === "block") {
+      return "memory-card.schema.json";
+    }
+    if (parts[1] === "delete") {
+      return "memory-tombstone.schema.json";
+    }
+  }
   return undefined;
 }
 

@@ -534,14 +534,14 @@ Matched architecture docs:
 
 Implemented correspondence:
 
-- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, Replay Record, and Capsule draft/test/publish artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, `replay-record.schema.json`, and `capability-capsule.schema.json`.
+- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, Replay Record, Memory lifecycle, and Capsule draft/test/publish artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, `replay-record.schema.json`, `memory-candidate.schema.json`, `memory-card.schema.json`, `memory-tombstone.schema.json`, and `capability-capsule.schema.json`.
 - Findings now include `schema_name`, `schema_status`, and `schema_errors`; summaries now include `schema_valid`, `schema_invalid`, and `schema_not_checked`.
 - Generic local Ether artifacts still resolve by path and JSON parse only, with `schema_status=not_checked`.
 - Missing files, unresolved schemes, and invalid JSON remain not checked. The audit still writes nothing, repairs nothing, and appends no Ledger events.
 
 Verification evidence:
 
-- Harness tests cover valid Boundary Facts, Consent Record, and Capsule payloads, an invalid Boundary Facts artifact with schema errors, generic not-checked artifacts, missing artifacts, invalid JSON, and unresolved refs.
+- Harness tests cover valid Boundary Facts, Consent Record, Memory Candidate/Card/Tombstone, and Capsule payloads; invalid Boundary Facts and Memory Card artifacts with schema errors; generic not-checked artifacts; missing artifacts; invalid JSON; and unresolved refs.
 - TUI integration verifies a real Rust-supervised run reports the `run.started` Boundary Facts payload, `consent.recorded` Consent Record payload, and the Ledger-backed `replay.recorded` Replay Record payload from an independent replay run as schema-valid while leaving the Ledger, registry, and artifact files unchanged during the audit.
 
 Correction and remaining boundary:
