@@ -131,7 +131,7 @@ Later:
 - Execute local file reads through traced read RPCs and approved writes through traced prepare/commit RPCs that issue the operation lease only after consent.
 - Expose traced file-action RPCs for Ether's default run path so the Rust process emits `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, and `action.recorded` events for workspace file reads and approved write commits instead of requiring Ether to append each file-action event itself.
 - Reject legacy policy-only and direct file read/write RPCs that would return leases or file contents without the full file-action Ledger lifecycle.
-- Expose a minimal stdio RPC command used by the TypeScript Ether client by default.
+- Expose a minimal stdio RPC command used by the TypeScript Ether client by default; the TypeScript supervisor client binds every parsed RPC response to the request id before accepting result evidence.
 
 This crate is not yet the production supervisor. It does not implement a vault, event signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.
 

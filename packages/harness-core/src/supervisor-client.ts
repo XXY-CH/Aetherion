@@ -82,6 +82,7 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     throw new Error("supervisor rpc returned no response");
   }
   const response = JSON.parse(line) as SupervisorRpcResponse;
+  assertSupervisorResponseId(request, response);
   if (response.error) {
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
   }
@@ -122,10 +123,17 @@ async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath
     throw new Error("supervisor socket rpc returned no response");
   }
   const response = JSON.parse(line) as SupervisorRpcResponse;
+  assertSupervisorResponseId(request, response);
   if (response.error) {
     throw new Error(`supervisor socket rpc ${request.method} failed: ${response.error}`);
   }
   return response;
+}
+
+function assertSupervisorResponseId(request: SupervisorRpcRequest, response: SupervisorRpcResponse): void {
+  if (response.id !== request.id) {
+    throw new Error(`supervisor rpc ${request.method} response id mismatch: expected ${request.id}, got ${response.id}`);
+  }
 }
 
 function isSupervisorBinaryFresh(repoRoot: string, binary: string): boolean {

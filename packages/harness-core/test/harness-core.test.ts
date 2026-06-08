@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -11,6 +12,7 @@ import {
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
+  callSupervisorRpc,
   canonicalLedgerPath,
   canonicalRuntimeDir,
   completeRunManifest,
@@ -170,6 +172,37 @@ test("event hash v1 has a fixed cross-language canonical vector", async () => {
   };
   assert.equal(fixture.event.event_hash, fixture.expected_hash);
   assert.equal(eventContentHash(fixture.event), fixture.expected_hash);
+});
+
+test("supervisor RPC client rejects mismatched response ids", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  const socketPath = join(tmpdir(), `aeth-rpc-id-${process.pid}-${Date.now()}.sock`);
+  const server = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.on("data", () => {
+      socket.end("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_wrong\",\"result\":{\"accepted\":true}}\n");
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    await assert.rejects(
+      callSupervisorRpc(repoRoot, {
+        id: "rpc_expected",
+        method: "supervisor.status",
+        workspace_root: "/tmp/aetherion-rpc-id-test",
+        workspace_id: "ws_rpc_id_test",
+        run_id: "run_rpc_id_test"
+      }, { socketPath }),
+      /response id mismatch: expected rpc_expected, got rpc_wrong/
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test("completed kernel file run manifests require the full action lifecycle sequence", async () => {
