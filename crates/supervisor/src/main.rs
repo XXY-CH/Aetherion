@@ -11,7 +11,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::fs::FileTypeExt;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     if let Err(error) = run() {
@@ -222,6 +222,92 @@ impl Drop for BoundWorkspace {
     }
 }
 
+#[derive(Debug)]
+struct RuntimeLockStatus {
+    present: bool,
+    path: PathBuf,
+    pid: String,
+    transport: String,
+    workspace_id: String,
+    socket_path: String,
+    workspace_match: bool,
+    parse_error: String,
+}
+
+fn runtime_lock_status(workspace_root: &Path, expected_workspace_id: &str) -> RuntimeLockStatus {
+    let path = workspace_root.join(".aetherion/supervisor.lock");
+    let contents = match fs::read_to_string(&path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return RuntimeLockStatus {
+                present: false,
+                path,
+                pid: String::new(),
+                transport: String::new(),
+                workspace_id: String::new(),
+                socket_path: String::new(),
+                workspace_match: false,
+                parse_error: String::new(),
+            };
+        }
+        Err(error) => {
+            return RuntimeLockStatus {
+                present: true,
+                path,
+                pid: String::new(),
+                transport: String::new(),
+                workspace_id: String::new(),
+                socket_path: String::new(),
+                workspace_match: false,
+                parse_error: error.to_string(),
+            };
+        }
+    };
+
+    let mut pid = String::new();
+    let mut transport = String::new();
+    let mut workspace_id = String::new();
+    let mut socket_path = String::new();
+    let mut parse_error = String::new();
+    for line in contents.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            parse_error = format!("malformed runtime lock line: {line}");
+            continue;
+        };
+        match key {
+            "pid" => pid = value.to_string(),
+            "transport" => transport = value.to_string(),
+            "workspace_id" => workspace_id = value.to_string(),
+            "socket_path" => socket_path = value.to_string(),
+            _ => {}
+        }
+    }
+    if parse_error.is_empty() {
+        for required in [
+            ("pid", &pid),
+            ("transport", &transport),
+            ("workspace_id", &workspace_id),
+            ("socket_path", &socket_path),
+        ] {
+            if required.1.is_empty() {
+                parse_error = format!("runtime lock missing {}", required.0);
+                break;
+            }
+        }
+    }
+
+    RuntimeLockStatus {
+        present: true,
+        path,
+        pid,
+        transport,
+        workspace_match: workspace_id == expected_workspace_id && parse_error.is_empty(),
+        workspace_id,
+        socket_path,
+        parse_error,
+    }
+}
+
 fn handle_socket_rpc_line(
     line: &str,
     auth_token: Option<&str>,
@@ -312,18 +398,29 @@ fn handle_rpc_line(line: &str, transport: &str) -> String {
         "supervisor.status" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => match write_workspace_registry(&workspace) {
                 Ok(registry_path) => match ledger_status(&workspace.ledger_path, &workspace.id) {
-                    Ok(status) => format!(
-                        "{{\"workspace_id\":\"{}\",\"authority\":\"rust-supervisor\",\"transport\":\"{}\",\"daemon_running\":false,\"ledger_chain_valid\":{},\"ledger_events\":{},\"ledger_head_event_id\":\"{}\",\"ledger_head_event_hash\":\"{}\",\"runtime_dir\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\"}}",
-                        escape(&workspace.id),
-                        escape(transport),
-                        status.chain_valid,
-                        status.event_count,
-                        escape(status.head_event_id.as_deref().unwrap_or("")),
-                        escape(status.head_event_hash.as_deref().unwrap_or("")),
-                        escape(&workspace.root.join(".aetherion").display().to_string()),
-                        escape(&workspace.ledger_path.display().to_string()),
-                        escape(&registry_path.display().to_string())
-                    ),
+                    Ok(status) => {
+                        let runtime_lock = runtime_lock_status(&workspace.root, &workspace.id);
+                        format!(
+                            "{{\"workspace_id\":\"{}\",\"authority\":\"rust-supervisor\",\"transport\":\"{}\",\"daemon_running\":false,\"ledger_chain_valid\":{},\"ledger_events\":{},\"ledger_head_event_id\":\"{}\",\"ledger_head_event_hash\":\"{}\",\"runtime_dir\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\",\"runtime_lock_present\":{},\"runtime_lock_path\":\"{}\",\"runtime_lock_pid\":\"{}\",\"runtime_lock_transport\":\"{}\",\"runtime_lock_workspace_id\":\"{}\",\"runtime_lock_socket_path\":\"{}\",\"runtime_lock_workspace_match\":{},\"runtime_lock_parse_error\":\"{}\"}}",
+                            escape(&workspace.id),
+                            escape(transport),
+                            status.chain_valid,
+                            status.event_count,
+                            escape(status.head_event_id.as_deref().unwrap_or("")),
+                            escape(status.head_event_hash.as_deref().unwrap_or("")),
+                            escape(&workspace.root.join(".aetherion").display().to_string()),
+                            escape(&workspace.ledger_path.display().to_string()),
+                            escape(&registry_path.display().to_string()),
+                            runtime_lock.present,
+                            escape(&runtime_lock.path.display().to_string()),
+                            escape(&runtime_lock.pid),
+                            escape(&runtime_lock.transport),
+                            escape(&runtime_lock.workspace_id),
+                            escape(&runtime_lock.socket_path),
+                            runtime_lock.workspace_match,
+                            escape(&runtime_lock.parse_error)
+                        )
+                    }
                     Err(error) => return error_response(&id, &error.to_string()),
                 },
                 Err(error) => return error_response(&id, &error.to_string()),
@@ -1727,6 +1824,8 @@ mod tests {
         assert!(status_response.contains("\"ledger_events\":0"));
         assert!(status_response.contains("\"ledger_head_event_id\":\"\""));
         assert!(status_response.contains("\"registry_path\":\""));
+        assert!(status_response.contains("\"runtime_lock_present\":false"));
+        assert!(status_response.contains("\"runtime_lock_workspace_match\":false"));
         let ledger_path = root.join(".aetherion/events/events.jsonl");
         assert_eq!(fs::read_to_string(&ledger_path).unwrap(), "");
 
@@ -1743,6 +1842,82 @@ mod tests {
         assert!(status_response.contains("\"ledger_head_event_id\":\"evt_"));
         assert!(status_response.contains("\"ledger_head_event_hash\":\"sha256:"));
         assert_eq!(fs::read_to_string(&ledger_path).unwrap(), ledger_before);
+    }
+
+    #[test]
+    fn rpc_supervisor_status_reports_matching_runtime_lock_read_only() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-lock-{nonce}"));
+        fs::create_dir_all(root.join(".aetherion")).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let lock_path = root.join(".aetherion/supervisor.lock");
+        fs::write(
+            &lock_path,
+            format!(
+                "pid=12345\ntransport=unix-socket\nworkspace_id={workspace_id}\nsocket_path=/tmp/aeth-status-lock.sock\n"
+            ),
+        )
+        .unwrap();
+        let lock_before = fs::read_to_string(&lock_path).unwrap();
+        let status_request = format!(
+            "{{\"id\":\"rpc_status_lock\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_lock\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+
+        let status_response = handle_rpc_line(&status_request, "stdio");
+
+        assert!(status_response.contains("\"runtime_lock_present\":true"));
+        assert!(status_response.contains(&format!(
+            "\"runtime_lock_path\":\"{}\"",
+            escape(&lock_path.display().to_string())
+        )));
+        assert!(status_response.contains("\"runtime_lock_pid\":\"12345\""));
+        assert!(status_response.contains("\"runtime_lock_transport\":\"unix-socket\""));
+        assert!(status_response.contains(&format!(
+            "\"runtime_lock_workspace_id\":\"{}\"",
+            workspace_id
+        )));
+        assert!(
+            status_response.contains("\"runtime_lock_socket_path\":\"/tmp/aeth-status-lock.sock\"")
+        );
+        assert!(status_response.contains("\"runtime_lock_workspace_match\":true"));
+        assert!(status_response.contains("\"runtime_lock_parse_error\":\"\""));
+        assert_eq!(fs::read_to_string(lock_path).unwrap(), lock_before);
+    }
+
+    #[test]
+    fn rpc_supervisor_status_reports_mismatched_or_malformed_runtime_lock_without_repair() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-bad-lock-{nonce}"));
+        fs::create_dir_all(root.join(".aetherion")).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let lock_path = root.join(".aetherion/supervisor.lock");
+        fs::write(
+            &lock_path,
+            "pid=12345\ntransport=unix-socket\nworkspace_id=ws_other\nsocket_path=/tmp/aeth-bad-lock.sock\nbad_line\n",
+        )
+        .unwrap();
+        let lock_before = fs::read_to_string(&lock_path).unwrap();
+        let status_request = format!(
+            "{{\"id\":\"rpc_status_bad_lock\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_bad_lock\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+
+        let status_response = handle_rpc_line(&status_request, "stdio");
+
+        assert!(status_response.contains("\"runtime_lock_present\":true"));
+        assert!(status_response.contains("\"runtime_lock_workspace_id\":\"ws_other\""));
+        assert!(status_response.contains("\"runtime_lock_workspace_match\":false"));
+        assert!(status_response.contains("malformed runtime lock line: bad_line"));
+        assert_eq!(fs::read_to_string(lock_path).unwrap(), lock_before);
     }
 
     #[cfg(unix)]

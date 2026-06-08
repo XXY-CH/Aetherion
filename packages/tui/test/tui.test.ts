@@ -467,6 +467,14 @@ test("TUI supervisor status reports Rust runtime health without appending events
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_dir"), join(workspace, ".aetherion"));
   assert.equal(stdoutValue(cleanStatus.stdout, "ledger_path"), join(workspace, ".aetherion", "events", "events.jsonl"));
   assert.equal(stdoutValue(cleanStatus.stdout, "registry_path"), join(workspace, ".aetherion", "workspace.json"));
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_present"), "false");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_path"), join(workspace, ".aetherion", "supervisor.lock"));
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_pid"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_transport"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_workspace_id"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_socket_path"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_workspace_match"), "false");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
   const emptyLedgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
   assert.equal(await readFile(emptyLedgerPath, "utf8"), "");
 
@@ -620,6 +628,14 @@ test("supervisor socket RPC can bind one workspace with a runtime lock", async (
     assert.equal(result.ledger_events, 0);
     assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
     assert.equal(await readFile(lockPath, "utf8"), lock);
+    assert.equal(result.runtime_lock_present, true);
+    assert.equal(result.runtime_lock_path, lockPath);
+    assert.match(String(result.runtime_lock_pid), /^\d+$/);
+    assert.equal(result.runtime_lock_transport, "unix-socket");
+    assert.equal(result.runtime_lock_workspace_id, workspaceId);
+    assert.equal(result.runtime_lock_socket_path, socketPath);
+    assert.equal(result.runtime_lock_workspace_match, true);
+    assert.equal(result.runtime_lock_parse_error, "");
 
     await assert.rejects(
       callSupervisorRpc(repoRoot, {

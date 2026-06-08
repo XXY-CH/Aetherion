@@ -391,7 +391,15 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     "ledger_head_event_hash",
     "runtime_dir",
     "ledger_path",
-    "registry_path"
+    "registry_path",
+    "runtime_lock_present",
+    "runtime_lock_path",
+    "runtime_lock_pid",
+    "runtime_lock_transport",
+    "runtime_lock_workspace_id",
+    "runtime_lock_socket_path",
+    "runtime_lock_workspace_match",
+    "runtime_lock_parse_error"
   ]);
 }
 
