@@ -87,36 +87,41 @@ fn handle_rpc_line(line: &str) -> String {
             },
             Err(error) => return error_response(&id, &error.to_string()),
         },
-        "event.append" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                let event_type = match required_string_field(&request, "event_type") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                let summary = match required_string_field(&request, "summary") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                let payload_ref = match optional_string_field(&request, "payload_ref") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                match append_event_with_payload(
-                    &workspace,
-                    &event_type,
-                    &run_id,
-                    &summary,
-                    payload_ref.as_deref(),
-                ) {
-                    Ok(event_id) => format!(
-                        "{{\"appended\":true,\"event_id\":\"{}\"}}",
-                        escape(&event_id)
-                    ),
-                    Err(error) => return error_response(&id, &error.to_string()),
-                }
+        "event.append" => {
+            let event_type = match required_string_field(&request, "event_type") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let summary = match required_string_field(&request, "summary") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            let payload_ref = match optional_string_field(&request, "payload_ref") {
+                Ok(value) => value,
+                Err(error) => return error_response(&id, &error),
+            };
+            if let Err(error) = assert_managed_event_type(&event_type) {
+                return error_response(&id, error);
             }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
+            match init_workspace(&workspace_root, &workspace_id) {
+                Ok(workspace) => {
+                    match append_event_with_payload(
+                        &workspace,
+                        &event_type,
+                        &run_id,
+                        &summary,
+                        payload_ref.as_deref(),
+                    ) {
+                        Ok(event_id) => format!(
+                            "{{\"appended\":true,\"event_id\":\"{}\"}}",
+                            escape(&event_id)
+                        ),
+                        Err(error) => return error_response(&id, &error.to_string()),
+                    }
+                }
+                Err(error) => return error_response(&id, &error.to_string()),
+            }
+        }
         "run.resume.evaluate" => {
             let source = match required_string_field(&request, "source") {
                 Ok(value) => value,
@@ -889,6 +894,23 @@ fn bool_field(request: &ParsedJsonObject, key: &str) -> Result<bool, String> {
         .map(|value| value.unwrap_or(false))
 }
 
+fn assert_managed_event_type(event_type: &str) -> Result<(), &'static str> {
+    match event_type {
+        "tool.requested"
+        | "risk.composed"
+        | "policy.decided"
+        | "lease.issued"
+        | "consent.recorded"
+        | "tool.result"
+        | "action.recorded"
+        | "observation.recorded"
+        | "verification.recorded" => Err(
+            "event.append cannot write authority-bearing action lifecycle events; use the dedicated traced supervisor RPC",
+        ),
+        _ => Ok(()),
+    }
+}
+
 fn decision_name(decision: &Decision) -> &'static str {
     match decision {
         Decision::Allow => "allow",
@@ -1006,6 +1028,55 @@ mod tests {
         }
 
         assert!(!root.join(".aetherion").exists());
+    }
+
+    #[test]
+    fn rpc_event_append_cannot_forge_authority_lifecycle_events() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-event-guard-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+
+        for event_type in [
+            "tool.requested",
+            "risk.composed",
+            "policy.decided",
+            "lease.issued",
+            "consent.recorded",
+            "tool.result",
+            "action.recorded",
+            "observation.recorded",
+            "verification.recorded",
+        ] {
+            let request = format!(
+                "{{\"id\":\"rpc_append_{}\",\"method\":\"event.append\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_event_guard\",\"event_type\":\"{}\",\"summary\":\"forged authority event\"}}",
+                event_type.replace('.', "_"),
+                escape(&root.display().to_string()),
+                workspace_id,
+                event_type
+            );
+            let response = handle_rpc_line(&request);
+            assert!(response
+                .contains("event.append cannot write authority-bearing action lifecycle events"));
+        }
+
+        assert!(!root.join(".aetherion").exists());
+
+        let governance_request = format!(
+            "{{\"id\":\"rpc_append_governance\",\"method\":\"event.append\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_event_guard\",\"event_type\":\"memory.accepted\",\"summary\":\"governance projection event\",\"payload_ref\":\"artifact://memory/accept/mem_guard\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let governance_response = handle_rpc_line(&governance_request);
+        assert!(governance_response.contains("\"appended\":true"));
+        let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
+        assert!(ledger.contains("\"event_type\":\"memory.accepted\""));
+        assert!(ledger.contains("\"payload_ref\":\"artifact://memory/accept/mem_guard\""));
+        assert!(!ledger.contains("\"event_type\":\"action.recorded\""));
+        assert!(!ledger.contains("\"event_type\":\"lease.issued\""));
     }
 
     #[test]
