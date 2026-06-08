@@ -101,6 +101,14 @@ export function workspaceRegistryPath(workspace: Workspace): string {
   return join(workspace.root, ".aetherion", "workspace.json");
 }
 
+export function canonicalRuntimeDir(root: string): string {
+  return join(resolve(root), ".aetherion");
+}
+
+export function canonicalLedgerPath(root: string): string {
+  return join(canonicalRuntimeDir(root), "events", "events.jsonl");
+}
+
 export function runManifestPath(workspace: Workspace, runId: string): string {
   return join(workspace.root, ".aetherion", "runs", `${runId}.json`);
 }
@@ -110,17 +118,26 @@ export function workspaceIdForRoot(root: string): string {
   return `ws_${digest}`;
 }
 
+export function assertWorkspaceIdForRoot(root: string, workspaceId: string): void {
+  const expected = workspaceIdForRoot(root);
+  if (workspaceId !== expected) {
+    throw new Error(`Workspace id ${workspaceId} does not match resolved root identity ${expected}`);
+  }
+}
+
 export async function writeWorkspaceRegistry(repoRoot: string, workspace: Workspace, authority: WorkspaceRegistry["authority"]): Promise<WorkspaceRegistry> {
+  const root = resolve(workspace.root);
+  assertWorkspaceIdForRoot(root, workspace.id);
   const registry: WorkspaceRegistry = {
     id: workspace.id,
-    root: workspace.root,
+    root,
     created_at: new Date().toISOString(),
     authority,
-    runtime_dir: join(workspace.root, ".aetherion"),
-    ledger_path: workspace.ledgerPath
+    runtime_dir: canonicalRuntimeDir(root),
+    ledger_path: canonicalLedgerPath(root)
   };
   await assertValid(repoRoot, "workspace-registry.schema.json", registry);
-  await writeJson(workspaceRegistryPath(workspace), registry);
+  await writeJson(join(root, ".aetherion", "workspace.json"), registry);
   return registry;
 }
 
@@ -165,18 +182,49 @@ export async function loadWorkspaceFromRegistry(root: string): Promise<{ workspa
   const resolvedRoot = resolve(root);
   const path = join(resolvedRoot, ".aetherion", "workspace.json");
   const registry = JSON.parse(await readFile(path, "utf8")) as WorkspaceRegistry;
+  assertWorkspaceRegistryForRoot(registry, resolvedRoot);
+  const runtimeDir = canonicalRuntimeDir(resolvedRoot);
+  const ledgerPath = canonicalLedgerPath(resolvedRoot);
+  try {
+    assertWorkspaceIdForRoot(resolvedRoot, registry.id);
+  } catch {
+    throw new Error(`Workspace registry id mismatch: ${registry.id}`);
+  }
   if (registry.root !== resolvedRoot) {
     throw new Error(`Workspace registry root mismatch: ${registry.root}`);
+  }
+  if (registry.runtime_dir !== runtimeDir) {
+    throw new Error(`Workspace registry runtime_dir mismatch: ${registry.runtime_dir}`);
+  }
+  if (registry.ledger_path !== ledgerPath) {
+    throw new Error(`Workspace registry ledger_path mismatch: ${registry.ledger_path}`);
   }
   return {
     registry,
     workspace: {
       root: resolvedRoot,
       id: registry.id,
-      ledgerPath: registry.ledger_path,
-      runtimeDir: registry.runtime_dir
+      ledgerPath,
+      runtimeDir
     }
   };
+}
+
+function assertWorkspaceRegistryForRoot(registry: unknown, root: string): asserts registry is WorkspaceRegistry {
+  if (!isRecord(registry)) {
+    throw new Error("Workspace registry must be an object");
+  }
+  for (const key of ["id", "root", "created_at", "authority", "runtime_dir", "ledger_path"]) {
+    if (typeof registry[key] !== "string" || registry[key].length === 0) {
+      throw new Error(`Workspace registry ${key} missing or invalid`);
+    }
+  }
+  if (registry.authority !== "typescript-seed" && registry.authority !== "rust-supervisor") {
+    throw new Error(`Workspace registry authority mismatch: ${registry.authority}`);
+  }
+  if (registry.root !== root) {
+    throw new Error(`Workspace registry root mismatch: ${registry.root}`);
+  }
 }
 
 export async function recordRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, eventId: string): Promise<RunManifest> {
@@ -320,6 +368,10 @@ function isMissingFileError(error: unknown): boolean {
     && error !== null
     && "code" in error
     && (error as { code?: unknown }).code === "ENOENT";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

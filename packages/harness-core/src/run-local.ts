@@ -31,6 +31,7 @@ import { verifyFileContains, type ObservationRecord, type VerificationRecord } f
 import {
   completeRunManifestWithEventSequence,
   createRunManifest,
+  assertWorkspaceIdForRoot,
   kernelFileRunApprovedEventSequence,
   kernelFileRunBlockedEventSequence,
   recordRunEvent,
@@ -72,7 +73,9 @@ export type LocalKernelRunResult = {
 
 export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<LocalKernelRunResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
-  const workspace = await createWorkspace(workspaceRoot, input.workspaceId ?? workspaceIdForRoot(workspaceRoot));
+  const workspaceId = input.workspaceId ?? workspaceIdForRoot(workspaceRoot);
+  assertWorkspaceIdForRoot(workspaceRoot, workspaceId);
+  const workspace = await createWorkspace(workspaceRoot, workspaceId);
   const workspaceRegistry = await writeWorkspaceRegistry(input.repoRoot, workspace, "typescript-seed");
   const runId = input.runId ?? `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "Ether test-only local kernel loop");

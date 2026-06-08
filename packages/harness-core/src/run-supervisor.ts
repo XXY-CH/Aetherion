@@ -15,6 +15,7 @@ import type { ObservationRecord, VerificationRecord } from "./verify.ts";
 import {
   completeRunManifestWithEventSequence,
   createRunManifest,
+  assertWorkspaceIdForRoot,
   kernelFileRunApprovedEventSequence,
   kernelFileRunBlockedEventSequence,
   loadWorkspaceFromRegistry,
@@ -57,6 +58,7 @@ export type SupervisorKernelRunResult = {
 export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): Promise<SupervisorKernelRunResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const workspaceId = input.workspaceId ?? workspaceIdForRoot(workspaceRoot);
+  assertWorkspaceIdForRoot(workspaceRoot, workspaceId);
   const runId = input.runId ?? `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);

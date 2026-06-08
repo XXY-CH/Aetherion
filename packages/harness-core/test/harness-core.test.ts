@@ -11,6 +11,8 @@ import {
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
+  canonicalLedgerPath,
+  canonicalRuntimeDir,
   completeRunManifest,
   completeRunManifestWithEventSequence,
   createFileReadRequest,
@@ -23,6 +25,7 @@ import {
   eventRecord,
   KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
   loadRunManifest,
+  loadWorkspaceFromRegistry,
   readEvents,
   REPLAY_RECORD_RUN_EVENT_TYPES,
   evaluateSeedPolicy,
@@ -36,7 +39,10 @@ import {
   verifyEventHashChain,
   verifyFileContains,
   writeConsentRecordArtifact,
-  writeLocalFileThroughPolicy
+  writeLocalFileThroughPolicy,
+  workspaceIdForRoot,
+  workspaceRegistryPath,
+  writeWorkspaceRegistry
 } from "../src/index.ts";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -366,6 +372,81 @@ test("loaded run manifests must match the requested run and workspace", async ()
     loadRunManifest(workspace, runId),
     /Run manifest run_load_manifest_guard belongs to workspace ws_other_workspace, not ws_load_manifest_guard/
   );
+});
+
+test("workspace registry load rejects identity and path drift", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-workspace-registry-guard-"));
+  const workspace = await createWorkspace(root, workspaceIdForRoot(root));
+  const registry = await writeWorkspaceRegistry(repoRoot, workspace, "typescript-seed");
+  const registryPath = workspaceRegistryPath(workspace);
+
+  const loaded = await loadWorkspaceFromRegistry(root);
+  assert.equal(loaded.workspace.id, workspaceIdForRoot(root));
+  assert.equal(loaded.workspace.runtimeDir, canonicalRuntimeDir(root));
+  assert.equal(loaded.workspace.ledgerPath, canonicalLedgerPath(root));
+
+  const withoutLedgerPath = { ...registry } as Partial<typeof registry>;
+  delete withoutLedgerPath.ledger_path;
+  const missingLedgerValidation = await validateAgainstSchema(repoRoot, "workspace-registry.schema.json", withoutLedgerPath);
+  assert.equal(missingLedgerValidation.valid, false);
+  assert.ok(missingLedgerValidation.errors.some((error) => error.includes("$.ledger_path: missing required property")));
+
+  for (const tamper of [
+    {
+      value: { ...registry, id: "ws_tampered" },
+      message: /Workspace registry id mismatch: ws_tampered/
+    },
+    {
+      value: { ...registry, runtime_dir: join(root, ".aetherion-other") },
+      message: /Workspace registry runtime_dir mismatch:/
+    },
+    {
+      value: { ...registry, ledger_path: join(root, ".aetherion-other", "events.jsonl") },
+      message: /Workspace registry ledger_path mismatch:/
+    },
+    {
+      value: withoutLedgerPath,
+      message: /Workspace registry ledger_path missing or invalid/
+    }
+  ]) {
+    await writeFile(registryPath, `${JSON.stringify(tamper.value, null, 2)}\n`);
+    await assert.rejects(loadWorkspaceFromRegistry(root), tamper.message);
+  }
+});
+
+test("kernel loops reject workspace ids that do not match the resolved root", async () => {
+  const { runLocalKernelLoop, runSupervisorKernelLoop } = await import("../src/index.ts");
+  const localRoot = await mkdtemp(join(tmpdir(), "aetherion-local-identity-guard-"));
+  const supervisorRoot = await mkdtemp(join(tmpdir(), "aetherion-supervisor-identity-guard-"));
+
+  await assert.rejects(
+    runLocalKernelLoop({
+      repoRoot,
+      workspaceRoot: localRoot,
+      workspaceId: "ws_wrong",
+      inputPath: "README.md",
+      outputPath: ".aetherion/SUMMARY.md",
+      approveWrite: false,
+      runId: "run_wrong_local_workspace"
+    }),
+    /Workspace id ws_wrong does not match resolved root identity ws_/
+  );
+
+  await assert.rejects(
+    runSupervisorKernelLoop({
+      repoRoot,
+      workspaceRoot: supervisorRoot,
+      workspaceId: "ws_wrong",
+      inputPath: "README.md",
+      outputPath: ".aetherion/SUMMARY.md",
+      approveWrite: false,
+      runId: "run_wrong_supervisor_workspace"
+    }),
+    /Workspace id ws_wrong does not match resolved root identity ws_/
+  );
+
+  await assert.rejects(readFile(join(localRoot, ".aetherion", "workspace.json"), "utf8"));
+  await assert.rejects(readFile(join(supervisorRoot, ".aetherion", "workspace.json"), "utf8"));
 });
 
 test("run manifest event projection rejects workspace-mismatched Ledger entries", async () => {

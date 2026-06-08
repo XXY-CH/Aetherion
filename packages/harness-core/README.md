@@ -6,6 +6,7 @@ Current scope:
 
 - Create a workspace runtime directory.
 - Create workspace registry and per-run manifest files.
+- Derive workspace identity, runtime directory, and Ledger path from the resolved workspace root, and reject workspace registry drift instead of trusting registry path fields as authority.
 - Append typed events to a JSONL event ledger.
 - Create `aetherion-event-v1` hashes over the complete canonical event envelope, excluding only `event_hash`.
 - Verify `parent_event_id`, `parent_event_hash`, and cross-author `event_hash` pointers from Rust supervisor events and the test-only TypeScript seed.

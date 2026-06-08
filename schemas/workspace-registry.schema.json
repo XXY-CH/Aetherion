@@ -3,7 +3,7 @@
   "$id": "https://aetherion.local/schemas/workspace-registry.schema.json",
   "title": "WorkspaceRegistry",
   "type": "object",
-  "required": ["id", "root", "created_at", "authority", "runtime_dir"],
+  "required": ["id", "root", "created_at", "authority", "runtime_dir", "ledger_path"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "minLength": 1 },
