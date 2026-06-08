@@ -1257,6 +1257,23 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(badAuditRecord.forbidden_claims_detected.includes("model_invocation_claim"));
   assert.ok(badAuditRecord.forbidden_claims_detected.includes("tool_execution_claim"));
   assert.ok(badAuditRecord.forbidden_claims_detected.includes("completion_without_verification_claim"));
+  const outsideResponse = join(workspace, "..", "outside-prompt-response.md");
+  await writeFile(outsideResponse, "## Evidence Summary\noutside\n");
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "audit",
+      runId,
+      "--content",
+      "Draft a local implementation plan.",
+      "--path",
+      "../outside-prompt-response.md",
+      "--workspace",
+      workspace
+    ]),
+    /Read target is outside workspace boundary/
+  );
   assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "prompt")), /ENOENT/);
   const deleted = await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);
@@ -1663,6 +1680,33 @@ test("TUI context and user model fail closed on weak memory registry provenance"
   );
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "prompt", "plan", runId, "--content", "Draft a local implementation plan.", "--workspace", workspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await writeFile(join(workspace, "prompt-response.md"), [
+    "## Evidence Summary",
+    "Source events: evt_missing_memory_provenance.",
+    "## Assumptions And Conflicts",
+    "This file should not be audited when registry provenance is weak.",
+    "## Plan",
+    "No plan.",
+    "## Policy And Lease Needs",
+    "No tool use.",
+    "## Verification Evidence",
+    "No verification."
+  ].join("\n"));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "audit",
+      runId,
+      "--content",
+      "Draft a local implementation plan.",
+      "--path",
+      "prompt-response.md",
+      "--workspace",
+      workspace
+    ]),
     /Memory registry provenance is not strong enough/
   );
   await assert.rejects(

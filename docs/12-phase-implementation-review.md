@@ -10,7 +10,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 101 passing tests.
+- `npm test`: 103 passing tests.
 - `cargo test`: 38 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -65,7 +65,8 @@ Implemented correspondence:
 Verification evidence:
 
 - Orchestrator unit tests cover source-backed run evidence and memory sections, Context Pack Capability Cards, Context Pack token budgets, deterministic tool allow/deny lists, non-authorizing authority fields, assembly manifest guardrails/risk flags, readiness blockers/warnings/next steps, citation maps for run events, Memory Cards, sections, and messages, response audit contracts, response audits for passing and failing outputs, instruction hierarchy, response-format blocks/forbidden claims, system/developer/user message assembly, planner/verifier checklists, empty-task fail-closed behavior, no-tool prompt previews, and answer/patch response-format variants.
-- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes run evidence, selected memory, source event ids, event types, Boundary Facts artifact refs, assembly manifest guardrails, readiness, citation map, response audit, instruction hierarchy, response format, capability context, context budget, planner checklist, verification checklist, and role-bundled messages, audits both a passing and a failing workspace-local response file, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
+- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes run evidence, selected memory, source event ids, event types, Boundary Facts artifact refs, assembly manifest guardrails, readiness, citation map, response audit, instruction hierarchy, response format, capability context, context budget, planner checklist, verification checklist, and role-bundled messages, audits both a passing and a failing workspace-local response file, rejects out-of-workspace response paths, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
+- TUI provenance regression tampers the Memory Card registry with a missing source event id and asserts `prompt audit` fails closed through the same provenance gate before reading/auditing response claims or creating prompt artifacts.
 - TUI provenance regression tampers the Memory Card registry with a missing source event id and asserts `prompt plan` fails closed with the same provenance error as `context explain`, `memory user-model`, and `sleep`.
 
 Correction and remaining boundary:
