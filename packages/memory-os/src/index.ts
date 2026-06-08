@@ -166,12 +166,12 @@ export function buildEpisodicTimeline(events: MemorySourceEvent[], runId: string
       .filter((event) => event.event_type !== "user.message")
       .map((event) => ({ event_id: event.id, event_type: event.event_type, summary: event.summary })),
     tools_used: inferToolsUsed(runEvents),
-    failures: runEvents.filter((event) => /fail|error|denied/i.test(`${event.event_type} ${event.summary}`)).map((event) => event.id),
-    recoveries: runEvents.filter((event) => /recover|retry|correct/i.test(event.summary)).map((event) => event.id),
-    user_corrections: runEvents.filter((event) => /correction|corrected/i.test(`${event.event_type} ${event.summary}`)).map((event) => event.id),
+    failures: failureEventIds(runEvents),
+    recoveries: recoveryEventIds(runEvents),
+    user_corrections: correctionEventIds(runEvents),
     final_artifact: finalArtifact,
-    skill_candidates: [],
-    regression_cases: []
+    skill_candidates: skillCandidates(runEvents),
+    regression_cases: regressionCases(runEvents)
   };
 }
 
@@ -408,6 +408,38 @@ function inferToolsUsed(events: MemorySourceEvent[]): string[] {
     }
   }
   return [...tools];
+}
+
+function failureEventIds(events: MemorySourceEvent[]): string[] {
+  return events.filter((event) => /fail|failure|error|denied|timeout|timed out/i.test(`${event.event_type} ${event.summary}`)).map((event) => event.id);
+}
+
+function recoveryEventIds(events: MemorySourceEvent[]): string[] {
+  return events.filter((event) => /recover|recovery|retry|correct/i.test(event.summary)).map((event) => event.id);
+}
+
+function correctionEventIds(events: MemorySourceEvent[]): string[] {
+  return events
+    .filter((event) => (
+      event.event_type === "user.message"
+      || /user corrected|user correction/i.test(event.summary)
+    ) && /correction|corrected/i.test(event.summary))
+    .map((event) => event.id);
+}
+
+function skillCandidates(events: MemorySourceEvent[]): string[] {
+  return events
+    .filter((event) => /skill candidate|capability candidate|reusable workflow|repeated workflow|should become (?:a )?(?:skill|capability)/i.test(event.summary))
+    .map((event) => `${event.id}: ${event.summary}`);
+}
+
+function regressionCases(events: MemorySourceEvent[]): string[] {
+  return events
+    .filter((event) => (
+      /regression case|regression test|test case|failure|failed|error|denied/i.test(`${event.event_type} ${event.summary}`)
+      || correctionEventIds([event]).length > 0
+    ))
+    .map((event) => `${event.id}: ${event.summary}`);
 }
 
 function inferPreferredCommunication(memories: MemoryCard[]): string[] {

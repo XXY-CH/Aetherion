@@ -241,6 +241,69 @@ test("memory candidates can be derived from real run trace events", () => {
   assert.deepEqual(userModel.automation_policy.auto_execute, []);
 });
 
+test("episodic timelines extract failures corrections skill candidates and regression cases", () => {
+  const events = [
+    {
+      id: "evt_intent",
+      run_id: "run_timeline_learning",
+      event_type: "user.message",
+      summary: "Fix a flaky prompt response audit."
+    },
+    {
+      id: "evt_tool_failure",
+      run_id: "run_timeline_learning",
+      event_type: "tool.result",
+      summary: "Tool failed with a timeout while reading the response fixture."
+    },
+    {
+      id: "evt_user_correction",
+      run_id: "run_timeline_learning",
+      event_type: "user.message",
+      summary: "User corrected the expected citation format."
+    },
+    {
+      id: "evt_retry",
+      run_id: "run_timeline_learning",
+      event_type: "tool.requested",
+      summary: "Retry after correction with the updated fixture."
+    },
+    {
+      id: "evt_skill",
+      run_id: "run_timeline_learning",
+      event_type: "verification.recorded",
+      summary: "This repeated workflow should become a capability candidate for prompt response audits.",
+      payload_ref: "artifact://verification/run_timeline_learning/prompt-audit"
+    },
+    {
+      id: "evt_regression",
+      run_id: "run_timeline_learning",
+      event_type: "verification.recorded",
+      summary: "Add a regression test case for missing source citations."
+    },
+    {
+      id: "evt_complete",
+      run_id: "run_timeline_learning",
+      event_type: "run.completed",
+      summary: "Run completed after recovery."
+    }
+  ];
+
+  const timeline = buildEpisodicTimeline(events, "run_timeline_learning");
+
+  assert.deepEqual(timeline.failures, ["evt_tool_failure"]);
+  assert.deepEqual(timeline.user_corrections, ["evt_user_correction"]);
+  assert.deepEqual(timeline.recoveries, ["evt_user_correction", "evt_retry", "evt_complete"]);
+  assert.deepEqual(timeline.skill_candidates, [
+    "evt_skill: This repeated workflow should become a capability candidate for prompt response audits."
+  ]);
+  assert.deepEqual(timeline.regression_cases, [
+    "evt_tool_failure: Tool failed with a timeout while reading the response fixture.",
+    "evt_user_correction: User corrected the expected citation format.",
+    "evt_regression: Add a regression test case for missing source citations."
+  ]);
+  assert.equal(timeline.final_artifact, "artifact://verification/run_timeline_learning/prompt-audit");
+});
+
 function memoryCard(input: Partial<MemoryCard> & Pick<MemoryCard, "id" | "content" | "confidence" | "source_events">): MemoryCard {
   return {
     type: "project",
