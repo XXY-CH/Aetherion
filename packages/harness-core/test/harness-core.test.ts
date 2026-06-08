@@ -63,6 +63,7 @@ const schemaExamplePairs = [
   ["memory-patch.schema.json", "memory-patch.json"],
   ["context-pack.schema.json", "context-pack.json"],
   ["capability-capsule.schema.json", "capability-capsule.json"],
+  ["capsule-rollback.schema.json", "capsule-rollback.json"],
   ["capability-package.schema.json", "capability-package.json"],
   ["proactive-opportunity.schema.json", "proactive-opportunity.json"],
   ["replay-record.schema.json", "replay-record.json"],
@@ -1090,6 +1091,7 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const surfaceInboxDir = join(root, ".aetherion", "artifacts", "surface", "im-inbox");
   const surfaceOutboxDir = join(root, ".aetherion", "artifacts", "surface", "im-outbox");
   const storeInstallDir = join(root, ".aetherion", "artifacts", "store", "install");
+  const capsuleRollbackDir = join(root, ".aetherion", "artifacts", "capsule", "rollback");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
   await mkdir(consentDir, { recursive: true });
@@ -1108,6 +1110,7 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await mkdir(surfaceInboxDir, { recursive: true });
   await mkdir(surfaceOutboxDir, { recursive: true });
   await mkdir(storeInstallDir, { recursive: true });
+  await mkdir(capsuleRollbackDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
@@ -1130,6 +1133,11 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(surfaceOutboxDir, "outbox_payload.json"), `${JSON.stringify(imOutboxItem("outbox_payload"), null, 2)}\n`);
   await writeFile(join(storeInstallDir, "install_payload.json"), `${JSON.stringify(capsuleInstall("install_payload"), null, 2)}\n`);
   await writeFile(join(surfaceOutboxDir, "outbox_invalid.json"), `${JSON.stringify({ id: "outbox_invalid" }, null, 2)}\n`);
+  await writeFile(join(capsuleRollbackDir, "cap_payload_0.2.0_to_0.1.0.json"), `${JSON.stringify({
+    active: { ...capsuleRecord("cap_payload", "0.1.0", "published"), rollback: { previous_version: "0.2.0" } },
+    deprecated: { ...capsuleRecord("cap_payload", "0.2.0", "deprecated"), rollback: { previous_version: "0.1.0" } }
+  }, null, 2)}\n`);
+  await writeFile(join(capsuleRollbackDir, "cap_payload_invalid.json"), `${JSON.stringify({ active: { id: "cap_payload_invalid" } }, null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
@@ -1153,6 +1161,8 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_surface_outbox", "run_payload_resolved", "im.outbox.queued", "artifact://surface/im-outbox/outbox_payload"),
     payloadEvent("evt_payload_store_install", "run_payload_resolved", "capsule.store.installed", "artifact://store/install/install_payload"),
     payloadEvent("evt_payload_surface_invalid", "run_payload_schema_invalid", "im.outbox.queued", "artifact://surface/im-outbox/outbox_invalid"),
+    payloadEvent("evt_payload_capsule_rollback", "run_payload_resolved", "capsule.rollback.recorded", "artifact://capsule/rollback/cap_payload_0.2.0_to_0.1.0"),
+    payloadEvent("evt_payload_capsule_rollback_invalid", "run_payload_schema_invalid", "capsule.rollback.recorded", "artifact://capsule/rollback/cap_payload_invalid"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1165,13 +1175,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 24,
-    resolved: 21,
+    events_with_payload_ref: 26,
+    resolved: 23,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 17,
-    schema_invalid: 4,
+    schema_valid: 18,
+    schema_invalid: 5,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1221,6 +1231,11 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_surface_invalid")?.schema_name, "im-outbox-item.schema.json");
   assert.equal(byId.get("evt_payload_surface_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_surface_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
+  assert.equal(byId.get("evt_payload_capsule_rollback")?.schema_name, "capsule-rollback.schema.json");
+  assert.equal(byId.get("evt_payload_capsule_rollback")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_capsule_rollback_invalid")?.schema_name, "capsule-rollback.schema.json");
+  assert.equal(byId.get("evt_payload_capsule_rollback_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_capsule_rollback_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));

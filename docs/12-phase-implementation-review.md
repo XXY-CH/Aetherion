@@ -548,7 +548,7 @@ Correction and remaining boundary:
 
 - No schema was expanded for this phase. The audit uses existing contracts only.
 - Schema-valid payload artifacts are still supporting evidence. Policy decisions, scoped leases, and supervisor-authored action events remain the runtime authority boundary.
-- Capsule draft/test/publish artifacts are schema-checked because the Capsule lifecycle has an explicit rebuild/parity path. Memory lifecycle, Security scan/ack/trial/fixture, Surface browser/IM, and Store install artifacts are now schema-checked through their existing contracts. Capsule rollback and other generic lifecycle artifacts remain not checked until each family has a dedicated schema/audit path.
+- Capsule draft/test/publish/rollback artifacts are schema-checked because the Capsule lifecycle has an explicit rebuild/parity path. Memory lifecycle, Security scan/ack/trial/fixture, Surface browser/IM, and Store install artifacts are now schema-checked through their existing contracts. Other generic lifecycle artifacts remain not checked until each family has a dedicated schema/audit path.
 
 ## Phase 28 Review Notes
 

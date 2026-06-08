@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/capsule-rollback.schema.json",
+  "title": "CapsuleRollback",
+  "type": "object",
+  "required": ["active", "deprecated"],
+  "additionalProperties": false,
+  "properties": {
+    "active": { "$ref": "capability-capsule.schema.json" },
+    "deprecated": { "$ref": "capability-capsule.schema.json" }
+  }
+}

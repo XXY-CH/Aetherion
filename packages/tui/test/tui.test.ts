@@ -1332,6 +1332,19 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
   assert.equal(rollbackArtifact.active.version, "0.1.0");
   assert.equal(rollbackArtifact.deprecated.version, "0.2.0");
 
+  const payloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+    }>;
+  };
+  const rollbackPayloadFinding = payloadAudit.findings.find((finding) => finding.event_type === "capsule.rollback.recorded");
+  assert.equal(rollbackPayloadFinding?.payload_ref, "artifact://capsule/rollback/cap_local_read_0.2.0_to_0.1.0");
+  assert.equal(rollbackPayloadFinding?.schema_name, "capsule-rollback.schema.json");
+  assert.equal(rollbackPayloadFinding?.schema_status, "valid");
+
   const parity = await execFileAsync(process.execPath, [cliPath, "audit", "capsule-records", "--workspace", workspace]);
   const parityReport = JSON.parse(parity.stdout) as {
     id: string;

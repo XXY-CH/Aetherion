@@ -1,0 +1,134 @@
+{
+  "active": {
+    "id": "cap_local_file_read",
+    "version": "0.1.0",
+    "description": "Read workspace-scoped documentation through governed tool contracts.",
+    "playbook": "playbooks/local-file-read.md",
+    "execution_mode": "document_only",
+    "permission_requirements": {
+      "required_tools": ["filesystem.read"],
+      "forbidden_tools": ["filesystem.write", "external.email.send"]
+    },
+    "tool_contracts": ["tool-request.schema.json", "policy-decision.schema.json"],
+    "risk_level": "L1",
+    "lifecycle": "published",
+    "sandbox_required": true,
+    "permissions_inherited": false,
+    "permission_diff": {
+      "added_tools": ["filesystem.read"],
+      "removed_tools": [],
+      "requires_approval": true
+    },
+    "replay_tests": [
+      {
+        "run_id": "run_local_read_001",
+        "replay_record_id": "replay_run_local_read_001_trace",
+        "status": "passed",
+        "source_events": ["evt_user_message_001"]
+      },
+      {
+        "run_id": "run_local_read_002",
+        "replay_record_id": "replay_run_local_read_002_trace",
+        "status": "passed",
+        "source_events": ["evt_user_message_002"]
+      }
+    ],
+    "sandbox_trial": {
+      "status": "passed",
+      "sandbox_path": ".aetherion/sandboxes/cap_local_file_read",
+      "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "forbidden_pattern_matches": []
+    },
+    "approval": {
+      "required": true,
+      "status": "approved",
+      "approval_card_id": "approval_capsule_cap_local_file_read_0_1_0"
+    },
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "publication_scope": "local_unsigned",
+    "rollback": {
+      "previous_version": "0.2.0"
+    },
+    "provenance": {
+      "source_events": ["evt_user_message_001", "evt_user_message_002"],
+      "source_tasks": ["run_local_read_001", "run_local_read_002"]
+    },
+    "legacy_source": null,
+    "evals": ["local_file_read_trace_replay"],
+    "scoring_summary": {
+      "success": 2,
+      "correction": 0,
+      "tool_error": 0,
+      "policy_denial": 0
+    }
+  },
+  "deprecated": {
+    "id": "cap_local_file_read",
+    "version": "0.2.0",
+    "description": "Read workspace-scoped documentation through governed tool contracts.",
+    "playbook": "playbooks/local-file-read.md",
+    "execution_mode": "document_only",
+    "permission_requirements": {
+      "required_tools": ["filesystem.read"],
+      "forbidden_tools": ["filesystem.write", "external.email.send"]
+    },
+    "tool_contracts": ["tool-request.schema.json", "policy-decision.schema.json"],
+    "risk_level": "L1",
+    "lifecycle": "deprecated",
+    "sandbox_required": true,
+    "permissions_inherited": false,
+    "permission_diff": {
+      "added_tools": ["filesystem.read"],
+      "removed_tools": [],
+      "requires_approval": true
+    },
+    "replay_tests": [
+      {
+        "run_id": "run_local_read_001",
+        "replay_record_id": "replay_run_local_read_001_trace",
+        "status": "passed",
+        "source_events": ["evt_user_message_001"]
+      },
+      {
+        "run_id": "run_local_read_002",
+        "replay_record_id": "replay_run_local_read_002_trace",
+        "status": "passed",
+        "source_events": ["evt_user_message_002"]
+      }
+    ],
+    "sandbox_trial": {
+      "status": "passed",
+      "sandbox_path": ".aetherion/sandboxes/cap_local_file_read",
+      "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "forbidden_pattern_matches": []
+    },
+    "approval": {
+      "required": true,
+      "status": "approved",
+      "approval_card_id": "approval_capsule_cap_local_file_read_0_2_0"
+    },
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "publication_scope": "local_unsigned",
+    "rollback": {
+      "previous_version": "0.1.0"
+    },
+    "provenance": {
+      "source_events": ["evt_user_message_001", "evt_user_message_002"],
+      "source_tasks": ["run_local_read_001", "run_local_read_002"]
+    },
+    "legacy_source": null,
+    "evals": ["local_file_read_trace_replay"],
+    "scoring_summary": {
+      "success": 2,
+      "correction": 0,
+      "tool_error": 0,
+      "policy_denial": 0
+    }
+  }
+}

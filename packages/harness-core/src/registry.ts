@@ -1372,6 +1372,9 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
   if (parts[0] === "capsule" && parts.length === 3 && ["draft", "test", "publish"].includes(parts[1])) {
     return "capability-capsule.schema.json";
   }
+  if (parts[0] === "capsule" && parts.length === 3 && parts[1] === "rollback" && eventType === "capsule.rollback.recorded") {
+    return "capsule-rollback.schema.json";
+  }
   if (parts[0] === "memory" && parts.length === 3) {
     if (parts[1] === "candidates" || parts[1] === "reject") {
       return "memory-candidate.schema.json";
