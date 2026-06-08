@@ -1142,6 +1142,61 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
   const rollbackArtifact = JSON.parse(await readFile(join(workspace, ".aetherion", "artifacts", "capsule", "rollback", "cap_local_read_0.2.0_to_0.1.0.json"), "utf8")) as { active: { version: string }; deprecated: { version: string } };
   assert.equal(rollbackArtifact.active.version, "0.1.0");
   assert.equal(rollbackArtifact.deprecated.version, "0.2.0");
+
+  const parity = await execFileAsync(process.execPath, [cliPath, "audit", "capsule-records", "--workspace", workspace]);
+  const parityReport = JSON.parse(parity.stdout) as {
+    id: string;
+    summary: {
+      expected_capsules: number;
+      expected_capsule_drafts: number;
+      expected_capsule_versions: number;
+      actual_capsules: number;
+      actual_capsule_drafts: number;
+      actual_capsule_versions: number;
+      matched: number;
+      missing_registry: number;
+      mismatched: number;
+      stale_registry: number;
+      invalid_artifact: number;
+      invalid_registry: number;
+    };
+  };
+  assert.equal(parityReport.id, "capsule_registry_rebuild_audit");
+  assert.deepEqual(parityReport.summary, {
+    expected_capsules: 1,
+    expected_capsule_drafts: 0,
+    expected_capsule_versions: 2,
+    actual_capsules: 1,
+    actual_capsule_drafts: 0,
+    actual_capsule_versions: 2,
+    matched: 3,
+    missing_registry: 0,
+    mismatched: 0,
+    stale_registry: 0,
+    invalid_artifact: 0,
+    invalid_registry: 0
+  });
+
+  const capsulesPath = join(workspace, ".aetherion", "registries", "capsules.json");
+  const capsulesBeforeTamper = await readFile(capsulesPath, "utf8");
+  const tamperedCapsules = JSON.parse(capsulesBeforeTamper) as Array<Record<string, unknown>>;
+  tamperedCapsules[0] = { ...tamperedCapsules[0], description: "tampered projection" };
+  tamperedCapsules.push({ id: "cap_stale_projection" });
+  await writeFile(capsulesPath, `${JSON.stringify(tamperedCapsules, null, 2)}\n`);
+  const tamperedBeforeAudit = await readFile(capsulesPath, "utf8");
+  const tamperedParity = await execFileAsync(process.execPath, [cliPath, "audit", "capsule-records", "--workspace", workspace]);
+  const tamperedReport = JSON.parse(tamperedParity.stdout) as {
+    summary: {
+      mismatched: number;
+      invalid_registry: number;
+    };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(tamperedReport.summary.mismatched, 1);
+  assert.equal(tamperedReport.summary.invalid_registry, 1);
+  assert.ok(tamperedReport.findings.some((finding) => finding.registry === "capsules" && finding.item_id === "cap_local_read" && finding.status === "mismatched"));
+  assert.ok(tamperedReport.findings.some((finding) => finding.registry === "capsules" && finding.item_id === "cap_stale_projection" && finding.status === "invalid_registry"));
+  assert.equal(await readFile(capsulesPath, "utf8"), tamperedBeforeAudit);
 });
 
 test("Ether hibernation evaluates local triggers and queues a fresh-policy resume without authority", async () => {

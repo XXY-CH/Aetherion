@@ -144,6 +144,50 @@ export type MemoryRegistryRebuildAudit = {
   findings: MemoryRegistryRebuildFinding[];
 };
 
+export type CapsuleRegistryName = "capsules" | "capsule-drafts" | "capsule-versions";
+
+export type CapsuleRegistryRebuildFinding = {
+  registry: CapsuleRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  event_id?: string;
+  artifact_ref?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type CapsuleRegistryRebuildAudit = {
+  id: "capsule_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: CapsuleRegistryName[];
+  scope: {
+    mode: "read_only_ledger_artifact_rebuild_parity";
+    mutates_registry: false;
+    rebuilds_from: "capsule lifecycle Ledger events plus payload_ref artifacts";
+  };
+  summary: {
+    expected_capsules: number;
+    expected_capsule_drafts: number;
+    expected_capsule_versions: number;
+    actual_capsules: number;
+    actual_capsule_drafts: number;
+    actual_capsule_versions: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_capsules: RegistryItem[];
+  expected_capsule_drafts: RegistryItem[];
+  expected_capsule_versions: RegistryItem[];
+  findings: CapsuleRegistryRebuildFinding[];
+};
+
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
 export type LedgerPayloadRefSchemaStatus = "valid" | "invalid" | "not_checked";
 
@@ -522,6 +566,104 @@ export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventR
   };
 }
 
+export function auditCapsuleRegistryRebuild(workspaceRoot: string, events: EventRecord[]): CapsuleRegistryRebuildAudit {
+  const expectedCapsules = new Map<string, RegistryItem>();
+  const expectedDrafts = new Map<string, RegistryItem>();
+  const expectedVersions = new Map<string, RegistryItem>();
+  const findings: CapsuleRegistryRebuildFinding[] = [];
+
+  for (const event of events) {
+    if (!isCapsuleLifecycleRebuildEvent(event.event_type)) {
+      continue;
+    }
+    if (!event.payload_ref) {
+      findings.push({
+        registry: capsuleRegistryForEvent(event.event_type),
+        item_id: event.id,
+        status: "invalid_artifact",
+        event_id: event.id,
+        reason: "capsule lifecycle event has no payload_ref"
+      });
+      continue;
+    }
+    const artifact = readLifecycleArtifact(workspaceRoot, event, "capsule", findings);
+    if (artifact.status === "invalid") {
+      continue;
+    }
+
+    if ((event.event_type === "capsule.draft.recorded" || event.event_type === "capsule.test.recorded") && isCapsuleRecord(artifact.value)) {
+      expectedDrafts.set(artifact.value.id, artifact.value);
+      expectedVersions.set(capsuleVersionRegistryId(artifact.value), capsuleVersionRegistryItem(artifact.value));
+      continue;
+    }
+
+    if (event.event_type === "capsule.publish.recorded" && isCapsuleRecord(artifact.value)) {
+      expectedCapsules.set(artifact.value.id, artifact.value);
+      expectedDrafts.delete(artifact.value.id);
+      expectedVersions.set(capsuleVersionRegistryId(artifact.value), capsuleVersionRegistryItem(artifact.value));
+      continue;
+    }
+
+    if (event.event_type === "capsule.rollback.recorded" && isCapsuleRollbackArtifact(artifact.value)) {
+      expectedCapsules.set(artifact.value.active.id, artifact.value.active);
+      expectedDrafts.delete(artifact.value.active.id);
+      expectedVersions.set(capsuleVersionRegistryId(artifact.value.active), capsuleVersionRegistryItem(artifact.value.active));
+      expectedVersions.set(capsuleVersionRegistryId(artifact.value.deprecated), capsuleVersionRegistryItem(artifact.value.deprecated));
+      continue;
+    }
+
+    findings.push({
+      registry: capsuleRegistryForEvent(event.event_type),
+      item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: artifact.path,
+      reason: `artifact is not valid for ${event.event_type}`
+    });
+  }
+
+  const actualCapsules = readCapsuleRegistryItems(workspaceRoot, "capsules", isCapsuleRecord, findings);
+  const actualDrafts = readCapsuleRegistryItems(workspaceRoot, "capsule-drafts", isCapsuleRecord, findings);
+  const actualVersions = readCapsuleRegistryItems(workspaceRoot, "capsule-versions", isCapsuleVersionRegistryRecord, findings);
+  compareCapsuleRegistryProjection("capsules", expectedCapsules, actualCapsules, findings);
+  compareCapsuleRegistryProjection("capsule-drafts", expectedDrafts, actualDrafts, findings);
+  compareCapsuleRegistryProjection("capsule-versions", expectedVersions, actualVersions, findings);
+
+  const sortedCapsules = [...expectedCapsules.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedDrafts = [...expectedDrafts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedVersions = [...expectedVersions.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "capsule_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["capsules", "capsule-drafts", "capsule-versions"],
+    scope: {
+      mode: "read_only_ledger_artifact_rebuild_parity",
+      mutates_registry: false,
+      rebuilds_from: "capsule lifecycle Ledger events plus payload_ref artifacts"
+    },
+    summary: {
+      expected_capsules: sortedCapsules.length,
+      expected_capsule_drafts: sortedDrafts.length,
+      expected_capsule_versions: sortedVersions.length,
+      actual_capsules: actualCapsules.size,
+      actual_capsule_drafts: actualDrafts.size,
+      actual_capsule_versions: actualVersions.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_capsules: sortedCapsules,
+    expected_capsule_drafts: sortedDrafts,
+    expected_capsule_versions: sortedVersions,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
 export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<LedgerPayloadRefAudit> {
   const findings: LedgerPayloadRefFinding[] = [];
 
@@ -767,8 +909,72 @@ function isMemoryLifecycleRebuildEvent(eventType: string): eventType is "memory.
   return eventType === "memory.accepted" || eventType === "memory.blocked" || eventType === "memory.deleted";
 }
 
+function isCapsuleLifecycleRebuildEvent(eventType: string): eventType is "capsule.draft.recorded" | "capsule.test.recorded" | "capsule.publish.recorded" | "capsule.rollback.recorded" {
+  return eventType === "capsule.draft.recorded"
+    || eventType === "capsule.test.recorded"
+    || eventType === "capsule.publish.recorded"
+    || eventType === "capsule.rollback.recorded";
+}
+
 function memoryRegistryForEvent(eventType: "memory.accepted" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
   return eventType === "memory.deleted" ? "memory-tombstones" : "memory-cards";
+}
+
+function capsuleRegistryForEvent(eventType: "capsule.draft.recorded" | "capsule.test.recorded" | "capsule.publish.recorded" | "capsule.rollback.recorded"): CapsuleRegistryName {
+  if (eventType === "capsule.draft.recorded" || eventType === "capsule.test.recorded") {
+    return "capsule-drafts";
+  }
+  return "capsules";
+}
+
+function readLifecycleArtifact(
+  workspaceRoot: string,
+  event: EventRecord,
+  lifecycleName: "capsule",
+  findings: CapsuleRegistryRebuildFinding[]
+): { status: "valid"; value: unknown; path: string } | { status: "invalid" } {
+  const registry = capsuleRegistryForEvent(event.event_type as "capsule.draft.recorded" | "capsule.test.recorded" | "capsule.publish.recorded" | "capsule.rollback.recorded");
+  if (!event.payload_ref) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      reason: `${lifecycleName} lifecycle event has no payload_ref`
+    });
+    return { status: "invalid" };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.status === "unresolved" ? undefined : resolved.path,
+      reason: resolved.status === "unresolved" ? resolved.reason : `${lifecycleName} lifecycle artifact is missing`
+    });
+    return { status: "invalid" };
+  }
+  try {
+    return {
+      status: "valid",
+      value: JSON.parse(readFileSync(resolved.path, "utf8")) as unknown,
+      path: resolved.path
+    };
+  } catch {
+    findings.push({
+      registry,
+      item_id: basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: `${lifecycleName} lifecycle artifact JSON could not be parsed`
+    });
+    return { status: "invalid" };
+  }
 }
 
 function readMemoryRegistryItems(
@@ -776,6 +982,39 @@ function readMemoryRegistryItems(
   registry: MemoryRegistryName,
   isValid: (value: unknown) => value is RegistryItem,
   findings: MemoryRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
+function readCapsuleRegistryItems(
+  workspaceRoot: string,
+  registry: CapsuleRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: CapsuleRegistryRebuildFinding[]
 ): Map<string, RegistryItem> {
   const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
   for (const invalidFinding of auditedRegistry.invalidFindings) {
@@ -855,6 +1094,57 @@ function compareRegistryProjection(
   }
 }
 
+function compareCapsuleRegistryProjection(
+  registry: CapsuleRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: CapsuleRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from Ledger artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
 function isMemoryCardRecord(value: unknown): value is RegistryItem {
   if (!isRegistryItem(value)) {
     return false;
@@ -884,6 +1174,56 @@ function isMemoryTombstoneRecord(value: unknown): value is RegistryItem & { targ
     && value.active_memory_removed === true
     && value.history_rewritten === false
     && typeof value.redaction_status === "string";
+}
+
+function isCapsuleRecord(value: unknown): value is RegistryItem {
+  if (!isRegistryItem(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.version === "string"
+    && typeof record.description === "string"
+    && typeof record.playbook === "string"
+    && typeof record.execution_mode === "string"
+    && typeof record.lifecycle === "string"
+    && record.sandbox_required === true
+    && record.permissions_inherited === false
+    && isObjectRecord(record.permission_requirements)
+    && Array.isArray(record.replay_tests)
+    && isObjectRecord(record.approval)
+    && isObjectRecord(record.provenance)
+    && isObjectRecord(record.scoring_summary);
+}
+
+function isCapsuleVersionRegistryRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && "capsule" in value
+    && isCapsuleRecord((value as Record<string, unknown>).capsule);
+}
+
+function isCapsuleRollbackArtifact(value: unknown): value is { active: RegistryItem; deprecated: RegistryItem } {
+  return isObjectRecord(value)
+    && isCapsuleRecord(value.active)
+    && isCapsuleRecord(value.deprecated);
+}
+
+function capsuleVersionRegistryId(capsule: RegistryItem): string {
+  return `capver_${sanitizeRegistryId(capsule.id)}_${sanitizeRegistryId(String(capsule.version))}`;
+}
+
+function capsuleVersionRegistryItem(capsule: RegistryItem): RegistryItem {
+  return {
+    id: capsuleVersionRegistryId(capsule),
+    capsule
+  };
+}
+
+function sanitizeRegistryId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 120) || "artifact";
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function invalidRegistryFinding(registry: string, itemId: string, reason: string): RegistryProvenanceFinding {

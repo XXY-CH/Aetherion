@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
+import { appendEvent, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -383,6 +383,12 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(auditMemoryRegistryRebuild(workspaceRoot, await readEvents(workspace)));
     return;
   }
+  if (options.topic === "capsule-records") {
+    const workspaceRoot = resolve(options.workspace);
+    const workspace = await openWorkspace(workspaceRoot);
+    printRawJson(auditCapsuleRegistryRebuild(workspaceRoot, await readEvents(workspace)));
+    return;
+  }
   if (options.topic === "payload-refs") {
     const workspaceRoot = resolve(options.workspace);
     const workspace = await openWorkspace(workspaceRoot);
@@ -390,7 +396,7 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(audit);
     return;
   }
-  throw new Error("audit requires topic registries, replay-records, memory-records, or payload-refs");
+  throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, or payload-refs");
 }
 
 async function runBoundary(options: CliOptions): Promise<void> {
@@ -2498,6 +2504,7 @@ Usage:
   npm run ether -- audit registries --workspace <path>
   npm run ether -- audit replay-records --workspace <path>
   npm run ether -- audit memory-records --workspace <path>
+  npm run ether -- audit capsule-records --workspace <path>
   npm run ether -- audit payload-refs --workspace <path>
 
 Commands:

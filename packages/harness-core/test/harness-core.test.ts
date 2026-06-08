@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import {
   appendEvent,
+  auditCapsuleRegistryRebuild,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
   approveWriteWithConsent,
@@ -670,6 +671,94 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   assert.equal(await readFile(join(registryDir, "memory-cards.json"), "utf8"), beforeCards);
 });
 
+test("capsule registry rebuild audit derives active capsule projections from lifecycle artifacts without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-capsule-registry-audit-"));
+  const artifactDir = join(root, ".aetherion", "artifacts", "capsule");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactDir, "draft"), { recursive: true });
+  await mkdir(join(artifactDir, "test"), { recursive: true });
+  await mkdir(join(artifactDir, "publish"), { recursive: true });
+  await mkdir(join(artifactDir, "rollback"), { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const draft010 = capsuleRecord("cap_reader", "0.1.0", "draft");
+  const tested010 = capsuleRecord("cap_reader", "0.1.0", "tested");
+  const published010 = capsuleRecord("cap_reader", "0.1.0", "published");
+  const draft020 = capsuleRecord("cap_reader", "0.2.0", "draft");
+  const tested020 = capsuleRecord("cap_reader", "0.2.0", "tested");
+  const published020 = capsuleRecord("cap_reader", "0.2.0", "published");
+  const activeAfterRollback = {
+    ...published010,
+    rollback: { previous_version: "0.2.0" }
+  };
+  const deprecatedAfterRollback = {
+    ...published020,
+    lifecycle: "deprecated",
+    rollback: { previous_version: "0.1.0" }
+  };
+  await writeFile(join(artifactDir, "draft", "cap_reader_0.1.0.json"), `${JSON.stringify(draft010, null, 2)}\n`);
+  await writeFile(join(artifactDir, "test", "cap_reader_0.1.0.json"), `${JSON.stringify(tested010, null, 2)}\n`);
+  await writeFile(join(artifactDir, "publish", "cap_reader_0.1.0.json"), `${JSON.stringify(published010, null, 2)}\n`);
+  await writeFile(join(artifactDir, "draft", "cap_reader_0.2.0.json"), `${JSON.stringify(draft020, null, 2)}\n`);
+  await writeFile(join(artifactDir, "test", "cap_reader_0.2.0.json"), `${JSON.stringify(tested020, null, 2)}\n`);
+  await writeFile(join(artifactDir, "publish", "cap_reader_0.2.0.json"), `${JSON.stringify(published020, null, 2)}\n`);
+  await writeFile(join(artifactDir, "rollback", "cap_reader_0.2.0_to_0.1.0.json"), `${JSON.stringify({ active: activeAfterRollback, deprecated: deprecatedAfterRollback }, null, 2)}\n`);
+  await writeFile(join(artifactDir, "draft", "broken.json"), "{not json");
+
+  const staleDraft = capsuleRecord("cap_stale", "9.9.9", "draft");
+  const tamperedDeprecated = {
+    ...deprecatedAfterRollback,
+    description: "tampered deprecated projection"
+  };
+  await writeFile(join(registryDir, "capsules.json"), `${JSON.stringify([activeAfterRollback, { id: "cap_invalid" }], null, 2)}\n`);
+  await writeFile(join(registryDir, "capsule-drafts.json"), `${JSON.stringify([staleDraft], null, 2)}\n`);
+  await writeFile(join(registryDir, "capsule-versions.json"), `${JSON.stringify([
+    { id: "capver_cap_reader_0.1.0", capsule: activeAfterRollback },
+    { id: "capver_cap_reader_0.2.0", capsule: tamperedDeprecated }
+  ], null, 2)}\n`);
+  const beforeDrafts = await readFile(join(registryDir, "capsule-drafts.json"), "utf8");
+  const events = [
+    payloadEvent("evt_cap_draft_010", "run_cap", "capsule.draft.recorded", "artifact://capsule/draft/cap_reader_0.1.0"),
+    payloadEvent("evt_cap_test_010", "run_cap", "capsule.test.recorded", "artifact://capsule/test/cap_reader_0.1.0"),
+    payloadEvent("evt_cap_publish_010", "run_cap", "capsule.publish.recorded", "artifact://capsule/publish/cap_reader_0.1.0"),
+    payloadEvent("evt_cap_draft_020", "run_cap", "capsule.draft.recorded", "artifact://capsule/draft/cap_reader_0.2.0"),
+    payloadEvent("evt_cap_test_020", "run_cap", "capsule.test.recorded", "artifact://capsule/test/cap_reader_0.2.0"),
+    payloadEvent("evt_cap_publish_020", "run_cap", "capsule.publish.recorded", "artifact://capsule/publish/cap_reader_0.2.0"),
+    payloadEvent("evt_cap_rollback", "run_cap", "capsule.rollback.recorded", "artifact://capsule/rollback/cap_reader_0.2.0_to_0.1.0"),
+    payloadEvent("evt_cap_broken", "run_cap", "capsule.draft.recorded", "artifact://capsule/draft/broken")
+  ];
+
+  const audit = auditCapsuleRegistryRebuild(root, events);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "capsule_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.deepEqual(audit.summary, {
+    expected_capsules: 1,
+    expected_capsule_drafts: 0,
+    expected_capsule_versions: 2,
+    actual_capsules: 1,
+    actual_capsule_drafts: 1,
+    actual_capsule_versions: 2,
+    matched: 2,
+    missing_registry: 0,
+    mismatched: 1,
+    stale_registry: 1,
+    invalid_artifact: 1,
+    invalid_registry: 1
+  });
+  assert.ok(finding("cap_reader", "matched"));
+  assert.ok(finding("capver_cap_reader_0.1.0", "matched"));
+  assert.ok(finding("capver_cap_reader_0.2.0", "mismatched"));
+  assert.ok(finding("cap_stale", "stale_registry"));
+  assert.ok(finding("broken", "invalid_artifact"));
+  assert.ok(finding("cap_invalid", "invalid_registry"));
+  assert.deepEqual(audit.expected_capsules.map((item) => item.id), ["cap_reader"]);
+  assert.deepEqual(audit.expected_capsule_drafts, []);
+  assert.deepEqual(audit.expected_capsule_versions.map((item) => item.id), ["capver_cap_reader_0.1.0", "capver_cap_reader_0.2.0"]);
+  assert.equal(await readFile(join(registryDir, "capsule-drafts.json"), "utf8"), beforeDrafts);
+});
+
 test("ledger payload-ref audit resolves local artifact refs without mutating", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-payload-ref-audit-"));
   const boundaryDir = join(root, ".aetherion", "artifacts", "boundary", "run_payload_resolved");
@@ -804,6 +893,75 @@ function memoryTombstone(id: string, targetMemoryId: string) {
     active_memory_removed: true,
     history_rewritten: false,
     redaction_status: "tombstone_only"
+  };
+}
+
+function capsuleRecord(id: string, version: string, lifecycle: string) {
+  return {
+    id,
+    version,
+    description: `Capsule ${id}@${version}`,
+    playbook: "playbooks/local-read.md",
+    execution_mode: "document_only",
+    permission_requirements: {
+      required_tools: ["filesystem.read"],
+      forbidden_tools: ["filesystem.write"]
+    },
+    tool_contracts: ["tool-request.schema.json"],
+    risk_level: "L1",
+    lifecycle,
+    sandbox_required: true,
+    permissions_inherited: false,
+    permission_diff: {
+      added_tools: ["filesystem.read"],
+      removed_tools: [],
+      requires_approval: true
+    },
+    replay_tests: lifecycle === "draft" ? [] : [
+      {
+        run_id: "run_cap_source_a",
+        replay_record_id: "replay_a",
+        status: "passed",
+        source_events: ["evt_cap_source_a"]
+      },
+      {
+        run_id: "run_cap_source_b",
+        replay_record_id: "replay_b",
+        status: "passed",
+        source_events: ["evt_cap_source_b"]
+      }
+    ],
+    sandbox_trial: lifecycle === "draft" ? null : {
+      status: "passed",
+      sandbox_path: `.aetherion/capsules/trials/${id}/${version}/playbook.md`,
+      content_sha256: "sha256-demo",
+      forbidden_pattern_matches: []
+    },
+    approval: {
+      required: true,
+      status: lifecycle === "published" || lifecycle === "deprecated" ? "approved" : "pending",
+      approval_card_id: lifecycle === "published" || lifecycle === "deprecated" ? `approval_${id}_${version}` : null
+    },
+    integrity: lifecycle === "draft" ? null : {
+      algorithm: "sha256",
+      digest: `digest-${id}-${version}`
+    },
+    publication_scope: lifecycle === "published" || lifecycle === "deprecated" ? "local_unsigned" : "not_published",
+    rollback: {
+      previous_version: null
+    },
+    provenance: {
+      source_events: ["evt_cap_source_a", "evt_cap_source_b"],
+      source_tasks: ["run_cap_source_a", "run_cap_source_b"]
+    },
+    legacy_source: null,
+    evals: ["trace_replay"],
+    scoring_summary: {
+      success: 0,
+      correction: 0,
+      tool_error: 0,
+      policy_denial: 0
+    }
   };
 }
 
