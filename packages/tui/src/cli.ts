@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse } from "../../orchestrator/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -449,6 +449,10 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(auditCapsuleRegistryRebuild(workspaceRoot, await readEvents(workspace)));
     return;
   }
+  if (options.topic === "hibernation-records") {
+    printRawJson(auditHibernationRegistryRebuild(resolve(options.workspace)));
+    return;
+  }
   if (options.topic === "payload-refs") {
     const workspaceRoot = resolve(options.workspace);
     const workspace = await openWorkspace(workspaceRoot);
@@ -456,7 +460,7 @@ async function runAudit(options: CliOptions): Promise<void> {
     printRawJson(audit);
     return;
   }
-  throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, or payload-refs");
+  throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, hibernation-records, or payload-refs");
 }
 
 async function runBoundary(options: CliOptions): Promise<void> {
@@ -1429,6 +1433,20 @@ function writeAgentExecuteArtifact(workspaceRoot: string, value: { id: string })
   return writeAgentArtifact(workspaceRoot, "execute", value);
 }
 
+function writeHibernationArtifact(workspaceRoot: string, sourceRunId: string, value: { id: string }): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "sleep", sanitizePathSegment(sourceRunId));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sanitizePathSegment(value.id)}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("sleep", sourceRunId, value.id);
+}
+
+function writeWakeArtifact(workspaceRoot: string, value: { id: string; hibernation_id: string }): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "wake", sanitizePathSegment(value.hibernation_id));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sanitizePathSegment(value.id)}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("wake", value.hibernation_id, value.id);
+}
+
 function capsuleApprovalCard(capsule: Capsule): Record<string, unknown> & { id: string } {
   const approvalSuffix = `${capsule.id}_${capsule.version}`.replace(/[^A-Za-z0-9_-]+/g, "_");
   return {
@@ -1569,6 +1587,7 @@ async function runSleep(options: CliOptions): Promise<void> {
   }
   for (const trigger of triggers) {
     await requireValidContract("wakeup-trigger.schema.json", trigger);
+    writeWakeArtifact(workspaceRoot, trigger);
     upsertRegistryItem(workspaceRoot, "wakeups", trigger);
   }
   const record = hibernateRun({
@@ -1583,6 +1602,7 @@ async function runSleep(options: CliOptions): Promise<void> {
     triggers
   });
   await requireValidContract("hibernation-record.schema.json", record);
+  writeHibernationArtifact(workspaceRoot, runId, record);
   printJson(record);
 }
 
@@ -1646,6 +1666,8 @@ async function runWake(options: CliOptions): Promise<void> {
   }
   await recordRunEvent(repoRoot, workspace, resumeManifest, appendResult.event_id);
   await completeRunManifestWithEventSequence(repoRoot, workspace, resumeManifest, "blocked", wakeupQueueRunEventSequence());
+  writeHibernationArtifact(workspaceRoot, hibernation.run_id, queued.hibernation);
+  writeWakeArtifact(workspaceRoot, queued.trigger);
   upsertRegistryItem(workspaceRoot, "hibernations", queued.hibernation);
   upsertRegistryItem(workspaceRoot, "wakeups", queued.trigger);
   printJson(queued.trigger);
@@ -2886,6 +2908,7 @@ Usage:
   npm run ether -- audit replay-records --workspace <path>
   npm run ether -- audit memory-records --workspace <path>
   npm run ether -- audit capsule-records --workspace <path>
+  npm run ether -- audit hibernation-records --workspace <path>
   npm run ether -- audit payload-refs --workspace <path>
 
 Commands:

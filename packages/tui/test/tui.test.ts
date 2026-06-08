@@ -294,6 +294,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
   assert.match(help.stdout, /store\s+Phase 12 contract surface: signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /Read-only audits:/);
+  assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
 });
 
@@ -2914,6 +2915,86 @@ test("Ether audit memory-records previews memory artifact rebuild parity without
   assert.equal(report.findings.find((finding) => finding.item_id === `mem_${runId}_episode`)?.status, "mismatched");
   assert.equal(report.findings.find((finding) => finding.item_id === "mem_stale_projection")?.status, "stale_registry");
   assert.equal(await readFile(registryPath, "utf8"), beforeAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
+});
+
+test("Ether audit hibernation-records previews sleep and wake artifact parity without mutating registries", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-hibernation-audit-"));
+  await writeFile(join(workspace, "README.md"), "Hibernation audit source\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+  await execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]);
+
+  const hibernationRegistryPath = join(workspace, ".aetherion", "registries", "hibernations.json");
+  const wakeupRegistryPath = join(workspace, ".aetherion", "registries", "wakeups.json");
+  const hibernations = JSON.parse(await readFile(hibernationRegistryPath, "utf8")) as Array<{ id: string; resume_summary: string }>;
+  const wakeups = JSON.parse(await readFile(wakeupRegistryPath, "utf8")) as Array<{ id: string; hibernation_id: string; reason: string }>;
+  assert.equal(hibernations.length, 1);
+  assert.ok(wakeups.length >= 1);
+  const tamperedHibernations = hibernations.map((entry) => ({ ...entry, resume_summary: "tampered hibernation projection" }));
+  tamperedHibernations.push({
+    id: "hibernate_run_stale",
+    run_id: "run_stale",
+    status: "sleeping",
+    created_at: "2026-06-07T10:00:00.000Z",
+    expires_at: null,
+    active_leases_retained: false,
+    minimal_context_pack_id: "ctx_resume_run_stale",
+    ledger_cursor: {
+      event_id: "evt_run_stale_completed",
+      event_hash: `sha256:${"2".repeat(64)}`,
+      event_count: 1
+    },
+    resume_summary: "stale registry-only hibernation",
+    trigger_ids: ["wake_hibernate_run_stale_manual"],
+    attention_budget: {
+      max_wakeups: 3,
+      used_wakeups: 0
+    },
+    max_auto_risk: "L2"
+  } as never);
+  const tamperedWakeups = wakeups.map((entry, index) => index === 0
+    ? { ...entry, reason: "tampered wakeup projection" }
+    : entry);
+  await writeFile(hibernationRegistryPath, `${JSON.stringify(tamperedHibernations, null, 2)}\n`);
+  await writeFile(wakeupRegistryPath, `${JSON.stringify(tamperedWakeups, null, 2)}\n`);
+  const beforeHibernationAudit = await readFile(hibernationRegistryPath, "utf8");
+  const beforeWakeupAudit = await readFile(wakeupRegistryPath, "utf8");
+
+  const audit = await execFileAsync(process.execPath, [cliPath, "audit", "hibernation-records", "--workspace", workspace]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean; evaluates_triggers: boolean; queues_wakeups: boolean };
+    summary: { expected_hibernations: number; expected_wakeups: number; actual_hibernations: number; actual_wakeups: number; mismatched: number; stale_registry: number };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(report.id, "hibernation_registry_rebuild_audit");
+  assert.equal(report.scope.mode, "read_only_artifact_rebuild_parity");
+  assert.equal(report.scope.mutates_registry, false);
+  assert.equal(report.scope.evaluates_triggers, false);
+  assert.equal(report.scope.queues_wakeups, false);
+  assert.equal(report.summary.expected_hibernations, 1);
+  assert.equal(report.summary.expected_wakeups, wakeups.length);
+  assert.equal(report.summary.actual_hibernations, 2);
+  assert.equal(report.summary.actual_wakeups, wakeups.length);
+  assert.equal(report.summary.mismatched, 1 + (wakeups.length > 0 ? 1 : 0));
+  assert.equal(report.summary.stale_registry, 1);
+  assert.equal(report.findings.find((finding) => finding.item_id === `hibernate_${runId}`)?.status, "mismatched");
+  assert.equal(report.findings.find((finding) => finding.item_id === "hibernate_run_stale")?.status, "stale_registry");
+  assert.equal(report.findings.find((finding) => finding.registry === "wakeups" && finding.status === "mismatched")?.item_id, wakeups[0]?.id);
+  assert.equal(await readFile(hibernationRegistryPath, "utf8"), beforeHibernationAudit);
+  assert.equal(await readFile(wakeupRegistryPath, "utf8"), beforeWakeupAudit);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 });
 

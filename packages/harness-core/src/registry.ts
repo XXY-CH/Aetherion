@@ -191,6 +191,51 @@ export type CapsuleRegistryRebuildAudit = {
   findings: CapsuleRegistryRebuildFinding[];
 };
 
+export type HibernationRegistryName = "hibernations" | "wakeups";
+
+export type HibernationRegistryRebuildFinding = {
+  registry: HibernationRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type HibernationRegistryRebuildAudit = {
+  id: "hibernation_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: HibernationRegistryName[];
+  source_artifact_dirs: {
+    hibernations: string;
+    wakeups: string;
+  };
+  scope: {
+    mode: "read_only_artifact_rebuild_parity";
+    mutates_registry: false;
+    evaluates_triggers: false;
+    queues_wakeups: false;
+    rebuilds_from: ".aetherion/artifacts/sleep/**/*.json plus .aetherion/artifacts/wake/**/*.json";
+  };
+  summary: {
+    expected_hibernations: number;
+    expected_wakeups: number;
+    actual_hibernations: number;
+    actual_wakeups: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_hibernations: RegistryItem[];
+  expected_wakeups: RegistryItem[];
+  findings: HibernationRegistryRebuildFinding[];
+};
+
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
 export type LedgerPayloadRefSchemaStatus = "valid" | "invalid" | "not_checked";
 
@@ -691,6 +736,59 @@ export function auditCapsuleRegistryRebuild(workspaceRoot: string, events: Event
   };
 }
 
+export function auditHibernationRegistryRebuild(workspaceRoot: string): HibernationRegistryRebuildAudit {
+  const hibernationArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "sleep");
+  const wakeupArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "wake");
+  const expectedHibernations = readHibernationArtifacts(hibernationArtifactDir, "hibernations", isHibernationRecord);
+  const expectedWakeups = readHibernationArtifacts(wakeupArtifactDir, "wakeups", isWakeupRecord);
+  const findings: HibernationRegistryRebuildFinding[] = [
+    ...expectedHibernations.invalidFindings,
+    ...expectedWakeups.invalidFindings
+  ];
+
+  const actualHibernations = readHibernationRegistryItems(workspaceRoot, "hibernations", isHibernationRecord, findings);
+  const actualWakeups = readHibernationRegistryItems(workspaceRoot, "wakeups", isWakeupRecord, findings);
+  const expectedHibernationMap = new Map(expectedHibernations.records.map((record) => [record.id, record]));
+  const expectedWakeupMap = new Map(expectedWakeups.records.map((record) => [record.id, record]));
+  compareHibernationRegistryProjection("hibernations", expectedHibernationMap, actualHibernations, findings);
+  compareHibernationRegistryProjection("wakeups", expectedWakeupMap, actualWakeups, findings);
+
+  const sortedHibernations = [...expectedHibernationMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedWakeups = [...expectedWakeupMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "hibernation_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["hibernations", "wakeups"],
+    source_artifact_dirs: {
+      hibernations: hibernationArtifactDir,
+      wakeups: wakeupArtifactDir
+    },
+    scope: {
+      mode: "read_only_artifact_rebuild_parity",
+      mutates_registry: false,
+      evaluates_triggers: false,
+      queues_wakeups: false,
+      rebuilds_from: ".aetherion/artifacts/sleep/**/*.json plus .aetherion/artifacts/wake/**/*.json"
+    },
+    summary: {
+      expected_hibernations: sortedHibernations.length,
+      expected_wakeups: sortedWakeups.length,
+      actual_hibernations: actualHibernations.size,
+      actual_wakeups: actualWakeups.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_hibernations: sortedHibernations,
+    expected_wakeups: sortedWakeups,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
 export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<LedgerPayloadRefAudit> {
   const findings: LedgerPayloadRefFinding[] = [];
 
@@ -861,6 +959,45 @@ function readReplayRecordArtifacts(root: string): {
         item_id: isRegistryItem(parsed) ? parsed.id : basename(path, ".json"),
         status: "invalid_artifact",
         reason: "Artifact is not a valid Replay Record",
+        artifact_path: path
+      });
+      continue;
+    }
+    records.push(parsed);
+  }
+  return { records, invalidFindings };
+}
+
+function readHibernationArtifacts(
+  root: string,
+  registry: HibernationRegistryName,
+  isValid: (value: unknown) => value is RegistryItem
+): { records: RegistryItem[]; invalidFindings: HibernationRegistryRebuildFinding[] } {
+  if (!existsSync(root)) {
+    return { records: [], invalidFindings: [] };
+  }
+  const records: RegistryItem[] = [];
+  const invalidFindings: HibernationRegistryRebuildFinding[] = [];
+  for (const path of jsonFiles(root)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch {
+      invalidFindings.push({
+        registry,
+        item_id: basename(path, ".json"),
+        status: "invalid_artifact",
+        reason: `${registry} artifact JSON could not be parsed`,
+        artifact_path: path
+      });
+      continue;
+    }
+    if (!isValid(parsed)) {
+      invalidFindings.push({
+        registry,
+        item_id: isRegistryItem(parsed) ? parsed.id : basename(path, ".json"),
+        status: "invalid_artifact",
+        reason: `artifact is not a valid ${registry} record`,
         artifact_path: path
       });
       continue;
@@ -1077,6 +1214,39 @@ function readCapsuleRegistryItems(
   return valid;
 }
 
+function readHibernationRegistryItems(
+  workspaceRoot: string,
+  registry: HibernationRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: HibernationRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
 function compareRegistryProjection(
   registry: MemoryRegistryName,
   expected: Map<string, RegistryItem>,
@@ -1122,6 +1292,57 @@ function compareRegistryProjection(
         item_id: itemId,
         status: "stale_registry",
         reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function compareHibernationRegistryProjection(
+  registry: HibernationRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: HibernationRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no artifact rebuild source`,
         actual: actualItem
       });
     }
@@ -1251,6 +1472,48 @@ function isCapsuleRollbackArtifact(value: unknown): value is { active: RegistryI
   return isObjectRecord(value)
     && isCapsuleRecord(value.active)
     && isCapsuleRecord(value.deprecated);
+}
+
+function isHibernationRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && typeof value.run_id === "string"
+    && ["sleeping", "queued", "completed", "expired"].includes(String(value.status))
+    && typeof value.created_at === "string"
+    && (typeof value.expires_at === "string" || value.expires_at === null)
+    && value.active_leases_retained === false
+    && typeof value.minimal_context_pack_id === "string"
+    && isObjectRecord(value.ledger_cursor)
+    && typeof value.ledger_cursor.event_id === "string"
+    && typeof value.ledger_cursor.event_hash === "string"
+    && value.ledger_cursor.event_hash.startsWith("sha256:")
+    && Number.isInteger(value.ledger_cursor.event_count)
+    && typeof value.resume_summary === "string"
+    && Array.isArray(value.trigger_ids)
+    && value.trigger_ids.length > 0
+    && value.trigger_ids.every((triggerId) => typeof triggerId === "string")
+    && isObjectRecord(value.attention_budget)
+    && Number.isInteger(value.attention_budget.max_wakeups)
+    && Number.isInteger(value.attention_budget.used_wakeups)
+    && value.max_auto_risk === "L2";
+}
+
+function isWakeupRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && typeof value.hibernation_id === "string"
+    && ["manual", "file", "deadline"].includes(String(value.source))
+    && ["scheduled", "eligible", "queued", "discarded", "expired"].includes(String(value.status))
+    && typeof value.created_at === "string"
+    && (typeof value.expires_at === "string" || value.expires_at === null)
+    && isObjectRecord(value.condition)
+    && (typeof value.condition.deadline_at === "string" || value.condition.deadline_at === null)
+    && (typeof value.condition.file_path === "string" || value.condition.file_path === null)
+    && (typeof value.condition.baseline_sha256 === "string" || value.condition.baseline_sha256 === null)
+    && (typeof value.observed_at === "string" || value.observed_at === null)
+    && value.policy_recheck_required === true
+    && (typeof value.fresh_policy_decision_id === "string" || value.fresh_policy_decision_id === null)
+    && (typeof value.resume_run_id === "string" || value.resume_run_id === null)
+    && value.auto_execute_allowed === false
+    && typeof value.reason === "string";
 }
 
 function capsuleVersionRegistryId(capsule: RegistryItem): string {

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   appendEvent,
   auditCapsuleRegistryRebuild,
+  auditHibernationRegistryRebuild,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
   approveWriteWithConsent,
@@ -1974,6 +1975,81 @@ test("capsule registry rebuild audit derives active capsule projections from lif
   assert.equal(await readFile(join(registryDir, "capsule-drafts.json"), "utf8"), beforeDrafts);
 });
 
+test("hibernation registry rebuild audit compares sleep and wake artifacts without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-hibernation-registry-audit-"));
+  const sleepDir = join(root, ".aetherion", "artifacts", "sleep", "run_sleep");
+  const wakeDir = join(root, ".aetherion", "artifacts", "wake", "hibernate_run_sleep");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(sleepDir, { recursive: true });
+  await mkdir(wakeDir, { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const matchedHibernation = hibernationRecord("hibernate_run_sleep", "run_sleep", "wake_hibernate_run_sleep_manual");
+  const missingHibernation = hibernationRecord("hibernate_run_missing", "run_missing", "wake_hibernate_run_missing_manual");
+  const mismatchArtifact = hibernationRecord("hibernate_run_mismatch", "run_mismatch", "wake_hibernate_run_mismatch_manual");
+  const mismatchRegistry = { ...mismatchArtifact, resume_summary: "tampered registry projection" };
+  const staleHibernation = hibernationRecord("hibernate_run_stale", "run_stale", "wake_hibernate_run_stale_manual");
+  const matchedWake = wakeupTrigger("wake_hibernate_run_sleep_manual", "hibernate_run_sleep", "eligible");
+  const mismatchWakeArtifact = wakeupTrigger("wake_hibernate_run_mismatch_manual", "hibernate_run_mismatch", "queued");
+  const mismatchWakeRegistry = { ...mismatchWakeArtifact, reason: "tampered trigger projection" };
+  const staleWake = wakeupTrigger("wake_hibernate_run_stale_manual", "hibernate_run_stale", "eligible");
+
+  await writeFile(join(sleepDir, "hibernate_run_sleep.json"), `${JSON.stringify(matchedHibernation, null, 2)}\n`);
+  await writeFile(join(sleepDir, "hibernate_run_missing.json"), `${JSON.stringify(missingHibernation, null, 2)}\n`);
+  await writeFile(join(sleepDir, "hibernate_run_mismatch.json"), `${JSON.stringify(mismatchArtifact, null, 2)}\n`);
+  await writeFile(join(sleepDir, "broken.json"), "{not json");
+  await writeFile(join(wakeDir, "wake_hibernate_run_sleep_manual.json"), `${JSON.stringify(matchedWake, null, 2)}\n`);
+  await writeFile(join(wakeDir, "wake_hibernate_run_mismatch_manual.json"), `${JSON.stringify(mismatchWakeArtifact, null, 2)}\n`);
+  await writeFile(join(wakeDir, "invalid_wake.json"), `${JSON.stringify({ id: "wake_invalid_artifact", auto_execute_allowed: true }, null, 2)}\n`);
+  await writeFile(join(registryDir, "hibernations.json"), `${JSON.stringify([
+    matchedHibernation,
+    mismatchRegistry,
+    staleHibernation,
+    { id: "hibernate_invalid_registry", active_leases_retained: true }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "wakeups.json"), `${JSON.stringify([
+    matchedWake,
+    mismatchWakeRegistry,
+    staleWake,
+    { id: "wake_invalid_registry", auto_execute_allowed: true }
+  ], null, 2)}\n`);
+
+  const beforeHibernations = await readFile(join(registryDir, "hibernations.json"), "utf8");
+  const audit = auditHibernationRegistryRebuild(root);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "hibernation_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.equal(audit.scope.evaluates_triggers, false);
+  assert.equal(audit.scope.queues_wakeups, false);
+  assert.deepEqual(audit.summary, {
+    expected_hibernations: 3,
+    expected_wakeups: 2,
+    actual_hibernations: 3,
+    actual_wakeups: 3,
+    matched: 2,
+    missing_registry: 1,
+    mismatched: 2,
+    stale_registry: 2,
+    invalid_artifact: 2,
+    invalid_registry: 2
+  });
+  assert.ok(finding("hibernate_run_sleep", "matched"));
+  assert.ok(finding("hibernate_run_missing", "missing_registry"));
+  assert.ok(finding("hibernate_run_mismatch", "mismatched"));
+  assert.ok(finding("hibernate_run_stale", "stale_registry"));
+  assert.ok(finding("hibernate_invalid_registry", "invalid_registry"));
+  assert.ok(finding("wake_hibernate_run_sleep_manual", "matched"));
+  assert.ok(finding("wake_hibernate_run_mismatch_manual", "mismatched"));
+  assert.ok(finding("wake_hibernate_run_stale_manual", "stale_registry"));
+  assert.ok(finding("wake_invalid_artifact", "invalid_artifact"));
+  assert.ok(finding("wake_invalid_registry", "invalid_registry"));
+  assert.ok(finding("broken", "invalid_artifact"));
+  assert.deepEqual(audit.expected_hibernations.map((item) => item.id), ["hibernate_run_mismatch", "hibernate_run_missing", "hibernate_run_sleep"]);
+  assert.deepEqual(audit.expected_wakeups.map((item) => item.id), ["wake_hibernate_run_mismatch_manual", "wake_hibernate_run_sleep_manual"]);
+  assert.equal(await readFile(join(registryDir, "hibernations.json"), "utf8"), beforeHibernations);
+});
+
 test("ledger payload-ref audit resolves local artifact refs without mutating", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-payload-ref-audit-"));
   const boundaryDir = join(root, ".aetherion", "artifacts", "boundary", "run_payload_resolved");
@@ -2876,6 +2952,54 @@ function capsuleRecord(id: string, version: string, lifecycle: string) {
       tool_error: 0,
       policy_denial: 0
     }
+  };
+}
+
+function hibernationRecord(id: string, runId: string, triggerId: string) {
+  return {
+    id,
+    run_id: runId,
+    status: "sleeping",
+    created_at: "2026-06-07T10:00:00.000Z",
+    expires_at: null,
+    active_leases_retained: false,
+    minimal_context_pack_id: `ctx_resume_${runId}`,
+    ledger_cursor: {
+      event_id: `evt_${runId}_completed`,
+      event_hash: `sha256:${"1".repeat(64)}`,
+      event_count: 3
+    },
+    resume_summary: `Resume ${runId} after an explicit wake trigger.`,
+    trigger_ids: [triggerId],
+    attention_budget: {
+      max_wakeups: 3,
+      used_wakeups: 0
+    },
+    max_auto_risk: "L2"
+  };
+}
+
+function wakeupTrigger(id: string, hibernationId: string, status: "eligible" | "queued") {
+  return {
+    id,
+    hibernation_id: hibernationId,
+    source: "manual",
+    status,
+    created_at: "2026-06-07T10:00:00.000Z",
+    expires_at: null,
+    condition: {
+      deadline_at: null,
+      file_path: null,
+      baseline_sha256: null
+    },
+    observed_at: status === "queued" ? "2026-06-07T10:01:00.000Z" : null,
+    policy_recheck_required: true,
+    fresh_policy_decision_id: status === "queued" ? "policy_resume_queue" : null,
+    resume_run_id: status === "queued" ? "run_resume_fixture" : null,
+    auto_execute_allowed: false,
+    reason: status === "queued"
+      ? "Manual wakeup requested. Fresh policy allowed queueing only; no action or lease was issued."
+      : "Manual wakeup is immediately eligible."
   };
 }
 
