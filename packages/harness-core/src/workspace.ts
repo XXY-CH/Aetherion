@@ -76,6 +76,11 @@ export const REPLAY_RECORD_RUN_EVENT_TYPES = [
   "replay.recorded"
 ] as const;
 
+export const WAKEUP_QUEUE_RUN_EVENT_TYPES = [
+  "policy.decided",
+  "wakeup.queued"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -95,6 +100,10 @@ export function approvedWritePromotionEventSequence(runId: string): readonly Run
 
 export function replayRecordRunEventSequence(payloadRef: string): readonly RunEventExpectation[] {
   return [{ event_type: "replay.recorded", payload_ref: payloadRef }];
+}
+
+export function wakeupQueueRunEventSequence(): readonly RunEventExpectation[] {
+  return WAKEUP_QUEUE_RUN_EVENT_TYPES.map((eventType) => ({ event_type: eventType, payload_ref: null }));
 }
 
 export function workspaceRegistryPath(workspace: Workspace): string {

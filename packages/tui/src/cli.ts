@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -1548,7 +1548,7 @@ async function runWake(options: CliOptions): Promise<void> {
     throw new Error(`Supervisor did not append wakeup event for ${queued.trigger.id}`);
   }
   await recordRunEvent(repoRoot, workspace, resumeManifest, appendResult.event_id);
-  await completeRunManifest(repoRoot, workspace, resumeManifest, "blocked");
+  await completeRunManifestWithEventSequence(repoRoot, workspace, resumeManifest, "blocked", wakeupQueueRunEventSequence());
   upsertRegistryItem(workspaceRoot, "hibernations", queued.hibernation);
   upsertRegistryItem(workspaceRoot, "wakeups", queued.trigger);
   printJson(queued.trigger);

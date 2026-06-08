@@ -38,6 +38,8 @@ import {
   validateAgainstSchema,
   verifyEventHashChain,
   verifyFileContains,
+  WAKEUP_QUEUE_RUN_EVENT_TYPES,
+  wakeupQueueRunEventSequence,
   writeConsentRecordArtifact,
   writeLocalFileThroughPolicy,
   workspaceIdForRoot,
@@ -257,6 +259,95 @@ test("completed replay run manifests require a replay recorded event", async () 
   const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${replayRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(completed.status, "completed");
   assert.deepEqual(completed.event_ids, [replayEvent.id]);
+});
+
+test("queue-only wakeup run manifests reject payload refs and lease events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-wakeup-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_wakeup_lifecycle_guard");
+
+  const wrongPayloadRunId = "run_wakeup_wrong_payload";
+  const wrongPayloadManifest = await createRunManifest(repoRoot, workspace, wrongPayloadRunId, "Wakeup lifecycle payload guard");
+  const wrongPayloadPolicy = eventRecord({
+    id: "evt_wakeup_wrong_payload_policy",
+    workspace_id: workspace.id,
+    run_id: wrongPayloadRunId,
+    event_type: "policy.decided",
+    actor: { type: "system", id: "test" },
+    summary: "Incorrectly attached authority-shaped evidence to a queue-only wakeup.",
+    payload_ref: "artifact://lease/not_allowed"
+  });
+  const wrongPayloadQueued = eventRecord({
+    id: "evt_wakeup_wrong_payload_queued",
+    workspace_id: workspace.id,
+    run_id: wrongPayloadRunId,
+    event_type: "wakeup.queued",
+    actor: { type: "system", id: "test" },
+    summary: "Queued a wakeup."
+  });
+  await appendEvent(repoRoot, workspace, wrongPayloadPolicy);
+  await appendEvent(repoRoot, workspace, wrongPayloadQueued);
+  await recordRunEvent(repoRoot, workspace, wrongPayloadManifest, wrongPayloadPolicy.id);
+  await recordRunEvent(repoRoot, workspace, wrongPayloadManifest, wrongPayloadQueued.id);
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongPayloadManifest, "blocked", wakeupQueueRunEventSequence()),
+    /expected no payload_ref, got artifact:\/\/lease\/not_allowed/
+  );
+
+  const leaseRunId = "run_wakeup_with_lease";
+  const leaseManifest = await createRunManifest(repoRoot, workspace, leaseRunId, "Wakeup lifecycle lease guard");
+  for (const event of [
+    eventRecord({
+      id: "evt_wakeup_lease_policy",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Fresh queue-only policy."
+    }),
+    eventRecord({
+      id: "evt_wakeup_lease_issued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Lease issuance is not allowed for wakeup evaluation."
+    }),
+    eventRecord({
+      id: "evt_wakeup_lease_queued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "wakeup.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Queued a wakeup."
+    })
+  ]) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, leaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, leaseManifest, "blocked", wakeupQueueRunEventSequence()),
+    /expected lifecycle policy\.decided -> wakeup\.queued, got policy\.decided -> lease\.issued -> wakeup\.queued/
+  );
+
+  const validRunId = "run_wakeup_lifecycle_guard";
+  const validManifest = await createRunManifest(repoRoot, workspace, validRunId, "Wakeup lifecycle guard");
+  const validEvents = WAKEUP_QUEUE_RUN_EVENT_TYPES.map((eventType, index) => eventRecord({
+    id: `evt_wakeup_lifecycle_${index}`,
+    workspace_id: workspace.id,
+    run_id: validRunId,
+    event_type: eventType,
+    actor: { type: "system", id: "test" },
+    summary: eventType === "policy.decided" ? "Fresh queue-only policy." : "Queued wakeup without action."
+  }));
+  for (const event of validEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, validManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, validManifest, "blocked", wakeupQueueRunEventSequence());
+
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(completed.status, "blocked");
+  assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
 });
 
 test("run manifest event ids are recorded as the next Ledger event projection", async () => {

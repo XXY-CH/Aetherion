@@ -691,6 +691,32 @@ Correction and remaining boundary:
 
 - This closes a registry-artifact reference drift in the fork replay evidence path. It does not add deterministic replay-record repair, live replay, executable forks, or broader inheritance behavior.
 
+## Phase 33 Review Notes
+
+Matched architecture docs:
+
+- `docs/11-migration-and-runtime-economics.md`: the first hibernation implementation should stop at deterministic eligibility and queueing, request a fresh Local Supervisor policy decision, append the policy decision and queue event, issue no lease, and execute no task action during wakeup evaluation.
+- `docs/13-schema-runtime-governance.md`: P1 hibernation contracts must cite runtime evidence, and run manifest terminal status must not hide unprojected Ledger evidence.
+- `docs/01-architecture.md`: proactive/resume behavior must preserve the Local Supervisor authority boundary rather than allowing triggers or projections to become authority.
+
+Implemented correspondence:
+
+- `wakeupQueueRunEventSequence()` now defines the explicit queue-only resume lifecycle as `policy.decided -> wakeup.queued`.
+- The lifecycle requires both wakeup events to have no `payload_ref`, keeping hibernation queue evidence from masquerading as an artifact-backed authority grant.
+- `ether wake` now completes its independent `run_resume_*` manifest through this explicit sequence guard and leaves the manifest `blocked`, matching the no-lease/no-action queue-only model.
+- `docs/13-schema-runtime-governance.md` now moves queue-only hibernation resume runs out of the generic "own completion semantics" bucket and records the exact lifecycle contract.
+
+Verification evidence:
+
+- Harness tests reject wakeup manifests that attach a payload ref to `policy.decided`, reject wakeup manifests that include a `lease.issued` event, and accept the exact queue-only lifecycle as a blocked run.
+- TUI integration asserts a real Rust-supervised `wake` run records only `policy.decided` and `wakeup.queued`, that both events omit `payload_ref`, and that no `lease.issued` event appears for the resume run.
+
+Correction and remaining boundary:
+
+- This closes the hibernation run-manifest lifecycle drift without adding a daemon, automatic file/deadline observation, live resume execution, or lease issuance.
+- Hibernation records, wakeup triggers, and context packs remain registries/projections with schema validation and provenance gates; deterministic registry rebuild/parity for this family remains future work.
+- Child-read, security, browser-observe, outbox, and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

@@ -1448,8 +1448,10 @@ test("Ether hibernation evaluates local triggers and queues a fresh-policy resum
   assert.equal(resumeManifest.status, "blocked");
   assert.equal(resumeManifest.event_ids.length, 2);
   const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
-  const resumeEvents = ledger.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { run_id: string; event_type: string }).filter((event) => event.run_id === resumeRunId);
+  const resumeEvents = ledger.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { run_id: string; event_type: string; payload_ref?: string }).filter((event) => event.run_id === resumeRunId);
   assert.deepEqual(resumeEvents.map((event) => event.event_type), ["policy.decided", "wakeup.queued"]);
+  assert.deepEqual(resumeEvents.map((event) => event.payload_ref ?? null), [null, null]);
+  assert.equal(resumeEvents.some((event) => event.event_type === "lease.issued"), false);
 
   const repeated = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
   assert.match(repeated.stdout, /"status": "discarded"/);
