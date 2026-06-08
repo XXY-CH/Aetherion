@@ -31,7 +31,11 @@ fn run() -> Result<(), String> {
         "rpc" => run_rpc(),
         "socket" => {
             let socket_options = parse_socket_options(args.collect())?;
-            run_socket(&socket_options.path, socket_options.auth_token.as_deref())
+            run_socket(
+                &socket_options.path,
+                socket_options.auth_token.as_deref(),
+                socket_options.workspace_root.as_deref(),
+            )
         }
         _ => {
             println!("Usage: aetherion-supervisor rpc | socket --path <socket>");
@@ -55,11 +59,13 @@ fn run_rpc() -> Result<(), String> {
 struct SocketOptions {
     path: String,
     auth_token: Option<String>,
+    workspace_root: Option<String>,
 }
 
 fn parse_socket_options(args: Vec<String>) -> Result<SocketOptions, String> {
     let mut path: Option<String> = None;
     let mut auth_token: Option<String> = None;
+    let mut workspace_root: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -67,10 +73,7 @@ fn parse_socket_options(args: Vec<String>) -> Result<SocketOptions, String> {
                 index += 1;
                 let value = args.get(index).cloned().unwrap_or_default();
                 if value.is_empty() {
-                    return Err(
-                        "Usage: aetherion-supervisor socket --path <socket> [--auth-token <token>]"
-                            .to_string(),
-                    );
+                    return Err(socket_usage().to_string());
                 }
                 path = Some(value);
             }
@@ -82,24 +85,50 @@ fn parse_socket_options(args: Vec<String>) -> Result<SocketOptions, String> {
                 }
                 auth_token = Some(value);
             }
+            "--workspace-root" => {
+                index += 1;
+                let value = args.get(index).cloned().unwrap_or_default();
+                if value.is_empty() {
+                    return Err("--workspace-root requires a non-empty path".to_string());
+                }
+                workspace_root = Some(value);
+            }
             other => return Err(format!("unsupported socket option {other}")),
         }
         index += 1;
     }
     let Some(path) = path else {
-        return Err(
-            "Usage: aetherion-supervisor socket --path <socket> [--auth-token <token>]".to_string(),
-        );
+        return Err(socket_usage().to_string());
     };
-    Ok(SocketOptions { path, auth_token })
+    Ok(SocketOptions {
+        path,
+        auth_token,
+        workspace_root,
+    })
+}
+
+fn socket_usage() -> &'static str {
+    "Usage: aetherion-supervisor socket --path <socket> [--auth-token <token>] [--workspace-root <root>]"
 }
 
 #[cfg(unix)]
-fn run_socket(path: &str, auth_token: Option<&str>) -> Result<(), String> {
+fn run_socket(
+    path: &str,
+    auth_token: Option<&str>,
+    workspace_root: Option<&str>,
+) -> Result<(), String> {
     remove_existing_socket(path)?;
+    let bound_workspace = match workspace_root {
+        Some(root) => Some(BoundWorkspace::create(root, path)?),
+        None => None,
+    };
     let listener = UnixListener::bind(path).map_err(|error| error.to_string())?;
     for stream in listener.incoming() {
-        run_socket_stream(stream.map_err(|error| error.to_string())?, auth_token)?;
+        run_socket_stream(
+            stream.map_err(|error| error.to_string())?,
+            auth_token,
+            bound_workspace.as_ref(),
+        )?;
     }
     Ok(())
 }
@@ -120,6 +149,7 @@ fn remove_existing_socket(path: &str) -> Result<(), String> {
 fn run_socket_stream(
     mut stream: std::os::unix::net::UnixStream,
     auth_token: Option<&str>,
+    bound_workspace: Option<&BoundWorkspace>,
 ) -> Result<(), String> {
     let mut line = String::new();
     {
@@ -132,20 +162,71 @@ fn run_socket_stream(
         return Ok(());
     }
     stream
-        .write_all(format!("{}\n", handle_socket_rpc_line(&line, auth_token)).as_bytes())
+        .write_all(
+            format!(
+                "{}\n",
+                handle_socket_rpc_line(&line, auth_token, bound_workspace)
+            )
+            .as_bytes(),
+        )
         .map_err(|error| error.to_string())?;
     stream.flush().map_err(|error| error.to_string())
 }
 
 #[cfg(not(unix))]
-fn run_socket(_path: &str, _auth_token: Option<&str>) -> Result<(), String> {
+fn run_socket(
+    _path: &str,
+    _auth_token: Option<&str>,
+    _workspace_root: Option<&str>,
+) -> Result<(), String> {
     Err("local socket RPC is only available on Unix platforms in this POC".to_string())
 }
 
-fn handle_socket_rpc_line(line: &str, auth_token: Option<&str>) -> String {
-    let Some(expected_token) = auth_token else {
-        return handle_rpc_line(line, "unix-socket");
-    };
+#[derive(Debug)]
+struct BoundWorkspace {
+    root: PathBuf,
+    id: String,
+    lock_path: PathBuf,
+}
+
+impl BoundWorkspace {
+    fn create(root: &str, socket_path: &str) -> Result<Self, String> {
+        let root = aetherion_supervisor::resolved_workspace_root(root)
+            .map_err(|error| error.to_string())?;
+        let id = aetherion_supervisor::workspace_id_for_root(&root)
+            .map_err(|error| error.to_string())?;
+        let runtime_dir = root.join(".aetherion");
+        fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
+        let lock_path = runtime_dir.join("supervisor.lock");
+        fs::write(
+            &lock_path,
+            format!(
+                "pid={}\ntransport=unix-socket\nworkspace_id={}\nsocket_path={}\n",
+                std::process::id(),
+                id,
+                socket_path
+            ),
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(Self {
+            root,
+            id,
+            lock_path,
+        })
+    }
+}
+
+impl Drop for BoundWorkspace {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.lock_path);
+    }
+}
+
+fn handle_socket_rpc_line(
+    line: &str,
+    auth_token: Option<&str>,
+    bound_workspace: Option<&BoundWorkspace>,
+) -> String {
     let request = match parse_json_object(line) {
         Ok(request) => request,
         Err(error) => return error_response("rpc", &format!("invalid JSON RPC request: {error}")),
@@ -155,12 +236,31 @@ fn handle_socket_rpc_line(line: &str, auth_token: Option<&str>) -> String {
         Ok(_) => "rpc".to_string(),
         Err(error) => return error_response("rpc", &error),
     };
-    let supplied_token = match optional_string_field(&request, "auth_token") {
-        Ok(value) => value,
-        Err(error) => return error_response(&id, &error),
-    };
-    if supplied_token.as_deref() != Some(expected_token) {
-        return error_response(&id, "socket RPC auth failed");
+    if let Some(expected_token) = auth_token {
+        let supplied_token = match optional_string_field(&request, "auth_token") {
+            Ok(value) => value,
+            Err(error) => return error_response(&id, &error),
+        };
+        if supplied_token.as_deref() != Some(expected_token) {
+            return error_response(&id, "socket RPC auth failed");
+        }
+    }
+    if let Some(bound) = bound_workspace {
+        let workspace_root = match required_string_field(&request, "workspace_root") {
+            Ok(value) => value,
+            Err(error) => return error_response(&id, &error),
+        };
+        let workspace_id = match required_string_field(&request, "workspace_id") {
+            Ok(value) => value,
+            Err(error) => return error_response(&id, &error),
+        };
+        let resolved_root = match aetherion_supervisor::resolved_workspace_root(&workspace_root) {
+            Ok(value) => value,
+            Err(error) => return error_response(&id, &error.to_string()),
+        };
+        if resolved_root != bound.root || workspace_id != bound.id {
+            return error_response(&id, "socket RPC workspace binding mismatch");
+        }
     }
     handle_rpc_line(line, "unix-socket")
 }
@@ -1102,6 +1202,26 @@ mod tests {
     }
 
     #[test]
+    fn socket_options_accept_workspace_root_binding() {
+        let options = parse_socket_options(vec![
+            "--path".to_string(),
+            "/tmp/aetherion.sock".to_string(),
+            "--auth-token".to_string(),
+            "local-token".to_string(),
+            "--workspace-root".to_string(),
+            "/tmp/aetherion-workspace".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(options.path, "/tmp/aetherion.sock");
+        assert_eq!(options.auth_token.as_deref(), Some("local-token"));
+        assert_eq!(
+            options.workspace_root.as_deref(),
+            Some("/tmp/aetherion-workspace")
+        );
+    }
+
+    #[test]
     fn rpc_legacy_file_write_is_rejected_without_side_effects() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1640,7 +1760,7 @@ mod tests {
         let listener = UnixListener::bind(&socket_path).unwrap();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            run_socket_stream(stream, None).unwrap();
+            run_socket_stream(stream, None, None).unwrap();
         });
         let mut client = UnixStream::connect(&socket_path).unwrap();
         let status_request = format!(
@@ -1681,7 +1801,8 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let missing_auth = handle_socket_rpc_line(&request_without_token, Some("expected-token"));
+        let missing_auth =
+            handle_socket_rpc_line(&request_without_token, Some("expected-token"), None);
         assert!(missing_auth.contains("\"id\":\"rpc_status_missing_auth\""));
         assert!(missing_auth.contains("socket RPC auth failed"));
         assert!(!root.join(".aetherion").exists());
@@ -1691,7 +1812,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let wrong_auth = handle_socket_rpc_line(&wrong_token, Some("expected-token"));
+        let wrong_auth = handle_socket_rpc_line(&wrong_token, Some("expected-token"), None);
         assert!(wrong_auth.contains("\"id\":\"rpc_status_wrong_auth\""));
         assert!(wrong_auth.contains("socket RPC auth failed"));
         assert!(!root.join(".aetherion").exists());
@@ -1701,7 +1822,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let allowed = handle_socket_rpc_line(&correct_token, Some("expected-token"));
+        let allowed = handle_socket_rpc_line(&correct_token, Some("expected-token"), None);
         assert!(allowed.contains("\"id\":\"rpc_status_correct_auth\""));
         assert!(allowed.contains("\"transport\":\"unix-socket\""));
         assert!(allowed.contains("\"ledger_events\":0"));
@@ -1709,6 +1830,96 @@ mod tests {
             fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap(),
             ""
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bound_workspace_lock_file_is_created_and_removed_on_drop() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-socket-bound-lock-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let socket_path = std::env::temp_dir().join(format!("aeth-bound-{nonce}.sock"));
+        let workspace_id = derived_workspace_id(&root);
+        let lock_path = root.join(".aetherion/supervisor.lock");
+
+        {
+            let bound =
+                BoundWorkspace::create(root.to_str().unwrap(), socket_path.to_str().unwrap())
+                    .unwrap();
+            assert_eq!(bound.id, workspace_id);
+            assert_eq!(bound.lock_path, lock_path);
+            let lock = fs::read_to_string(&lock_path).unwrap();
+            assert!(lock.contains("pid="));
+            assert!(lock.contains("transport=unix-socket"));
+            assert!(lock.contains(&format!("workspace_id={workspace_id}")));
+            assert!(lock.contains(&format!("socket_path={}", socket_path.display())));
+        }
+
+        assert!(!lock_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bound_socket_status_accepts_matching_workspace_and_keeps_lock() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-bound-status-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let socket_path = std::env::temp_dir().join(format!("aeth-bound-status-{nonce}.sock"));
+        let workspace_id = derived_workspace_id(&root);
+        let bound =
+            BoundWorkspace::create(root.to_str().unwrap(), socket_path.to_str().unwrap()).unwrap();
+        let lock_path = root.join(".aetherion/supervisor.lock");
+        let request = format!(
+            "{{\"id\":\"rpc_bound_status\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_bound_status\"}}\n",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+
+        let response = handle_socket_rpc_line(&request, None, Some(&bound));
+
+        assert!(response.contains("\"id\":\"rpc_bound_status\""));
+        assert!(response.contains("\"transport\":\"unix-socket\""));
+        assert!(response.contains("\"ledger_events\":0"));
+        assert!(lock_path.exists());
+        assert_eq!(
+            fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap(),
+            ""
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bound_socket_rejects_cross_workspace_before_runtime_initialization() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-bound-home-{nonce}"));
+        let other_root = std::env::temp_dir().join(format!("aetherion-bound-other-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other_root).unwrap();
+        let socket_path = std::env::temp_dir().join(format!("aeth-bound-cross-{nonce}.sock"));
+        let bound =
+            BoundWorkspace::create(root.to_str().unwrap(), socket_path.to_str().unwrap()).unwrap();
+        let other_workspace_id = derived_workspace_id(&other_root);
+        let request = format!(
+            "{{\"id\":\"rpc_bound_cross\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_bound_cross\"}}\n",
+            escape(&other_root.display().to_string()),
+            other_workspace_id
+        );
+
+        let response = handle_socket_rpc_line(&request, None, Some(&bound));
+
+        assert!(response.contains("\"id\":\"rpc_bound_cross\""));
+        assert!(response.contains("socket RPC workspace binding mismatch"));
+        assert!(!other_root.join(".aetherion").exists());
+        assert!(root.join(".aetherion/supervisor.lock").exists());
     }
 
     #[cfg(unix)]

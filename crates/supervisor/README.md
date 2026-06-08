@@ -18,6 +18,7 @@ Current scope:
 - Expose a minimal JSON-RPC POC over stdio and an explicit foreground Unix socket mode for workspace init, read-only supervisor status, governance event append, traced file reads, traced write prepare/commit, queue-only resume, and taint/outbox policy gates.
 - Report supervisor status without appending Ledger events: workspace identity, transport, `daemon_running=false`, runtime paths, Ledger hash-chain validity, event count, and head pointers.
 - Optionally require a caller-supplied socket `auth_token` before dispatching foreground socket requests to the normal RPC handler. This is a local transport gate only; it is not device identity, user identity, pairing, or a vault.
+- Optionally bind the foreground Unix socket to one workspace with `--workspace-root <root>`, create `<root>/.aetherion/supervisor.lock` while the bound socket object is live, and reject socket requests for other workspace roots or ids before dispatch.
 - Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject legacy policy-only/read/write/replay RPCs that would bypass full Ledger lifecycle evidence, and return the actual operation lease id for approved write commits.
 - Keep replay persistence in Ether's Ledger-backed `replay` command; the legacy `trace.replay` RPC is disabled because a bare `live_side_effects_replayed=false` result is not sufficient replay evidence.
 
@@ -26,7 +27,7 @@ Out of scope:
 - Real vault backend.
 - Device identity, user identity, pairing, and token storage.
 - Event signatures, redaction, and branch-specific append streams.
-- Production daemon lifecycle, service installation, and background JSON-RPC server management.
+- Production daemon lifecycle, service installation, background JSON-RPC server management, crash recovery, and stale supervisor runtime-lock recovery.
 - Browser, IM, MCP, OAuth, or cloud worker integration.
 - Loading generated or imported code.
 

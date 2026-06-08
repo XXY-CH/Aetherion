@@ -584,6 +584,65 @@ test("supervisor socket RPC can require an explicit auth token", async () => {
   }
 });
 
+test("supervisor socket RPC can bind one workspace with a runtime lock", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-socket-bound-"));
+  const otherWorkspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-socket-other-"));
+  const workspaceId = workspaceIdForRoot(workspace);
+  const socketPath = join("/tmp", `aeth-${process.pid}-${Date.now()}-bound.sock`);
+  const lockPath = join(workspace, ".aetherion", "supervisor.lock");
+  const child = spawn(join(repoRoot, "target", "debug", "aetherion-supervisor"), ["socket", "--path", socketPath, "--workspace-root", workspace], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  try {
+    await waitForFile(socketPath);
+    await waitForFile(lockPath);
+    const lock = await readFile(lockPath, "utf8");
+    assert.match(lock, /pid=\d+/);
+    assert.match(lock, /transport=unix-socket/);
+    assert.match(lock, new RegExp(`workspace_id=${workspaceId}`));
+    assert.match(lock, new RegExp(`socket_path=${escapeRegExp(socketPath)}`));
+
+    const result = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: "rpc_socket_bound_status",
+      method: "supervisor.status",
+      workspace_root: workspace,
+      workspace_id: workspaceId,
+      run_id: "run_socket_bound_status"
+    }, { socketPath }));
+    assert.equal(result.transport, "unix-socket");
+    assert.equal(result.daemon_running, false);
+    assert.equal(result.ledger_chain_valid, true);
+    assert.equal(result.ledger_events, 0);
+    assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
+    assert.equal(await readFile(lockPath, "utf8"), lock);
+
+    await assert.rejects(
+      callSupervisorRpc(repoRoot, {
+        id: "rpc_socket_bound_other",
+        method: "supervisor.status",
+        workspace_root: otherWorkspace,
+        workspace_id: workspaceIdForRoot(otherWorkspace),
+        run_id: "run_socket_bound_other"
+      }, { socketPath }),
+      /socket RPC workspace binding mismatch/
+    );
+    await assert.rejects(access(join(otherWorkspace, ".aetherion")));
+  } finally {
+    child.kill("SIGINT");
+    await new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+      setTimeout(resolve, 1000);
+    });
+    await rm(socketPath, { force: true });
+    await rm(lockPath, { force: true });
+  }
+});
+
 test("TUI default summary avoids source content while explicit summary remains user-controlled", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-summary-safe-"));
   await writeFile(join(workspace, "README.md"), "OPENAI_API_KEY=sk-tui-secret\nPrivate launch note\n");
@@ -2299,6 +2358,10 @@ function stdoutValue(stdout: string, key: string): string {
   const line = stdout.split("\n").find((entry) => entry.startsWith(`${key}=`));
   assert.ok(line, `missing stdout key ${key}`);
   return line.slice(key.length + 1);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function commandStderr(error: unknown): string {
