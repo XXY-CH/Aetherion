@@ -167,6 +167,8 @@ The P0 `.aetherion/workspace.json` registry is also a projection, not an authori
 
 `audit hibernation-records` is a scoped rebuild/parity preview for Digital Hibernation registries. It reads persisted sleep and wake artifacts under `.aetherion/artifacts/sleep/**/*.json` and `.aetherion/artifacts/wake/**/*.json`, reconstructs expected `hibernations` and `wakeups` projection state, and reports matched, missing, mismatched, stale, or invalid entries without mutating registries, evaluating triggers, queueing wakeups, issuing leases, or resuming work.
 
+`audit sandbox-records` is a scoped rebuild/parity preview for Sandbox Rehearsal registries. It reads persisted checkpoint, branch, rehearsal, and sandbox-approval command artifacts, applies approval artifacts to the expected branch projection, and reports matched, missing, mismatched, stale, or invalid entries without mutating registries, requesting supervisor authority, promoting rehearsals, or writing live workspace files. This is projection visibility only; `approve-rehearsal` still revalidates Ledger event/hash evidence, branch pointers, sandbox binding, and file hashes before any fresh write authority request.
+
 `audit payload-refs` is a read-only Event Ledger artifact-reference audit. It scans Ledger events with `payload_ref`, resolves known local `artifact://` references such as Boundary Facts, Consent Records, Replay Records, Capsule lifecycle snapshots, and generic Ether artifacts, and reports `resolved`, `missing`, `invalid_json`, or `unresolved` without writing artifacts, mutating registries, appending events, or treating artifacts as authority. For Boundary Facts, Consent Records, Replay Records, and Capsule draft/test/publish snapshots, it also validates the parsed artifact JSON against the existing contract schema and reports `schema_valid`, `schema_invalid`, and `schema_not_checked` counters; Capsule rollback snapshots and other generic artifacts remain path/JSON checks only until they have dedicated schemas.
 
 Each Ether kernel run now appends a `run.started` event whose `payload_ref` points to a Boundary Facts artifact under `.aetherion/artifacts/boundary/<run_id>/`. That artifact records the facts the kernel can prove today (`run_id`, `workspace_id`, `entry_surface`, and authority) plus explicit `not_recorded` markers for `user_id`, `device_id`, `channel_id`, and `secret_vault`.
@@ -240,5 +242,6 @@ npm run ether -- audit replay-records --workspace .
 npm run ether -- audit memory-records --workspace .
 npm run ether -- audit capsule-records --workspace .
 npm run ether -- audit hibernation-records --workspace .
+npm run ether -- audit sandbox-records --workspace .
 npm run ether -- audit payload-refs --workspace .
 ```

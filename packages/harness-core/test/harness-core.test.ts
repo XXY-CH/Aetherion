@@ -13,6 +13,7 @@ import {
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
+  auditSandboxRegistryRebuild,
   callSupervisorRpc,
   canonicalLedgerPath,
   canonicalRuntimeDir,
@@ -1973,6 +1974,119 @@ test("capsule registry rebuild audit derives active capsule projections from lif
   assert.deepEqual(audit.expected_capsule_drafts, []);
   assert.deepEqual(audit.expected_capsule_versions.map((item) => item.id), ["capver_cap_reader_0.1.0", "capver_cap_reader_0.2.0"]);
   assert.equal(await readFile(join(registryDir, "capsule-drafts.json"), "utf8"), beforeDrafts);
+});
+
+test("sandbox registry rebuild audit compares checkpoint rehearsal artifacts without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-sandbox-registry-audit-"));
+  const artifactRoot = join(root, ".aetherion", "artifacts");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactRoot, "checkpoint", "run_source"), { recursive: true });
+  await mkdir(join(artifactRoot, "branch", "checkpoint_source"), { recursive: true });
+  await mkdir(join(artifactRoot, "rehearse", "branch_source"), { recursive: true });
+  await mkdir(join(artifactRoot, "approve-rehearsal", "rehearsal_source"), { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const checkpoint = {
+    id: "checkpoint_source",
+    run_id: "run_source",
+    event_id: "evt_source",
+    event_hash: `sha256:${"1".repeat(64)}`,
+    created_at: "2026-06-07T10:00:00.000Z",
+    replay_mode: "simulation",
+    active_leases_reusable: false
+  };
+  const branch = {
+    id: "branch_source",
+    checkpoint_id: checkpoint.id,
+    source_event_id: checkpoint.event_id,
+    source_event_hash: checkpoint.event_hash,
+    head_event_id: checkpoint.event_id,
+    head_event_hash: checkpoint.event_hash,
+    created_at: "2026-06-07T10:01:00.000Z",
+    inherits_authority: false,
+    status: "sandbox"
+  };
+  const rehearsal = {
+    id: "rehearsal_source",
+    branch_id: branch.id,
+    mode: "diff",
+    real_workspace_mutated: false,
+    result: "--- a/PHASE.md\n+++ b/PHASE.md\n@@ sandbox rehearsal @@\n-old\n+new",
+    approval_required: true,
+    operation: "file.write",
+    target_path: "PHASE.md",
+    sandbox_path: ".aetherion/sandboxes/branch_source/workspace/PHASE.md",
+    original_sha256: `sha256:${"2".repeat(64)}`,
+    proposed_sha256: `sha256:${"3".repeat(64)}`
+  };
+  const approval = {
+    id: "sandbox_approval_rehearsal_source",
+    rehearsal_id: rehearsal.id,
+    branch_id: branch.id,
+    fresh_policy_evaluated: true,
+    inherited_authority: false,
+    policy_event_id: "evt_policy",
+    live_action_event_id: "evt_action",
+    status: "approved",
+    promotion_run_id: "run_rehearsal_source",
+    target_path: "PHASE.md",
+    new_lease_id: "lease_source_write",
+    real_side_effect_executed: true,
+    verification_status: "passed"
+  };
+  const staleBranch = {
+    ...branch,
+    id: "branch_stale_projection",
+    checkpoint_id: "checkpoint_stale_projection"
+  };
+  await writeFile(join(artifactRoot, "checkpoint", "run_source", "checkpoint_source.json"), `${JSON.stringify(checkpoint, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "branch", "checkpoint_source", "branch_source.json"), `${JSON.stringify(branch, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "rehearse", "branch_source", "rehearsal_source.json"), `${JSON.stringify(rehearsal, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "approve-rehearsal", "rehearsal_source", "sandbox_approval_rehearsal_source.json"), `${JSON.stringify(approval, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "branch", "checkpoint_source", "broken.json"), "{not json");
+  await writeFile(join(registryDir, "checkpoints.json"), `${JSON.stringify([checkpoint], null, 2)}\n`);
+  await writeFile(join(registryDir, "branches.json"), `${JSON.stringify([
+    branch,
+    staleBranch,
+    { id: "branch_invalid_registry", checkpoint_id: "checkpoint_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "rehearsals.json"), `${JSON.stringify([rehearsal], null, 2)}\n`);
+  await writeFile(join(registryDir, "sandbox-approvals.json"), `${JSON.stringify([approval], null, 2)}\n`);
+  const beforeBranches = await readFile(join(registryDir, "branches.json"), "utf8");
+
+  const audit = auditSandboxRegistryRebuild(root);
+  const finding = (registry: string, itemId: string, status: string) =>
+    audit.findings.find((entry) => entry.registry === registry && entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "sandbox_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.equal(audit.scope.requests_supervisor_authority, false);
+  assert.equal(audit.scope.promotes_rehearsals, false);
+  assert.deepEqual(audit.summary, {
+    expected_checkpoints: 1,
+    expected_branches: 1,
+    expected_rehearsals: 1,
+    expected_sandbox_approvals: 1,
+    actual_checkpoints: 1,
+    actual_branches: 2,
+    actual_rehearsals: 1,
+    actual_sandbox_approvals: 1,
+    matched: 3,
+    missing_registry: 0,
+    mismatched: 1,
+    stale_registry: 1,
+    invalid_artifact: 1,
+    invalid_registry: 1
+  });
+  assert.ok(finding("checkpoints", checkpoint.id, "matched"));
+  assert.ok(finding("branches", branch.id, "mismatched"));
+  assert.ok(finding("branches", "branch_stale_projection", "stale_registry"));
+  assert.ok(finding("branches", "branch_invalid_registry", "invalid_registry"));
+  assert.ok(finding("branches", "broken", "invalid_artifact"));
+  assert.ok(finding("rehearsals", rehearsal.id, "matched"));
+  assert.ok(finding("sandbox-approvals", approval.id, "matched"));
+  assert.equal(audit.expected_branches[0].status, "approved");
+  assert.equal(await readFile(join(registryDir, "branches.json"), "utf8"), beforeBranches);
 });
 
 test("hibernation registry rebuild audit compares sleep and wake artifacts without mutating", async () => {

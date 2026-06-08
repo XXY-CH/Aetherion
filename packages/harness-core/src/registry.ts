@@ -236,6 +236,59 @@ export type HibernationRegistryRebuildAudit = {
   findings: HibernationRegistryRebuildFinding[];
 };
 
+export type SandboxRegistryName = "checkpoints" | "branches" | "rehearsals" | "sandbox-approvals";
+
+export type SandboxRegistryRebuildFinding = {
+  registry: SandboxRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type SandboxRegistryRebuildAudit = {
+  id: "sandbox_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: SandboxRegistryName[];
+  source_artifact_dirs: {
+    checkpoints: string;
+    branches: string;
+    rehearsals: string;
+    sandbox_approvals: string;
+  };
+  scope: {
+    mode: "read_only_artifact_rebuild_parity";
+    mutates_registry: false;
+    requests_supervisor_authority: false;
+    promotes_rehearsals: false;
+    rebuilds_from: ".aetherion/artifacts/checkpoint/**/*.json plus branch/rehearse/approve-rehearsal artifacts";
+  };
+  summary: {
+    expected_checkpoints: number;
+    expected_branches: number;
+    expected_rehearsals: number;
+    expected_sandbox_approvals: number;
+    actual_checkpoints: number;
+    actual_branches: number;
+    actual_rehearsals: number;
+    actual_sandbox_approvals: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_checkpoints: RegistryItem[];
+  expected_branches: RegistryItem[];
+  expected_rehearsals: RegistryItem[];
+  expected_sandbox_approvals: RegistryItem[];
+  findings: SandboxRegistryRebuildFinding[];
+};
+
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
 export type LedgerPayloadRefSchemaStatus = "valid" | "invalid" | "not_checked";
 
@@ -789,6 +842,99 @@ export function auditHibernationRegistryRebuild(workspaceRoot: string): Hibernat
   };
 }
 
+export function auditSandboxRegistryRebuild(workspaceRoot: string): SandboxRegistryRebuildAudit {
+  const checkpointArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "checkpoint");
+  const branchArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "branch");
+  const rehearsalArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "rehearse");
+  const approvalArtifactDir = join(workspaceRoot, ".aetherion", "artifacts", "approve-rehearsal");
+  const expectedCheckpoints = readSandboxArtifacts(checkpointArtifactDir, "checkpoints", isCheckpointRecord);
+  const expectedBranches = readSandboxArtifacts(branchArtifactDir, "branches", isBranchRecord);
+  const expectedRehearsals = readSandboxArtifacts(rehearsalArtifactDir, "rehearsals", isRehearsalRecord);
+  const expectedApprovals = readSandboxArtifacts(approvalArtifactDir, "sandbox-approvals", isSandboxApprovalRecord);
+  const findings: SandboxRegistryRebuildFinding[] = [
+    ...expectedCheckpoints.invalidFindings,
+    ...expectedBranches.invalidFindings,
+    ...expectedRehearsals.invalidFindings,
+    ...expectedApprovals.invalidFindings
+  ];
+
+  const expectedCheckpointMap = new Map(expectedCheckpoints.records.map((record) => [record.id, record]));
+  const expectedBranchMap = new Map(expectedBranches.records.map((record) => [record.id, record]));
+  for (const approval of expectedApprovals.records) {
+    const branchId = typeof approval.branch_id === "string" ? approval.branch_id : "";
+    const branch = expectedBranchMap.get(branchId);
+    if (!branch) {
+      findings.push({
+        registry: "branches",
+        item_id: branchId || approval.id,
+        status: "invalid_artifact",
+        reason: `sandbox approval ${approval.id} references a branch without an artifact-backed branch record`,
+        expected: approval
+      });
+      continue;
+    }
+    if (approval.status === "approved") {
+      expectedBranchMap.set(branch.id, { ...branch, status: "approved" });
+    }
+  }
+  const expectedRehearsalMap = new Map(expectedRehearsals.records.map((record) => [record.id, record]));
+  const expectedApprovalMap = new Map(expectedApprovals.records.map((record) => [record.id, record]));
+
+  const actualCheckpoints = readSandboxRegistryItems(workspaceRoot, "checkpoints", isCheckpointRecord, findings);
+  const actualBranches = readSandboxRegistryItems(workspaceRoot, "branches", isBranchRecord, findings);
+  const actualRehearsals = readSandboxRegistryItems(workspaceRoot, "rehearsals", isRehearsalRecord, findings);
+  const actualApprovals = readSandboxRegistryItems(workspaceRoot, "sandbox-approvals", isSandboxApprovalRecord, findings);
+  compareSandboxRegistryProjection("checkpoints", expectedCheckpointMap, actualCheckpoints, findings);
+  compareSandboxRegistryProjection("branches", expectedBranchMap, actualBranches, findings);
+  compareSandboxRegistryProjection("rehearsals", expectedRehearsalMap, actualRehearsals, findings);
+  compareSandboxRegistryProjection("sandbox-approvals", expectedApprovalMap, actualApprovals, findings);
+
+  const sortedCheckpoints = [...expectedCheckpointMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedBranches = [...expectedBranchMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedRehearsals = [...expectedRehearsalMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedApprovals = [...expectedApprovalMap.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "sandbox_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["checkpoints", "branches", "rehearsals", "sandbox-approvals"],
+    source_artifact_dirs: {
+      checkpoints: checkpointArtifactDir,
+      branches: branchArtifactDir,
+      rehearsals: rehearsalArtifactDir,
+      sandbox_approvals: approvalArtifactDir
+    },
+    scope: {
+      mode: "read_only_artifact_rebuild_parity",
+      mutates_registry: false,
+      requests_supervisor_authority: false,
+      promotes_rehearsals: false,
+      rebuilds_from: ".aetherion/artifacts/checkpoint/**/*.json plus branch/rehearse/approve-rehearsal artifacts"
+    },
+    summary: {
+      expected_checkpoints: sortedCheckpoints.length,
+      expected_branches: sortedBranches.length,
+      expected_rehearsals: sortedRehearsals.length,
+      expected_sandbox_approvals: sortedApprovals.length,
+      actual_checkpoints: actualCheckpoints.size,
+      actual_branches: actualBranches.size,
+      actual_rehearsals: actualRehearsals.size,
+      actual_sandbox_approvals: actualApprovals.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_checkpoints: sortedCheckpoints,
+    expected_branches: sortedBranches,
+    expected_rehearsals: sortedRehearsals,
+    expected_sandbox_approvals: sortedApprovals,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
 export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<LedgerPayloadRefAudit> {
   const findings: LedgerPayloadRefFinding[] = [];
 
@@ -978,6 +1124,45 @@ function readHibernationArtifacts(
   }
   const records: RegistryItem[] = [];
   const invalidFindings: HibernationRegistryRebuildFinding[] = [];
+  for (const path of jsonFiles(root)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch {
+      invalidFindings.push({
+        registry,
+        item_id: basename(path, ".json"),
+        status: "invalid_artifact",
+        reason: `${registry} artifact JSON could not be parsed`,
+        artifact_path: path
+      });
+      continue;
+    }
+    if (!isValid(parsed)) {
+      invalidFindings.push({
+        registry,
+        item_id: isRegistryItem(parsed) ? parsed.id : basename(path, ".json"),
+        status: "invalid_artifact",
+        reason: `artifact is not a valid ${registry} record`,
+        artifact_path: path
+      });
+      continue;
+    }
+    records.push(parsed);
+  }
+  return { records, invalidFindings };
+}
+
+function readSandboxArtifacts(
+  root: string,
+  registry: SandboxRegistryName,
+  isValid: (value: unknown) => value is RegistryItem
+): { records: RegistryItem[]; invalidFindings: SandboxRegistryRebuildFinding[] } {
+  if (!existsSync(root)) {
+    return { records: [], invalidFindings: [] };
+  }
+  const records: RegistryItem[] = [];
+  const invalidFindings: SandboxRegistryRebuildFinding[] = [];
   for (const path of jsonFiles(root)) {
     let parsed: unknown;
     try {
@@ -1247,6 +1432,39 @@ function readHibernationRegistryItems(
   return valid;
 }
 
+function readSandboxRegistryItems(
+  workspaceRoot: string,
+  registry: SandboxRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: SandboxRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
 function compareRegistryProjection(
   registry: MemoryRegistryName,
   expected: Map<string, RegistryItem>,
@@ -1292,6 +1510,57 @@ function compareRegistryProjection(
         item_id: itemId,
         status: "stale_registry",
         reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function compareSandboxRegistryProjection(
+  registry: SandboxRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: SandboxRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no artifact rebuild source`,
         actual: actualItem
       });
     }
@@ -1514,6 +1783,62 @@ function isWakeupRecord(value: unknown): value is RegistryItem {
     && (typeof value.resume_run_id === "string" || value.resume_run_id === null)
     && value.auto_execute_allowed === false
     && typeof value.reason === "string";
+}
+
+function isCheckpointRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("checkpoint_")
+    && typeof value.run_id === "string"
+    && typeof value.event_id === "string"
+    && (typeof value.event_hash === "string" || value.event_hash === undefined)
+    && typeof value.created_at === "string"
+    && (value.replay_mode === "trace" || value.replay_mode === "simulation")
+    && value.active_leases_reusable === false;
+}
+
+function isBranchRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("branch_")
+    && typeof value.checkpoint_id === "string"
+    && (typeof value.source_event_id === "string" || value.source_event_id === undefined)
+    && (typeof value.source_event_hash === "string" || value.source_event_hash === undefined)
+    && (typeof value.head_event_id === "string" || value.head_event_id === undefined)
+    && (typeof value.head_event_hash === "string" || value.head_event_hash === undefined)
+    && typeof value.created_at === "string"
+    && value.inherits_authority === false
+    && ["sandbox", "approved", "discarded"].includes(String(value.status));
+}
+
+function isRehearsalRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("rehearsal_")
+    && typeof value.branch_id === "string"
+    && ["diff", "draft", "plan", "simulation"].includes(String(value.mode))
+    && value.real_workspace_mutated === false
+    && typeof value.result === "string"
+    && (typeof value.approval_required === "boolean" || value.approval_required === undefined)
+    && (value.operation === "file.write" || value.operation === undefined)
+    && (typeof value.target_path === "string" || value.target_path === undefined)
+    && (typeof value.sandbox_path === "string" || value.sandbox_path === undefined)
+    && (typeof value.original_sha256 === "string" || value.original_sha256 === undefined)
+    && (typeof value.proposed_sha256 === "string" || value.proposed_sha256 === undefined);
+}
+
+function isSandboxApprovalRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("sandbox_approval_")
+    && typeof value.rehearsal_id === "string"
+    && typeof value.branch_id === "string"
+    && value.fresh_policy_evaluated === true
+    && value.inherited_authority === false
+    && typeof value.policy_event_id === "string"
+    && typeof value.live_action_event_id === "string"
+    && (value.status === "approved" || value.status === "denied")
+    && (typeof value.promotion_run_id === "string" || value.promotion_run_id === undefined)
+    && (typeof value.target_path === "string" || value.target_path === undefined)
+    && (typeof value.new_lease_id === "string" || value.new_lease_id === undefined)
+    && (typeof value.real_side_effect_executed === "boolean" || value.real_side_effect_executed === undefined)
+    && (value.verification_status === "passed" || value.verification_status === "failed" || value.verification_status === undefined);
 }
 
 function capsuleVersionRegistryId(capsule: RegistryItem): string {

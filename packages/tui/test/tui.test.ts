@@ -295,6 +295,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /store\s+Phase 12 contract surface: signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
 });
 
@@ -2915,6 +2916,88 @@ test("Ether audit memory-records previews memory artifact rebuild parity without
   assert.equal(report.findings.find((finding) => finding.item_id === `mem_${runId}_episode`)?.status, "mismatched");
   assert.equal(report.findings.find((finding) => finding.item_id === "mem_stale_projection")?.status, "stale_registry");
   assert.equal(await readFile(registryPath, "utf8"), beforeAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
+});
+
+test("Ether audit sandbox-records previews checkpoint rehearsal artifact parity without authority", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-sandbox-audit-"));
+  await writeFile(join(workspace, "README.md"), "Sandbox audit source\n");
+  await writeFile(join(workspace, "PHASE.md"), "original phase\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+  const checkpoint = JSON.parse((await execFileAsync(process.execPath, [cliPath, "checkpoint", runId, "--workspace", workspace])).stdout) as { id: string };
+  const branch = JSON.parse((await execFileAsync(process.execPath, [cliPath, "branch", checkpoint.id, "--workspace", workspace])).stdout) as { id: string };
+  const rehearsal = JSON.parse((await execFileAsync(process.execPath, [
+    cliPath,
+    "rehearse",
+    branch.id,
+    "--workspace",
+    workspace,
+    "--path",
+    "PHASE.md",
+    "--content",
+    "approved phase\n"
+  ])).stdout) as { id: string };
+  const approval = JSON.parse((await execFileAsync(process.execPath, [cliPath, "approve-rehearsal", rehearsal.id, "--workspace", workspace])).stdout) as { id: string; branch_id: string };
+
+  const branchRegistryPath = join(workspace, ".aetherion", "registries", "branches.json");
+  const approvalRegistryPath = join(workspace, ".aetherion", "registries", "sandbox-approvals.json");
+  const branches = JSON.parse(await readFile(branchRegistryPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const approvals = JSON.parse(await readFile(approvalRegistryPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const tamperedBranches = branches.map((entry) => entry.id === branch.id ? { ...entry, status: "sandbox" } : entry);
+  tamperedBranches.push({
+    id: "branch_stale_projection",
+    checkpoint_id: checkpoint.id,
+    source_event_id: "evt_stale",
+    source_event_hash: `sha256:${"3".repeat(64)}`,
+    head_event_id: "evt_stale",
+    head_event_hash: `sha256:${"3".repeat(64)}`,
+    created_at: "2026-06-07T10:00:00.000Z",
+    inherits_authority: false,
+    status: "sandbox"
+  });
+  await writeFile(branchRegistryPath, `${JSON.stringify(tamperedBranches, null, 2)}\n`);
+  const beforeBranchAudit = await readFile(branchRegistryPath, "utf8");
+  const beforeApprovalAudit = await readFile(approvalRegistryPath, "utf8");
+  const beforePhase = await readFile(join(workspace, "PHASE.md"), "utf8");
+
+  const audit = await execFileAsync(process.execPath, [cliPath, "audit", "sandbox-records", "--workspace", workspace]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean; requests_supervisor_authority: boolean; promotes_rehearsals: boolean };
+    summary: { expected_checkpoints: number; expected_branches: number; expected_rehearsals: number; expected_sandbox_approvals: number; actual_branches: number; matched: number; mismatched: number; stale_registry: number };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(report.id, "sandbox_registry_rebuild_audit");
+  assert.equal(report.scope.mode, "read_only_artifact_rebuild_parity");
+  assert.equal(report.scope.mutates_registry, false);
+  assert.equal(report.scope.requests_supervisor_authority, false);
+  assert.equal(report.scope.promotes_rehearsals, false);
+  assert.equal(report.summary.expected_checkpoints, 1);
+  assert.equal(report.summary.expected_branches, 1);
+  assert.equal(report.summary.expected_rehearsals, 1);
+  assert.equal(report.summary.expected_sandbox_approvals, 1);
+  assert.equal(report.summary.actual_branches, 2);
+  assert.ok(report.summary.matched >= 3);
+  assert.equal(report.summary.mismatched, 1);
+  assert.equal(report.summary.stale_registry, 1);
+  assert.equal(report.findings.find((finding) => finding.registry === "branches" && finding.item_id === approval.branch_id)?.status, "mismatched");
+  assert.equal(report.findings.find((finding) => finding.registry === "branches" && finding.item_id === "branch_stale_projection")?.status, "stale_registry");
+  assert.equal(report.findings.find((finding) => finding.registry === "sandbox-approvals" && finding.item_id === approval.id)?.status, "matched");
+  assert.equal(await readFile(branchRegistryPath, "utf8"), beforeBranchAudit);
+  assert.equal(await readFile(approvalRegistryPath, "utf8"), beforeApprovalAudit);
+  assert.equal(await readFile(join(workspace, "PHASE.md"), "utf8"), beforePhase);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 });
 
