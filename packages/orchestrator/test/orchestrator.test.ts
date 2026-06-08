@@ -26,6 +26,11 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.deepEqual(plan.run_evidence.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.run_evidence.event_types, ["run.started", "tool.requested", "run.completed"]);
   assert.deepEqual(plan.run_evidence.artifact_refs, ["artifact://boundary/run_prompt/facts"]);
+  assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("source event ids")));
+  assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("Local Supervisor policy and scoped lease")));
+  assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("network.raw")));
+  assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("Memory Cards")));
+  assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("mistaken for authority")));
   assert.deepEqual(plan.sections.find((section) => section.id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_user_pref", "evt_memory_accept"]);
   assert.match(plan.preview, /System Boundary/);
@@ -34,6 +39,9 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /evt_run_started \[run\.started\]/);
   assert.match(plan.preview, /payload=artifact:\/\/boundary\/run_prompt\/facts/);
   assert.match(plan.preview, /can_authorize=false/);
+  assert.match(plan.preview, /Planner Checklist/);
+  assert.match(plan.preview, /Verification Checklist/);
+  assert.match(plan.preview, /Define verification evidence before claiming completion/);
   assert.match(plan.preview, /mem_prompt_style/);
   assert.match(plan.preview, /sources=evt_user_pref,evt_memory_accept/);
   assert.match(plan.preview, /mem_secret: sensitivity secret not allowed in planning/);
@@ -52,6 +60,7 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
     contextPack: { ...contextPack(), selected_memories: [], excluded_memories: [], conflicts: [] }
   });
   assert.equal(plan.tool_policy.may_request_tools, false);
+  assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("Do not imply tool execution is available")));
   assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
