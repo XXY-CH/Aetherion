@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::os::raw::c_int;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -504,10 +506,58 @@ impl Drop for LedgerLock {
 }
 
 fn lock_is_stale(path: &Path) -> bool {
+    if let Some(pid) = lock_owner_pid(path) {
+        match process_is_running(pid) {
+            Some(true) => return false,
+            Some(false) => return true,
+            None => {}
+        }
+    }
+    lock_is_stale_by_age(path)
+}
+
+fn lock_owner_pid(path: &Path) -> Option<u32> {
+    fs::read_to_string(path)
+        .ok()?
+        .split_whitespace()
+        .find_map(|token| {
+            token
+                .strip_prefix("pid=")?
+                .parse::<u32>()
+                .ok()
+                .filter(|pid| *pid > 0)
+        })
+}
+
+#[cfg(unix)]
+fn process_is_running(pid: u32) -> Option<bool> {
+    let pid = c_int::try_from(pid).ok()?;
+    let result = unsafe { kill(pid, 0) };
+    if result == 0 {
+        return Some(true);
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(3) => Some(false), // ESRCH: no such process.
+        Some(1) => Some(true),  // EPERM: process exists but cannot be signaled.
+        _ => None,
+    }
+}
+
+#[cfg(not(unix))]
+fn process_is_running(_pid: u32) -> Option<bool> {
+    None
+}
+
+fn lock_is_stale_by_age(path: &Path) -> bool {
     fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .and_then(|modified| modified.elapsed().map_err(io::Error::other))
         .is_ok_and(|age| age > Duration::from_secs(30))
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn kill(pid: c_int, sig: c_int) -> c_int;
 }
 
 pub fn file_read_request(run_id: &str, path: impl AsRef<Path>) -> ToolRequest {
@@ -1416,6 +1466,38 @@ mod tests {
     }
 
     #[test]
+    fn ledger_lock_stale_detection_checks_owner_process() {
+        let root =
+            std::env::temp_dir().join(format!("aetherion-supervisor-lock-owner-{}", now_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let lock_path = root.join("events.jsonl.lock");
+
+        fs::write(
+            &lock_path,
+            format!(
+                "pid={} acquired_at=2026-06-08T00:00:00.000Z\n",
+                std::process::id()
+            ),
+        )
+        .unwrap();
+        assert_eq!(lock_owner_pid(&lock_path), Some(std::process::id()));
+        assert!(!lock_is_stale(&lock_path));
+
+        fs::write(
+            &lock_path,
+            "pid=999999999 acquired_at=2026-06-08T00:00:00.000Z\n",
+        )
+        .unwrap();
+        if process_is_running(999999999) == Some(false) {
+            assert!(lock_is_stale(&lock_path));
+        }
+
+        fs::write(&lock_path, "acquired_at=2026-06-08T00:00:00.000Z\n").unwrap();
+        assert_eq!(lock_owner_pid(&lock_path), None);
+        assert!(!lock_is_stale(&lock_path));
+    }
+
+    #[test]
     fn atomic_rewrite_preserves_existing_ledger_without_trailing_newline() {
         let root =
             std::env::temp_dir().join(format!("aetherion-supervisor-atomic-{}", now_nanos()));
@@ -1506,7 +1588,8 @@ mod tests {
         let event_dir = root.join(".aetherion").join("events");
         fs::create_dir_all(&event_dir).unwrap();
         let ledger_path = event_dir.join("events.jsonl");
-        let typescript_event = r#"{"id":"evt_cross_language_001","timestamp":"2026-06-07T10:00:00.000Z","workspace_id":"ws_cross_language","run_id":"run_cross_language","event_type":"user.message","actor":{"type":"user","id":"user_local"},"summary":"Cross-language hash\nverified","hash_version":"aetherion-event-v1","payload_ref":"artifact://cross/demo","sensitivity":"private","taint":{"sources":["user","public_web"],"can_authorize_actions":true},"retention":{"ttl":"30d","user_deletable":true},"links":["evt_source"],"event_hash":"sha256:d655e8b6de65915bce7c0cccb2eb03aa613fc7a864fcbfab08331499169e1afa"}"#;
+        let (expected_hash, typescript_event) = event_hash_v1_fixture_event_json();
+        assert!(typescript_event.contains(&format!("\"event_hash\":\"{expected_hash}\"")));
         fs::write(&ledger_path, format!("{typescript_event}\n")).unwrap();
 
         let workspace = init_workspace(&root, "ws_cross_language").unwrap();
@@ -1517,6 +1600,26 @@ mod tests {
         let error = init_workspace(&root, "ws_cross_language").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("ledger event hash mismatch"));
+    }
+
+    fn event_hash_v1_fixture_event_json() -> (String, String) {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("event-hash-v1.json");
+        let fixture = fs::read_to_string(fixture_path).unwrap();
+        let JsonValue::Object(fields) = parse_json(&fixture).unwrap() else {
+            panic!("event hash fixture must be a JSON object");
+        };
+        let Some(JsonValue::String(expected_hash)) = fields.get("expected_hash") else {
+            panic!("event hash fixture must contain expected_hash");
+        };
+        let Some(event) = fields.get("event") else {
+            panic!("event hash fixture must contain event");
+        };
+        assert_eq!(event_hash_v1(event, 1).unwrap(), *expected_hash);
+        (expected_hash.clone(), canonical_json(event))
     }
 
     #[test]

@@ -43,6 +43,11 @@ test("TUI run executes approval-gated local kernel loop", async () => {
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
+  assert.match(stdoutValue(stdout, "manifest_event_ids"), /^evt_/);
+  assert.match(stdoutValue(stdout, "manifest_event_ids"), /evt_[^\n,]+_completed/);
+  assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+  assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+  assert.equal(stdoutValue(stdout, "artifact_ref_count"), "2");
   const replay = await execFileAsync(process.execPath, [
     cliPath,
     "replay",
@@ -51,6 +56,11 @@ test("TUI run executes approval-gated local kernel loop", async () => {
     workspace
   ]);
   assert.match(replay.stdout, new RegExp(`replay_record=replay_${runId}_trace`));
+  assert.equal(stdoutValue(replay.stdout, "replay_artifact_ref"), `artifact://replay/${runId}/trace`);
+  const replayRunId = stdoutValue(replay.stdout, "replay_run_id");
+  const replayEventId = stdoutValue(replay.stdout, "replay_event_id");
+  assert.match(replayRunId, new RegExp(`^run_replay_${runId}_`));
+  assert.match(replayEventId, /^evt_/);
   assert.match(replay.stdout, /replay_registry_parity=matched/);
   assert.match(replay.stdout, /replay_registry_drift=0/);
   assert.match(replay.stdout, /replay_registry_expected=1/);
@@ -58,11 +68,28 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   assert.match(replay.stdout, /chain_valid=true/);
   assert.match(replay.stdout, /head_event_hash=sha256:/);
   assert.match(replay.stdout, /live_side_effects_replayed=false/);
+  assert.match(stdoutValue(replay.stdout, "manifest_event_ids"), /^evt_/);
+  assert.match(stdoutValue(replay.stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+  assert.match(stdoutValue(replay.stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+  assert.equal(stdoutValue(replay.stdout, "artifact_ref_count"), "2");
   const replayArtifact = JSON.parse(await readFile(join(workspace, ".aetherion", "artifacts", "replay", runId, `replay_${runId}_trace.json`), "utf8")) as { live_side_effects: { allowed: boolean }; source_events: string[] };
   assert.equal(replayArtifact.live_side_effects.allowed, false);
   assert.ok(replayArtifact.source_events.length > 0);
   const replayRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8")) as Array<{ id: string; mode: string }>;
   assert.ok(replayRegistry.some((entry) => entry.id === `replay_${runId}_trace` && entry.mode === "trace"));
+  const replayManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${replayRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(replayManifest.status, "completed");
+  assert.deepEqual(replayManifest.event_ids, [replayEventId]);
+  const ledgerAfterReplay = await readLedgerEvents(workspace);
+  const replayEvents = ledgerAfterReplay.filter((event) => event.run_id === replayRunId);
+  assert.equal(replayEvents.length, 1);
+  assert.equal(replayEvents[0].id, replayEventId);
+  assert.equal(replayEvents[0].event_type, "replay.recorded");
+  assert.equal(replayEvents[0].payload_ref, `artifact://replay/${runId}/trace`);
+  const sourceRunEventsAfterReplay = ledgerAfterReplay.filter((event) => event.run_id === runId);
+  const sourceCompletionIndex = sourceRunEventsAfterReplay.findLastIndex((event) => event.event_type === "run.completed");
+  assert.equal(sourceRunEventsAfterReplay.slice(sourceCompletionIndex + 1).length, 0);
+  assert.equal(sourceRunEventsAfterReplay.some((event) => event.event_type === "replay.recorded"), false);
 
   const trace = await execFileAsync(process.execPath, [
     cliPath,
@@ -73,6 +100,10 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   ]);
   assert.match(trace.stdout, /manifest_status=completed/);
   assert.match(trace.stdout, /chain_valid=true/);
+  assert.match(stdoutValue(trace.stdout, "manifest_event_ids"), /^evt_/);
+  assert.match(stdoutValue(trace.stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+  assert.match(stdoutValue(trace.stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+  assert.equal(stdoutValue(trace.stdout, "artifact_ref_count"), "2");
 
   const ledgerBeforeBoundary = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   const replayRegistryBeforeBoundary = await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8");
@@ -149,16 +180,6 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   const boundaryFactsValidation = await validateAgainstSchema(repoRoot, "boundary-facts.schema.json", boundaryFacts);
   assert.equal(boundaryFactsValidation.valid, true, boundaryFactsValidation.errors.join("; "));
 
-  const { workspace: registeredWorkspace } = await loadWorkspaceFromRegistry(workspace);
-  await appendEvent(repoRoot, registeredWorkspace, eventRecord({
-    id: `evt_${runId}_replay_recorded`,
-    workspace_id: registeredWorkspace.id,
-    run_id: runId,
-    event_type: "replay.recorded",
-    actor: { type: "system", id: "ether.replay" },
-    summary: "Replay Record persisted as read-only trace evidence.",
-    payload_ref: `artifact://replay/${runId}/trace`
-  }));
   const ledgerBeforePayloadAudit = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   const registryBeforePayloadAudit = await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8");
   const auditPayloadRefs = await execFileAsync(process.execPath, [
@@ -185,6 +206,8 @@ test("TUI run executes approval-gated local kernel loop", async () => {
       schema_not_checked: number;
     };
     findings: Array<{
+      event_id: string;
+      run_id: string;
       event_type: string;
       payload_ref: string;
       status: string;
@@ -235,9 +258,15 @@ test("TUI run executes approval-gated local kernel loop", async () => {
     && finding.resolved_path?.endsWith(`replay_${runId}_trace.json`)
   );
   assert.ok(replayPayloadFinding);
+  assert.equal(replayPayloadFinding.event_id, replayEventId);
+  assert.equal(replayPayloadFinding.run_id, replayRunId);
   assert.equal(replayPayloadFinding.schema_name, "replay-record.schema.json");
   assert.equal(replayPayloadFinding.schema_status, "valid");
   assert.deepEqual(replayPayloadFinding.schema_errors, []);
+  assert.equal(payloadAudit.findings.some((finding) =>
+    finding.event_type === "replay.recorded"
+    && finding.run_id === runId
+  ), false);
 
   await rm(boundaryArtifactPath);
   const boundaryWithoutFacts = await execFileAsync(process.execPath, [
@@ -266,6 +295,50 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /store\s+Phase 12 contract surface: signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
+});
+
+test("TUI trace and replay fail closed on tampered run manifests", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-manifest-guard-"));
+  await writeFile(join(workspace, "README.md"), "Manifest guard fixture\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+  const manifestPath = join(workspace, ".aetherion", "runs", `${runId}.json`);
+  const originalManifestText = await readFile(manifestPath, "utf8");
+
+  await rm(manifestPath);
+  const traceMissing = await execFileAsync(process.execPath, [cliPath, "trace", runId, "--workspace", workspace]);
+  assert.match(traceMissing.stdout, /manifest_status=missing/);
+  assert.equal(stdoutValue(traceMissing.stdout, "manifest_event_ids"), "not_recorded");
+
+  const tamperedManifest = JSON.parse(originalManifestText) as Record<string, unknown>;
+  tamperedManifest.workspace_id = "ws_other_workspace";
+  await writeFile(manifestPath, `${JSON.stringify(tamperedManifest, null, 2)}\n`);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "trace", runId, "--workspace", workspace]),
+    (error: unknown) => {
+      assert.match(commandStderr(error), /belongs to workspace ws_other_workspace/);
+      return true;
+    }
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "replay", runId, "--workspace", workspace]),
+    (error: unknown) => {
+      assert.match(commandStderr(error), /belongs to workspace ws_other_workspace/);
+      return true;
+    }
+  );
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "replay", runId, `replay_${runId}_trace.json`)));
 });
 
 test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async () => {
@@ -300,6 +373,10 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
+  assert.match(stdoutValue(stdout, "manifest_event_ids"), /^evt_/);
+  assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+  assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+  assert.equal(stdoutValue(stdout, "artifact_ref_count"), "2");
   const trace = await execFileAsync(process.execPath, [
     cliPath,
     "trace",
@@ -309,6 +386,10 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   ]);
   assert.match(trace.stdout, /manifest_status=completed/);
   assert.match(trace.stdout, /live_side_effects_replayed=false/);
+  assert.match(stdoutValue(trace.stdout, "manifest_event_ids"), /^evt_/);
+  assert.match(stdoutValue(trace.stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+  assert.match(stdoutValue(trace.stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+  assert.equal(stdoutValue(trace.stdout, "artifact_ref_count"), "2");
 
   const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   assert.match(ledger, /local_supervisor/);
@@ -513,9 +594,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(await readFile(join(workspace, "PHASE.md"), "utf8"), "original phase\n");
   assert.equal(await readFile(join(workspace, rehearsalRecord.sandbox_path), "utf8"), proposedPhase);
   const approval = await execFileAsync(process.execPath, [cliPath, "approve-rehearsal", rehearsalRecord.id, "--workspace", workspace]);
-  const approvalRecord = JSON.parse(approval.stdout) as { fresh_policy_evaluated: boolean; inherited_authority: boolean; policy_event_id: string; live_action_event_id: string; new_lease_id: string; real_side_effect_executed: boolean; verification_status: string };
+  const approvalRecord = JSON.parse(approval.stdout) as { fresh_policy_evaluated: boolean; inherited_authority: boolean; policy_event_id: string; live_action_event_id: string; promotion_run_id: string; new_lease_id: string; real_side_effect_executed: boolean; verification_status: string };
+  const approvalValidation = await validateAgainstSchema(repoRoot, "sandbox-approval.schema.json", approvalRecord);
+  assert.equal(approvalValidation.valid, true, approvalValidation.errors.join("; "));
   assert.equal(approvalRecord.fresh_policy_evaluated, true);
   assert.equal(approvalRecord.inherited_authority, false);
+  assert.match(approvalRecord.promotion_run_id, /^run_rehearsal_/);
   assert.match(approvalRecord.new_lease_id, /^lease_.*_write_/);
   assert.equal(approvalRecord.real_side_effect_executed, true);
   assert.equal(approvalRecord.verification_status, "passed");
@@ -525,6 +609,30 @@ test("TUI exposes local-only phase command surfaces", async () => {
   const ledgerAfterApproval = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   assert.match(ledgerAfterApproval, new RegExp(approvalRecord.policy_event_id));
   assert.match(ledgerAfterApproval, new RegExp(approvalRecord.live_action_event_id));
+  const promotionManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${approvalRecord.promotion_run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(promotionManifest.status, "completed");
+  assert.ok(promotionManifest.event_ids.includes(approvalRecord.policy_event_id));
+  assert.ok(promotionManifest.event_ids.includes(approvalRecord.live_action_event_id));
+  const promotionEvents = (await readLedgerEvents(workspace)).filter((event) => event.run_id === approvalRecord.promotion_run_id);
+  assert.deepEqual(
+    promotionEvents.map((event) => event.event_type),
+    [
+      "run.started",
+      "tool.requested",
+      "risk.composed",
+      "policy.decided",
+      "consent.recorded",
+      "policy.decided",
+      "lease.issued",
+      "action.recorded",
+      "observation.recorded",
+      "verification.recorded",
+      "run.completed"
+    ]
+  );
+  const sourceRunEventsAfterApproval = (await readLedgerEvents(workspace)).filter((event) => event.run_id === runId);
+  const sourceCompletionIndex = sourceRunEventsAfterApproval.findLastIndex((event) => event.event_type === "run.completed");
+  assert.equal(sourceRunEventsAfterApproval.slice(sourceCompletionIndex + 1).length, 0);
 
   const why = await execFileAsync(process.execPath, [cliPath, "why", runId, "--workspace", workspace]);
   assert.match(why.stdout, /"edges"/);
@@ -1534,6 +1642,16 @@ test("Ether governs memory folding, persona branches, and authority-free Soul Fo
   assert.match(governanceEvents, /persona\.reset\.applied/);
   assert.match(governanceEvents, /soul\.fork\.created/);
   assert.match(governanceEvents, /"payload_ref":"artifact:\/\//);
+  const governanceLedger = await readLedgerEvents(workspace);
+  for (const eventType of [
+    "memory.fold.proposed",
+    "memory.fold.accepted",
+    "persona.anchor.accepted",
+    "persona.reset.applied",
+    "soul.fork.created"
+  ]) {
+    await assertSingleEventRunManifest(workspace, governanceLedger, eventType);
+  }
   const registered = await loadWorkspaceFromRegistry(workspace);
   assert.equal(verifyEventHashChain(await readEvents(registered.workspace)).valid, true);
 });
@@ -1797,4 +1915,26 @@ function countEventTypes(events: EventRecord[]): Record<string, number> {
     counts[event.event_type] = (counts[event.event_type] ?? 0) + 1;
     return counts;
   }, {});
+}
+
+async function assertSingleEventRunManifest(workspace: string, events: EventRecord[], eventType: string): Promise<void> {
+  const event = events.find((candidate) => candidate.event_type === eventType);
+  assert.ok(event, `missing governance event ${eventType}`);
+  assert.match(event.run_id, /^run_governance_/);
+  const manifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${event.run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(manifest.status, "completed");
+  assert.deepEqual(manifest.event_ids, [event.id]);
+  assert.deepEqual(events.filter((candidate) => candidate.run_id === event.run_id).map((candidate) => candidate.event_type), [eventType]);
+}
+
+function stdoutValue(stdout: string, key: string): string {
+  const line = stdout.split("\n").find((entry) => entry.startsWith(`${key}=`));
+  assert.ok(line, `missing stdout key ${key}`);
+  return line.slice(key.length + 1);
+}
+
+function commandStderr(error: unknown): string {
+  assert.equal(typeof error, "object");
+  assert.notEqual(error, null);
+  return String((error as { stderr?: unknown }).stderr ?? error);
 }

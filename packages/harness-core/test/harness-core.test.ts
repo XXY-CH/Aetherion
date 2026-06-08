@@ -11,18 +11,25 @@ import {
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
+  completeRunManifest,
+  completeRunManifestWithEventSequence,
   createFileReadRequest,
   createFileWriteRequest,
+  createRunManifest,
   createWriteConsentRecord,
   createTraceReplayRecord,
   createWorkspace,
   eventContentHash,
   eventRecord,
+  KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
+  loadRunManifest,
   readEvents,
+  REPLAY_RECORD_RUN_EVENT_TYPES,
   evaluateSeedPolicy,
   composeRisk,
   primeSchemaCache,
   readLocalFileThroughPolicy,
+  recordRunEvent,
   reconstructTrace,
   validateAgainstSchema,
   verifyEventHashChain,
@@ -146,29 +153,230 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   assert.ok(computerActionValidation.errors.some((error) => error.includes("expected unique items")));
 });
 
-test("event hash v1 has a fixed cross-language canonical vector", () => {
-  const hash = eventContentHash({
-    id: "evt_cross_language_001",
-    timestamp: "2026-06-07T10:00:00.000Z",
-    workspace_id: "ws_cross_language",
-    run_id: "run_cross_language",
-    event_type: "user.message",
-    actor: { type: "user", id: "user_local" },
-    summary: "Cross-language hash\nverified",
-    hash_version: "aetherion-event-v1",
-    payload_ref: "artifact://cross/demo",
-    sensitivity: "private",
-    taint: {
-      sources: ["user", "public_web"],
-      can_authorize_actions: true
-    },
-    retention: {
-      ttl: "30d",
-      user_deletable: true
-    },
-    links: ["evt_source"]
+test("event hash v1 has a fixed cross-language canonical vector", async () => {
+  const fixture = JSON.parse(await readFile(join(repoRoot, "fixtures", "event-hash-v1.json"), "utf8")) as {
+    expected_hash: string;
+    event: Parameters<typeof eventContentHash>[0];
+  };
+  assert.equal(fixture.event.event_hash, fixture.expected_hash);
+  assert.equal(eventContentHash(fixture.event), fixture.expected_hash);
+});
+
+test("completed kernel file run manifests require the full action lifecycle sequence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-lifecycle-guard-"));
+  const workspace = await createWorkspace(root, "ws_lifecycle_guard");
+  const runId = "run_lifecycle_guard";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Incomplete kernel file run");
+  const started = eventRecord({
+    id: "evt_lifecycle_guard_started",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Started incomplete kernel file run."
   });
-  assert.equal(hash, "sha256:d655e8b6de65915bce7c0cccb2eb03aa613fc7a864fcbfab08331499169e1afa");
+  await appendEvent(repoRoot, workspace, started);
+  await recordRunEvent(repoRoot, workspace, manifest, started.id);
+
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", KERNEL_FILE_RUN_APPROVED_EVENT_TYPES),
+    /cannot complete as completed/
+  );
+  const persisted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { status: string; completed_at: string | null };
+  assert.equal(manifest.status, "running");
+  assert.equal(manifest.completed_at, null);
+  assert.equal(persisted.status, "running");
+  assert.equal(persisted.completed_at, null);
+});
+
+test("completed replay run manifests require a replay recorded event", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-replay-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_replay_lifecycle_guard");
+  const wrongRunId = "run_replay_wrong_lifecycle";
+  const wrongManifest = await createRunManifest(repoRoot, workspace, wrongRunId, "Wrong replay lifecycle");
+  const wrongEvent = eventRecord({
+    id: "evt_replay_wrong_started",
+    workspace_id: workspace.id,
+    run_id: wrongRunId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Wrongly started replay run."
+  });
+  await appendEvent(repoRoot, workspace, wrongEvent);
+  await recordRunEvent(repoRoot, workspace, wrongManifest, wrongEvent.id);
+
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongManifest, "completed", REPLAY_RECORD_RUN_EVENT_TYPES),
+    /expected lifecycle replay\.recorded, got run\.started/
+  );
+
+  const replayRunId = "run_replay_lifecycle_guard";
+  const replayManifest = await createRunManifest(repoRoot, workspace, replayRunId, "Replay lifecycle guard");
+  const replayEvent = eventRecord({
+    id: "evt_replay_lifecycle_recorded",
+    workspace_id: workspace.id,
+    run_id: replayRunId,
+    event_type: "replay.recorded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded replay evidence.",
+    payload_ref: "artifact://replay/run_source/trace"
+  });
+  await appendEvent(repoRoot, workspace, replayEvent);
+  await recordRunEvent(repoRoot, workspace, replayManifest, replayEvent.id);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, replayManifest, "completed", REPLAY_RECORD_RUN_EVENT_TYPES);
+
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${replayRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(completed.event_ids, [replayEvent.id]);
+});
+
+test("run manifest event ids are recorded as the next Ledger event projection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-run-projection-"));
+  const workspace = await createWorkspace(root, "ws_run_projection");
+  const runId = "run_projection_guard";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Run manifest projection guard");
+
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, "evt_projection_missing"),
+    /has no unrecorded Ledger event/
+  );
+
+  const started = eventRecord({
+    id: "evt_projection_started",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Started projection-guarded run."
+  });
+  const requested = eventRecord({
+    id: "evt_projection_requested",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "tool.requested",
+    actor: { type: "agent", id: "test" },
+    summary: "Requested a projection-guarded action."
+  });
+  await appendEvent(repoRoot, workspace, started);
+  await appendEvent(repoRoot, workspace, requested);
+
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, requested.id),
+    /expected next Ledger event evt_projection_started, got evt_projection_requested/
+  );
+
+  await recordRunEvent(repoRoot, workspace, manifest, started.id);
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, started.id),
+    /expected next Ledger event evt_projection_requested, got evt_projection_started/
+  );
+
+  manifest.event_ids[0] = "evt_projection_tampered";
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, requested.id),
+    /event ids do not match Ledger prefix/
+  );
+});
+
+test("terminal run manifests must project every Ledger event for the run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-terminal-projection-"));
+  const workspace = await createWorkspace(root, "ws_terminal_projection");
+  const runId = "run_terminal_projection";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Terminal manifest projection guard");
+  const started = eventRecord({
+    id: "evt_terminal_projection_started",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Started terminal projection-guarded run."
+  });
+  await appendEvent(repoRoot, workspace, started);
+
+  await assert.rejects(
+    completeRunManifest(repoRoot, workspace, manifest, "completed"),
+    /event ids do not match Ledger order/
+  );
+  const stillRunning = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { status: string; completed_at: string | null };
+  assert.equal(manifest.status, "running");
+  assert.equal(manifest.completed_at, null);
+  assert.equal(stillRunning.status, "running");
+  assert.equal(stillRunning.completed_at, null);
+
+  await recordRunEvent(repoRoot, workspace, manifest, started.id);
+  await completeRunManifest(repoRoot, workspace, manifest, "completed");
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { status: string; completed_at: string | null; event_ids: string[] };
+  assert.equal(completed.status, "completed");
+  assert.ok(completed.completed_at);
+  assert.deepEqual(completed.event_ids, [started.id]);
+});
+
+test("run manifest creation refuses to overwrite an existing projection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-create-manifest-guard-"));
+  const workspace = await createWorkspace(root, "ws_create_manifest_guard");
+  const runId = "run_create_manifest_guard";
+  await createRunManifest(repoRoot, workspace, runId, "Original manifest summary");
+
+  await assert.rejects(
+    createRunManifest(repoRoot, workspace, runId, "Replacement manifest summary"),
+    /Run manifest run_create_manifest_guard already exists/
+  );
+  const persisted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { summary: string; event_ids: string[] };
+  assert.equal(persisted.summary, "Original manifest summary");
+  assert.deepEqual(persisted.event_ids, []);
+});
+
+test("loaded run manifests must match the requested run and workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-load-manifest-guard-"));
+  const workspace = await createWorkspace(root, "ws_load_manifest_guard");
+  const runId = "run_load_manifest_guard";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Load manifest guard");
+  const manifestPath = join(root, ".aetherion", "runs", `${runId}.json`);
+
+  await writeFile(manifestPath, `${JSON.stringify({ ...manifest, id: "run_other_manifest" }, null, 2)}\n`);
+  await assert.rejects(
+    loadRunManifest(workspace, runId),
+    /Run manifest file run_load_manifest_guard contains manifest run_other_manifest/
+  );
+
+  await writeFile(manifestPath, `${JSON.stringify({ ...manifest, workspace_id: "ws_other_workspace" }, null, 2)}\n`);
+  await assert.rejects(
+    loadRunManifest(workspace, runId),
+    /Run manifest run_load_manifest_guard belongs to workspace ws_other_workspace, not ws_load_manifest_guard/
+  );
+});
+
+test("run manifest event projection rejects workspace-mismatched Ledger entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-run-workspace-guard-"));
+  const workspace = await createWorkspace(root, "ws_run_workspace_guard");
+  const runId = "run_workspace_guard";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Run workspace guard");
+  const mismatchedWorkspaceEvent = eventRecord({
+    id: "evt_workspace_guard_started",
+    workspace_id: "ws_other_workspace",
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Started run under a mismatched workspace id."
+  });
+  await appendEvent(repoRoot, workspace, mismatchedWorkspaceEvent);
+
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, mismatchedWorkspaceEvent.id),
+    /belongs to workspace ws_other_workspace, not ws_run_workspace_guard/
+  );
+
+  manifest.event_ids.push(mismatchedWorkspaceEvent.id);
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", ["run.started"]),
+    /event evt_workspace_guard_started belongs to workspace ws_other_workspace, not ws_run_workspace_guard/
+  );
+
+  manifest.workspace_id = "ws_other_workspace";
+  await assert.rejects(
+    recordRunEvent(repoRoot, workspace, manifest, mismatchedWorkspaceEvent.id),
+    /Run manifest run_workspace_guard belongs to workspace ws_other_workspace, not ws_run_workspace_guard/
+  );
 });
 
 test("user request -> policy decision -> local file read/write -> verification -> replay reconstruction", async () => {

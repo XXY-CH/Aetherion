@@ -79,16 +79,36 @@ Before claiming completion:
 <claude-mem-context>
 # Memory Context
 
-# claude-mem status
+# [Aetherion] recent context, 2026-06-08 1:23pm GMT+8
 
-This project has no memory yet. The current session will seed it; subsequent sessions will receive auto-injected context for relevant past work.
+Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
+Format: ID TIME TYPE TITLE
+Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Memory injection starts on your second session in a project.
+Stats: 6 obs (1,151t read) | 77,157t work | 99% savings
 
-`/learn-codebase` is available if the user wants to front-load the entire repo into memory in a single pass (~5 minutes on a typical repo, optional). Otherwise memory builds passively as work happens.
+### Jun 8, 2026
+**769** 10:38a ✅ **Updated .gitignore to reflect new ignored files**
+Running git status --short --branch revealed that the .gitignore file has been modified locally, indicating changes to ignored patterns that affect which files are tracked by the repository.
+~124t 🛠️ 4,039
 
-Live activity: http://localhost:37777
-How it works: `/how-it-works`
+770 " 🔵 Discovered project structure via rg --files
+**771** " 🔵 **Learned project progress and risks from review**
+The review of the project status shows that Aetherion has advanced beyond initial contract-first proof of concept to a local terminal user interface driven prototype encompassing multiple modules, while the primary risk has shifted from insufficient documentation to overly rapid feature expansion without adequate runtime depth.
+~198t 🔍 12,061
 
-This message disappears once the first observation lands.
+**772** " 🔵 **Reviewed README to understand project goals and architecture**
+Reading the README revealed that Aetherion aims to be a governed control plane between users, devices, data, tools, and autonomous agents, emphasizing local-first design, human-readable governance, and a split between TypeScript contracts and Rust authority. The project is structured in phases, with a working TUI and Rust supervisor already implemented and further modules providing contract-locked local prototypes.
+~302t 🔍 17,908
+
+**773** " 🔵 **Discovered package.json configuration**
+Inspection of package.json shows that the project is a TypeScript monorepo with a Node version requirement of 25 or higher, and provides npm scripts for running tests (both TypeScript and Rust) and launching the Ether TUI interface via the CLI package.
+~150t 🔍 18,852
+
+**774** " ✅ **Updated .gitignore to ignore CLAUDE.md**
+The .gitignore file was updated to ignore CLAUDE.md, indicating that this file (likely related to Claude AI interactions) should not be tracked in the repository.
+~115t 🛠️ 17,739
+
+
+Access 77k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

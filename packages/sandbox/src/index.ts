@@ -47,6 +47,7 @@ export type SandboxApproval = {
   policy_event_id: string;
   live_action_event_id: string;
   status: "approved" | "denied";
+  promotion_run_id?: string;
   target_path?: string;
   new_lease_id?: string;
   real_side_effect_executed?: boolean;

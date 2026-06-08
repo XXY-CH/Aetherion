@@ -13,8 +13,10 @@ import { validateAgainstSchema } from "./schema.ts";
 import { callSupervisorRpc, rpcResult } from "./supervisor-client.ts";
 import type { ObservationRecord, VerificationRecord } from "./verify.ts";
 import {
-  completeRunManifest,
+  completeRunManifestWithEventSequence,
   createRunManifest,
+  KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
+  KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES,
   loadWorkspaceFromRegistry,
   recordRunEvent,
   workspaceIdForRoot,
@@ -120,7 +122,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
 
   if (!input.approveWrite) {
     await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Run stopped before supervisor write because approval was not provided.");
-    await completeRunManifest(input.repoRoot, workspace, runManifest, "blocked");
+    await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "blocked", KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES);
     return {
       workspace,
       workspaceRegistry,
@@ -175,7 +177,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   const observation = observationFromSupervisor(runId, writeResult);
   const verification = verificationFromSupervisor(runId, writeResult, observation);
   await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Ether Rust supervisor kernel loop completed.");
-  await completeRunManifest(input.repoRoot, workspace, runManifest, "completed");
+  await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "completed", KERNEL_FILE_RUN_APPROVED_EVENT_TYPES);
 
   return {
     workspace,

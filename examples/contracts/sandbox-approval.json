@@ -7,6 +7,7 @@
   "policy_event_id": "evt_rehearsal_policy_recheck",
   "live_action_event_id": "evt_rehearsal_live_action",
   "status": "approved",
+  "promotion_run_id": "run_rehearsal_example_promotion",
   "target_path": "PHASE.md",
   "new_lease_id": "lease_run_example_write_001",
   "real_side_effect_executed": true,

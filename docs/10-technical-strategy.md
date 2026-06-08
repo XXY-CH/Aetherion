@@ -36,7 +36,7 @@ TUI command
   -> tool request
   -> policy decision
   -> scoped lease
-  -> local file read/write
+  -> local file read and traced approved write
   -> observation
   -> verification
   -> run trace
@@ -120,14 +120,15 @@ Later:
 - Initialize a local workspace ledger under `.aetherion/events/events.jsonl`.
 - Append human-readable SHA-256-linked JSONL events.
 - Mark new events with `hash_version: aetherion-event-v1` and hash the complete canonical event envelope, excluding only `event_hash`, identically in TypeScript and Rust.
+- Keep `fixtures/event-hash-v1.json` as the shared TS/Rust golden vector for canonical envelope hashing.
 - Treat the v1 canonicalization rules as immutable. Any incompatible envelope or value-normalization change requires a new hash version and explicit migration rather than silently changing old hashes.
-- Serialize supervisor-authored event appends with a workspace-local lock file while computing parent pointers and event hashes.
+- Serialize supervisor-authored event appends with a workspace-local lock file while computing parent pointers and event hashes. The current POC records the owner PID, treats a missing Unix owner process as stale, and keeps age-based stale recovery as a portability fallback.
 - Rewrite the Ledger through a synced temporary file and atomic rename so a failed append leaves either the prior complete Ledger or the next complete Ledger.
 - On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, and reject any corrupt v1 event hash regardless of author before accepting the workspace. Legacy unversioned supervisor events retain their original hash verifier.
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
-- Execute local file read/write only through an allowed scoped lease.
-- Expose traced file-action RPCs for Ether's default run path so the Rust process emits `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, and `action.recorded` events for workspace file reads and writes instead of requiring Ether to append each file-action event itself.
+- Execute local file reads through allowed scoped leases and approved writes through traced prepare/commit RPCs that issue the operation lease only after consent.
+- Expose traced file-action RPCs for Ether's default run path so the Rust process emits `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, and `action.recorded` events for workspace file reads and approved write commits instead of requiring Ether to append each file-action event itself.
 - Expose a minimal stdio RPC command used by the TypeScript Ether client by default.
 
 This crate is not yet the production supervisor. It does not implement a vault, event signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.

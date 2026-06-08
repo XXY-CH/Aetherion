@@ -514,37 +514,10 @@ fn handle_rpc_line(line: &str) -> String {
             }
         }
         "file.write" => {
-            let path = match required_string_field(&request, "path") {
-                Ok(value) => PathBuf::from(value),
-                Err(error) => return error_response(&id, &error),
-            };
-            let contents = match required_string_field(&request, "contents") {
-                Ok(value) => value,
-                Err(error) => return error_response(&id, &error),
-            };
-            let approved = match bool_field(&request, "approved") {
-                Ok(value) => value,
-                Err(error) => return error_response(&id, &error),
-            };
-            match init_workspace(&workspace_root, &workspace_id) {
-                Ok(workspace) => {
-                    let request = file_write_request(&run_id, path);
-                    let consent = Consent {
-                        request_id: request.id.clone(),
-                        approved,
-                    };
-                    let decision = evaluate_policy(&workspace, &request, Some(&consent));
-                    match write_with_lease(&request, &decision, &contents) {
-                    Ok(()) => format!(
-                        "{{\"written\":true,\"request_id\":\"{}\",\"decision\":\"allow\",\"risk_level\":\"L3\",\"lease_id\":\"{}\"}}",
-                        escape(&request.id),
-                        escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
-                    ),
-                    Err(error) => return error_response(&id, &error.to_string()),
-                }
-                }
-                Err(error) => return error_response(&id, &error.to_string()),
-            }
+            return error_response(
+                &id,
+                "legacy file.write is disabled; use file.write.prepare and file.write.commit for traced write lifecycle evidence",
+            );
         }
         "trace.replay" => "{\"live_side_effects_replayed\":false}".to_string(),
         _ => return error_response(&id, "unsupported method"),
@@ -1018,7 +991,7 @@ mod tests {
     }
 
     #[test]
-    fn rpc_file_write_decodes_json_string_contents() {
+    fn rpc_legacy_file_write_is_rejected_without_side_effects() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1032,11 +1005,10 @@ mod tests {
             escape(&target.display().to_string())
         );
         let response = handle_rpc_line(&request);
-        assert!(response.contains("\"written\":true"));
-        assert_eq!(
-            fs::read_to_string(target).unwrap(),
-            "line one\nline \"two\"\n"
-        );
+        assert!(response.contains("legacy file.write is disabled"));
+        assert!(response.contains("file.write.prepare and file.write.commit"));
+        assert!(!target.exists());
+        assert!(!root.join(".aetherion").exists());
     }
 
     #[test]
@@ -1280,7 +1252,7 @@ mod tests {
 
         let consent_json = consent_record_json("run_traced_test", "ws_traced_test");
         let commit_request = format!(
-            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_test/write\",\"contents\":\"Summary: traced evidence\\n\"}}",
+            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_test/write\",\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
             escape(&root.display().to_string()),
             escape(&output.display().to_string()),
             escape(&consent_json)
@@ -1296,7 +1268,7 @@ mod tests {
         assert!(commit_response.contains("\"verification_status\":\"passed\""));
         assert_eq!(
             fs::read_to_string(&output).unwrap(),
-            "Summary: traced evidence\n"
+            "line one\nline \"two\"\n"
         );
 
         let consent_artifact = root

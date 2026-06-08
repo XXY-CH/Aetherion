@@ -29,8 +29,10 @@ import { reconstructTrace, type ReconstructedTrace } from "./replay.ts";
 import { validateAgainstSchema } from "./schema.ts";
 import { verifyFileContains, type ObservationRecord, type VerificationRecord } from "./verify.ts";
 import {
-  completeRunManifest,
+  completeRunManifestWithEventSequence,
   createRunManifest,
+  KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
+  KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES,
   recordRunEvent,
   workspaceIdForRoot,
   writeWorkspaceRegistry,
@@ -203,7 +205,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
       actor: { type: "system", id: "ether.test_orchestrator" },
       summary: "Run stopped before write because approval was not provided."
     }));
-    await completeRunManifest(input.repoRoot, workspace, runManifest, "blocked");
+    await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "blocked", KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES);
     return {
       workspace,
       workspaceRegistry,
@@ -303,7 +305,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "ether.test_orchestrator" },
     summary: "Ether test-only local kernel loop completed."
   }));
-  await completeRunManifest(input.repoRoot, workspace, runManifest, "completed");
+  await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "completed", KERNEL_FILE_RUN_APPROVED_EVENT_TYPES);
 
   return {
     workspace,

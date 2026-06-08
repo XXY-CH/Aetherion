@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, createRunManifest, createTraceReplayRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord } from "../../harness-core/src/index.ts";
+import { appendEvent, APPROVED_WRITE_PROMOTION_EVENT_TYPES, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, REPLAY_RECORD_RUN_EVENT_TYPES, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
         summaryText: options.summary
       });
 
-  printRunResult(result);
+  await printRunResult(result);
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -879,8 +879,18 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   }
 
   const workspace = await openWorkspace(workspaceRoot);
-  const policyEventId = `evt_${sanitizePathSegment(rehearsal.id)}_policy_recheck`;
-  const liveActionEventId = `evt_${sanitizePathSegment(rehearsal.id)}_live_action`;
+  const promotionRunId = `run_rehearsal_${sanitizePathSegment(rehearsal.id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const manifest = await createRunManifest(repoRoot, workspace, promotionRunId, `Approve sandbox rehearsal ${rehearsal.id}`);
+  await appendManagedRunEvent(
+    workspaceRoot,
+    workspace,
+    manifest,
+    "run.started",
+    `Started independent sandbox promotion run for rehearsal ${rehearsal.id}; checkpoint ${checkpoint.id} authority was not reused.`
+  );
+
+  let policyEventId = "";
+  let liveActionEventId = "";
   let newLeaseId: string | undefined;
   let verificationStatus: "passed" | "failed" | undefined;
   let realSideEffectExecuted = false;
@@ -891,73 +901,106 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
     }
     const targetPath = resolve(workspaceRoot, rehearsal.target_path);
     const proposedContents = readFileSync(resolve(workspaceRoot, rehearsal.sandbox_path), "utf8");
-    const policyResult = rpcResult(await callSupervisorRpc(repoRoot, {
-      id: `rpc_${rehearsal.id}_fresh_policy`,
-      method: "tool.evaluate",
+    const consent = createWriteConsentRecord({
+      runId: promotionRunId,
+      workspaceId: workspace.id,
+      toolRequestId: `toolreq_${promotionRunId}_write`,
+      path: rehearsal.target_path
+    });
+    const consentValidation = await validateAgainstSchema(repoRoot, "consent-record.schema.json", consent);
+    if (!consentValidation.valid) {
+      throw new Error(`consent-record.schema.json validation failed: ${consentValidation.errors.join("; ")}`);
+    }
+    const prepareResult = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: `rpc_${rehearsal.id}_write_prepare`,
+      method: "file.write.prepare",
       workspace_root: workspaceRoot,
       workspace_id: workspace.id,
-      run_id: checkpoint.run_id,
-      path: targetPath,
-      verb: "write",
-      approved: true
+      run_id: promotionRunId,
+      path: targetPath
     }));
-    if (policyResult.decision !== "allow" || typeof policyResult.lease_id !== "string" || !policyResult.lease_id) {
-      throw new Error(`Fresh supervisor policy did not allow rehearsal ${rehearsal.id}`);
+    if (prepareResult.decision !== "ask" || typeof prepareResult.policy_event_id !== "string") {
+      throw new Error(`Rust supervisor did not return write-prepare evidence for ${rehearsal.id}`);
     }
-    const preflightLeaseId = policyResult.lease_id;
-    await appendEvent(repoRoot, workspace, eventRecord({
-      id: policyEventId,
-      workspace_id: workspace.id,
-      run_id: checkpoint.run_id,
-      event_type: "policy.decided",
-      actor: { type: "system", id: "tool_policy_proxy" },
-      summary: `Rust supervisor preflight allowed rehearsal ${rehearsal.id} with fresh lease ${preflightLeaseId}; no prior authority was reused.`
-    }));
+    await recordSupervisorEventIds(workspace, manifest, prepareResult, [
+      "request_event_id",
+      "risk_event_id",
+      "policy_event_id"
+    ]);
     const writeResult = rpcResult(await callSupervisorRpc(repoRoot, {
       id: `rpc_${rehearsal.id}_live_write`,
-      method: "file.write",
+      method: "file.write.commit",
       workspace_root: workspaceRoot,
       workspace_id: workspace.id,
-      run_id: checkpoint.run_id,
+      run_id: promotionRunId,
       path: targetPath,
       approved: true,
+      consent_record_json: `${JSON.stringify(consent, null, 2)}\n`,
+      consent_payload_ref: consentRecordArtifactRef(promotionRunId),
       contents: proposedContents
     }));
-    if (writeResult.written !== true || writeResult.decision !== "allow" || typeof writeResult.lease_id !== "string" || !writeResult.lease_id) {
-      throw new Error(`Rust supervisor did not return a lease-backed write result for ${rehearsal.id}`);
+    if (
+      writeResult.written !== true
+      || writeResult.decision !== "allow"
+      || typeof writeResult.lease_id !== "string"
+      || !writeResult.lease_id
+      || typeof writeResult.policy_event_id !== "string"
+      || typeof writeResult.action_event_id !== "string"
+    ) {
+      throw new Error(`Rust supervisor did not return a full lease-backed write lifecycle for ${rehearsal.id}`);
     }
+    await recordSupervisorEventIds(workspace, manifest, writeResult, [
+      "consent_event_id",
+      "policy_event_id",
+      "lease_event_id",
+      "action_event_id",
+      "observation_event_id",
+      "verification_event_id"
+    ]);
+    policyEventId = writeResult.policy_event_id;
+    liveActionEventId = writeResult.action_event_id;
     newLeaseId = writeResult.lease_id;
     realSideEffectExecuted = writeResult.written === true;
-    verificationStatus = readFileSync(targetPath, "utf8") === proposedContents ? "passed" : "failed";
+    verificationStatus = writeResult.verification_status === "passed" && readFileSync(targetPath, "utf8") === proposedContents ? "passed" : "failed";
     if (!realSideEffectExecuted || verificationStatus !== "passed") {
       throw new Error(`Approved rehearsal ${rehearsal.id} failed file verification`);
     }
   } else {
-    await appendEvent(repoRoot, workspace, eventRecord({
-      id: policyEventId,
-      workspace_id: workspace.id,
-      run_id: checkpoint.run_id,
-      event_type: "policy.decided",
-      actor: { type: "system", id: "tool_policy_proxy" },
-      summary: `Fresh policy evaluation approved rehearsal ${rehearsal.id}; no prior lease or authority was reused.`
-    }));
+    policyEventId = await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "policy.decided",
+      `Fresh policy evaluation approved rehearsal ${rehearsal.id}; no prior lease or authority was reused.`
+    );
   }
-  await appendEvent(repoRoot, workspace, eventRecord({
-    id: liveActionEventId,
-    workspace_id: workspace.id,
-    run_id: checkpoint.run_id,
-    event_type: "action.recorded",
-    actor: { type: "system", id: "sandbox_promoter" },
-    summary: `Approved rehearsal ${rehearsal.id} promoted to a new live action record after fresh policy evaluation.`
-  }));
+  if (!liveActionEventId) {
+    liveActionEventId = await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "action.recorded",
+      `Approved rehearsal ${rehearsal.id} promoted to a new live action record after fresh policy evaluation.`
+    );
+  }
+  await appendManagedRunEvent(
+    workspaceRoot,
+    workspace,
+    manifest,
+    "run.completed",
+    `Completed independent sandbox promotion run for rehearsal ${rehearsal.id}.`
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", APPROVED_WRITE_PROMOTION_EVENT_TYPES);
 
   const approved = approveRehearsal(rehearsal, branch, policyEventId, liveActionEventId);
   if (rehearsal.operation === "file.write") {
     approved.approval.target_path = rehearsal.target_path;
+    approved.approval.promotion_run_id = promotionRunId;
     approved.approval.new_lease_id = newLeaseId;
     approved.approval.real_side_effect_executed = realSideEffectExecuted;
     approved.approval.verification_status = verificationStatus;
   }
+  await requireValidContract("sandbox-approval.schema.json", approved.approval);
   upsertRegistryItem(workspaceRoot, "branches", approved.branch);
   printJson(approved.approval);
 }
@@ -2259,6 +2302,33 @@ function writeReplayArtifact(workspaceRoot: string, replayRecord: { id: string; 
   writeFileSync(join(dir, `${sanitizePathSegment(replayRecord.id)}.json`), `${JSON.stringify(replayRecord, null, 2)}\n`);
 }
 
+async function recordReplayEvidence(
+  workspaceRoot: string,
+  workspace: Awaited<ReturnType<typeof openWorkspace>>,
+  replayRecord: ReplayRecord
+): Promise<{ eventId: string; runId: string }> {
+  await requireValidContract("replay-record.schema.json", replayRecord);
+  writeReplayArtifact(workspaceRoot, replayRecord);
+  const replayRunId = `run_replay_${sanitizePathSegment(replayRecord.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const manifest = await createRunManifest(
+    repoRoot,
+    workspace,
+    replayRunId,
+    `Replay trace for ${replayRecord.run_id}.`
+  );
+  const eventId = await appendManagedRunEvent(
+    workspaceRoot,
+    workspace,
+    manifest,
+    "replay.recorded",
+    `Replay Record ${replayRecord.id} persisted as read-only trace evidence for ${replayRecord.run_id}.`,
+    replayRecord.artifact_ref ?? `artifact://replay/${replayRecord.run_id}/trace`
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", REPLAY_RECORD_RUN_EVENT_TYPES);
+  upsertRegistryItem(workspaceRoot, "replay-records", replayRecord);
+  return { eventId, runId: replayRunId };
+}
+
 function sanitizePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 120) || "artifact";
 }
@@ -2270,11 +2340,14 @@ async function printTrace(options: CliOptions): Promise<void> {
   }
   const workspace = await openWorkspace(resolve(options.workspace));
   const trace = await reconstructTrace(workspace, runId);
+  const manifest = await loadOptionalRunManifest(workspace, runId);
   if (options.command === "replay") {
     const replayRecord = await createTraceReplayRecord(workspace, runId);
-    writeReplayArtifact(resolve(options.workspace), replayRecord);
-    upsertRegistryItem(resolve(options.workspace), "replay-records", replayRecord);
+    const replayEvidence = await recordReplayEvidence(resolve(options.workspace), workspace, replayRecord);
     console.log(`replay_record=${replayRecord.id}`);
+    console.log(`replay_artifact_ref=${replayRecord.artifact_ref ?? "not_recorded"}`);
+    console.log(`replay_run_id=${replayEvidence.runId}`);
+    console.log(`replay_event_id=${replayEvidence.eventId}`);
     const replayParity = auditReplayRecordRegistryRebuild(resolve(options.workspace));
     const replayDrift = replayParity.summary.missing_registry
       + replayParity.summary.mismatched
@@ -2297,15 +2370,14 @@ async function printTrace(options: CliOptions): Promise<void> {
     console.log(`head_event_hash=${trace.head_event_hash}`);
   }
   console.log(`live_side_effects_replayed=${trace.live_side_effects_replayed}`);
-  if (options.command === "trace") {
-    try {
-      const manifest = await loadRunManifest(workspace, runId);
-      console.log(`manifest_status=${manifest.status}`);
-      console.log(`manifest_events=${manifest.event_ids.length}`);
-    } catch {
-      console.log("manifest_status=missing");
-    }
+  if (!manifest) {
+    console.log("manifest_status=missing");
+    console.log("manifest_event_ids=not_recorded");
+    console.log("artifact_refs=not_recorded");
+    console.log("artifact_ref_count=0");
+    return;
   }
+  await printRunEvidence(workspace, manifest);
 }
 
 function eventsOfType(events: EventRecord[], eventType: string): EventRecord[] {
@@ -2344,6 +2416,24 @@ function requirePositional(value: string | undefined, message: string): string {
 
 async function openWorkspace(workspaceRoot: string) {
   return (await loadWorkspaceFromRegistry(workspaceRoot)).workspace;
+}
+
+async function loadOptionalRunManifest(workspace: Awaited<ReturnType<typeof openWorkspace>>, runId: string): Promise<RunManifest | undefined> {
+  try {
+    return await loadRunManifest(workspace, runId);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "ENOENT";
 }
 
 async function requireSourceEvent(workspaceRoot: string, eventId: string): Promise<void> {
@@ -2391,7 +2481,7 @@ async function recordGovernanceEvent(workspaceRoot: string, eventType: string, s
     throw new Error(`Supervisor did not append governance event ${eventType}`);
   }
   await recordRunEvent(repoRoot, workspace, manifest, result.event_id);
-  await completeRunManifest(repoRoot, workspace, manifest, "completed");
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [eventType]);
   return result.event_id;
 }
 
@@ -2401,7 +2491,7 @@ async function appendManagedRunEvent(
   manifest: Awaited<ReturnType<typeof createRunManifest>>,
   eventType: string,
   summary: string,
-  payloadRef: string
+  payloadRef?: string
 ): Promise<string> {
   const result = rpcResult(await callSupervisorRpc(repoRoot, {
     id: `rpc_${manifest.id}_${randomUUID().slice(0, 8)}`,
@@ -2420,7 +2510,39 @@ async function appendManagedRunEvent(
   return result.event_id;
 }
 
-function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): void {
+async function recordSupervisorEventIds(
+  workspace: Awaited<ReturnType<typeof openWorkspace>>,
+  manifest: Awaited<ReturnType<typeof createRunManifest>>,
+  result: Record<string, unknown>,
+  keys: string[]
+): Promise<void> {
+  for (const key of keys) {
+    const eventId = result[key];
+    if (eventId === "") {
+      continue;
+    }
+    if (typeof eventId !== "string") {
+      throw new Error(`Supervisor write lifecycle returned no ${key}`);
+    }
+    await recordRunEvent(repoRoot, workspace, manifest, eventId);
+  }
+}
+
+async function printRunEvidence(workspace: Awaited<ReturnType<typeof openWorkspace>>, manifest: RunManifest): Promise<void> {
+  const ledger = await readEvents(workspace);
+  const manifestEventIds = new Set(manifest.event_ids);
+  const artifactRefs = uniqueStrings(ledger
+    .filter((event) => event.run_id === manifest.id && manifestEventIds.has(event.id))
+    .map((event) => event.payload_ref)
+    .filter((value): value is string => typeof value === "string" && value.length > 0));
+  console.log(`manifest_status=${manifest.status}`);
+  console.log(`manifest_events=${manifest.event_ids.length}`);
+  console.log(`manifest_event_ids=${joinOrNotRecorded(manifest.event_ids)}`);
+  console.log(`artifact_refs=${joinOrNotRecorded(artifactRefs)}`);
+  console.log(`artifact_ref_count=${artifactRefs.length}`);
+}
+
+async function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): Promise<void> {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
   if ("supervisor" in result) {
@@ -2444,6 +2566,7 @@ function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> |
   }
   console.log(`live_side_effects_replayed=${result.trace.live_side_effects_replayed}`);
   console.log(`ledger=${result.workspace.ledgerPath}`);
+  await printRunEvidence(result.workspace, result.runManifest);
 }
 
 function printHelp(): void {
