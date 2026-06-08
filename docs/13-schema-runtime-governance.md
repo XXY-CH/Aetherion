@@ -38,7 +38,7 @@ Gate for P0 changes:
 - Prove a real Ether or supervisor path writes or consumes the contract.
 - Prove negative policy behavior, not only happy path validation.
 - Prove replay does not execute live side effects.
-- For `workspace-registry`, derive workspace identity, runtime directory, and Ledger path from the resolved workspace root at load time. Registry fields must match those derived values; they cannot redirect the kernel to a different Ledger or workspace id.
+- For `workspace-registry`, derive workspace identity, runtime directory, and Ledger path from the resolved workspace root at load time. Registry fields must match those derived values; they cannot redirect the kernel to a different Ledger or workspace id. The Rust supervisor RPC boundary must reject caller-provided workspace ids that do not match the resolved root before creating runtime state.
 
 ### P1: Trace-Backed Product Runtime
 

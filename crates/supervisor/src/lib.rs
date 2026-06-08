@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::raw::c_int;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -118,7 +119,8 @@ impl ParsedJsonObject {
 }
 
 pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Result<Workspace> {
-    let root = root.as_ref().to_path_buf();
+    let root = resolved_workspace_root(root)?;
+    let id = id.into();
     let ledger_path = root.join(".aetherion").join("events").join("events.jsonl");
     if let Some(parent) = ledger_path.parent() {
         fs::create_dir_all(parent)?;
@@ -127,50 +129,129 @@ pub fn init_workspace(root: impl AsRef<Path>, id: impl Into<String>) -> io::Resu
         .create(true)
         .append(true)
         .open(&ledger_path)?;
-    recover_ledger_on_startup(&ledger_path)?;
+    recover_ledger_on_startup(&ledger_path, &id)?;
     Ok(Workspace {
-        id: id.into(),
+        id,
         root,
         ledger_path,
     })
 }
 
+pub fn workspace_id_for_root(root: impl AsRef<Path>) -> io::Result<String> {
+    let root = resolved_workspace_root(root)?;
+    let digest = sha256_hex(root.to_string_lossy().as_bytes());
+    Ok(format!("ws_{}", &digest[..16]))
+}
+
+pub fn assert_workspace_id_for_root(root: impl AsRef<Path>, workspace_id: &str) -> io::Result<()> {
+    let expected = workspace_id_for_root(root)?;
+    if workspace_id == expected {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("workspace id {workspace_id} does not match resolved root identity {expected}"),
+    ))
+}
+
+pub fn resolved_workspace_root(root: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let root = root.as_ref();
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        env::current_dir()?.join(root)
+    };
+    Ok(normalize_path(&absolute))
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(value) => normalized.push(value),
+        }
+    }
+    normalized
+}
+
 pub fn write_workspace_registry(workspace: &Workspace) -> io::Result<PathBuf> {
-    let registry_path = workspace.root.join(".aetherion").join("workspace.json");
-    let runtime_dir = workspace.root.join(".aetherion");
+    assert_workspace_id_for_root(&workspace.root, &workspace.id)?;
+    let root = resolved_workspace_root(&workspace.root)?;
+    let registry_path = root.join(".aetherion").join("workspace.json");
+    let runtime_dir = root.join(".aetherion");
+    let ledger_path = runtime_dir.join("events").join("events.jsonl");
+    if workspace.ledger_path != ledger_path {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "workspace ledger path does not match resolved root identity",
+        ));
+    }
+    fs::create_dir_all(&runtime_dir)?;
     if registry_path.exists() {
         let existing = fs::read_to_string(&registry_path)?;
         let existing_id = json_string_field(&existing, "id");
         let existing_root = json_string_field(&existing, "root");
-        let workspace_root = workspace.root.to_string_lossy();
-        if existing_id.as_deref() == Some(&workspace.id)
-            && existing_root.as_deref() == Some(workspace_root.as_ref())
+        let existing_runtime = json_string_field(&existing, "runtime_dir");
+        let existing_ledger = json_string_field(&existing, "ledger_path");
+        let existing_authority = json_string_field(&existing, "authority");
+        let workspace_root = root.to_string_lossy();
+        let expected_runtime = runtime_dir.to_string_lossy();
+        let expected_ledger = ledger_path.to_string_lossy();
+        if existing_id.as_deref() != Some(&workspace.id)
+            || existing_root.as_deref() != Some(workspace_root.as_ref())
         {
-            return Ok(registry_path);
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "workspace registry identity mismatch",
+            ));
         }
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "workspace registry identity mismatch",
-        ));
+        if existing_runtime.as_deref() != Some(expected_runtime.as_ref())
+            || existing_ledger.as_deref() != Some(expected_ledger.as_ref())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "workspace registry path mismatch",
+            ));
+        }
+        match existing_authority.as_deref() {
+            Some("rust-supervisor") => return Ok(registry_path),
+            Some("typescript-seed") => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "workspace registry authority mismatch",
+                ));
+            }
+        }
     }
+    let created_at = fs::read_to_string(&registry_path)
+        .ok()
+        .and_then(|existing| json_string_field(&existing, "created_at"))
+        .unwrap_or_else(now_rfc3339_millis);
     fs::write(
         &registry_path,
         format!(
             "{{\n  \"id\": \"{}\",\n  \"root\": \"{}\",\n  \"created_at\": \"{}\",\n  \"authority\": \"rust-supervisor\",\n  \"runtime_dir\": \"{}\",\n  \"ledger_path\": \"{}\"\n}}\n",
             escape_json(&workspace.id),
-            escape_json(&workspace.root.display().to_string()),
-            escape_json(&now_rfc3339_millis()),
+            escape_json(&root.display().to_string()),
+            escape_json(&created_at),
             escape_json(&runtime_dir.display().to_string()),
-            escape_json(&workspace.ledger_path.display().to_string())
+            escape_json(&ledger_path.display().to_string())
         ),
     )?;
     Ok(registry_path)
 }
 
-fn recover_ledger_on_startup(ledger_path: &Path) -> io::Result<()> {
+fn recover_ledger_on_startup(ledger_path: &Path, workspace_id: &str) -> io::Result<()> {
     let _lock = LedgerLock::acquire(ledger_path)?;
     remove_abandoned_ledger_temp_files(ledger_path)?;
-    verify_ledger_hash_chain(ledger_path)
+    verify_ledger_hash_chain(ledger_path, workspace_id)
 }
 
 fn remove_abandoned_ledger_temp_files(ledger_path: &Path) -> io::Result<()> {
@@ -191,7 +272,7 @@ fn remove_abandoned_ledger_temp_files(ledger_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
+fn verify_ledger_hash_chain(ledger_path: &Path, workspace_id: &str) -> io::Result<()> {
     let contents = fs::read_to_string(ledger_path)?;
     let mut previous_id: Option<String> = None;
     let mut previous_hash: Option<String> = None;
@@ -208,6 +289,13 @@ fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
         })?;
         let object = json_object(&parsed, line_number)?;
         let event_id = required_object_string(object, "id", line_number)?;
+        let event_workspace_id = required_object_string(object, "workspace_id", line_number)?;
+        if event_workspace_id != workspace_id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("ledger workspace id mismatch at line {line_number}"),
+            ));
+        }
         let parent_event_id = optional_object_string(object, "parent_event_id", line_number)?;
         let parent_event_hash = optional_object_string(object, "parent_event_hash", line_number)?;
         let event_hash = required_object_string(object, "event_hash", line_number)?;
@@ -235,7 +323,6 @@ fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
             }
             None if is_supervisor_authored_event(object) => {
                 let timestamp = required_object_string(object, "timestamp", line_number)?;
-                let workspace_id = required_object_string(object, "workspace_id", line_number)?;
                 let run_id = required_object_string(object, "run_id", line_number)?;
                 let event_type = required_object_string(object, "event_type", line_number)?;
                 let summary = required_object_string(object, "summary", line_number)?;
@@ -246,7 +333,7 @@ fn verify_ledger_hash_chain(ledger_path: &Path) -> io::Result<()> {
                         canonical_legacy_event_json(&EventHashInput {
                             event_id: &event_id,
                             timestamp: &timestamp,
-                            workspace_id: &workspace_id,
+                            workspace_id: &event_workspace_id,
                             run_id: &run_id,
                             event_type: &event_type,
                             summary: &summary,
@@ -1296,11 +1383,16 @@ fn sha256_hex(input: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    fn init_path_derived_workspace(root: &Path) -> Workspace {
+        let workspace_id = workspace_id_for_root(root).unwrap();
+        init_workspace(root, workspace_id).unwrap()
+    }
+
     #[test]
     fn supervisor_poc_read_write_and_ledger() {
         let root = std::env::temp_dir().join(format!("aetherion-supervisor-{}", now_millis()));
         fs::create_dir_all(&root).unwrap();
-        let workspace = init_workspace(&root, "ws_rust_test").unwrap();
+        let workspace = init_path_derived_workspace(&root);
         let registry_path = write_workspace_registry(&workspace).unwrap();
         let run_id = "run_rust_test";
         let read_path = root.join("README.md");
@@ -1361,6 +1453,7 @@ mod tests {
         assert!(ledger.contains("\"event_hash\":\"sha256:"));
         assert!(ledger.contains("\"parent_event_hash\":\"sha256:"));
         let registry = fs::read_to_string(registry_path).unwrap();
+        assert!(registry.contains(&format!("\"id\": \"{}\"", workspace.id)));
         assert!(registry.contains("\"authority\": \"rust-supervisor\""));
         assert!(!registry.contains("unix-ms-"));
     }
@@ -1372,7 +1465,7 @@ mod tests {
             now_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
-        let workspace = init_workspace(&root, "ws_stable").unwrap();
+        let workspace = init_path_derived_workspace(&root);
         let first_path = write_workspace_registry(&workspace).unwrap();
         let first_contents = fs::read_to_string(&first_path).unwrap();
 
@@ -1382,8 +1475,10 @@ mod tests {
 
         let conflicting = init_workspace(&root, "ws_changed").unwrap();
         let error = write_workspace_registry(&conflicting).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
-        assert!(error.to_string().contains("identity mismatch"));
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error
+            .to_string()
+            .contains("does not match resolved root identity"));
     }
 
     #[test]

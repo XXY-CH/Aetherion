@@ -1,7 +1,8 @@
 use aetherion_supervisor::{
-    append_event, append_event_with_payload, evaluate_policy, file_read_request,
-    file_write_request, init_workspace, parse_json_object, read_with_lease, write_with_lease,
-    write_workspace_registry, Consent, Decision, ParsedJsonObject,
+    append_event, append_event_with_payload, assert_workspace_id_for_root, evaluate_policy,
+    file_read_request, file_write_request, init_workspace, parse_json_object, read_with_lease,
+    workspace_id_for_root, write_with_lease, write_workspace_registry, Consent, Decision,
+    ParsedJsonObject,
 };
 use std::env;
 use std::fs;
@@ -22,8 +23,10 @@ fn run() -> Result<(), String> {
         "read" => {
             let workspace_root = PathBuf::from(args.next().ok_or("missing workspace root")?);
             let file_path = PathBuf::from(args.next().ok_or("missing file path")?);
-            let workspace = init_workspace(&workspace_root, "ws_rust_cli")
-                .map_err(|error| error.to_string())?;
+            let workspace_id =
+                workspace_id_for_root(&workspace_root).map_err(|error| error.to_string())?;
+            let workspace =
+                init_workspace(&workspace_root, workspace_id).map_err(|error| error.to_string())?;
             let run_id = "run_rust_cli";
             append_event(
                 &workspace,
@@ -94,6 +97,9 @@ fn handle_rpc_line(line: &str) -> String {
         Ok(value) => value,
         Err(error) => return error_response(&id, &error),
     };
+    if let Err(error) = assert_workspace_id_for_root(&workspace_root, &workspace_id) {
+        return error_response(&id, &error.to_string());
+    }
 
     let response = match method.as_str() {
         "workspace.init" => match init_workspace(&workspace_root, &workspace_id) {
@@ -984,6 +990,10 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn derived_workspace_id(root: &std::path::Path) -> String {
+        workspace_id_for_root(root).unwrap()
+    }
+
     fn consent_record_json(run_id: &str, workspace_id: &str) -> String {
         format!(
             "{{\"id\":\"consent_{run_id}_write\",\"user_id\":\"user_local\",\"workspace_id\":\"{workspace_id}\",\"tool_request_id\":\"toolreq_{run_id}_write\",\"decision\":\"approved\",\"risk_level\":\"L3\",\"approved_at\":\"2026-06-05T20:00:01.000Z\",\"expires_at\":null,\"scope\":{{\"actions\":[\"write\"],\"paths\":[\"SUMMARY.md\"]}}}}\n"
@@ -999,9 +1009,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aetherion-rpc-json-{nonce}"));
         fs::create_dir_all(&root).unwrap();
         let target = root.join("SUMMARY.md");
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_write\",\"method\":\"file.write\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_rpc_test\",\"run_id\":\"run_rpc_test\",\"path\":\"{}\",\"approved\":true,\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
+            "{{\"id\":\"rpc_write\",\"method\":\"file.write\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_rpc_test\",\"path\":\"{}\",\"approved\":true,\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&target.display().to_string())
         );
         let response = handle_rpc_line(&request);
@@ -1036,15 +1048,34 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aetherion-rpc-json-types-{nonce}"));
         fs::create_dir_all(&root).unwrap();
         let target = root.join("SUMMARY.md");
+        let workspace_id = derived_workspace_id(&root);
         let wrong_approval = format!(
-            "{{\"id\":\"rpc_wrong_approval\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_wrong_approval\",\"run_id\":\"run_wrong_approval\",\"path\":\"{}\",\"approved\":\"true\",\"contents\":\"must not write\\n\"}}",
+            "{{\"id\":\"rpc_wrong_approval\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_wrong_approval\",\"path\":\"{}\",\"approved\":\"true\",\"contents\":\"must not write\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&target.display().to_string())
         );
         let approval_response = handle_rpc_line(&wrong_approval);
         assert!(approval_response.contains("\"id\":\"rpc_wrong_approval\""));
         assert!(approval_response.contains("field approved must be a boolean"));
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn rpc_rejects_workspace_id_drift_before_runtime_initialization() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-workspace-id-drift-{nonce}"));
+        let request = format!(
+            "{{\"id\":\"rpc_bad_workspace\",\"method\":\"workspace.init\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_rpc_wrong\",\"run_id\":\"run_bad_workspace\"}}",
+            escape(&root.display().to_string())
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"id\":\"rpc_bad_workspace\""));
+        assert!(response.contains("does not match resolved root identity"));
+        assert!(!root.join(".aetherion").exists());
     }
 
     #[test]
@@ -1055,9 +1086,11 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("aetherion-rpc-resume-policy-{nonce}"));
         fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_resume\",\"method\":\"run.resume.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_resume_test\",\"run_id\":\"run_resume_test\",\"source\":\"manual\",\"trigger_id\":\"wake_resume_test\"}}",
-            escape(&root.display().to_string())
+            "{{\"id\":\"rpc_resume\",\"method\":\"run.resume.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_resume_test\",\"source\":\"manual\",\"trigger_id\":\"wake_resume_test\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
         );
         let response = handle_rpc_line(&request);
         assert!(response.contains("\"decision\":\"queue\""));
@@ -1077,9 +1110,11 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("aetherion-rpc-taint-policy-{nonce}"));
         fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_taint\",\"method\":\"security.taint.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_taint_test\",\"run_id\":\"run_taint_test\",\"source_kind\":\"public_web\"}}",
-            escape(&root.display().to_string())
+            "{{\"id\":\"rpc_taint\",\"method\":\"security.taint.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_taint_test\",\"source_kind\":\"public_web\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
         );
         let response = handle_rpc_line(&request);
         assert!(response.contains("\"decision\":\"deny\""));
@@ -1098,9 +1133,11 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("aetherion-rpc-outbox-policy-{nonce}"));
         fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let dm_request = format!(
-            "{{\"id\":\"rpc_outbox_dm\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_outbox_test\",\"run_id\":\"run_outbox_test\",\"visibility\":\"dm\",\"adapter\":\"local_fixture\"}}",
-            escape(&root.display().to_string())
+            "{{\"id\":\"rpc_outbox_dm\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_outbox_test\",\"visibility\":\"dm\",\"adapter\":\"local_fixture\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
         );
         let dm_response = handle_rpc_line(&dm_request);
         assert!(dm_response.contains("\"decision\":\"ask\""));
@@ -1109,8 +1146,9 @@ mod tests {
         assert!(dm_response.contains("\"lease_id\":\"\""));
 
         let public_request = format!(
-            "{{\"id\":\"rpc_outbox_public\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_outbox_test\",\"run_id\":\"run_outbox_public\",\"visibility\":\"public\",\"adapter\":\"slack\"}}",
-            escape(&root.display().to_string())
+            "{{\"id\":\"rpc_outbox_public\",\"method\":\"surface.outbox.evaluate\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_outbox_public\",\"visibility\":\"public\",\"adapter\":\"slack\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
         );
         let public_response = handle_rpc_line(&public_request);
         assert!(public_response.contains("\"decision\":\"deny\""));
@@ -1131,9 +1169,11 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let target = root.join("README.md");
         fs::write(&target, "child evidence\n").unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_child_read\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_test\",\"run_id\":\"run_child_test\",\"path\":\"{}\"}}",
+            "{{\"id\":\"rpc_child_read\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_child_test\",\"path\":\"{}\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&target.display().to_string())
         );
         let response = handle_rpc_line(&request);
@@ -1168,7 +1208,7 @@ mod tests {
             escape(&target.display().to_string())
         );
         let conflict_response = handle_rpc_line(&conflicting_request);
-        assert!(conflict_response.contains("\"error\":\"workspace registry identity mismatch\""));
+        assert!(conflict_response.contains("does not match resolved root identity"));
     }
 
     #[test]
@@ -1184,9 +1224,11 @@ mod tests {
         fs::create_dir_all(&outside_root).unwrap();
         let outside = outside_root.join("README.md");
         fs::write(&outside, "outside child evidence\n").unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_child_read_deny\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_child_deny\",\"run_id\":\"run_child_deny\",\"path\":\"{}\"}}",
+            "{{\"id\":\"rpc_child_read_deny\",\"method\":\"child.file.read\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_child_deny\",\"path\":\"{}\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&outside.display().to_string())
         );
         let response = handle_rpc_line(&request);
@@ -1226,10 +1268,12 @@ mod tests {
         let input = root.join("README.md");
         let output = root.join(".aetherion").join("SUMMARY.md");
         fs::write(&input, "traced evidence\n").unwrap();
+        let workspace_id = derived_workspace_id(&root);
 
         let read_request = format!(
-            "{{\"id\":\"rpc_read_traced\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
+            "{{\"id\":\"rpc_read_traced\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&input.display().to_string())
         );
         let read_response = handle_rpc_line(&read_request);
@@ -1241,8 +1285,9 @@ mod tests {
         assert!(read_response.contains("\"result_event_id\":\"evt_"));
 
         let prepare_request = format!(
-            "{{\"id\":\"rpc_write_prepare\",\"method\":\"file.write.prepare\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
+            "{{\"id\":\"rpc_write_prepare\",\"method\":\"file.write.prepare\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_traced_test\",\"path\":\"{}\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&output.display().to_string())
         );
         let prepare_response = handle_rpc_line(&prepare_request);
@@ -1250,10 +1295,11 @@ mod tests {
         assert!(prepare_response.contains("\"risk_event_id\":\"evt_"));
         assert!(prepare_response.contains("\"lease_id\":\"\""));
 
-        let consent_json = consent_record_json("run_traced_test", "ws_traced_test");
+        let consent_json = consent_record_json("run_traced_test", &workspace_id);
         let commit_request = format!(
-            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_test\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_test/write\",\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
+            "{{\"id\":\"rpc_write_commit\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_traced_test\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_test/write\",\"contents\":\"line one\\nline \\\"two\\\"\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&output.display().to_string()),
             escape(&consent_json)
         );
@@ -1315,9 +1361,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aetherion-rpc-traced-deny-{nonce}"));
         fs::create_dir_all(&root).unwrap();
         let output = root.join("SUMMARY.md");
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_write_commit_deny\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_deny\",\"run_id\":\"run_traced_deny\",\"path\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_deny/write\",\"contents\":\"no approval\\n\"}}",
+            "{{\"id\":\"rpc_write_commit_deny\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_traced_deny\",\"path\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_traced_deny/write\",\"contents\":\"no approval\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&output.display().to_string())
         );
         let response = handle_rpc_line(&request);
@@ -1341,9 +1389,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aetherion-rpc-consent-required-{nonce}"));
         fs::create_dir_all(&root).unwrap();
         let output = root.join("SUMMARY.md");
+        let workspace_id = derived_workspace_id(&root);
         let missing_consent_request = format!(
-            "{{\"id\":\"rpc_missing_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_consent_required\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
+            "{{\"id\":\"rpc_missing_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&output.display().to_string())
         );
         let missing_response = handle_rpc_line(&missing_consent_request);
@@ -1354,10 +1404,11 @@ mod tests {
         assert!(!ledger.contains("\"event_type\":\"consent.recorded\""));
         assert!(!ledger.contains("artifact://consent/run_consent_required/write"));
 
-        let mismatched_consent = consent_record_json("run_other", "ws_consent_required");
+        let mismatched_consent = consent_record_json("run_other", &workspace_id);
         let mismatch_request = format!(
-            "{{\"id\":\"rpc_mismatched_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_consent_required\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
+            "{{\"id\":\"rpc_mismatched_consent\",\"method\":\"file.write.commit\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_consent_required\",\"path\":\"{}\",\"approved\":true,\"consent_record_json\":\"{}\",\"consent_payload_ref\":\"artifact://consent/run_consent_required/write\",\"contents\":\"must not write\\n\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&output.display().to_string()),
             escape(&mismatched_consent)
         );
@@ -1390,9 +1441,11 @@ mod tests {
         fs::create_dir_all(&outside_root).unwrap();
         let outside = outside_root.join("secret.txt");
         fs::write(&outside, "outside\n").unwrap();
+        let workspace_id = derived_workspace_id(&root);
         let request = format!(
-            "{{\"id\":\"rpc_read_outside\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_traced_outside\",\"run_id\":\"run_traced_outside\",\"path\":\"{}\"}}",
+            "{{\"id\":\"rpc_read_outside\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_traced_outside\",\"path\":\"{}\"}}",
             escape(&root.display().to_string()),
+            workspace_id,
             escape(&outside.display().to_string())
         );
         let response = handle_rpc_line(&request);

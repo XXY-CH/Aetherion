@@ -118,13 +118,14 @@ Later:
 `crates/supervisor/` is the first Rust authority-boundary proof of concept. It is intentionally small and dependency-free:
 
 - Initialize a local workspace ledger under `.aetherion/events/events.jsonl`.
+- Derive workspace identity from the resolved workspace root at the Rust RPC boundary; reject mismatched caller ids before creating runtime state.
 - Append human-readable SHA-256-linked JSONL events.
 - Mark new events with `hash_version: aetherion-event-v1` and hash the complete canonical event envelope, excluding only `event_hash`, identically in TypeScript and Rust.
 - Keep `fixtures/event-hash-v1.json` as the shared TS/Rust golden vector for canonical envelope hashing.
 - Treat the v1 canonicalization rules as immutable. Any incompatible envelope or value-normalization change requires a new hash version and explicit migration rather than silently changing old hashes.
 - Serialize supervisor-authored event appends with a workspace-local lock file while computing parent pointers and event hashes. The current POC records the owner PID, treats a missing Unix owner process as stale, and keeps age-based stale recovery as a portability fallback.
 - Rewrite the Ledger through a synced temporary file and atomic rename so a failed append leaves either the prior complete Ledger or the next complete Ledger.
-- On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, and reject any corrupt v1 event hash regardless of author before accepting the workspace. Legacy unversioned supervisor events retain their original hash verifier.
+- On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, reject events whose workspace id does not match the active workspace, and reject any corrupt v1 event hash regardless of author before accepting the workspace. Legacy unversioned supervisor events retain their original hash verifier.
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
 - Execute local file reads through allowed scoped leases and approved writes through traced prepare/commit RPCs that issue the operation lease only after consent.
