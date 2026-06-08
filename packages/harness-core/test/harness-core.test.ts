@@ -1092,6 +1092,14 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const surfaceOutboxDir = join(root, ".aetherion", "artifacts", "surface", "im-outbox");
   const storeInstallDir = join(root, ".aetherion", "artifacts", "store", "install");
   const capsuleRollbackDir = join(root, ".aetherion", "artifacts", "capsule", "rollback");
+  const dreamRunDir = join(root, ".aetherion", "artifacts", "dream", "run");
+  const dreamAcceptDir = join(root, ".aetherion", "artifacts", "dream", "accept");
+  const anchorsProposeDir = join(root, ".aetherion", "artifacts", "anchors", "propose");
+  const anchorsAcceptDir = join(root, ".aetherion", "artifacts", "anchors", "accept");
+  const personaResetDir = join(root, ".aetherion", "artifacts", "persona", "reset");
+  const soulForkDir = join(root, ".aetherion", "artifacts", "soul", "fork");
+  const agentContractDir = join(root, ".aetherion", "artifacts", "agent", "contract");
+  const agentExecuteDir = join(root, ".aetherion", "artifacts", "agent", "execute");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
   await mkdir(consentDir, { recursive: true });
@@ -1111,6 +1119,14 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await mkdir(surfaceOutboxDir, { recursive: true });
   await mkdir(storeInstallDir, { recursive: true });
   await mkdir(capsuleRollbackDir, { recursive: true });
+  await mkdir(dreamRunDir, { recursive: true });
+  await mkdir(dreamAcceptDir, { recursive: true });
+  await mkdir(anchorsProposeDir, { recursive: true });
+  await mkdir(anchorsAcceptDir, { recursive: true });
+  await mkdir(personaResetDir, { recursive: true });
+  await mkdir(soulForkDir, { recursive: true });
+  await mkdir(agentContractDir, { recursive: true });
+  await mkdir(agentExecuteDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
@@ -1138,6 +1154,16 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     deprecated: { ...capsuleRecord("cap_payload", "0.2.0", "deprecated"), rollback: { previous_version: "0.1.0" } }
   }, null, 2)}\n`);
   await writeFile(join(capsuleRollbackDir, "cap_payload_invalid.json"), `${JSON.stringify({ active: { id: "cap_payload_invalid" } }, null, 2)}\n`);
+  await writeFile(join(dreamRunDir, "fold_payload.json"), `${JSON.stringify(memoryFold("fold_payload", "pending"), null, 2)}\n`);
+  await writeFile(join(dreamAcceptDir, "fold_payload_accepted.json"), `${JSON.stringify(memoryFold("fold_payload_accepted", "accepted"), null, 2)}\n`);
+  await writeFile(join(anchorsProposeDir, "anchor_payload.json"), `${JSON.stringify(personaAnchor("anchor_payload", "pending"), null, 2)}\n`);
+  await writeFile(join(anchorsAcceptDir, "anchor_payload_accepted.json"), `${JSON.stringify(personaAnchor("anchor_payload_accepted", "accepted"), null, 2)}\n`);
+  await writeFile(join(personaResetDir, "persona_reset_payload.json"), `${JSON.stringify(personaReset("persona_reset_payload"), null, 2)}\n`);
+  await writeFile(join(personaResetDir, "persona_reset_invalid.json"), `${JSON.stringify({ id: "persona_reset_invalid" }, null, 2)}\n`);
+  await writeFile(join(soulForkDir, "soulfork_payload.json"), `${JSON.stringify(soulFork("soulfork_payload"), null, 2)}\n`);
+  await writeFile(join(agentContractDir, "contract_payload.json"), `${JSON.stringify(agentContract("contract_payload", "draft"), null, 2)}\n`);
+  await writeFile(join(agentContractDir, "contract_payload_active.json"), `${JSON.stringify(agentContract("contract_payload_active", "active"), null, 2)}\n`);
+  await writeFile(join(agentExecuteDir, "child_result_run_child_payload.json"), `${JSON.stringify(childResult("child_result_run_child_payload"), null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
@@ -1163,6 +1189,16 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_surface_invalid", "run_payload_schema_invalid", "im.outbox.queued", "artifact://surface/im-outbox/outbox_invalid"),
     payloadEvent("evt_payload_capsule_rollback", "run_payload_resolved", "capsule.rollback.recorded", "artifact://capsule/rollback/cap_payload_0.2.0_to_0.1.0"),
     payloadEvent("evt_payload_capsule_rollback_invalid", "run_payload_schema_invalid", "capsule.rollback.recorded", "artifact://capsule/rollback/cap_payload_invalid"),
+    payloadEvent("evt_payload_dream_run", "run_payload_resolved", "memory.fold.proposed", "artifact://dream/run/fold_payload"),
+    payloadEvent("evt_payload_dream_accept", "run_payload_resolved", "memory.fold.accepted", "artifact://dream/accept/fold_payload_accepted"),
+    payloadEvent("evt_payload_anchor_propose", "run_payload_resolved", "persona.anchor.proposed", "artifact://anchors/propose/anchor_payload"),
+    payloadEvent("evt_payload_anchor_accept", "run_payload_resolved", "persona.anchor.accepted", "artifact://anchors/accept/anchor_payload_accepted"),
+    payloadEvent("evt_payload_persona_reset", "run_payload_resolved", "persona.reset.applied", "artifact://persona/reset/persona_reset_payload"),
+    payloadEvent("evt_payload_persona_reset_invalid", "run_payload_schema_invalid", "persona.reset.applied", "artifact://persona/reset/persona_reset_invalid"),
+    payloadEvent("evt_payload_soul_fork", "run_payload_resolved", "soul.fork.created", "artifact://soul/fork/soulfork_payload"),
+    payloadEvent("evt_payload_agent_contract", "run_payload_resolved", "agent.contract.created", "artifact://agent/contract/contract_payload"),
+    payloadEvent("evt_payload_agent_started", "run_payload_resolved", "agent.child.started", "artifact://agent/contract/contract_payload_active"),
+    payloadEvent("evt_payload_agent_completed", "run_payload_resolved", "agent.child.completed", "artifact://agent/execute/child_result_run_child_payload"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1175,13 +1211,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 26,
-    resolved: 23,
+    events_with_payload_ref: 36,
+    resolved: 33,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 18,
-    schema_invalid: 5,
+    schema_valid: 27,
+    schema_invalid: 6,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1236,6 +1272,27 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_capsule_rollback_invalid")?.schema_name, "capsule-rollback.schema.json");
   assert.equal(byId.get("evt_payload_capsule_rollback_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_capsule_rollback_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
+  assert.equal(byId.get("evt_payload_dream_run")?.schema_name, "memory-fold.schema.json");
+  assert.equal(byId.get("evt_payload_dream_run")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_dream_accept")?.schema_name, "memory-fold.schema.json");
+  assert.equal(byId.get("evt_payload_dream_accept")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_anchor_propose")?.schema_name, "persona-anchor.schema.json");
+  assert.equal(byId.get("evt_payload_anchor_propose")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_anchor_accept")?.schema_name, "persona-anchor.schema.json");
+  assert.equal(byId.get("evt_payload_anchor_accept")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_persona_reset")?.schema_name, "persona-reset.schema.json");
+  assert.equal(byId.get("evt_payload_persona_reset")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_persona_reset_invalid")?.schema_name, "persona-reset.schema.json");
+  assert.equal(byId.get("evt_payload_persona_reset_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_persona_reset_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
+  assert.equal(byId.get("evt_payload_soul_fork")?.schema_name, "soul-fork.schema.json");
+  assert.equal(byId.get("evt_payload_soul_fork")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_contract")?.schema_name, "agent-contract.schema.json");
+  assert.equal(byId.get("evt_payload_agent_contract")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_started")?.schema_name, "agent-contract.schema.json");
+  assert.equal(byId.get("evt_payload_agent_started")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_completed")?.schema_name, "child-result.schema.json");
+  assert.equal(byId.get("evt_payload_agent_completed")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -1327,6 +1384,178 @@ function memoryTombstone(id: string, targetMemoryId: string) {
     active_memory_removed: true,
     history_rewritten: false,
     redaction_status: "tombstone_only"
+  };
+}
+
+function memoryFold(id: string, reviewStatus: "pending" | "accepted" | "rejected") {
+  const acceptedMemoryId = reviewStatus === "accepted" ? `mem_${id}` : null;
+  return {
+    id,
+    source_run_id: "run_payload_resolved",
+    folded_from: ["mem_fold_source_a", "mem_fold_source_b"],
+    source_events: [`evt_source_${id}_a`, `evt_source_${id}_b`],
+    proposed_memory: {
+      id: `mem_${id}`,
+      type: "project",
+      subject: "run_payload_resolved",
+      content: `folded memory ${id}`,
+      source_events: [`evt_source_${id}_a`, `evt_source_${id}_b`],
+      confidence: 0.82,
+      sensitivity: "private",
+      blocked_contexts: ["external_send"]
+    },
+    confidence: 0.82,
+    created_at: "2026-06-07T12:00:00.000Z",
+    review_status: reviewStatus,
+    accepted_memory_id: acceptedMemoryId,
+    replaces_active_memory: false,
+    sensitive_approval_required: false,
+    sensitive_approved: false
+  };
+}
+
+function personaAnchor(id: string, reviewStatus: "pending" | "accepted" | "rejected") {
+  return {
+    id,
+    branch: "direct",
+    kind: "style",
+    content: `persona anchor ${id}`,
+    source_events: [`evt_source_${id}`],
+    confidence: 0.86,
+    ttl: "180d",
+    created_at: "2026-06-07T12:01:00.000Z",
+    expires_at: "2026-12-04T12:01:00.000Z",
+    allowed_contexts: ["planning", "coding"],
+    blocked_contexts: ["external_auto_send"],
+    review_status: reviewStatus,
+    sensitivity: "private",
+    sensitive_approval_required: false,
+    sensitive_approved: false
+  };
+}
+
+function personaReset(id: string) {
+  return {
+    id,
+    from_branch: null,
+    to_branch: "direct",
+    status: "applied",
+    retained_business_memory_ids: ["mem_business"],
+    activated_anchor_ids: ["anchor_payload_accepted"],
+    deactivated_anchor_ids: [],
+    inherits_live_authority: false,
+    created_at: "2026-06-07T12:02:00.000Z"
+  };
+}
+
+function soulFork(id: string) {
+  return {
+    id,
+    source_checkpoint_id: "checkpoint_payload",
+    source_run_id: "run_payload_resolved",
+    source_event_id: "evt_payload_boundary",
+    source_event_hash: `sha256:${"c".repeat(64)}`,
+    replay_record_id: "replay_payload_trace",
+    new_agent_id: "agent_payload_fork",
+    created_at: "2026-06-07T12:03:00.000Z",
+    identity: {
+      id: "agent_payload_fork",
+      parent_agent_id: "agent_local"
+    },
+    policy: {
+      id: "policy_payload_inheritance",
+      max_auto_risk: "L2",
+      vault_grants: [],
+      oauth_grants: [],
+      active_leases: []
+    },
+    budget: {
+      id: "budget_payload_fork",
+      token_budget: 0,
+      tool_call_budget: 0,
+      cpu_ms_budget: 0,
+      network_call_budget: 0,
+      wall_time_ms_budget: 0,
+      risk_budget: "L2",
+      lease_budget: 0,
+      on_exhaustion: "ask"
+    },
+    workspace_scope: {
+      workspace_id: "ws_payload_ref_audit",
+      allowed_paths: []
+    },
+    inheritance_policy_id: "inheritance_policy_payload",
+    inherited_history_refs: ["evt_payload_boundary"],
+    inherited_memory_ids: ["mem_business"],
+    excluded_memory_ids: ["mem_secret"],
+    sensitive_history_approved: false,
+    inherits_live_authority: false,
+    live_side_effects_allowed: false,
+    status: "created"
+  };
+}
+
+function resourceBudget(id: string) {
+  return {
+    id,
+    token_budget: 1000,
+    tool_call_budget: 2,
+    cpu_ms_budget: 10000,
+    network_call_budget: 0,
+    wall_time_ms_budget: 30000,
+    risk_budget: "L2",
+    lease_budget: 1,
+    on_exhaustion: "stop"
+  };
+}
+
+function agentContract(id: string, status: "draft" | "active" | "completed" | "stopped") {
+  return {
+    id,
+    parent_run_id: "run_payload_resolved",
+    child_agent_id: "agent_payload_child",
+    task: "Read local documentation",
+    resource_budget_id: "budget_payload",
+    budget_snapshot: resourceBudget("budget_payload"),
+    allowed_capsules: ["cap_payload"],
+    allowed_paths: ["README.md"],
+    completion_evidence_required: true,
+    output_taint: {
+      sources: ["child_agent"],
+      can_authorize_actions: false
+    },
+    status,
+    created_at: "2026-06-07T12:04:00.000Z"
+  };
+}
+
+function childResult(id: string) {
+  return {
+    id,
+    contract_id: "contract_payload_active",
+    child_run_id: "run_child_payload",
+    child_agent_id: "agent_payload_child",
+    capsule_id: "cap_payload",
+    status: "completed",
+    completion_evidence: {
+      source_event_ids: ["evt_payload_agent_started", "evt_payload_agent_completed"],
+      request_id: "toolreq_child_payload",
+      policy_decision_id: "policy_child_payload",
+      lease_id: "lease_child_payload",
+      artifact_sha256: `sha256:${"d".repeat(64)}`,
+      byte_count: 27,
+      usage: {
+        token_used: 0,
+        cpu_ms_used: 1,
+        network_calls_used: 0,
+        wall_time_ms_used: 5
+      }
+    },
+    output_taint: {
+      sources: ["child_agent"],
+      can_authorize_actions: false
+    },
+    parent_must_reauthorize_actions: true
   };
 }
 

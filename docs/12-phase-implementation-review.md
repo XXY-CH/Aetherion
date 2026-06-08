@@ -618,6 +618,33 @@ Correction and remaining boundary:
 - The generic creation, terminal, and load guards verify single-create behavior, manifest/Ledger membership, Ledger order, requested run id, and workspace membership. The sequence guard adds event-type order checks only for local-file kernel, sandbox promotion, replay persistence, and single-event governance helper runs. It now validates selected critical `payload_ref` bindings for Boundary Facts, Consent Records, Replay Records, and single-event governance helper artifacts; full artifact JSON semantics remain covered by existing schema validation and source-specific contract tests rather than by the manifest projection itself.
 - The CLI evidence output currently covers the V1 core `run`, `trace`, and `replay` commands; it is not yet a universal output contract for every later-phase Ether command.
 
+## Phase 30 Review Notes
+
+Matched architecture docs:
+
+- `docs/03-memory-os.md`: Dreaming produces reviewable patches, not actions, and memory consolidation must stay source-backed.
+- `docs/11-migration-and-runtime-economics.md`: persona anchors and Soul Fork inheritance must preserve evidence references without inheriting live authority.
+- `docs/09-computer-use-implementation.md`: child agents receive separate contracts, budgets, leases, and tainted completion evidence rather than inherited parent authority.
+- `docs/13-schema-runtime-governance.md`: read-only audits may inspect artifacts but must not repair artifacts, mutate registries, or make artifacts authoritative.
+
+Implemented correspondence:
+
+- `auditLedgerPayloadRefs` now schema-validates Dream fold payload refs (`artifact://dream/run|accept|reject/<fold_id>`) as `memory-fold.schema.json`.
+- Persona anchor payload refs (`artifact://anchors/propose|accept|reject/<anchor_id>`) now validate as `persona-anchor.schema.json`, and persona reset payload refs validate as `persona-reset.schema.json`.
+- Soul Fork payload refs (`artifact://soul/fork/<fork_id>`) now validate as `soul-fork.schema.json`, preserving the no-live-authority inheritance contract at the audit layer.
+- Child agent contract/start payload refs (`artifact://agent/contract/<contract_id>`) now validate as `agent-contract.schema.json`, and completed child result payload refs (`artifact://agent/execute/<child_result_id>`) validate as `child-result.schema.json`.
+- The audit remains read-only and still reports unsupported generic artifacts as `schema_status=not_checked`.
+
+Verification evidence:
+
+- Harness payload-ref audit tests now cover valid Memory Fold, Persona Anchor, Persona Reset, Soul Fork, Agent Contract, and Child Result artifacts plus an invalid Persona Reset schema failure.
+- TUI integration now runs `audit payload-refs` after real Dream fold, persona anchor/reset, Soul Fork, agent contract, child start, and child completion commands and asserts the relevant findings are schema-valid.
+
+Correction and remaining boundary:
+
+- This closes an audit coverage drift against the original Dreaming/persona/Soul/child-agent designs. It does not add any new runtime authority, background Dreaming loop, persona automation, Soul Fork execution, or general child-agent executor.
+- Circuit breaker and policy-denial payload refs remain outside this schema mapping until their artifact ids and event refs are made explicit enough to validate without guessing.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

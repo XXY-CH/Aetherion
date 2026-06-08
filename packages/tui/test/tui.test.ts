@@ -1577,6 +1577,25 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   const contracts = JSON.parse(await readFile(join(registryDir, "agent-contracts.json"), "utf8")) as Array<{ id: string; status: string }>;
   assert.equal(contracts.find((entry) => entry.id === contractId)?.status, "completed");
 
+  const payloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+    }>;
+  };
+  const payloadFinding = (eventType: string) => payloadAudit.findings.find((finding) => finding.event_type === eventType);
+  assert.equal(payloadFinding("agent.contract.created")?.payload_ref, `artifact://agent/contract/${contractId}`);
+  assert.equal(payloadFinding("agent.contract.created")?.schema_name, "agent-contract.schema.json");
+  assert.equal(payloadFinding("agent.contract.created")?.schema_status, "valid");
+  assert.equal(payloadFinding("agent.child.started")?.payload_ref, `artifact://agent/contract/${contractId}`);
+  assert.equal(payloadFinding("agent.child.started")?.schema_name, "agent-contract.schema.json");
+  assert.equal(payloadFinding("agent.child.started")?.schema_status, "valid");
+  assert.equal(payloadFinding("agent.child.completed")?.payload_ref, `artifact://agent/execute/child_result_${childResult.child_run_id}`);
+  assert.equal(payloadFinding("agent.child.completed")?.schema_name, "child-result.schema.json");
+  assert.equal(payloadFinding("agent.child.completed")?.schema_status, "valid");
+
   const deniedContract = await execFileAsync(process.execPath, [
     cliPath, "agent", "contract",
     "--parent-run", runId,
@@ -1745,6 +1764,25 @@ test("Ether governs memory folding, persona branches, and authority-free Soul Fo
     "soul.fork.created"
   ]) {
     await assertSingleEventRunManifest(workspace, governanceLedger, eventType);
+  }
+  const payloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      schema_name?: string;
+      schema_status: string;
+    }>;
+  };
+  const payloadFinding = (eventType: string) => payloadAudit.findings.find((finding) => finding.event_type === eventType);
+  for (const [eventType, schemaName] of [
+    ["memory.fold.proposed", "memory-fold.schema.json"],
+    ["memory.fold.accepted", "memory-fold.schema.json"],
+    ["persona.anchor.proposed", "persona-anchor.schema.json"],
+    ["persona.anchor.accepted", "persona-anchor.schema.json"],
+    ["persona.reset.applied", "persona-reset.schema.json"],
+    ["soul.fork.created", "soul-fork.schema.json"]
+  ] as const) {
+    assert.equal(payloadFinding(eventType)?.schema_name, schemaName);
+    assert.equal(payloadFinding(eventType)?.schema_status, "valid");
   }
   const registered = await loadWorkspaceFromRegistry(workspace);
   assert.equal(verifyEventHashChain(await readEvents(registered.workspace)).valid, true);

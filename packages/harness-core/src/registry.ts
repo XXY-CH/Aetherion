@@ -1375,6 +1375,24 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
   if (parts[0] === "capsule" && parts.length === 3 && parts[1] === "rollback" && eventType === "capsule.rollback.recorded") {
     return "capsule-rollback.schema.json";
   }
+  if (parts[0] === "dream" && parts.length === 3 && ["run", "accept", "reject"].includes(parts[1]) && eventType?.startsWith("memory.fold.")) {
+    return "memory-fold.schema.json";
+  }
+  if (parts[0] === "anchors" && parts.length === 3 && ["propose", "accept", "reject"].includes(parts[1]) && eventType?.startsWith("persona.anchor.")) {
+    return "persona-anchor.schema.json";
+  }
+  if (parts[0] === "persona" && parts.length === 3 && parts[1] === "reset" && eventType === "persona.reset.applied") {
+    return "persona-reset.schema.json";
+  }
+  if (parts[0] === "soul" && parts.length === 3 && parts[1] === "fork" && eventType === "soul.fork.created") {
+    return "soul-fork.schema.json";
+  }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "contract" && (eventType === "agent.contract.created" || eventType === "agent.child.started")) {
+    return "agent-contract.schema.json";
+  }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && eventType === "agent.child.completed") {
+    return "child-result.schema.json";
+  }
   if (parts[0] === "memory" && parts.length === 3) {
     if (parts[1] === "candidates" || parts[1] === "reject") {
       return "memory-candidate.schema.json";
