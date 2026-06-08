@@ -135,7 +135,12 @@ function singleSupervisorResponseLine(request: SupervisorRpcRequest, stdout: str
 
 function parseSupervisorResponseEnvelope(request: SupervisorRpcRequest, line: string): SupervisorRpcResponse {
   assertNoDuplicateSupervisorEnvelopeFields(request, line);
-  const response = JSON.parse(line) as SupervisorRpcResponse;
+  let response: SupervisorRpcResponse;
+  try {
+    response = JSON.parse(line) as SupervisorRpcResponse;
+  } catch (error) {
+    throw new Error(`supervisor rpc ${request.method} response ${request.id} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
   assertSupervisorResponseEnvelope(request, response);
   return response;
 }

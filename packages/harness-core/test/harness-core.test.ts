@@ -189,6 +189,10 @@ test("supervisor RPC client rejects malformed response envelopes", async () => {
     return;
   }
   await assert.rejects(
+    callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_expected\",\"result\":{\"accepted\":true}\n"),
+    /response rpc_expected returned invalid JSON/
+  );
+  await assert.rejects(
     callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"1.0\",\"id\":\"rpc_expected\",\"result\":{\"accepted\":true}}\n"),
     /returned invalid jsonrpc version/
   );
