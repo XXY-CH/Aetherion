@@ -10,7 +10,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 97 passing tests.
+- `npm test`: 98 passing tests.
 - `cargo test`: 38 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -614,7 +614,7 @@ Verification evidence:
 
 Correction and remaining boundary:
 
-- This does not impose one lifecycle on all run families. Hibernation, child-read, security, browser-observe, and outbox runs retain their existing completion semantics until they get explicit lifecycle contracts.
+- This did not impose one lifecycle on all run families at the time. Later passes added explicit lifecycle contracts for hibernation, security scan, browser-observe, and outbox runs; child-read and any remaining run families still need their own contracts before their terminal manifests can make stronger sequence claims.
 - The generic creation, terminal, and load guards verify single-create behavior, manifest/Ledger membership, Ledger order, requested run id, and workspace membership. The sequence guard adds event-type order checks only for local-file kernel, sandbox promotion, replay persistence, and single-event governance helper runs. It now validates selected critical `payload_ref` bindings for Boundary Facts, Consent Records, Replay Records, and single-event governance helper artifacts; full artifact JSON semantics remain covered by existing schema validation and source-specific contract tests rather than by the manifest projection itself.
 - The CLI evidence output currently covers the V1 core `run`, `trace`, and `replay` commands; it is not yet a universal output contract for every later-phase Ether command.
 
@@ -715,7 +715,7 @@ Correction and remaining boundary:
 
 - This closes the hibernation run-manifest lifecycle drift without adding a daemon, automatic file/deadline observation, live resume execution, or lease issuance.
 - Hibernation records, wakeup triggers, and context packs remain registries/projections with schema validation and provenance gates; deterministic registry rebuild/parity for this family remains future work.
-- Child-read, security, browser-observe, outbox, and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims; security scan, browser-observe, and outbox lifecycle contracts are covered by later review notes.
 
 ## Phase 34 Review Notes
 
@@ -742,7 +742,34 @@ Correction and remaining boundary:
 
 - This closes the browser-observe run-manifest lifecycle drift without adding real browser automation, extension capture, DOM/CDP access, screenshot fallback, data egress, or action authority.
 - Browser observation artifacts remain evidence for audit and inspection only. They cannot authorize tool use or side effects.
-- Child-read, outbox, and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+
+## Phase 35 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: IM is a client surface and cannot grant authority directly.
+- `docs/02-user-boundary-layer.md`: remote channels and external content must not authorize sensitive actions or bypass the Tool Policy Proxy.
+- `docs/13-schema-runtime-governance.md`: P1 surface contracts need source-backed runtime evidence, and terminal run manifests must not hide unprojected Ledger evidence.
+
+Implemented correspondence:
+
+- `imOutboxEventSequence()` now defines the explicit outbox lifecycle as `policy.decided -> im.outbox.queued`.
+- The lifecycle requires the policy event to omit `payload_ref`, preserving the supervisor policy decision as no-lease/no-delivery evidence rather than artifact-backed authority.
+- The `im.outbox.queued` event must bind to the outbox artifact ref under `artifact://surface/im-outbox/<item_id>`.
+- `ether surface im-outbox` now completes its `run_surface_outbox_*` manifest through this explicit sequence guard. DM/group queued items still complete `blocked`; public sends blocked by policy still complete `completed`.
+
+Verification evidence:
+
+- Harness tests reject outbox manifests whose policy event has a `payload_ref`, whose queued event points at the wrong artifact ref, or whose lifecycle includes `lease.issued`.
+- Harness tests accept only the exact `policy.decided -> im.outbox.queued` sequence, with `blocked` status for queued DM/group outbox records and `completed` status for policy-blocked public outbox records.
+- TUI integration asserts real DM and public `surface im-outbox` commands record exactly those two events, omit policy `payload_ref`, bind outbox artifacts, issue no lease, and persist terminal manifests whose event ids match the Ledger.
+
+Correction and remaining boundary:
+
+- This closes the outbox run-manifest lifecycle drift without adding IM/email delivery, reusable approval, webhook handling, remote channel identity, or connector authority.
+- Outbox artifacts remain queue/review evidence only. They do not send messages, grant a reusable permission, or authorize later side effects by themselves.
+- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
 
 ## Phase 3 Review Notes
 

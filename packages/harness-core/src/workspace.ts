@@ -97,6 +97,11 @@ export const BROWSER_OBSERVATION_EVENT_TYPES = [
   "browser.observation.ingested"
 ] as const;
 
+export const IM_OUTBOX_EVENT_TYPES = [
+  "policy.decided",
+  "im.outbox.queued"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -140,6 +145,13 @@ export function browserObservationEventSequence(observationPayloadRef: string): 
   return [
     { event_type: "policy.decided", payload_ref: null },
     { event_type: "browser.observation.ingested", payload_ref: observationPayloadRef }
+  ];
+}
+
+export function imOutboxEventSequence(outboxPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "policy.decided", payload_ref: null },
+    { event_type: "im.outbox.queued", payload_ref: outboxPayloadRef }
   ];
 }
 

@@ -26,6 +26,7 @@ import {
   createWorkspace,
   eventContentHash,
   eventRecord,
+  imOutboxEventSequence,
   KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
   loadRunManifest,
   loadWorkspaceFromRegistry,
@@ -43,6 +44,7 @@ import {
   verifyEventHashChain,
   verifyFileContains,
   BROWSER_OBSERVATION_EVENT_TYPES,
+  IM_OUTBOX_EVENT_TYPES,
   WAKEUP_QUEUE_RUN_EVENT_TYPES,
   wakeupQueueRunEventSequence,
   writeConsentRecordArtifact,
@@ -764,6 +766,174 @@ test("browser observation run manifests require taint policy and observation art
   const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(completed.status, "completed");
   assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
+});
+
+test("IM outbox run manifests require policy and outbox artifact refs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-outbox-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_outbox_lifecycle_guard");
+  const outboxRef = "artifact://surface/im-outbox/outbox_guard";
+
+  const wrongPolicyPayloadRunId = "run_outbox_wrong_policy_payload";
+  const wrongPolicyPayloadManifest = await createRunManifest(repoRoot, workspace, wrongPolicyPayloadRunId, "Outbox policy payload guard");
+  const wrongPolicyPayloadEvents = [
+    eventRecord({
+      id: "evt_outbox_wrong_policy_payload",
+      workspace_id: workspace.id,
+      run_id: wrongPolicyPayloadRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Queued outbox item without delivery or lease.",
+      payload_ref: "artifact://surface/im-outbox/not_policy_evidence"
+    }),
+    eventRecord({
+      id: "evt_outbox_wrong_policy_queued",
+      workspace_id: workspace.id,
+      run_id: wrongPolicyPayloadRunId,
+      event_type: "im.outbox.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only outbox item.",
+      payload_ref: outboxRef
+    })
+  ];
+  for (const event of wrongPolicyPayloadEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongPolicyPayloadManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongPolicyPayloadManifest, "blocked", imOutboxEventSequence(outboxRef)),
+    /expected no payload_ref, got artifact:\/\/surface\/im-outbox\/not_policy_evidence/
+  );
+
+  const wrongOutboxPayloadRunId = "run_outbox_wrong_payload";
+  const wrongOutboxPayloadManifest = await createRunManifest(repoRoot, workspace, wrongOutboxPayloadRunId, "Outbox artifact guard");
+  const wrongOutboxPayloadEvents = [
+    eventRecord({
+      id: "evt_outbox_wrong_payload_policy",
+      workspace_id: workspace.id,
+      run_id: wrongOutboxPayloadRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Queued outbox item without delivery or lease."
+    }),
+    eventRecord({
+      id: "evt_outbox_wrong_payload_queued",
+      workspace_id: workspace.id,
+      run_id: wrongOutboxPayloadRunId,
+      event_type: "im.outbox.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded mismatched outbox item.",
+      payload_ref: "artifact://surface/im-outbox/outbox_other"
+    })
+  ];
+  for (const event of wrongOutboxPayloadEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongOutboxPayloadManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongOutboxPayloadManifest, "blocked", imOutboxEventSequence(outboxRef)),
+    /expected payload_ref artifact:\/\/surface\/im-outbox\/outbox_guard/
+  );
+
+  const leaseRunId = "run_outbox_with_lease";
+  const leaseManifest = await createRunManifest(repoRoot, workspace, leaseRunId, "Outbox lifecycle lease guard");
+  const leaseEvents = [
+    eventRecord({
+      id: "evt_outbox_lease_policy",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Queued outbox item without delivery or lease."
+    }),
+    eventRecord({
+      id: "evt_outbox_lease_issued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Invalid lease for queued outbox item."
+    }),
+    eventRecord({
+      id: "evt_outbox_lease_queued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "im.outbox.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only outbox item.",
+      payload_ref: outboxRef
+    })
+  ];
+  for (const event of leaseEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, leaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, leaseManifest, "blocked", imOutboxEventSequence(outboxRef)),
+    /expected lifecycle policy\.decided -> im\.outbox\.queued, got policy\.decided -> lease\.issued -> im\.outbox\.queued/
+  );
+
+  const queuedRunId = "run_outbox_queued_lifecycle_guard";
+  const queuedManifest = await createRunManifest(repoRoot, workspace, queuedRunId, "Queued outbox lifecycle guard");
+  const queuedEvents = [
+    eventRecord({
+      id: "evt_outbox_queued_lifecycle_0",
+      workspace_id: workspace.id,
+      run_id: queuedRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Queued outbox item for one scoped approval without lease."
+    }),
+    eventRecord({
+      id: "evt_outbox_queued_lifecycle_1",
+      workspace_id: workspace.id,
+      run_id: queuedRunId,
+      event_type: "im.outbox.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only queued outbox item.",
+      payload_ref: outboxRef
+    })
+  ];
+  assert.deepEqual(queuedEvents.map((event) => event.event_type), [...IM_OUTBOX_EVENT_TYPES]);
+  for (const event of queuedEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, queuedManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, queuedManifest, "blocked", imOutboxEventSequence(outboxRef));
+  const queuedCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${queuedRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(queuedCompleted.status, "blocked");
+  assert.deepEqual(queuedCompleted.event_ids, queuedEvents.map((event) => event.id));
+
+  const publicBlockedRef = "artifact://surface/im-outbox/outbox_public_guard";
+  const publicBlockedRunId = "run_outbox_public_blocked_lifecycle_guard";
+  const publicBlockedManifest = await createRunManifest(repoRoot, workspace, publicBlockedRunId, "Public blocked outbox lifecycle guard");
+  const publicBlockedEvents = [
+    eventRecord({
+      id: "evt_outbox_public_blocked_lifecycle_0",
+      workspace_id: workspace.id,
+      run_id: publicBlockedRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied public outbox item without delivery or lease."
+    }),
+    eventRecord({
+      id: "evt_outbox_public_blocked_lifecycle_1",
+      workspace_id: workspace.id,
+      run_id: publicBlockedRunId,
+      event_type: "im.outbox.queued",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only blocked public outbox item.",
+      payload_ref: publicBlockedRef
+    })
+  ];
+  assert.deepEqual(publicBlockedEvents.map((event) => event.event_type), [...IM_OUTBOX_EVENT_TYPES]);
+  for (const event of publicBlockedEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, publicBlockedManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, publicBlockedManifest, "completed", imOutboxEventSequence(publicBlockedRef));
+  const publicBlockedCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${publicBlockedRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(publicBlockedCompleted.status, "completed");
+  assert.deepEqual(publicBlockedCompleted.event_ids, publicBlockedEvents.map((event) => event.id));
 });
 
 test("run manifest event ids are recorded as the next Ledger event projection", async () => {

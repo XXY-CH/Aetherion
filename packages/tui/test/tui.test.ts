@@ -1485,6 +1485,15 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.match(outbox.stdout, /"delivery_attempted": false/);
   assert.match(outbox.stdout, /"one_scoped_action": true/);
   assert.doesNotMatch(outbox.stdout, /draft only/);
+  const outboxLedgerAfterDm = await readLedgerEvents(workspace);
+  const dmOutboxEvents = outboxLedgerAfterDm.filter((event) => event.run_id.startsWith("run_surface_outbox_"));
+  assert.deepEqual(dmOutboxEvents.map((event) => event.event_type), ["policy.decided", "im.outbox.queued"]);
+  assert.equal(dmOutboxEvents[0].payload_ref, undefined);
+  assert.match(dmOutboxEvents[1].payload_ref ?? "", /^artifact:\/\/surface\/im-outbox\//);
+  assert.equal(dmOutboxEvents.some((event) => event.event_type === "lease.issued"), false);
+  const dmOutboxManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${dmOutboxEvents[0].run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(dmOutboxManifest.status, "blocked");
+  assert.deepEqual(dmOutboxManifest.event_ids, dmOutboxEvents.map((event) => event.id));
 
   await writeFile(join(workspace, "outbox-public.json"), JSON.stringify({
     source_run_id: runId,
@@ -1505,6 +1514,16 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.match(publicOutbox.stdout, /"risk_level": "L5"/);
   assert.match(publicOutbox.stdout, /"delivery_status": "blocked"/);
   assert.match(publicOutbox.stdout, /"delivery_attempted": false/);
+  const outboxLedgerAfterPublic = await readLedgerEvents(workspace);
+  const allOutboxRuns = outboxLedgerAfterPublic.filter((event) => event.run_id.startsWith("run_surface_outbox_"));
+  const publicOutboxEvents = allOutboxRuns.filter((event) => event.run_id !== dmOutboxEvents[0].run_id);
+  assert.deepEqual(publicOutboxEvents.map((event) => event.event_type), ["policy.decided", "im.outbox.queued"]);
+  assert.equal(publicOutboxEvents[0].payload_ref, undefined);
+  assert.match(publicOutboxEvents[1].payload_ref ?? "", /^artifact:\/\/surface\/im-outbox\//);
+  assert.equal(publicOutboxEvents.some((event) => event.event_type === "lease.issued"), false);
+  const publicOutboxManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${publicOutboxEvents[0].run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(publicOutboxManifest.status, "completed");
+  assert.deepEqual(publicOutboxManifest.event_ids, publicOutboxEvents.map((event) => event.id));
 
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const pkg: StorePackage = {
