@@ -92,6 +92,11 @@ export const SECURITY_SCAN_BLOCKED_EVENT_TYPES = [
   "poisoning.detected"
 ] as const;
 
+export const BROWSER_OBSERVATION_EVENT_TYPES = [
+  "policy.decided",
+  "browser.observation.ingested"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -128,6 +133,13 @@ export function securityScanBlockedEventSequence(assessmentPayloadRef: string, s
   return [
     ...securityScanCleanEventSequence(assessmentPayloadRef),
     { event_type: "poisoning.detected", payload_ref: signalPayloadRef }
+  ];
+}
+
+export function browserObservationEventSequence(observationPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "policy.decided", payload_ref: null },
+    { event_type: "browser.observation.ingested", payload_ref: observationPayloadRef }
   ];
 }
 

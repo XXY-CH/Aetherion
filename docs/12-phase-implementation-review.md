@@ -10,8 +10,8 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 83 passing tests.
-- `cargo test`: 28 passing Rust tests.
+- `npm test`: 97 passing tests.
+- `cargo test`: 38 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
 - `git diff --check`: clean.
@@ -716,6 +716,33 @@ Correction and remaining boundary:
 - This closes the hibernation run-manifest lifecycle drift without adding a daemon, automatic file/deadline observation, live resume execution, or lease issuance.
 - Hibernation records, wakeup triggers, and context packs remain registries/projections with schema validation and provenance gates; deterministic registry rebuild/parity for this family remains future work.
 - Child-read, security, browser-observe, outbox, and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+
+## Phase 34 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: browser extension and browser operator surfaces are clients behind the Local Supervisor boundary, not authority roots.
+- `docs/09-computer-use-implementation.md`: browser observations stay current-tab scoped, hash-only, tainted, and non-authorizing; real DOM/CDP collection and screenshot fallback remain future adapter work.
+- `docs/13-schema-runtime-governance.md`: P1 surface contracts need source-backed runtime evidence, and terminal run manifests must not hide unprojected Ledger evidence.
+
+Implemented correspondence:
+
+- `browserObservationEventSequence()` now defines the explicit surface observation lifecycle as `policy.decided -> browser.observation.ingested`.
+- The lifecycle requires the policy event to omit `payload_ref`, keeping the taint denial from masquerading as artifact-backed authority.
+- The `browser.observation.ingested` event must bind to the observation artifact ref under `artifact://surface/browser-observe/<observation_id>`.
+- `ether surface browser-observe` now completes its `run_surface_browser_*` manifest through this explicit sequence guard instead of generic manifest completion.
+
+Verification evidence:
+
+- Harness tests reject browser-observe manifests whose policy event has a `payload_ref`, whose observation event points at the wrong artifact ref, or whose lifecycle includes `lease.issued`.
+- Harness tests accept only the exact `policy.decided -> browser.observation.ingested` sequence as a completed browser observation run.
+- TUI integration asserts a real `surface browser-observe` command records exactly those two events, omits policy `payload_ref`, binds the observation artifact, issues no lease, and persists a completed manifest with matching Ledger event ids.
+
+Correction and remaining boundary:
+
+- This closes the browser-observe run-manifest lifecycle drift without adding real browser automation, extension capture, DOM/CDP access, screenshot fallback, data egress, or action authority.
+- Browser observation artifacts remain evidence for audit and inspection only. They cannot authorize tool use or side effects.
+- Child-read, outbox, and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
 
 ## Phase 3 Review Notes
 

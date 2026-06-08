@@ -15,6 +15,7 @@ import {
   callSupervisorRpc,
   canonicalLedgerPath,
   canonicalRuntimeDir,
+  browserObservationEventSequence,
   completeRunManifest,
   completeRunManifestWithEventSequence,
   createFileReadRequest,
@@ -41,6 +42,7 @@ import {
   validateAgainstSchema,
   verifyEventHashChain,
   verifyFileContains,
+  BROWSER_OBSERVATION_EVENT_TYPES,
   WAKEUP_QUEUE_RUN_EVENT_TYPES,
   wakeupQueueRunEventSequence,
   writeConsentRecordArtifact,
@@ -624,6 +626,143 @@ test("security scan run manifests require taint policy and scan artifact refs", 
 
   const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(completed.status, "blocked");
+  assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
+});
+
+test("browser observation run manifests require taint policy and observation artifact refs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-browser-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_browser_lifecycle_guard");
+  const observationRef = "artifact://surface/browser-observe/browser_obs_guard";
+
+  const wrongPolicyPayloadRunId = "run_browser_wrong_policy_payload";
+  const wrongPolicyPayloadManifest = await createRunManifest(repoRoot, workspace, wrongPolicyPayloadRunId, "Browser observation policy payload guard");
+  const wrongPolicyPayloadEvents = [
+    eventRecord({
+      id: "evt_browser_wrong_policy_payload",
+      workspace_id: workspace.id,
+      run_id: wrongPolicyPayloadRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted browser content without authority.",
+      payload_ref: "artifact://surface/browser-observe/not_policy_evidence"
+    }),
+    eventRecord({
+      id: "evt_browser_wrong_policy_observation",
+      workspace_id: workspace.id,
+      run_id: wrongPolicyPayloadRunId,
+      event_type: "browser.observation.ingested",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only browser observation.",
+      payload_ref: observationRef
+    })
+  ];
+  for (const event of wrongPolicyPayloadEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongPolicyPayloadManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongPolicyPayloadManifest, "completed", browserObservationEventSequence(observationRef)),
+    /expected no payload_ref, got artifact:\/\/surface\/browser-observe\/not_policy_evidence/
+  );
+
+  const wrongObservationPayloadRunId = "run_browser_wrong_observation_payload";
+  const wrongObservationPayloadManifest = await createRunManifest(repoRoot, workspace, wrongObservationPayloadRunId, "Browser observation artifact guard");
+  const wrongObservationPayloadEvents = [
+    eventRecord({
+      id: "evt_browser_wrong_observation_policy",
+      workspace_id: workspace.id,
+      run_id: wrongObservationPayloadRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted browser content without authority."
+    }),
+    eventRecord({
+      id: "evt_browser_wrong_observation_payload",
+      workspace_id: workspace.id,
+      run_id: wrongObservationPayloadRunId,
+      event_type: "browser.observation.ingested",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded mismatched browser observation.",
+      payload_ref: "artifact://surface/browser-observe/browser_obs_other"
+    })
+  ];
+  for (const event of wrongObservationPayloadEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongObservationPayloadManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongObservationPayloadManifest, "completed", browserObservationEventSequence(observationRef)),
+    /expected payload_ref artifact:\/\/surface\/browser-observe\/browser_obs_guard/
+  );
+
+  const leaseRunId = "run_browser_with_lease";
+  const leaseManifest = await createRunManifest(repoRoot, workspace, leaseRunId, "Browser observation lifecycle lease guard");
+  const leaseEvents = [
+    eventRecord({
+      id: "evt_browser_lease_policy",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted browser content without authority."
+    }),
+    eventRecord({
+      id: "evt_browser_lease_issued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Invalid lease for browser observation."
+    }),
+    eventRecord({
+      id: "evt_browser_lease_observation",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "browser.observation.ingested",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only browser observation.",
+      payload_ref: observationRef
+    })
+  ];
+  for (const event of leaseEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, leaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, leaseManifest, "completed", browserObservationEventSequence(observationRef)),
+    /expected lifecycle policy\.decided -> browser\.observation\.ingested, got policy\.decided -> lease\.issued -> browser\.observation\.ingested/
+  );
+
+  const validRunId = "run_browser_lifecycle_guard";
+  const validManifest = await createRunManifest(repoRoot, workspace, validRunId, "Browser observation lifecycle guard");
+  const validEvents = [
+    eventRecord({
+      id: "evt_browser_lifecycle_0",
+      workspace_id: workspace.id,
+      run_id: validRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted browser content without authority."
+    }),
+    eventRecord({
+      id: "evt_browser_lifecycle_1",
+      workspace_id: workspace.id,
+      run_id: validRunId,
+      event_type: "browser.observation.ingested",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded hash-only browser observation.",
+      payload_ref: observationRef
+    })
+  ];
+  assert.deepEqual(validEvents.map((event) => event.event_type), [...BROWSER_OBSERVATION_EVENT_TYPES]);
+  for (const event of validEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, validManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, validManifest, "completed", browserObservationEventSequence(observationRef));
+
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(completed.status, "completed");
   assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
 });
 

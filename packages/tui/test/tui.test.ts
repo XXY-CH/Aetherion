@@ -1432,6 +1432,15 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.match(browser.stdout, /"can_create_side_effects": false/);
   assert.match(browser.stdout, /"can_authorize_actions": false/);
   assert.doesNotMatch(browser.stdout, /apiKey='secret'/);
+  const browserLedgerAfterObservation = await readLedgerEvents(workspace);
+  const browserEvents = browserLedgerAfterObservation.filter((event) => event.run_id.startsWith("run_surface_browser_"));
+  assert.deepEqual(browserEvents.map((event) => event.event_type), ["policy.decided", "browser.observation.ingested"]);
+  assert.equal(browserEvents[0].payload_ref, undefined);
+  assert.match(browserEvents[1].payload_ref ?? "", /^artifact:\/\/surface\/browser-observe\//);
+  assert.equal(browserEvents.some((event) => event.event_type === "lease.issued"), false);
+  const browserManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${browserEvents[0].run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(browserManifest.status, "completed");
+  assert.deepEqual(browserManifest.event_ids, browserEvents.map((event) => event.id));
 
   await writeFile(join(workspace, "inbox-input.json"), JSON.stringify({
     adapter: "telegram",
