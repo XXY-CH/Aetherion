@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 export type SupervisorRpcRequest = {
   id: string;
-  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "security.taint.evaluate" | "surface.outbox.evaluate" | "file.read.traced" | "child.file.read" | "file.write.prepare" | "file.write.commit" | "trace.replay";
+  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "security.taint.evaluate" | "surface.outbox.evaluate" | "file.read.traced" | "child.file.read" | "file.write.prepare" | "file.write.commit";
   workspace_root: string;
   workspace_id?: string;
   run_id?: string;

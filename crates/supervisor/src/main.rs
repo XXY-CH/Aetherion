@@ -459,7 +459,12 @@ fn handle_rpc_line(line: &str) -> String {
                 "legacy file.write is disabled; use file.write.prepare and file.write.commit for traced write lifecycle evidence",
             );
         }
-        "trace.replay" => "{\"live_side_effects_replayed\":false}".to_string(),
+        "trace.replay" => {
+            return error_response(
+                &id,
+                "legacy trace.replay is disabled; use Ether replay so Ledger reconstruction, Replay Record artifact, and replay.recorded evidence are persisted",
+            );
+        }
         _ => return error_response(&id, "unsupported method"),
     };
 
@@ -1027,6 +1032,28 @@ mod tests {
             assert!(!response.contains("\"lease_id\":\"lease_"));
         }
 
+        assert!(!root.join(".aetherion").exists());
+    }
+
+    #[test]
+    fn rpc_legacy_trace_replay_is_rejected_without_runtime_state() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-legacy-replay-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let request = format!(
+            "{{\"id\":\"rpc_trace_replay\",\"method\":\"trace.replay\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_replay_legacy\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let response = handle_rpc_line(&request);
+        assert!(response.contains("\"id\":\"rpc_trace_replay\""));
+        assert!(response.contains("legacy trace.replay is disabled"));
+        assert!(response.contains("Replay Record artifact"));
+        assert!(!response.contains("\"live_side_effects_replayed\":false"));
         assert!(!root.join(".aetherion").exists());
     }
 

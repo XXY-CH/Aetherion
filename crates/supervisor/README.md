@@ -15,8 +15,9 @@ Current scope:
 - Emit traced file-action lifecycle events from Rust RPC methods for workspace reads, child workspace reads, write preparation, and approved write commits.
 - Validate the approved write Consent Record binding, persist the Consent Record artifact, and then attach its `payload_ref` to approved `consent.recorded` events without creating consent events for unapproved writes.
 - Reject expired leases and wrong-path lease reuse.
-- Expose a minimal stdio JSON-RPC POC for workspace init, event append, traced file reads, traced write prepare/commit, queue-only resume, taint/outbox policy gates, and trace replay.
-- Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject legacy policy-only/read/write RPCs that would bypass full Ledger lifecycle evidence, and return the actual operation lease id for approved write commits.
+- Expose a minimal stdio JSON-RPC POC for workspace init, governance event append, traced file reads, traced write prepare/commit, queue-only resume, and taint/outbox policy gates.
+- Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject legacy policy-only/read/write/replay RPCs that would bypass full Ledger lifecycle evidence, and return the actual operation lease id for approved write commits.
+- Keep replay persistence in Ether's Ledger-backed `replay` command; the legacy `trace.replay` RPC is disabled because a bare `live_side_effects_replayed=false` result is not sufficient replay evidence.
 
 Out of scope:
 
