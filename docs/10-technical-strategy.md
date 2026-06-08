@@ -128,8 +128,9 @@ Later:
 - On workspace init, remove abandoned uncommitted Ledger temp files, verify the parent chain across all Ledger events, reject events whose workspace id does not match the active workspace, and reject any corrupt v1 event hash regardless of author before accepting the workspace. Legacy unversioned supervisor events retain their original hash verifier.
 - Evaluate deterministic workspace-local read/write policy.
 - Require explicit consent before workspace writes receive a scoped lease.
-- Execute local file reads through allowed scoped leases and approved writes through traced prepare/commit RPCs that issue the operation lease only after consent.
+- Execute local file reads through traced read RPCs and approved writes through traced prepare/commit RPCs that issue the operation lease only after consent.
 - Expose traced file-action RPCs for Ether's default run path so the Rust process emits `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, and `action.recorded` events for workspace file reads and approved write commits instead of requiring Ether to append each file-action event itself.
+- Reject legacy policy-only and direct file read/write RPCs that would return leases or file contents without the full file-action Ledger lifecycle.
 - Expose a minimal stdio RPC command used by the TypeScript Ether client by default.
 
 This crate is not yet the production supervisor. It does not implement a vault, event signatures, a long-running RPC daemon, sandboxing, generated-code isolation, browser automation, IM, MCP, OAuth, or cloud-worker execution.

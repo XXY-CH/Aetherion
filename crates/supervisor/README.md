@@ -11,12 +11,12 @@ Current scope:
 - Serialize event appends with a workspace-local lock, recover stale locks with Unix owner-PID checks plus age fallback, write through synced temp files and atomic rename, clean abandoned temp files on startup, reject corrupt hash chains, and reject Ledger events whose workspace id does not match the active workspace.
 - Evaluate a tiny deterministic local file policy.
 - Issue scoped leases for workspace-local reads and approval-gated writes.
-- Execute workspace-scoped file reads through leases and writes through traced prepare/commit RPCs that issue the operation lease only after approval.
+- Execute workspace-scoped file reads through traced read RPCs and writes through traced prepare/commit RPCs, so policy, lease, result, action, observation, and verification evidence enters the Ledger.
 - Emit traced file-action lifecycle events from Rust RPC methods for workspace reads, child workspace reads, write preparation, and approved write commits.
 - Validate the approved write Consent Record binding, persist the Consent Record artifact, and then attach its `payload_ref` to approved `consent.recorded` events without creating consent events for unapproved writes.
 - Reject expired leases and wrong-path lease reuse.
-- Expose a minimal stdio JSON-RPC POC for workspace init, event append, policy evaluation, lease issuance, file reads, traced write prepare/commit, and trace replay.
-- Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject the legacy direct `file.write` RPC, and return the actual operation lease id for approved write commits.
+- Expose a minimal stdio JSON-RPC POC for workspace init, event append, traced file reads, traced write prepare/commit, queue-only resume, taint/outbox policy gates, and trace replay.
+- Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject legacy policy-only/read/write RPCs that would bypass full Ledger lifecycle evidence, and return the actual operation lease id for approved write commits.
 
 Out of scope:
 

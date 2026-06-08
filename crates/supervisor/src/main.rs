@@ -1,8 +1,7 @@
 use aetherion_supervisor::{
     append_event, append_event_with_payload, assert_workspace_id_for_root, evaluate_policy,
     file_read_request, file_write_request, init_workspace, parse_json_object, read_with_lease,
-    workspace_id_for_root, write_with_lease, write_workspace_registry, Consent, Decision,
-    ParsedJsonObject,
+    write_with_lease, write_workspace_registry, Consent, Decision, ParsedJsonObject,
 };
 use std::env;
 use std::fs;
@@ -20,39 +19,13 @@ fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "help".to_string());
     match command.as_str() {
-        "read" => {
-            let workspace_root = PathBuf::from(args.next().ok_or("missing workspace root")?);
-            let file_path = PathBuf::from(args.next().ok_or("missing file path")?);
-            let workspace_id =
-                workspace_id_for_root(&workspace_root).map_err(|error| error.to_string())?;
-            let workspace =
-                init_workspace(&workspace_root, workspace_id).map_err(|error| error.to_string())?;
-            let run_id = "run_rust_cli";
-            append_event(
-                &workspace,
-                "run.started",
-                run_id,
-                "Rust supervisor CLI read started",
-            )
-            .map_err(|error| error.to_string())?;
-            let request = file_read_request(run_id, file_path);
-            let decision = evaluate_policy(&workspace, &request, None);
-            let contents =
-                read_with_lease(&request, &decision).map_err(|error| error.to_string())?;
-            append_event(
-                &workspace,
-                "run.completed",
-                run_id,
-                "Rust supervisor CLI read completed",
-            )
-            .map_err(|error| error.to_string())?;
-            print!("{contents}");
-            Ok(())
-        }
+        "read" => Err(
+            "legacy direct read is disabled; use rpc file.read.traced for traced lifecycle evidence"
+                .to_string(),
+        ),
         "rpc" => run_rpc(),
         _ => {
-            println!("Usage: aetherion-supervisor read <workspace-root> <file-path>");
-            println!("       aetherion-supervisor rpc");
+            println!("Usage: aetherion-supervisor rpc");
             Ok(())
         }
     }
@@ -266,62 +239,18 @@ fn handle_rpc_line(line: &str) -> String {
                 Err(error) => return error_response(&id, &error.to_string()),
             }
         }
-        "tool.evaluate" | "lease.issue" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                let path = match required_string_field(&request, "path") {
-                    Ok(value) => PathBuf::from(value),
-                    Err(error) => return error_response(&id, &error),
-                };
-                let verb = match required_string_field(&request, "verb") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                if verb != "read" && verb != "write" {
-                    return error_response(&id, "verb must be read or write");
-                }
-                let approved = match bool_field(&request, "approved") {
-                    Ok(value) => value,
-                    Err(error) => return error_response(&id, &error),
-                };
-                let request = if verb == "write" {
-                    file_write_request(&run_id, path)
-                } else {
-                    file_read_request(&run_id, path)
-                };
-                let consent = if approved {
-                    Some(Consent {
-                        request_id: request.id.clone(),
-                        approved: true,
-                    })
-                } else {
-                    None
-                };
-                let decision = evaluate_policy(&workspace, &request, consent.as_ref());
-                format!(
-                    "{{\"request_id\":\"{}\",\"decision\":\"{}\",\"risk_level\":\"{:?}\",\"lease_id\":\"{}\"}}",
-                    escape(&decision.request_id),
-                    decision_name(&decision.decision),
-                    decision.risk_level,
-                    escape(decision.lease.as_ref().map(|lease| lease.id.as_str()).unwrap_or(""))
-                )
-            }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
-        "file.read" => match init_workspace(&workspace_root, &workspace_id) {
-            Ok(workspace) => {
-                let path = match required_string_field(&request, "path") {
-                    Ok(value) => PathBuf::from(value),
-                    Err(error) => return error_response(&id, &error),
-                };
-                let request = file_read_request(&run_id, path);
-                let decision = evaluate_policy(&workspace, &request, None);
-                match read_with_lease(&request, &decision) {
-                    Ok(contents) => format!("{{\"contents\":\"{}\"}}", escape(&contents)),
-                    Err(error) => return error_response(&id, &error.to_string()),
-                }
-            }
-            Err(error) => return error_response(&id, &error.to_string()),
-        },
+        "tool.evaluate" | "lease.issue" => {
+            return error_response(
+                &id,
+                "legacy policy-only RPC is disabled; use traced action RPCs so policy and lease evidence enters the Ledger",
+            );
+        }
+        "file.read" => {
+            return error_response(
+                &id,
+                "legacy file.read is disabled; use file.read.traced for traced lifecycle evidence",
+            );
+        }
         "file.read.traced" => match init_workspace(&workspace_root, &workspace_id) {
             Ok(workspace) => {
                 if let Err(error) = write_workspace_registry(&workspace) {
@@ -991,7 +920,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn derived_workspace_id(root: &std::path::Path) -> String {
-        workspace_id_for_root(root).unwrap()
+        aetherion_supervisor::workspace_id_for_root(root).unwrap()
     }
 
     fn consent_record_json(run_id: &str, workspace_id: &str) -> String {
@@ -1020,6 +949,62 @@ mod tests {
         assert!(response.contains("legacy file.write is disabled"));
         assert!(response.contains("file.write.prepare and file.write.commit"));
         assert!(!target.exists());
+        assert!(!root.join(".aetherion").exists());
+    }
+
+    #[test]
+    fn rpc_legacy_policy_and_read_methods_are_rejected_without_runtime_state() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-legacy-methods-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("README.md");
+        fs::write(&target, "legacy read must not leak\n").unwrap();
+        let workspace_id = derived_workspace_id(&root);
+
+        for (rpc_id, method, extra, message) in [
+            (
+                "rpc_tool_eval",
+                "tool.evaluate",
+                format!(
+                    "\"path\":\"{}\",\"verb\":\"read\"",
+                    escape(&target.display().to_string())
+                ),
+                "legacy policy-only RPC is disabled",
+            ),
+            (
+                "rpc_lease_issue",
+                "lease.issue",
+                format!(
+                    "\"path\":\"{}\",\"verb\":\"write\",\"approved\":true",
+                    escape(&target.display().to_string())
+                ),
+                "legacy policy-only RPC is disabled",
+            ),
+            (
+                "rpc_file_read",
+                "file.read",
+                format!("\"path\":\"{}\"", escape(&target.display().to_string())),
+                "legacy file.read is disabled",
+            ),
+        ] {
+            let request = format!(
+                "{{\"id\":\"{}\",\"method\":\"{}\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_legacy_methods\",{}}}",
+                rpc_id,
+                method,
+                escape(&root.display().to_string()),
+                workspace_id,
+                extra
+            );
+            let response = handle_rpc_line(&request);
+            assert!(response.contains(&format!("\"id\":\"{rpc_id}\"")));
+            assert!(response.contains(message));
+            assert!(!response.contains("legacy read must not leak"));
+            assert!(!response.contains("\"lease_id\":\"lease_"));
+        }
+
         assert!(!root.join(".aetherion").exists());
     }
 
