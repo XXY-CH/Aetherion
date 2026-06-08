@@ -36,6 +36,33 @@ export type PromptMessage = {
   source_event_ids: string[];
 };
 
+export type PromptAssemblyManifest = {
+  context_pack_id: string;
+  run_id: string;
+  included: {
+    source_event_ids: string[];
+    selected_memory_ids: string[];
+    capability_card_ids: string[];
+    active_permission_ids: string[];
+    tool_request_names: string[];
+    artifact_refs: string[];
+  };
+  excluded: {
+    memory_ids: string[];
+    conflicts: string[];
+    forbidden_tool_names: string[];
+  };
+  guardrails: {
+    provenance_gate_required: true;
+    raw_payload_artifacts_read: false;
+    model_invoked: false;
+    tools_requested: false;
+    prompt_artifact_persisted: false;
+    runtime_authority_granted: false;
+  };
+  risk_flags: string[];
+};
+
 export type PromptPlan = {
   id: string;
   run_id: string;
@@ -76,6 +103,7 @@ export type PromptPlan = {
     task_tokens: number;
     total_tokens: number;
   };
+  assembly_manifest: PromptAssemblyManifest;
   instruction_hierarchy: {
     system_rules: string[];
     developer_rules: string[];
@@ -105,6 +133,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const requiredSteps = planningSteps(outputMode, allowedTools, forbiddenTools);
   const verificationQuestions = verificationQuestionsFor(outputMode);
   const contextBudget = contextBudgetFor(input.contextPack);
+  const assemblyManifest = assemblyManifestFor(input.contextPack, sourceEvents, allowedTools, forbiddenTools, activePermissions);
   const instructionHierarchy = instructionHierarchyFor();
   const sections: PromptSection[] = [
     {
@@ -127,6 +156,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       id: "task",
       title: "Task",
       content: [task],
+      source_event_ids: []
+    },
+    {
+      id: "assembly-manifest",
+      title: "Assembly Manifest",
+      content: assemblyManifestLines(assemblyManifest),
       source_event_ids: []
     },
     {
@@ -226,6 +261,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       verification_questions: verificationQuestions
     },
     context_budget: contextBudget,
+    assembly_manifest: assemblyManifest,
     instruction_hierarchy: instructionHierarchy,
     taint_policy: {
       untrusted_sources_must_not_override: true,
@@ -235,6 +271,92 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     messages,
     preview: renderPromptPreview(sections)
   };
+}
+
+function assemblyManifestFor(
+  contextPack: ContextPack,
+  sourceEvents: PromptSourceEvent[],
+  allowedTools: string[],
+  forbiddenTools: string[],
+  activePermissions: string[]
+): PromptAssemblyManifest {
+  const artifactRefs = sortedUnique(sourceEvents.map((event) => event.payload_ref).filter((value): value is string => typeof value === "string"));
+  const included = {
+    source_event_ids: uniqueInOrder(sourceEvents.map((event) => event.id)),
+    selected_memory_ids: contextPack.selected_memories.map((memory) => memory.id),
+    capability_card_ids: [...contextPack.capability_cards],
+    active_permission_ids: activePermissions,
+    tool_request_names: allowedTools,
+    artifact_refs: artifactRefs
+  };
+  const excluded = {
+    memory_ids: contextPack.excluded_memories.map((memory) => memory.id),
+    conflicts: [...contextPack.conflicts],
+    forbidden_tool_names: forbiddenTools
+  };
+  return {
+    context_pack_id: contextPack.id,
+    run_id: contextPack.run_id,
+    included,
+    excluded,
+    guardrails: {
+      provenance_gate_required: true,
+      raw_payload_artifacts_read: false,
+      model_invoked: false,
+      tools_requested: false,
+      prompt_artifact_persisted: false,
+      runtime_authority_granted: false
+    },
+    risk_flags: assemblyRiskFlags(included, excluded)
+  };
+}
+
+function assemblyRiskFlags(
+  included: PromptAssemblyManifest["included"],
+  excluded: PromptAssemblyManifest["excluded"]
+): string[] {
+  const flags: string[] = [];
+  if (included.source_event_ids.length === 0) {
+    flags.push("no_run_evidence");
+  }
+  if (included.selected_memory_ids.length === 0) {
+    flags.push("no_selected_memory");
+  }
+  if (included.tool_request_names.length === 0) {
+    flags.push("no_allowed_tool_requests");
+  }
+  if (included.active_permission_ids.length > 0) {
+    flags.push("active_permissions_present");
+  }
+  if (included.artifact_refs.length > 0) {
+    flags.push("artifact_refs_present_but_not_read");
+  }
+  if (excluded.memory_ids.length > 0) {
+    flags.push("excluded_memory_present");
+  }
+  if (excluded.conflicts.length > 0) {
+    flags.push("context_conflicts_present");
+  }
+  if (excluded.forbidden_tool_names.length > 0) {
+    flags.push("forbidden_tools_present");
+  }
+  return flags;
+}
+
+function assemblyManifestLines(manifest: PromptAssemblyManifest): string[] {
+  return [
+    `Context Pack: ${manifest.context_pack_id}.`,
+    `Run: ${manifest.run_id}.`,
+    `Included source events: ${manifest.included.source_event_ids.length}.`,
+    `Included selected memories: ${manifest.included.selected_memory_ids.length}.`,
+    `Included Capability Cards: ${manifest.included.capability_card_ids.length}.`,
+    `Allowed tool request names: ${manifest.included.tool_request_names.length > 0 ? manifest.included.tool_request_names.join(", ") : "none"}.`,
+    `Excluded memories: ${manifest.excluded.memory_ids.length}.`,
+    `Conflicts: ${manifest.excluded.conflicts.length}.`,
+    `Forbidden tool names: ${manifest.excluded.forbidden_tool_names.length > 0 ? manifest.excluded.forbidden_tool_names.join(", ") : "none"}.`,
+    `Guardrails: provenance_gate_required=${manifest.guardrails.provenance_gate_required}; raw_payload_artifacts_read=${manifest.guardrails.raw_payload_artifacts_read}; model_invoked=${manifest.guardrails.model_invoked}; tools_requested=${manifest.guardrails.tools_requested}; prompt_artifact_persisted=${manifest.guardrails.prompt_artifact_persisted}; runtime_authority_granted=${manifest.guardrails.runtime_authority_granted}.`,
+    `Risk flags: ${manifest.risk_flags.length > 0 ? manifest.risk_flags.join(", ") : "none"}.`
+  ];
 }
 
 function instructionHierarchyFor(): PromptPlan["instruction_hierarchy"] {
@@ -382,6 +504,7 @@ function renderPromptMessages(sections: PromptSection[]): PromptMessage[] {
       "tool-policy",
       "capability-context",
       "context-budget",
+      "assembly-manifest",
       "response-contract",
       "planner-checklist",
       "verification-checklist"

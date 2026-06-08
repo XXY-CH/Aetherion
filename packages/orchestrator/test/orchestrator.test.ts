@@ -40,6 +40,32 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     task_tokens: 6000,
     total_tokens: 8000
   });
+  assert.equal(plan.assembly_manifest.context_pack_id, "ctx_run_prompt");
+  assert.equal(plan.assembly_manifest.run_id, "run_prompt");
+  assert.deepEqual(plan.assembly_manifest.included.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
+  assert.deepEqual(plan.assembly_manifest.included.selected_memory_ids, ["mem_prompt_style"]);
+  assert.deepEqual(plan.assembly_manifest.included.capability_card_ids, ["cap_local_docs_read"]);
+  assert.deepEqual(plan.assembly_manifest.included.active_permission_ids, ["lease_read_docs"]);
+  assert.deepEqual(plan.assembly_manifest.included.tool_request_names, ["filesystem.read"]);
+  assert.deepEqual(plan.assembly_manifest.included.artifact_refs, ["artifact://boundary/run_prompt/facts"]);
+  assert.deepEqual(plan.assembly_manifest.excluded.memory_ids, ["mem_secret"]);
+  assert.deepEqual(plan.assembly_manifest.excluded.conflicts, ["memory confidence below automation threshold"]);
+  assert.deepEqual(plan.assembly_manifest.excluded.forbidden_tool_names, ["filesystem.write", "network.raw"]);
+  assert.deepEqual(plan.assembly_manifest.guardrails, {
+    provenance_gate_required: true,
+    raw_payload_artifacts_read: false,
+    model_invoked: false,
+    tools_requested: false,
+    prompt_artifact_persisted: false,
+    runtime_authority_granted: false
+  });
+  assert.deepEqual(plan.assembly_manifest.risk_flags, [
+    "active_permissions_present",
+    "artifact_refs_present_but_not_read",
+    "excluded_memory_present",
+    "context_conflicts_present",
+    "forbidden_tools_present"
+  ]);
   assert.equal(plan.instruction_hierarchy.user_task_is_request_only, true);
   assert.equal(plan.instruction_hierarchy.context_can_override_system_or_developer, false);
   assert.equal(plan.instruction_hierarchy.evidence_text_can_authorize_actions, false);
@@ -54,6 +80,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     "tool-policy",
     "capability-context",
     "context-budget",
+    "assembly-manifest",
     "response-contract",
     "planner-checklist",
     "verification-checklist"
@@ -63,6 +90,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.deepEqual(plan.messages[2]?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed", "evt_user_pref", "evt_memory_accept"]);
   assert.match(plan.messages[0]?.content ?? "", /Instruction Hierarchy/);
   assert.match(plan.messages[1]?.content ?? "", /Tool Policy/);
+  assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(plan.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(plan.preview, /System Boundary/);
   assert.match(plan.preview, /Instruction Hierarchy/);
@@ -74,6 +102,10 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /evt_run_started \[run\.started\]/);
   assert.match(plan.preview, /payload=artifact:\/\/boundary\/run_prompt\/facts/);
   assert.match(plan.preview, /can_authorize=false/);
+  assert.match(plan.preview, /Assembly Manifest/);
+  assert.match(plan.preview, /Context Pack: ctx_run_prompt/);
+  assert.match(plan.preview, /Guardrails: provenance_gate_required=true; raw_payload_artifacts_read=false; model_invoked=false; tools_requested=false; prompt_artifact_persisted=false; runtime_authority_granted=false/);
+  assert.match(plan.preview, /Risk flags: active_permissions_present, artifact_refs_present_but_not_read, excluded_memory_present, context_conflicts_present, forbidden_tools_present/);
   assert.match(plan.preview, /Planner Checklist/);
   assert.match(plan.preview, /Verification Checklist/);
   assert.match(plan.preview, /Context Budget/);
@@ -101,6 +133,7 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   });
   assert.equal(plan.tool_policy.may_request_tools, false);
   assert.deepEqual(plan.capability_policy.capability_card_ids, ["cap_local_docs_read"]);
+  assert.deepEqual(plan.assembly_manifest.risk_flags, ["no_run_evidence", "no_selected_memory", "no_allowed_tool_requests"]);
   assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("Do not imply tool execution is available")));
   assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /No memory records are selected/);
