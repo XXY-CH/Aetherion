@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ContextPack } from "../../memory-os/src/index.ts";
-import { assemblePromptPlan } from "../src/index.ts";
+import { assemblePromptPlan, auditPromptResponse } from "../src/index.ts";
 
 test("prompt assembly keeps context source-backed and non-authorizing", () => {
   const plan = assemblePromptPlan({
@@ -47,6 +47,22 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.ok(plan.response_format.forbidden_claims.some((claim) => claim.includes("model was invoked")));
   assert.ok(plan.response_format.forbidden_claims.some((claim) => claim.includes("tool was requested or executed")));
   assert.ok(plan.response_format.completion_rules.some((rule) => rule.includes("Excluded memories")));
+  assert.deepEqual(plan.response_audit_contract.required_block_ids, [
+    "evidence_summary",
+    "assumptions_and_conflicts",
+    "plan",
+    "policy_and_lease_needs",
+    "verification_evidence"
+  ]);
+  assert.deepEqual(plan.response_audit_contract.required_citation_ids, [
+    "evt_run_started",
+    "evt_tool_requested",
+    "evt_run_completed",
+    "evt_user_pref",
+    "evt_memory_accept"
+  ]);
+  assert.equal(plan.response_audit_contract.audit_can_authorize_actions, false);
+  assert.equal(plan.response_audit_contract.audit_appends_ledger_events, false);
   assert.equal(plan.readiness.ready_for_model_preview, true);
   assert.deepEqual(plan.readiness.blockers, []);
   assert.deepEqual(plan.readiness.warnings, [
@@ -128,6 +144,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     "assembly-manifest",
     "readiness",
     "citation-map",
+    "response-audit",
     "response-format",
     "response-contract",
     "planner-checklist",
@@ -141,6 +158,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(plan.messages[1]?.content ?? "", /Readiness/);
   assert.match(plan.messages[1]?.content ?? "", /Citation Map/);
+  assert.match(plan.messages[1]?.content ?? "", /Response Audit/);
   assert.match(plan.messages[1]?.content ?? "", /Response Format/);
   assert.match(plan.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(plan.preview, /System Boundary/);
@@ -164,6 +182,9 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /Required for memory claims: true/);
   assert.match(plan.preview, /Memory mem_prompt_style sources: evt_user_pref, evt_memory_accept/);
   assert.match(plan.preview, /Message user sources: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept/);
+  assert.match(plan.preview, /Response Audit/);
+  assert.match(plan.preview, /Required response blocks: evidence_summary, assumptions_and_conflicts, plan, policy_and_lease_needs, verification_evidence/);
+  assert.match(plan.preview, /Required source citations: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept/);
   assert.match(plan.preview, /Response Format/);
   assert.match(plan.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
   assert.match(plan.preview, /Required block plan: Plan/);
@@ -219,6 +240,62 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);
+});
+
+test("prompt response audit checks structure, citations, and forbidden claims", () => {
+  const plan = assemblePromptPlan({
+    task: "Draft a local implementation plan for prompt assembly.",
+    contextPack: contextPack(),
+    sourceEvents: sourceEvents(),
+    allowedTools: ["filesystem.read"],
+    forbiddenTools: ["network.raw", "filesystem.write"]
+  });
+
+  const passing = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      "Source events: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept.",
+      "## Assumptions And Conflicts",
+      "The plan uses only the source-backed prompt context.",
+      "## Plan",
+      "Assemble the prompt preview and keep tool needs behind policy.",
+      "## Policy And Lease Needs",
+      "No tool was requested or executed; future tool use would need Local Supervisor policy.",
+      "## Verification Evidence",
+      "Run the local prompt audit and unit tests before claiming completion."
+    ].join("\n")
+  });
+  assert.equal(passing.status, "pass");
+  assert.deepEqual(passing.missing_block_ids, []);
+  assert.deepEqual(passing.missing_citation_ids, []);
+  assert.deepEqual(passing.unknown_source_event_ids, []);
+  assert.deepEqual(passing.forbidden_claims_detected, []);
+  assert.equal(passing.scope.model_invoked, false);
+  assert.equal(passing.scope.tools_requested, false);
+  assert.equal(passing.scope.ledger_appended, false);
+  assert.equal(passing.scope.runtime_authority_granted, false);
+
+  const failing = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      "Source events: evt_run_started and evt_unknown.",
+      "## Plan",
+      "The planner called a model and requested a filesystem tool.",
+      "Everything is complete."
+    ].join("\n")
+  });
+  assert.equal(failing.status, "needs_revision");
+  assert.ok(failing.missing_block_ids.includes("assumptions_and_conflicts"));
+  assert.ok(failing.missing_block_ids.includes("policy_and_lease_needs"));
+  assert.ok(failing.missing_block_ids.includes("verification_evidence"));
+  assert.ok(failing.missing_citation_ids.includes("evt_memory_accept"));
+  assert.deepEqual(failing.unknown_source_event_ids, ["evt_unknown"]);
+  assert.ok(failing.forbidden_claims_detected.includes("model_invocation_claim"));
+  assert.ok(failing.forbidden_claims_detected.includes("tool_execution_claim"));
+  assert.ok(failing.forbidden_claims_detected.includes("completion_without_verification_claim"));
+  assert.ok(failing.next_steps.some((step) => step.includes("required response-format block")));
 });
 
 test("prompt assembly adapts response format for answer and patch modes", () => {

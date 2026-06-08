@@ -1005,6 +1005,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
       forbidden_claims: string[];
       completion_rules: string[];
     };
+    response_audit_contract: {
+      required_block_ids: string[];
+      required_citation_ids: string[];
+      audit_can_authorize_actions: boolean;
+      audit_appends_ledger_events: boolean;
+    };
     readiness: {
       ready_for_model_preview: boolean;
       blockers: string[];
@@ -1067,6 +1073,19 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptPlanRecord.response_format.required_blocks[0]?.source_event_ids_required, true);
   assert.ok(promptPlanRecord.response_format.forbidden_claims.some((claim) => claim.includes("tool was requested or executed")));
   assert.ok(promptPlanRecord.response_format.completion_rules.some((rule) => rule.includes("does not add durable memory")));
+  assert.deepEqual(promptPlanRecord.response_audit_contract.required_block_ids, [
+    "evidence_summary",
+    "assumptions_and_conflicts",
+    "plan",
+    "policy_and_lease_needs",
+    "verification_evidence"
+  ]);
+  assert.deepEqual(promptPlanRecord.response_audit_contract.required_citation_ids, [...new Set([
+    ...promptPlanRecord.run_evidence.source_event_ids,
+    ...promptSourceEvents
+  ])]);
+  assert.equal(promptPlanRecord.response_audit_contract.audit_can_authorize_actions, false);
+  assert.equal(promptPlanRecord.response_audit_contract.audit_appends_ledger_events, false);
   assert.equal(promptPlanRecord.readiness.ready_for_model_preview, true);
   assert.deepEqual(promptPlanRecord.readiness.blockers, []);
   assert.ok(promptPlanRecord.readiness.warnings.includes("artifact_refs_not_read"));
@@ -1119,6 +1138,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Readiness/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Citation Map/);
+  assert.match(promptPlanRecord.messages[1]?.content ?? "", /Response Audit/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Response Format/);
   assert.match(promptPlanRecord.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(promptPlanRecord.preview, /System Boundary/);
@@ -1130,6 +1150,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /Ready for model preview: true/);
   assert.match(promptPlanRecord.preview, /Citation Map/);
   assert.match(promptPlanRecord.preview, /Required for memory claims: true/);
+  assert.match(promptPlanRecord.preview, /Response Audit/);
+  assert.match(promptPlanRecord.preview, /Audit can authorize actions: false/);
   assert.match(promptPlanRecord.preview, /Response Format/);
   assert.match(promptPlanRecord.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
   assert.match(promptPlanRecord.preview, /Forbidden claim: Do not claim a tool was requested or executed/);
@@ -1147,6 +1169,94 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /No Capability Cards are available/);
   assert.match(promptPlanRecord.preview, new RegExp(`mem_${runId}_episode`));
   assert.match(promptPlanRecord.preview, new RegExp(escapeRegExp(promptSourceEvents[0])));
+  const responsePath = join(workspace, "prompt-response.md");
+  await writeFile(responsePath, [
+    "## Evidence Summary",
+    `Source events: ${promptPlanRecord.response_audit_contract.required_citation_ids.join(", ")}.`,
+    "## Assumptions And Conflicts",
+    "The response uses only source-backed prompt context.",
+    "## Plan",
+    "Keep any future write behind Local Supervisor policy.",
+    "## Policy And Lease Needs",
+    "No tool was requested or executed by this audit.",
+    "## Verification Evidence",
+    "Run prompt audit and tests before claiming completion."
+  ].join("\n"));
+  const audit = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "audit",
+    runId,
+    "--content",
+    "Draft a local implementation plan.",
+    "--path",
+    "prompt-response.md",
+    "--workspace",
+    workspace
+  ]);
+  const auditRecord = JSON.parse(audit.stdout) as {
+    status: string;
+    scope: {
+      model_invoked: boolean;
+      tools_requested: boolean;
+      raw_payload_artifacts_read: boolean;
+      ledger_appended: boolean;
+      prompt_artifact_persisted: boolean;
+      runtime_authority_granted: boolean;
+    };
+    missing_block_ids: string[];
+    missing_citation_ids: string[];
+    unknown_source_event_ids: string[];
+    forbidden_claims_detected: string[];
+    findings: Array<{ id: string; severity: string; message: string }>;
+  };
+  assert.equal(auditRecord.status, "pass");
+  assert.equal(auditRecord.scope.model_invoked, false);
+  assert.equal(auditRecord.scope.tools_requested, false);
+  assert.equal(auditRecord.scope.raw_payload_artifacts_read, false);
+  assert.equal(auditRecord.scope.ledger_appended, false);
+  assert.equal(auditRecord.scope.prompt_artifact_persisted, false);
+  assert.equal(auditRecord.scope.runtime_authority_granted, false);
+  assert.deepEqual(auditRecord.missing_block_ids, []);
+  assert.deepEqual(auditRecord.missing_citation_ids, []);
+  assert.deepEqual(auditRecord.unknown_source_event_ids, []);
+  assert.deepEqual(auditRecord.forbidden_claims_detected, []);
+  assert.deepEqual(auditRecord.findings, []);
+  const badResponsePath = join(workspace, "prompt-response-bad.md");
+  await writeFile(badResponsePath, [
+    "## Evidence Summary",
+    "Source events: evt_unknown.",
+    "## Plan",
+    "The planner called a model and requested a filesystem tool.",
+    "Everything is complete."
+  ].join("\n"));
+  const badAudit = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "audit",
+    runId,
+    "--content",
+    "Draft a local implementation plan.",
+    "--path",
+    "prompt-response-bad.md",
+    "--workspace",
+    workspace
+  ]);
+  const badAuditRecord = JSON.parse(badAudit.stdout) as {
+    status: string;
+    missing_block_ids: string[];
+    missing_citation_ids: string[];
+    unknown_source_event_ids: string[];
+    forbidden_claims_detected: string[];
+  };
+  assert.equal(badAuditRecord.status, "needs_revision");
+  assert.ok(badAuditRecord.missing_block_ids.includes("assumptions_and_conflicts"));
+  assert.ok(badAuditRecord.missing_block_ids.includes("verification_evidence"));
+  assert.ok(badAuditRecord.missing_citation_ids.includes(promptPlanRecord.response_audit_contract.required_citation_ids[0]));
+  assert.deepEqual(badAuditRecord.unknown_source_event_ids, ["evt_unknown"]);
+  assert.ok(badAuditRecord.forbidden_claims_detected.includes("model_invocation_claim"));
+  assert.ok(badAuditRecord.forbidden_claims_detected.includes("tool_execution_claim"));
+  assert.ok(badAuditRecord.forbidden_claims_detected.includes("completion_without_verification_claim"));
   assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "prompt")), /ENOENT/);
   const deleted = await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);

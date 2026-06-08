@@ -77,6 +77,14 @@ export type PromptResponseFormat = {
   completion_rules: string[];
 };
 
+export type PromptResponseAuditContract = {
+  required_block_ids: string[];
+  required_citation_ids: string[];
+  forbidden_claim_checks: string[];
+  audit_can_authorize_actions: false;
+  audit_appends_ledger_events: false;
+};
+
 export type PromptReadiness = {
   ready_for_model_preview: boolean;
   blockers: string[];
@@ -100,6 +108,41 @@ export type PromptCitationMap = {
     source_event_ids: string[];
   }>;
   uncited_context_warnings: string[];
+};
+
+export type PromptResponseAuditInput = {
+  plan: PromptPlan;
+  response: string;
+};
+
+export type PromptResponseAuditFinding = {
+  id: string;
+  severity: "error" | "warning";
+  message: string;
+};
+
+export type PromptResponseAudit = {
+  id: string;
+  run_id: string;
+  status: "pass" | "needs_revision";
+  scope: {
+    model_invoked: false;
+    tools_requested: false;
+    raw_payload_artifacts_read: false;
+    ledger_appended: false;
+    prompt_artifact_persisted: false;
+    runtime_authority_granted: false;
+  };
+  required_block_ids: string[];
+  present_block_ids: string[];
+  missing_block_ids: string[];
+  required_citation_ids: string[];
+  cited_source_event_ids: string[];
+  missing_citation_ids: string[];
+  unknown_source_event_ids: string[];
+  forbidden_claims_detected: string[];
+  findings: PromptResponseAuditFinding[];
+  next_steps: string[];
 };
 
 export type PromptPlan = {
@@ -137,6 +180,7 @@ export type PromptPlan = {
     verification_questions: string[];
   };
   response_format: PromptResponseFormat;
+  response_audit_contract: PromptResponseAuditContract;
   readiness: PromptReadiness;
   citation_map: PromptCitationMap;
   context_budget: {
@@ -221,6 +265,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       source_event_ids: []
     },
     {
+      id: "response-audit",
+      title: "Response Audit",
+      content: [],
+      source_event_ids: []
+    },
+    {
       id: "run-evidence",
       title: "Run Evidence",
       content: runEvidenceLines(sourceEvents),
@@ -289,8 +339,11 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     }
   ];
   const citationMap = citationMapFor(baseSections, input.contextPack, sourceEvents);
+  const responseAuditContract = responseAuditContractFor(responseFormat, citationMap);
   const sections = baseSections.map((section) => section.id === "citation-map"
     ? { ...section, content: citationMapLines(citationMap) }
+    : section.id === "response-audit"
+      ? { ...section, content: responseAuditContractLines(responseAuditContract) }
     : section
   );
   const messages = renderPromptMessages(sections);
@@ -329,6 +382,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       verification_questions: verificationQuestions
     },
     response_format: responseFormat,
+    response_audit_contract: responseAuditContract,
     readiness,
     citation_map: citationMap,
     context_budget: contextBudget,
@@ -342,6 +396,116 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     messages,
     preview: renderPromptPreview(sections)
   };
+}
+
+export function auditPromptResponse(input: PromptResponseAuditInput): PromptResponseAudit {
+  const response = input.response.trim();
+  const requiredBlockIds = input.plan.response_audit_contract.required_block_ids;
+  const presentBlockIds = input.plan.response_format.required_blocks
+    .filter((block) => responseContainsBlock(response, block))
+    .map((block) => block.id);
+  const missingBlockIds = requiredBlockIds.filter((blockId) => !presentBlockIds.includes(blockId));
+  const requiredCitationIds = input.plan.response_audit_contract.required_citation_ids;
+  const citedSourceEventIds = uniqueInOrder(extractSourceEventIds(response));
+  const knownCitationIds = uniqueInOrder([
+    ...requiredCitationIds,
+    ...input.plan.citation_map.section_sources.flatMap((section) => section.source_event_ids),
+    ...input.plan.citation_map.message_sources.flatMap((message) => message.source_event_ids)
+  ]);
+  const missingCitationIds = requiredCitationIds.filter((eventId) => !citedSourceEventIds.includes(eventId));
+  const unknownSourceEventIds = citedSourceEventIds.filter((eventId) => !knownCitationIds.includes(eventId));
+  const forbiddenClaimFindings = forbiddenClaimFindingsFor(response);
+  const findings: PromptResponseAuditFinding[] = [];
+
+  if (!input.plan.readiness.ready_for_model_preview) {
+    findings.push({
+      id: "prompt_plan_not_ready",
+      severity: "error",
+      message: `Prompt plan is not ready for model preview: ${input.plan.readiness.blockers.join(", ") || "unknown blocker"}.`
+    });
+  }
+  findings.push(...missingBlockIds.map((blockId) => ({
+    id: `missing_required_block:${blockId}`,
+    severity: "error" as const,
+    message: `Response is missing required block ${blockId}.`
+  })));
+  findings.push(...missingCitationIds.map((eventId) => ({
+    id: `missing_required_citation:${eventId}`,
+    severity: "error" as const,
+    message: `Response does not cite required source event ${eventId}.`
+  })));
+  findings.push(...unknownSourceEventIds.map((eventId) => ({
+    id: `unknown_source_event:${eventId}`,
+    severity: "error" as const,
+    message: `Response cites source event ${eventId}, which is not in the prompt citation map.`
+  })));
+  findings.push(...forbiddenClaimFindings);
+
+  if (response.length === 0) {
+    findings.push({
+      id: "empty_response",
+      severity: "error",
+      message: "Response text is empty."
+    });
+  }
+
+  const nextSteps = findings.length === 0
+    ? ["Response satisfies the local prompt audit contract; this is still not runtime verification."]
+    : uniqueInOrder(findings.map((finding) => nextStepForFinding(finding)));
+
+  return {
+    id: `prompt_response_audit_${input.plan.run_id}`,
+    run_id: input.plan.run_id,
+    status: findings.some((finding) => finding.severity === "error") ? "needs_revision" : "pass",
+    scope: {
+      model_invoked: false,
+      tools_requested: false,
+      raw_payload_artifacts_read: false,
+      ledger_appended: false,
+      prompt_artifact_persisted: false,
+      runtime_authority_granted: false
+    },
+    required_block_ids: requiredBlockIds,
+    present_block_ids: presentBlockIds,
+    missing_block_ids: missingBlockIds,
+    required_citation_ids: requiredCitationIds,
+    cited_source_event_ids: citedSourceEventIds,
+    missing_citation_ids: missingCitationIds,
+    unknown_source_event_ids: unknownSourceEventIds,
+    forbidden_claims_detected: forbiddenClaimFindings.map((finding) => finding.id),
+    findings,
+    next_steps: nextSteps
+  };
+}
+
+function responseAuditContractFor(format: PromptResponseFormat, citationMap: PromptCitationMap): PromptResponseAuditContract {
+  return {
+    required_block_ids: format.required_blocks.map((block) => block.id),
+    required_citation_ids: uniqueInOrder([
+      ...citationMap.run_event_ids,
+      ...citationMap.memory_sources.flatMap((memory) => memory.source_event_ids)
+    ]),
+    forbidden_claim_checks: [
+      "model_invocation_claim",
+      "tool_execution_claim",
+      "raw_payload_read_claim",
+      "runtime_authority_claim",
+      "completion_without_verification_claim"
+    ],
+    audit_can_authorize_actions: false,
+    audit_appends_ledger_events: false
+  };
+}
+
+function responseAuditContractLines(contract: PromptResponseAuditContract): string[] {
+  return [
+    `Required response blocks: ${contract.required_block_ids.join(", ")}.`,
+    `Required source citations: ${contract.required_citation_ids.length > 0 ? contract.required_citation_ids.join(", ") : "none"}.`,
+    `Forbidden claim checks: ${contract.forbidden_claim_checks.join(", ")}.`,
+    `Audit can authorize actions: ${contract.audit_can_authorize_actions}.`,
+    `Audit appends Ledger events: ${contract.audit_appends_ledger_events}.`,
+    "A passing response audit only checks prompt-output structure and citations; it is not runtime verification."
+  ];
 }
 
 function citationMapFor(sections: PromptSection[], contextPack: ContextPack, sourceEvents: PromptSourceEvent[]): PromptCitationMap {
@@ -770,6 +934,7 @@ function renderPromptMessages(sections: PromptSection[]): PromptMessage[] {
       "assembly-manifest",
       "readiness",
       "citation-map",
+      "response-audit",
       "response-format",
       "response-contract",
       "planner-checklist",
@@ -801,4 +966,103 @@ function sortedUnique(values: string[]): string[] {
 
 function uniqueInOrder(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function responseContainsBlock(response: string, block: PromptResponseBlock): boolean {
+  const title = normalizeBlockLabel(block.title);
+  const id = normalizeBlockLabel(block.id);
+  return response.split(/\r?\n/).some((line) => {
+    const label = normalizeBlockLabel(line);
+    return label === title || label === id || label.startsWith(`${title} `) || label.startsWith(`${id} `);
+  });
+}
+
+function normalizeBlockLabel(value: string): string {
+  return value
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/:.*$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-zA-Z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function extractSourceEventIds(response: string): string[] {
+  return response.match(/\bevt_[A-Za-z0-9_.:-]+\b/g) ?? [];
+}
+
+function forbiddenClaimFindingsFor(response: string): PromptResponseAuditFinding[] {
+  const findings: PromptResponseAuditFinding[] = [];
+  const lines = response.split(/\r?\n/);
+  const checks: Array<{ id: string; pattern: RegExp; message: string }> = [
+    {
+      id: "model_invocation_claim",
+      pattern: /\b(?:i|we|the planner|the response|model|llm)\s+(?:was\s+)?(?:invoked|called|ran|run)\s+(?:a\s+)?(?:model|llm)?\b/i,
+      message: "Response claims a model was invoked."
+    },
+    {
+      id: "tool_execution_claim",
+      pattern: /\b(?:i|we|the planner|the response|tool|filesystem|network|browser|connector)\s+(?:was\s+)?(?:requested|executed|called|ran|run)\s+(?:a\s+)?(?:tool|filesystem|network|browser|connector)?\b/i,
+      message: "Response claims a tool was requested or executed."
+    },
+    {
+      id: "raw_payload_read_claim",
+      pattern: /\b(?:i|we|the planner|the response)\s+read\s+raw\s+payload|\braw payload artifacts?\s+(?:was|were\s+)?read\b/i,
+      message: "Response claims raw payload artifacts were read."
+    },
+    {
+      id: "runtime_authority_claim",
+      pattern: /\b(?:prompt text|capability cards?|memory cards?|child output|runtime authority).{0,80}\bgranted\b|\bgranted runtime authority\b/i,
+      message: "Response claims prompt context granted runtime authority."
+    }
+  ];
+  for (const check of checks) {
+    if (lines.some((line) => check.pattern.test(line) && !isNegatedClaim(line))) {
+      findings.push({ id: check.id, severity: "error", message: check.message });
+    }
+  }
+  const completionClaim = lines.some((line) =>
+    /\b(?:done|complete|completed|finished|verified|all tests pass|tests passed)\b/i.test(line) && !isNegatedClaim(line)
+  );
+  const hasVerificationBlock = responseContainsBlock(response, {
+    id: "verification_evidence",
+    title: "Verification Evidence",
+    purpose: "",
+    source_event_ids_required: false
+  });
+  if (completionClaim && !hasVerificationBlock) {
+    findings.push({
+      id: "completion_without_verification_claim",
+      severity: "error",
+      message: "Response claims completion without a Verification Evidence block."
+    });
+  }
+  return findings;
+}
+
+function isNegatedClaim(line: string): boolean {
+  return /\b(?:do not|did not|does not|no|not|never|without|cannot|can't|must not)\b/i.test(line);
+}
+
+function nextStepForFinding(finding: PromptResponseAuditFinding): string {
+  if (finding.id.startsWith("missing_required_block:")) {
+    return "Rewrite the response with every required response-format block.";
+  }
+  if (finding.id.startsWith("missing_required_citation:")) {
+    return "Add explicit source event ids from the citation map to the evidence summary.";
+  }
+  if (finding.id.startsWith("unknown_source_event:")) {
+    return "Remove source event ids that are not present in the prompt citation map.";
+  }
+  if (finding.id === "prompt_plan_not_ready") {
+    return "Provide the missing run evidence before treating the prompt response as auditable.";
+  }
+  if (finding.id === "empty_response") {
+    return "Provide a non-empty response to audit.";
+  }
+  return "Remove forbidden runtime, model, tool, raw-payload, or completion claims from the response.";
 }

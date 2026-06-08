@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { assemblePromptPlan } from "../../orchestrator/src/index.ts";
+import { assemblePromptPlan, auditPromptResponse } from "../../orchestrator/src/index.ts";
 import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
@@ -885,12 +885,12 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan") {
-    throw new Error("prompt supports plan <run_id> --content <task>");
+  if (options.topic !== "plan" && options.topic !== "audit") {
+    throw new Error("prompt supports plan <run_id> --content <task> and audit <run_id> --content <task> --path <response-file>");
   }
   const runId = options.target ?? options.input;
   if (!options.content) {
-    throw new Error("prompt plan requires --content <task>");
+    throw new Error(`prompt ${options.topic} requires --content <task>`);
   }
   const workspaceRoot = resolve(options.workspace);
   const workspace = await openWorkspace(workspaceRoot);
@@ -902,7 +902,7 @@ async function runPrompt(options: CliOptions): Promise<void> {
   const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
   const tombstones = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone);
   const contextPack = assembleContextPack(runId, memories, "planning", tombstones);
-  printRawJson(assemblePromptPlan({
+  const plan = assemblePromptPlan({
     task: options.content,
     contextPack,
     sourceEvents: events,
@@ -910,7 +910,15 @@ async function runPrompt(options: CliOptions): Promise<void> {
     forbiddenTools: ["network.raw", "filesystem.write"],
     activePermissions: contextPack.active_leases,
     outputMode: "plan"
-  }));
+  });
+  if (options.topic === "plan") {
+    printRawJson(plan);
+    return;
+  }
+  const responsePath = requirePositional(options.path, "prompt audit requires --path <response-file>");
+  const relativeResponsePath = assertWorkspaceReadPath(workspaceRoot, responsePath);
+  const response = readFileSync(join(workspaceRoot, relativeResponsePath), "utf8");
+  printRawJson(auditPromptResponse({ plan, response }));
 }
 
 async function runCheckpoint(options: CliOptions): Promise<void> {
@@ -2635,6 +2643,19 @@ function requirePositional(value: string | undefined, message: string): string {
   return value;
 }
 
+function assertWorkspaceReadPath(workspaceRoot: string, targetPath: string): string {
+  const resolvedRoot = resolve(workspaceRoot);
+  const resolvedTarget = resolve(resolvedRoot, targetPath);
+  const relativeTarget = relative(resolvedRoot, resolvedTarget);
+  if (!relativeTarget || relativeTarget === ".") {
+    throw new Error("Read target must be a file path inside the workspace");
+  }
+  if (relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
+    throw new Error("Read target is outside workspace boundary");
+  }
+  return relativeTarget;
+}
+
 async function openWorkspace(workspaceRoot: string) {
   return (await loadWorkspaceFromRegistry(workspaceRoot)).workspace;
 }
@@ -2826,6 +2847,7 @@ Usage:
   npm run ether -- memory user-model --workspace <path>
   npm run ether -- context explain <run_id> --workspace <path>
   npm run ether -- prompt plan <run_id> --content <task> --workspace <path>
+  npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>
@@ -2871,7 +2893,7 @@ Commands:
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor workspace status preflight
   import                 Phase 4 dry-run migration report
-  memory/context/prompt  Source-backed Memory OS surfaces and non-authorizing prompt plan preview
+  memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
   capsule                Governed document-only draft/test/local-publish/rollback lifecycle
   why/counterfactual     Phase 7 causal memory report surfaces
