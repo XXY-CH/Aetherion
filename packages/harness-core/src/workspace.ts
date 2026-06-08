@@ -81,6 +81,17 @@ export const WAKEUP_QUEUE_RUN_EVENT_TYPES = [
   "wakeup.queued"
 ] as const;
 
+export const SECURITY_SCAN_CLEAN_EVENT_TYPES = [
+  "policy.decided",
+  "security.content.assessed"
+] as const;
+
+export const SECURITY_SCAN_BLOCKED_EVENT_TYPES = [
+  "policy.decided",
+  "security.content.assessed",
+  "poisoning.detected"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -104,6 +115,20 @@ export function replayRecordRunEventSequence(payloadRef: string): readonly RunEv
 
 export function wakeupQueueRunEventSequence(): readonly RunEventExpectation[] {
   return WAKEUP_QUEUE_RUN_EVENT_TYPES.map((eventType) => ({ event_type: eventType, payload_ref: null }));
+}
+
+export function securityScanCleanEventSequence(assessmentPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "policy.decided", payload_ref: null },
+    { event_type: "security.content.assessed", payload_ref: assessmentPayloadRef }
+  ];
+}
+
+export function securityScanBlockedEventSequence(assessmentPayloadRef: string, signalPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    ...securityScanCleanEventSequence(assessmentPayloadRef),
+    { event_type: "poisoning.detected", payload_ref: signalPayloadRef }
+  ];
 }
 
 export function workspaceRegistryPath(workspace: Workspace): string {

@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -2081,31 +2081,33 @@ async function runSecurity(options: CliOptions): Promise<void> {
       throw new Error(`Supervisor did not deny tainted authorization for ${assessment.id}`);
     }
     await recordRunEvent(repoRoot, workspace, manifest, taintPolicy.policy_event_id);
+    const assessmentPayloadRef = artifactRef("security", "scan", assessment.id);
     await appendManagedRunEvent(
       workspaceRoot,
       workspace,
       manifest,
       "security.content.assessed",
       `Assessed tainted ${assessment.source_kind} content from ${assessment.source_event_id}; raw content was not persisted and cannot authorize actions.`,
-      artifactRef("security", "scan", assessment.id)
+      assessmentPayloadRef
     );
     const signal = signalFromAssessment(assessment);
     if (!signal) {
-      await completeRunManifest(repoRoot, workspace, manifest, "completed");
+      await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", securityScanCleanEventSequence(assessmentPayloadRef));
       console.log(JSON.stringify(assessment, null, 2));
       return;
     }
     await requireValidContract("poisoning-signal.schema.json", signal);
     persistSecurityRecord(workspaceRoot, "scan", "poisoning-signals", signal);
+    const signalPayloadRef = artifactRef("security", "scan", signal.id);
     await appendManagedRunEvent(
       workspaceRoot,
       workspace,
       manifest,
       "poisoning.detected",
       `Quarantined ${signal.signal_type} signal ${signal.id}; no authorization or external action was issued.`,
-      artifactRef("security", "scan", signal.id)
+      signalPayloadRef
     );
-    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "blocked", securityScanBlockedEventSequence(assessmentPayloadRef, signalPayloadRef));
     console.log(JSON.stringify(signal, null, 2));
     return;
   }

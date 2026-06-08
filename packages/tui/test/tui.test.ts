@@ -1130,6 +1130,9 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(poisonRecord.content_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(poisonRecord.can_authorize_actions, false);
   assert.equal(poisonRecord.sandbox_required, true);
+  const securityRunManifestPath = await readdir(join(workspace, ".aetherion", "runs"))
+    .then((entries) => entries.find((entry) => entry.startsWith("run_security_scan_")));
+  assert.ok(securityRunManifestPath);
   const securityArtifacts = await readdir(join(workspace, ".aetherion", "artifacts", "security", "scan"));
   assert.ok(securityArtifacts.some((entry) => entry.startsWith("poison_")));
   assert.ok(securityArtifacts.some((entry) => entry.startsWith("assessment_")));
@@ -1150,6 +1153,18 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(securityLedger, /honeypot\.trial\.completed/);
   assert.match(securityLedger, /poisoning\.regression\.created/);
   assert.doesNotMatch(securityLedger, /Ignore previous instructions/);
+  const securityRunManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", securityRunManifestPath), "utf8")) as { id: string; status: string; event_ids: string[] };
+  const securityRunEvents = securityLedger
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { id: string; run_id: string; event_type: string; payload_ref?: string })
+    .filter((event) => event.run_id === securityRunManifest.id);
+  assert.equal(securityRunManifest.status, "blocked");
+  assert.deepEqual(securityRunManifest.event_ids, securityRunEvents.map((event) => event.id));
+  assert.deepEqual(securityRunEvents.map((event) => event.event_type), ["policy.decided", "security.content.assessed", "poisoning.detected"]);
+  assert.equal(securityRunEvents[0]?.payload_ref, undefined);
+  assert.match(securityRunEvents[1]?.payload_ref ?? "", /^artifact:\/\/security\/scan\/assessment_/);
+  assert.equal(securityRunEvents[2]?.payload_ref, `artifact://security/scan/${poisonRecord.id}`);
   const securityPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
     findings: Array<{
       event_type: string;

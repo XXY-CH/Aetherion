@@ -37,6 +37,7 @@ import {
   recordRunEvent,
   reconstructTrace,
   replayRecordRunEventSequence,
+  securityScanBlockedEventSequence,
   validateAgainstSchema,
   verifyEventHashChain,
   verifyFileContains,
@@ -487,6 +488,139 @@ test("queue-only wakeup run manifests reject payload refs and lease events", asy
     await recordRunEvent(repoRoot, workspace, validManifest, event.id);
   }
   await completeRunManifestWithEventSequence(repoRoot, workspace, validManifest, "blocked", wakeupQueueRunEventSequence());
+
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(completed.status, "blocked");
+  assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
+});
+
+test("security scan run manifests require taint policy and scan artifact refs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-security-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_security_lifecycle_guard");
+  const assessmentRef = "artifact://security/scan/assessment_guard";
+  const signalRef = "artifact://security/scan/poison_guard";
+
+  const wrongPayloadRunId = "run_security_wrong_payload";
+  const wrongPayloadManifest = await createRunManifest(repoRoot, workspace, wrongPayloadRunId, "Security lifecycle payload guard");
+  const wrongPayloadEvents = [
+    eventRecord({
+      id: "evt_security_wrong_policy",
+      workspace_id: workspace.id,
+      run_id: wrongPayloadRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted content without lease."
+    }),
+    eventRecord({
+      id: "evt_security_wrong_assessment",
+      workspace_id: workspace.id,
+      run_id: wrongPayloadRunId,
+      event_type: "security.content.assessed",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded mismatched assessment.",
+      payload_ref: "artifact://security/scan/assessment_other"
+    }),
+    eventRecord({
+      id: "evt_security_wrong_signal",
+      workspace_id: workspace.id,
+      run_id: wrongPayloadRunId,
+      event_type: "poisoning.detected",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded poisoning signal.",
+      payload_ref: signalRef
+    })
+  ];
+  for (const event of wrongPayloadEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongPayloadManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongPayloadManifest, "blocked", securityScanBlockedEventSequence(assessmentRef, signalRef)),
+    /expected payload_ref artifact:\/\/security\/scan\/assessment_guard/
+  );
+
+  const leaseRunId = "run_security_with_lease";
+  const leaseManifest = await createRunManifest(repoRoot, workspace, leaseRunId, "Security lifecycle lease guard");
+  const leaseEvents = [
+    eventRecord({
+      id: "evt_security_lease_policy",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted content without lease."
+    }),
+    eventRecord({
+      id: "evt_security_lease_issued",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Invalid lease for security scan."
+    }),
+    eventRecord({
+      id: "evt_security_lease_assessment",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "security.content.assessed",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded assessment.",
+      payload_ref: assessmentRef
+    }),
+    eventRecord({
+      id: "evt_security_lease_signal",
+      workspace_id: workspace.id,
+      run_id: leaseRunId,
+      event_type: "poisoning.detected",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded poisoning signal.",
+      payload_ref: signalRef
+    })
+  ];
+  for (const event of leaseEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, leaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, leaseManifest, "blocked", securityScanBlockedEventSequence(assessmentRef, signalRef)),
+    /expected lifecycle policy\.decided -> security\.content\.assessed -> poisoning\.detected, got policy\.decided -> lease\.issued -> security\.content\.assessed -> poisoning\.detected/
+  );
+
+  const validRunId = "run_security_lifecycle_guard";
+  const validManifest = await createRunManifest(repoRoot, workspace, validRunId, "Security lifecycle guard");
+  const validEvents = [
+    eventRecord({
+      id: "evt_security_valid_policy",
+      workspace_id: workspace.id,
+      run_id: validRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied tainted content without lease."
+    }),
+    eventRecord({
+      id: "evt_security_valid_assessment",
+      workspace_id: workspace.id,
+      run_id: validRunId,
+      event_type: "security.content.assessed",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded assessment.",
+      payload_ref: assessmentRef
+    }),
+    eventRecord({
+      id: "evt_security_valid_signal",
+      workspace_id: workspace.id,
+      run_id: validRunId,
+      event_type: "poisoning.detected",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded poisoning signal.",
+      payload_ref: signalRef
+    })
+  ];
+  for (const event of validEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, validManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, validManifest, "blocked", securityScanBlockedEventSequence(assessmentRef, signalRef));
 
   const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(completed.status, "blocked");
