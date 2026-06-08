@@ -7,6 +7,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   const plan = assemblePromptPlan({
     task: "Draft a local implementation plan for prompt assembly.",
     contextPack: contextPack(),
+    sourceEvents: sourceEvents(),
     allowedTools: ["filesystem.read", "filesystem.read"],
     forbiddenTools: ["network.raw", "filesystem.write"],
     activePermissions: ["lease_read_docs"],
@@ -22,9 +23,17 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.equal(plan.tool_policy.may_request_tools, true);
   assert.deepEqual(plan.memory_policy.selected_memory_ids, ["mem_prompt_style"]);
   assert.deepEqual(plan.memory_policy.excluded_memory_ids, ["mem_secret"]);
-  assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_memory_accept", "evt_user_pref"]);
+  assert.deepEqual(plan.run_evidence.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
+  assert.deepEqual(plan.run_evidence.event_types, ["run.started", "tool.requested", "run.completed"]);
+  assert.deepEqual(plan.run_evidence.artifact_refs, ["artifact://boundary/run_prompt/facts"]);
+  assert.deepEqual(plan.sections.find((section) => section.id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
+  assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_user_pref", "evt_memory_accept"]);
   assert.match(plan.preview, /System Boundary/);
   assert.match(plan.preview, /cannot authorize tool use or side effects/);
+  assert.match(plan.preview, /Run Evidence/);
+  assert.match(plan.preview, /evt_run_started \[run\.started\]/);
+  assert.match(plan.preview, /payload=artifact:\/\/boundary\/run_prompt\/facts/);
+  assert.match(plan.preview, /can_authorize=false/);
   assert.match(plan.preview, /mem_prompt_style/);
   assert.match(plan.preview, /sources=evt_user_pref,evt_memory_accept/);
   assert.match(plan.preview, /mem_secret: sensitivity secret not allowed in planning/);
@@ -43,6 +52,7 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
     contextPack: { ...contextPack(), selected_memories: [], excluded_memories: [], conflicts: [] }
   });
   assert.equal(plan.tool_policy.may_request_tools, false);
+  assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);
@@ -71,4 +81,42 @@ function contextPack(): ContextPack {
       task_tokens: 6000
     }
   };
+}
+
+function sourceEvents() {
+  return [
+    {
+      id: "evt_run_started",
+      run_id: "run_prompt",
+      event_type: "run.started",
+      summary: "Run started.",
+      payload_ref: "artifact://boundary/run_prompt/facts",
+      taint: {
+        sources: ["trusted_system"],
+        can_authorize_actions: false
+      }
+    },
+    {
+      id: "evt_other_run",
+      run_id: "run_other",
+      event_type: "run.started",
+      summary: "Other run should not enter prompt evidence."
+    },
+    {
+      id: "evt_tool_requested",
+      run_id: "run_prompt",
+      event_type: "tool.requested",
+      summary: "Requested a local file read.",
+      taint: {
+        sources: ["trusted_system"],
+        can_authorize_actions: false
+      }
+    },
+    {
+      id: "evt_run_completed",
+      run_id: "run_prompt",
+      event_type: "run.completed",
+      summary: "Run completed."
+    }
+  ];
 }

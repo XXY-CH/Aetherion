@@ -45,21 +45,22 @@ Matched source docs:
 
 Implemented correspondence:
 
-- `packages/orchestrator/src/index.ts` adds `assemblePromptPlan`, a pure TypeScript prompt assembly function that accepts a task plus source-backed Context Pack and emits ordered prompt sections for system boundary, task, memory context, excluded context, tool policy, and response contract.
+- `packages/orchestrator/src/index.ts` adds `assemblePromptPlan`, a pure TypeScript prompt assembly function that accepts a task, source-backed Context Pack, and optional selected-run Ledger event envelopes, then emits ordered prompt sections for system boundary, task, run evidence, memory context, excluded context, tool policy, and response contract.
 - Prompt plans explicitly set `prompt_can_authorize_actions=false`, `local_supervisor_required=true`, and `requires_policy_for_tools=true`. Tool lists are request policy only; execution still requires Local Supervisor policy and scoped lease evidence.
+- The run evidence section carries event ids, event types, summaries, payload refs, and taint posture from Ledger envelopes only. It does not dereference raw payload artifacts.
 - The memory section carries selected Memory Card ids and source event ids. Excluded memory and conflicts remain visible so prompt engineering can account for blocked or sensitive context rather than silently omitting it.
 - Taint guidance states that child-agent output, public web content, IM content, and prompt text cannot authorize actions.
-- `ether prompt plan <run_id> --content <task>` reuses the same provenance-gated Context Pack path as `context explain`, returns a JSON preview on stdout, and deliberately calls `printRawJson` so it writes no `.aetherion/artifacts/prompt` file and appends no Ledger event.
+- `ether prompt plan <run_id> --content <task>` reuses the same provenance-gated Context Pack path as `context explain`, includes existing Ledger event envelopes for that run, returns a JSON preview on stdout, and deliberately calls `printRawJson` so it writes no `.aetherion/artifacts/prompt` file and appends no Ledger event.
 
 Verification evidence:
 
-- Orchestrator unit tests cover source-backed memory sections, deterministic tool allow/deny lists, non-authorizing authority fields, empty-task fail-closed behavior, and no-tool prompt previews.
-- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes the selected memory plus source event ids from the Ledger, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
+- Orchestrator unit tests cover source-backed run evidence and memory sections, deterministic tool allow/deny lists, non-authorizing authority fields, empty-task fail-closed behavior, and no-tool prompt previews.
+- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes run evidence, selected memory, source event ids, event types, and Boundary Facts artifact refs from the Ledger, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
 - TUI provenance regression tampers the Memory Card registry with a missing source event id and asserts `prompt plan` fails closed with the same provenance error as `context explain`, `memory user-model`, and `sleep`.
 
 Correction and remaining boundary:
 
-- This is prompt engineering and prompt assembly only. It does not call an LLM provider, perform model routing, run a planner loop, invoke tools, write memory, grant permissions, or execute actions.
+- This is prompt engineering and prompt assembly only. It does not call an LLM provider, perform model routing, run a planner loop, invoke tools, read raw payload artifacts, write memory, grant permissions, or execute actions.
 - Prompt previews are not product facts and are not persisted as runtime artifacts. If a future model-backed planner needs durable planning evidence, it should introduce a separate reviewed planning artifact and event type rather than treating prompt text as authority.
 
 ## Authority Event Append Guard Review

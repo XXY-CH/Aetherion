@@ -905,6 +905,7 @@ async function runPrompt(options: CliOptions): Promise<void> {
   printRawJson(assemblePromptPlan({
     task: options.content,
     contextPack,
+    sourceEvents: events,
     allowedTools: contextPack.capability_cards,
     forbiddenTools: ["network.raw", "filesystem.write"],
     activePermissions: contextPack.active_leases,

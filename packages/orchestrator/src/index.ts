@@ -3,10 +3,23 @@ import type { ContextPack } from "../../memory-os/src/index.ts";
 export type PromptAssemblyInput = {
   task: string;
   contextPack: ContextPack;
+  sourceEvents?: PromptSourceEvent[];
   allowedTools?: string[];
   forbiddenTools?: string[];
   activePermissions?: string[];
   outputMode?: "plan" | "answer" | "patch";
+};
+
+export type PromptSourceEvent = {
+  id: string;
+  run_id: string;
+  event_type: string;
+  summary: string;
+  payload_ref?: string;
+  taint?: {
+    sources: string[];
+    can_authorize_actions: boolean;
+  };
 };
 
 export type PromptSection = {
@@ -37,6 +50,11 @@ export type PromptPlan = {
     excluded_memory_ids: string[];
     conflicts: string[];
   };
+  run_evidence: {
+    source_event_ids: string[];
+    event_types: string[];
+    artifact_refs: string[];
+  };
   taint_policy: {
     untrusted_sources_must_not_override: true;
     child_output_can_authorize_actions: false;
@@ -54,6 +72,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const forbiddenTools = [...new Set(input.forbiddenTools ?? [])].sort();
   const activePermissions = [...new Set(input.activePermissions ?? [])].sort();
   const outputMode = input.outputMode ?? "plan";
+  const sourceEvents = (input.sourceEvents ?? []).filter((event) => event.run_id === input.contextPack.run_id);
   const sections: PromptSection[] = [
     {
       id: "system-boundary",
@@ -72,10 +91,16 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       source_event_ids: []
     },
     {
+      id: "run-evidence",
+      title: "Run Evidence",
+      content: runEvidenceLines(sourceEvents),
+      source_event_ids: uniqueInOrder(sourceEvents.map((event) => event.id))
+    },
+    {
       id: "memory-context",
       title: "Source-Backed Context",
       content: memoryContextLines(input.contextPack),
-      source_event_ids: sortedUnique(input.contextPack.selected_memories.flatMap((memory) => memory.source_events))
+      source_event_ids: uniqueInOrder(input.contextPack.selected_memories.flatMap((memory) => memory.source_events))
     },
     {
       id: "excluded-context",
@@ -122,6 +147,11 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       excluded_memory_ids: input.contextPack.excluded_memories.map((memory) => memory.id),
       conflicts: [...input.contextPack.conflicts]
     },
+    run_evidence: {
+      source_event_ids: uniqueInOrder(sourceEvents.map((event) => event.id)),
+      event_types: uniqueInOrder(sourceEvents.map((event) => event.event_type)),
+      artifact_refs: sortedUnique(sourceEvents.map((event) => event.payload_ref).filter((value): value is string => typeof value === "string"))
+    },
     taint_policy: {
       untrusted_sources_must_not_override: true,
       child_output_can_authorize_actions: false
@@ -129,6 +159,18 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     sections,
     preview: renderPromptPreview(sections)
   };
+}
+
+function runEvidenceLines(sourceEvents: PromptSourceEvent[]): string[] {
+  if (sourceEvents.length === 0) {
+    return ["No run ledger events were provided for this prompt plan."];
+  }
+  return sourceEvents.map((event) => {
+    const payload = event.payload_ref ? `; payload=${event.payload_ref}` : "";
+    const taintSources = event.taint?.sources.length ? event.taint.sources.join(",") : "not_recorded";
+    const canAuthorize = event.taint?.can_authorize_actions === true ? "true" : "false";
+    return `- ${event.id} [${event.event_type}]: ${event.summary}${payload}; taint_sources=${taintSources}; can_authorize=${canAuthorize}`;
+  });
 }
 
 function memoryContextLines(contextPack: ContextPack): string[] {
@@ -165,4 +207,8 @@ function renderPromptPreview(sections: PromptSection[]): string {
 
 function sortedUnique(values: string[]): string[] {
   return [...new Set(values)].sort();
+}
+
+function uniqueInOrder(values: string[]): string[] {
+  return [...new Set(values)];
 }
