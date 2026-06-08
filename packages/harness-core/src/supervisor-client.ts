@@ -277,7 +277,7 @@ function assertSupervisorResponseEnvelope(request: SupervisorRpcRequest, respons
   if (hasResult && hasError) {
     throw new Error(`supervisor rpc ${request.method} response ${request.id} included both result and error`);
   }
-  if (hasError && (typeof envelope.error !== "string" || envelope.error.length === 0)) {
+  if (hasError && (typeof envelope.error !== "string" || envelope.error.trim().length === 0)) {
     throw new Error(`supervisor rpc ${request.method} response ${request.id} included an invalid error`);
   }
 }
