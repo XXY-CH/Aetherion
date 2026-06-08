@@ -78,8 +78,7 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     throw new Error(`supervisor rpc ${timedOut ? "timed out" : "failed"}: ${stderr.trim()}`);
   }
   const line = singleSupervisorResponseLine(request, stdout);
-  const response = JSON.parse(line) as SupervisorRpcResponse;
-  assertSupervisorResponseEnvelope(request, response);
+  const response = parseSupervisorResponseEnvelope(request, line);
   if (response.error) {
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
   }
@@ -116,8 +115,7 @@ async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath
     clearTimeout(timeout);
   }
   const line = singleSupervisorResponseLine(request, stdout);
-  const response = JSON.parse(line) as SupervisorRpcResponse;
-  assertSupervisorResponseEnvelope(request, response);
+  const response = parseSupervisorResponseEnvelope(request, line);
   if (response.error) {
     throw new Error(`supervisor socket rpc ${request.method} failed: ${response.error}`);
   }
@@ -133,6 +131,126 @@ function singleSupervisorResponseLine(request: SupervisorRpcRequest, stdout: str
     throw new Error(`supervisor rpc ${request.method} returned multiple response lines`);
   }
   return lines[0];
+}
+
+function parseSupervisorResponseEnvelope(request: SupervisorRpcRequest, line: string): SupervisorRpcResponse {
+  assertNoDuplicateSupervisorEnvelopeFields(request, line);
+  const response = JSON.parse(line) as SupervisorRpcResponse;
+  assertSupervisorResponseEnvelope(request, response);
+  return response;
+}
+
+function assertNoDuplicateSupervisorEnvelopeFields(request: SupervisorRpcRequest, line: string): void {
+  const duplicates = duplicateTopLevelJsonObjectKeys(line);
+  if (duplicates.length === 1) {
+    throw new Error(`supervisor rpc ${request.method} response ${request.id} included duplicate envelope field ${duplicates[0]}`);
+  }
+  if (duplicates.length > 1) {
+    throw new Error(`supervisor rpc ${request.method} response ${request.id} included duplicate envelope fields ${duplicates.join(", ")}`);
+  }
+}
+
+function duplicateTopLevelJsonObjectKeys(line: string): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  let index = skipJsonWhitespace(line, 0);
+  if (line[index] !== "{") {
+    return [];
+  }
+  index += 1;
+
+  while (index < line.length) {
+    index = skipJsonWhitespace(line, index);
+    if (line[index] === "}") {
+      return [...duplicates];
+    }
+    if (line[index] !== "\"") {
+      return [];
+    }
+    const keyEnd = jsonStringEnd(line, index);
+    if (keyEnd === -1) {
+      return [];
+    }
+    let key: string;
+    try {
+      key = JSON.parse(line.slice(index, keyEnd)) as string;
+    } catch {
+      return [];
+    }
+    if (seen.has(key)) {
+      duplicates.add(key);
+    } else {
+      seen.add(key);
+    }
+    index = skipJsonWhitespace(line, keyEnd);
+    if (line[index] !== ":") {
+      return [];
+    }
+    index = skipJsonValue(line, index + 1);
+    if (index === -1) {
+      return [];
+    }
+    index = skipJsonWhitespace(line, index);
+    if (line[index] === ",") {
+      index += 1;
+      continue;
+    }
+    if (line[index] === "}") {
+      return [...duplicates];
+    }
+    return [];
+  }
+  return [];
+}
+
+function skipJsonWhitespace(line: string, index: number): number {
+  while (index < line.length && /\s/.test(line[index])) {
+    index += 1;
+  }
+  return index;
+}
+
+function skipJsonValue(line: string, index: number): number {
+  let depth = 0;
+  for (let cursor = skipJsonWhitespace(line, index); cursor < line.length; cursor += 1) {
+    const char = line[cursor];
+    if (char === "\"") {
+      const end = jsonStringEnd(line, cursor);
+      if (end === -1) {
+        return -1;
+      }
+      cursor = end - 1;
+      continue;
+    }
+    if (char === "{" || char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}" || char === "]") {
+      if (depth === 0) {
+        return cursor;
+      }
+      depth -= 1;
+      continue;
+    }
+    if (char === "," && depth === 0) {
+      return cursor;
+    }
+  }
+  return line.length;
+}
+
+function jsonStringEnd(line: string, index: number): number {
+  for (let cursor = index + 1; cursor < line.length; cursor += 1) {
+    if (line[cursor] === "\\") {
+      cursor += 1;
+      continue;
+    }
+    if (line[cursor] === "\"") {
+      return cursor + 1;
+    }
+  }
+  return -1;
 }
 
 function assertSupervisorResponseEnvelope(request: SupervisorRpcRequest, response: SupervisorRpcResponse): void {
