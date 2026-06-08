@@ -534,21 +534,21 @@ Matched architecture docs:
 
 Implemented correspondence:
 
-- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, Replay Record, Memory lifecycle, Security lifecycle, and Capsule draft/test/publish artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, `replay-record.schema.json`, `memory-candidate.schema.json`, `memory-card.schema.json`, `memory-tombstone.schema.json`, `content-assessment.schema.json`, `poisoning-signal.schema.json`, `honeypot-trial.schema.json`, `poisoning-regression-fixture.schema.json`, and `capability-capsule.schema.json`.
+- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, Replay Record, Memory lifecycle, Security lifecycle, Surface/Store lifecycle, and Capsule draft/test/publish artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, `replay-record.schema.json`, `memory-candidate.schema.json`, `memory-card.schema.json`, `memory-tombstone.schema.json`, `content-assessment.schema.json`, `poisoning-signal.schema.json`, `honeypot-trial.schema.json`, `poisoning-regression-fixture.schema.json`, `browser-observation.schema.json`, `im-inbox-item.schema.json`, `im-outbox-item.schema.json`, `capsule-install.schema.json`, and `capability-capsule.schema.json`.
 - Findings now include `schema_name`, `schema_status`, and `schema_errors`; summaries now include `schema_valid`, `schema_invalid`, and `schema_not_checked`.
 - Generic local Ether artifacts still resolve by path and JSON parse only, with `schema_status=not_checked`.
 - Missing files, unresolved schemes, and invalid JSON remain not checked. The audit still writes nothing, repairs nothing, and appends no Ledger events.
 
 Verification evidence:
 
-- Harness tests cover valid Boundary Facts, Consent Record, Memory Candidate/Card/Tombstone, Security Assessment/Signal/Trial/Fixture, and Capsule payloads; invalid Boundary Facts, Memory Card, and Content Assessment artifacts with schema errors; generic not-checked artifacts; missing artifacts; invalid JSON; and unresolved refs.
-- TUI integration verifies a real Rust-supervised run reports the `run.started` Boundary Facts payload, `consent.recorded` Consent Record payload, and the Ledger-backed `replay.recorded` Replay Record payload from an independent replay run as schema-valid while leaving the Ledger, registry, and artifact files unchanged during the audit. The local phase integration also verifies Security scan/ack/trial/fixture payload refs report the Content Assessment, Poisoning Signal, Honeypot Trial, and Poisoning Regression Fixture schemas as valid.
+- Harness tests cover valid Boundary Facts, Consent Record, Memory Candidate/Card/Tombstone, Security Assessment/Signal/Trial/Fixture, Surface Browser/IM, Store Install, and Capsule payloads; invalid Boundary Facts, Memory Card, Content Assessment, and IM Outbox artifacts with schema errors; generic not-checked artifacts; missing artifacts; invalid JSON; and unresolved refs.
+- TUI integration verifies a real Rust-supervised run reports the `run.started` Boundary Facts payload, `consent.recorded` Consent Record payload, and the Ledger-backed `replay.recorded` Replay Record payload from an independent replay run as schema-valid while leaving the Ledger, registry, and artifact files unchanged during the audit. Local phase integrations also verify Security scan/ack/trial/fixture payload refs report the Content Assessment, Poisoning Signal, Honeypot Trial, and Poisoning Regression Fixture schemas as valid, and Surface/Store payload refs report Browser Observation, IM Inbox/Outbox, and Capsule Install schemas as valid.
 
 Correction and remaining boundary:
 
 - No schema was expanded for this phase. The audit uses existing contracts only.
 - Schema-valid payload artifacts are still supporting evidence. Policy decisions, scoped leases, and supervisor-authored action events remain the runtime authority boundary.
-- Capsule draft/test/publish artifacts are schema-checked because the Capsule lifecycle has an explicit rebuild/parity path. Memory lifecycle and Security scan/ack/trial/fixture artifacts are now schema-checked through their existing contracts. Capsule rollback, surface/store, and other generic lifecycle artifacts remain not checked until each family has a dedicated schema/audit path.
+- Capsule draft/test/publish artifacts are schema-checked because the Capsule lifecycle has an explicit rebuild/parity path. Memory lifecycle, Security scan/ack/trial/fixture, Surface browser/IM, and Store install artifacts are now schema-checked through their existing contracts. Capsule rollback and other generic lifecycle artifacts remain not checked until each family has a dedicated schema/audit path.
 
 ## Phase 28 Review Notes
 

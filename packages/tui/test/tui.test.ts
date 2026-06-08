@@ -1073,6 +1073,22 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.match(ledger, /Denied public slack outbox send/);
   assert.doesNotMatch(ledger, /apiKey='secret'/);
   assert.doesNotMatch(ledger, /draft only/);
+  const payloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      schema_name?: string;
+      schema_status: string;
+    }>;
+  };
+  const payloadFinding = (eventType: string) => payloadAudit.findings.find((finding) => finding.event_type === eventType);
+  assert.equal(payloadFinding("browser.observation.ingested")?.schema_name, "browser-observation.schema.json");
+  assert.equal(payloadFinding("browser.observation.ingested")?.schema_status, "valid");
+  assert.equal(payloadFinding("im.inbox.received")?.schema_name, "im-inbox-item.schema.json");
+  assert.equal(payloadFinding("im.inbox.received")?.schema_status, "valid");
+  assert.equal(payloadFinding("im.outbox.queued")?.schema_name, "im-outbox-item.schema.json");
+  assert.equal(payloadFinding("im.outbox.queued")?.schema_status, "valid");
+  assert.equal(payloadFinding("capsule.store.installed")?.schema_name, "capsule-install.schema.json");
+  assert.equal(payloadFinding("capsule.store.installed")?.schema_status, "valid");
 });
 
 function publishedStoreCapsule(sourceEvent: string, runId: string): Record<string, unknown> {

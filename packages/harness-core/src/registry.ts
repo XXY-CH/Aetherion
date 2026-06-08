@@ -1397,6 +1397,20 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
       return "poisoning-regression-fixture.schema.json";
     }
   }
+  if (parts[0] === "surface" && parts.length === 3) {
+    if (parts[1] === "browser-observe" && eventType === "browser.observation.ingested") {
+      return "browser-observation.schema.json";
+    }
+    if (parts[1] === "im-inbox" && eventType === "im.inbox.received") {
+      return "im-inbox-item.schema.json";
+    }
+    if (parts[1] === "im-outbox" && eventType === "im.outbox.queued") {
+      return "im-outbox-item.schema.json";
+    }
+  }
+  if (parts[0] === "store" && parts.length === 3 && parts[1] === "install" && eventType === "capsule.store.installed") {
+    return "capsule-install.schema.json";
+  }
   return undefined;
 }
 

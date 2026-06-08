@@ -1086,6 +1086,10 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const securityAckDir = join(root, ".aetherion", "artifacts", "security", "ack");
   const securityTrialDir = join(root, ".aetherion", "artifacts", "security", "trial");
   const securityFixtureDir = join(root, ".aetherion", "artifacts", "security", "fixture");
+  const surfaceBrowserDir = join(root, ".aetherion", "artifacts", "surface", "browser-observe");
+  const surfaceInboxDir = join(root, ".aetherion", "artifacts", "surface", "im-inbox");
+  const surfaceOutboxDir = join(root, ".aetherion", "artifacts", "surface", "im-outbox");
+  const storeInstallDir = join(root, ".aetherion", "artifacts", "store", "install");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
   await mkdir(consentDir, { recursive: true });
@@ -1100,6 +1104,10 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await mkdir(securityAckDir, { recursive: true });
   await mkdir(securityTrialDir, { recursive: true });
   await mkdir(securityFixtureDir, { recursive: true });
+  await mkdir(surfaceBrowserDir, { recursive: true });
+  await mkdir(surfaceInboxDir, { recursive: true });
+  await mkdir(surfaceOutboxDir, { recursive: true });
+  await mkdir(storeInstallDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
@@ -1117,6 +1125,11 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(securityTrialDir, "honeypot_payload.json"), `${JSON.stringify(honeypotTrial("honeypot_payload"), null, 2)}\n`);
   await writeFile(join(securityFixtureDir, "poison_fixture_payload.json"), `${JSON.stringify(poisoningFixture("poison_fixture_payload"), null, 2)}\n`);
   await writeFile(join(securityScanDir, "assessment_invalid.json"), `${JSON.stringify({ id: "assessment_invalid" }, null, 2)}\n`);
+  await writeFile(join(surfaceBrowserDir, "browser_obs_payload.json"), `${JSON.stringify(browserObservation("browser_obs_payload"), null, 2)}\n`);
+  await writeFile(join(surfaceInboxDir, "inbox_payload.json"), `${JSON.stringify(imInboxItem("inbox_payload"), null, 2)}\n`);
+  await writeFile(join(surfaceOutboxDir, "outbox_payload.json"), `${JSON.stringify(imOutboxItem("outbox_payload"), null, 2)}\n`);
+  await writeFile(join(storeInstallDir, "install_payload.json"), `${JSON.stringify(capsuleInstall("install_payload"), null, 2)}\n`);
+  await writeFile(join(surfaceOutboxDir, "outbox_invalid.json"), `${JSON.stringify({ id: "outbox_invalid" }, null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
@@ -1135,6 +1148,11 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_security_trial", "run_payload_resolved", "honeypot.trial.completed", "artifact://security/trial/honeypot_payload"),
     payloadEvent("evt_payload_security_fixture", "run_payload_resolved", "poisoning.regression.created", "artifact://security/fixture/poison_fixture_payload"),
     payloadEvent("evt_payload_security_invalid", "run_payload_schema_invalid", "security.content.assessed", "artifact://security/scan/assessment_invalid"),
+    payloadEvent("evt_payload_surface_browser", "run_payload_resolved", "browser.observation.ingested", "artifact://surface/browser-observe/browser_obs_payload"),
+    payloadEvent("evt_payload_surface_inbox", "run_payload_resolved", "im.inbox.received", "artifact://surface/im-inbox/inbox_payload"),
+    payloadEvent("evt_payload_surface_outbox", "run_payload_resolved", "im.outbox.queued", "artifact://surface/im-outbox/outbox_payload"),
+    payloadEvent("evt_payload_store_install", "run_payload_resolved", "capsule.store.installed", "artifact://store/install/install_payload"),
+    payloadEvent("evt_payload_surface_invalid", "run_payload_schema_invalid", "im.outbox.queued", "artifact://surface/im-outbox/outbox_invalid"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1147,13 +1165,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 19,
-    resolved: 16,
+    events_with_payload_ref: 24,
+    resolved: 21,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 13,
-    schema_invalid: 3,
+    schema_valid: 17,
+    schema_invalid: 4,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1192,6 +1210,17 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_security_invalid")?.schema_name, "content-assessment.schema.json");
   assert.equal(byId.get("evt_payload_security_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_security_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
+  assert.equal(byId.get("evt_payload_surface_browser")?.schema_name, "browser-observation.schema.json");
+  assert.equal(byId.get("evt_payload_surface_browser")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_surface_inbox")?.schema_name, "im-inbox-item.schema.json");
+  assert.equal(byId.get("evt_payload_surface_inbox")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_surface_outbox")?.schema_name, "im-outbox-item.schema.json");
+  assert.equal(byId.get("evt_payload_surface_outbox")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_store_install")?.schema_name, "capsule-install.schema.json");
+  assert.equal(byId.get("evt_payload_store_install")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_surface_invalid")?.schema_name, "im-outbox-item.schema.json");
+  assert.equal(byId.get("evt_payload_surface_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_surface_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -1361,6 +1390,99 @@ function poisoningFixture(id: string) {
     expected_authorization_blocked: true,
     raw_content_included: false,
     created_at: "2026-06-07T10:03:00.000Z"
+  };
+}
+
+const surfaceContentHash = `sha256:${"b".repeat(64)}`;
+
+function browserObservation(id: string) {
+  return {
+    id,
+    origin: "https://example.com/account",
+    title: "Account",
+    mode: "current_tab_observe",
+    current_tab_only: true,
+    dom_sha256: surfaceContentHash,
+    raw_dom_persisted: false,
+    redactions: {
+      password_fields: 1,
+      hidden_inputs: 1,
+      credential_like_matches: 1
+    },
+    taint: {
+      sources: ["public_web"],
+      can_authorize_actions: false
+    },
+    can_create_side_effects: false,
+    policy_decision_id: "policy_surface_payload_deny",
+    source_event_ids: ["evt_surface_source"],
+    captured_at: "2026-06-07T11:00:00.000Z"
+  };
+}
+
+function imInboxItem(id: string) {
+  return {
+    id,
+    adapter: "local_fixture",
+    external_message_id: "msg_payload",
+    sender_hash: surfaceContentHash,
+    sender_role: "unknown",
+    visibility: "group",
+    mentioned: true,
+    message_sha256: surfaceContentHash,
+    raw_message_persisted: false,
+    risk_level: "L5",
+    disposition: "pairing_required",
+    can_authorize_actions: false,
+    taint: {
+      sources: ["im"],
+      can_authorize_actions: false
+    },
+    created_at: "2026-06-07T11:01:00.000Z"
+  };
+}
+
+function imOutboxItem(id: string) {
+  return {
+    id,
+    source_run_id: "run_surface_payload",
+    adapter: "local_fixture",
+    destination_hash: surfaceContentHash,
+    visibility: "dm",
+    body_sha256: surfaceContentHash,
+    raw_body_persisted: false,
+    risk_level: "L3",
+    approval_required: true,
+    delivery_status: "queued",
+    delivery_attempted: false,
+    approval_scope: {
+      one_scoped_action: true,
+      may_reuse_for_future_messages: false
+    },
+    policy_decision_id: "policy_surface_outbox_ask",
+    policy_event_id: "evt_surface_outbox_policy",
+    created_at: "2026-06-07T11:02:00.000Z"
+  };
+}
+
+function capsuleInstall(id: string) {
+  return {
+    id,
+    package_id: "pkg_payload",
+    capsule_id: "cap_payload",
+    capsule_version: "1.0.0",
+    publisher_id: "pub_payload",
+    package_digest: surfaceContentHash,
+    signature_verified: true,
+    permission_diff_reviewed: true,
+    replay_tests_passed: true,
+    sandbox_trial_passed: true,
+    approval_card_id: null,
+    rollback_target: null,
+    installed_registry: "capsules",
+    raw_code_executed: false,
+    status: "installed",
+    created_at: "2026-06-07T11:03:00.000Z"
   };
 }
 
