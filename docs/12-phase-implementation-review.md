@@ -502,21 +502,21 @@ Matched architecture docs:
 
 Implemented correspondence:
 
-- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, and Replay Record artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, and `replay-record.schema.json`.
+- `auditLedgerPayloadRefs` now schema-validates parsed local Boundary Facts, Consent Record, Replay Record, and Capsule draft/test/publish artifacts against `boundary-facts.schema.json`, `consent-record.schema.json`, `replay-record.schema.json`, and `capability-capsule.schema.json`.
 - Findings now include `schema_name`, `schema_status`, and `schema_errors`; summaries now include `schema_valid`, `schema_invalid`, and `schema_not_checked`.
 - Generic local Ether artifacts still resolve by path and JSON parse only, with `schema_status=not_checked`.
 - Missing files, unresolved schemes, and invalid JSON remain not checked. The audit still writes nothing, repairs nothing, and appends no Ledger events.
 
 Verification evidence:
 
-- Harness tests cover valid Boundary Facts and Consent Record payloads, an invalid Boundary Facts artifact with schema errors, generic not-checked artifacts, missing artifacts, invalid JSON, and unresolved refs.
+- Harness tests cover valid Boundary Facts, Consent Record, and Capsule payloads, an invalid Boundary Facts artifact with schema errors, generic not-checked artifacts, missing artifacts, invalid JSON, and unresolved refs.
 - TUI integration verifies a real Rust-supervised run reports the `run.started` Boundary Facts payload, `consent.recorded` Consent Record payload, and an explicit `replay.recorded` Replay Record payload as schema-valid while leaving the Ledger, registry, and artifact files unchanged during the audit.
 
 Correction and remaining boundary:
 
 - No schema was expanded for this phase. The audit uses existing contracts only.
 - Schema-valid payload artifacts are still supporting evidence. Policy decisions, scoped leases, and supervisor-authored action events remain the runtime authority boundary.
-- Capsule, memory, security, and other generic lifecycle artifacts are intentionally not schema-checked by this audit until each family has an explicit rebuild/parity or typed-audit path.
+- Capsule draft/test/publish artifacts are now schema-checked because the Capsule lifecycle has an explicit rebuild/parity path. Capsule rollback, memory, security, and other generic lifecycle artifacts remain not checked until each family has a dedicated schema/audit path.
 
 ## Phase 28 Review Notes
 

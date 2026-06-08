@@ -55,7 +55,7 @@ Gate for P1 changes:
 - Show the command or module path that produces the contract from real Ledger evidence, or from registry evidence whose Ledger event references pass the read-only registry provenance audit.
 - Add a negative test for missing source events, inherited authority, raw secrets, or live side-effect replay where relevant.
 - Keep advanced behavior report-only or sandbox-only unless Rust supervisor authority exists.
-- Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records`, `audit memory-records`, and `audit capsule-records` are scoped read-only rebuild/parity previews for Replay Records, active Memory Card/Tombstone projections, and Capsule lifecycle projections. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifact contracts, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for remaining registry families remains future work.
+- Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records`, `audit memory-records`, and `audit capsule-records` are scoped read-only rebuild/parity previews for Replay Records, active Memory Card/Tombstone projections, and Capsule lifecycle projections. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifacts plus Capsule draft/test/publish snapshots, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for remaining registry families remains future work.
 
 ### P2: Frozen Innovation Contracts
 
@@ -108,7 +108,7 @@ Consent Record artifacts prove one approved local write request. They do not est
 
 `ether boundary <run_id>` may derive a read-only action matrix from those existing lifecycle events for TUI inspection. That matrix is a projection only: it must not add schema fields, append `boundary.*` events, write artifacts, mutate registries, or claim to be a durable per-action boundary card.
 
-`ether audit payload-refs` may inspect Ledger `payload_ref` values and resolve known local `artifact://` paths for Boundary Facts, Consent Records, Replay Records, and generic Ether artifacts. It may schema-validate Boundary Facts, Consent Records, and Replay Records using the existing contracts; unsupported or generic artifacts remain `not_checked`. It is a read-only visibility pass: it must not append events, write or repair artifacts, mutate registries, or imply that referenced artifacts grant authority.
+`ether audit payload-refs` may inspect Ledger `payload_ref` values and resolve known local `artifact://` paths for Boundary Facts, Consent Records, Replay Records, Capsule lifecycle snapshots, and generic Ether artifacts. It may schema-validate Boundary Facts, Consent Records, Replay Records, and Capsule draft/test/publish snapshots using the existing contracts; Capsule rollback snapshots and unsupported or generic artifacts remain `not_checked`. It is a read-only visibility pass: it must not append events, write or repair artifacts, mutate registries, or imply that referenced artifacts grant authority.
 
 ## Node Baseline
 

@@ -1369,6 +1369,9 @@ function schemaNameForArtifactReference(artifactRef: string): string | undefined
   if (parts[0] === "replay" && parts.length === 3 && parts[2] === "trace") {
     return "replay-record.schema.json";
   }
+  if (parts[0] === "capsule" && parts.length === 3 && ["draft", "test", "publish"].includes(parts[1])) {
+    return "capability-capsule.schema.json";
+  }
   return undefined;
 }
 

@@ -774,7 +774,7 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
-  await writeFile(join(genericDir, "capsule_a.json"), `${JSON.stringify({ id: "capsule_a" }, null, 2)}\n`);
+  await writeFile(join(genericDir, "capsule_a.json"), `${JSON.stringify(capsuleRecord("cap_payload", "0.1.0", "draft"), null, 2)}\n`);
   await writeFile(join(invalidDir, "broken.json"), "{not json");
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
@@ -799,9 +799,9 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 2,
+    schema_valid: 3,
     schema_invalid: 1,
-    schema_not_checked: 4
+    schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
   assert.equal(byId.get("evt_payload_boundary")?.resolved_path, join(boundaryDir, "boundary_run_payload_resolved_facts.json"));
@@ -811,7 +811,8 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_consent")?.schema_name, "consent-record.schema.json");
   assert.equal(byId.get("evt_payload_consent")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_generic")?.status, "resolved");
-  assert.equal(byId.get("evt_payload_generic")?.schema_status, "not_checked");
+  assert.equal(byId.get("evt_payload_generic")?.schema_name, "capability-capsule.schema.json");
+  assert.equal(byId.get("evt_payload_generic")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -934,7 +935,7 @@ function capsuleRecord(id: string, version: string, lifecycle: string) {
     sandbox_trial: lifecycle === "draft" ? null : {
       status: "passed",
       sandbox_path: `.aetherion/capsules/trials/${id}/${version}/playbook.md`,
-      content_sha256: "sha256-demo",
+      content_sha256: `sha256:${"a".repeat(64)}`,
       forbidden_pattern_matches: []
     },
     approval: {
@@ -944,7 +945,7 @@ function capsuleRecord(id: string, version: string, lifecycle: string) {
     },
     integrity: lifecycle === "draft" ? null : {
       algorithm: "sha256",
-      digest: `digest-${id}-${version}`
+      digest: `sha256:${"b".repeat(64)}`
     },
     publication_scope: lifecycle === "published" || lifecycle === "deprecated" ? "local_unsigned" : "not_published",
     rollback: {
