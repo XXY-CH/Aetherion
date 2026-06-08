@@ -45,10 +45,11 @@ Matched source docs:
 
 Implemented correspondence:
 
-- `packages/orchestrator/src/index.ts` adds `assemblePromptPlan`, a pure TypeScript prompt assembly function that accepts a task, source-backed Context Pack, and optional selected-run Ledger event envelopes, then emits ordered prompt sections for system boundary, task, run evidence, memory context, excluded context, tool policy, context budget, response contract, planner checklist, and verification checklist.
+- `packages/orchestrator/src/index.ts` adds `assemblePromptPlan`, a pure TypeScript prompt assembly function that accepts a task, source-backed Context Pack, and optional selected-run Ledger event envelopes, then emits ordered prompt sections for system boundary, task, run evidence, memory context, excluded context, tool policy, capability context, context budget, response contract, planner checklist, and verification checklist.
 - Prompt plans explicitly set `prompt_can_authorize_actions=false`, `local_supervisor_required=true`, and `requires_policy_for_tools=true`. Tool lists are request policy only; execution still requires Local Supervisor policy and scoped lease evidence.
 - The run evidence section carries event ids, event types, summaries, payload refs, and taint posture from Ledger envelopes only. It does not dereference raw payload artifacts.
 - The memory section carries selected Memory Card ids and source event ids. Excluded memory and conflicts remain visible so prompt engineering can account for blocked or sensitive context rather than silently omitting it.
+- The capability context section surfaces Context Pack Capability Card ids as candidate abilities only and explicitly states that Capability Cards do not own permissions or grant runtime authority.
 - The context budget section surfaces Memory, Capability, Task, and total token budgets from the Context Pack as planning limits only. It does not claim actual model token usage.
 - The planner and verification checklists require evidence mapping, assumption/conflict disclosure, Local Supervisor policy and lease gates, forbidden-tool avoidance, and explicit verification evidence before completion claims.
 - Taint guidance states that child-agent output, public web content, IM content, and prompt text cannot authorize actions.
@@ -56,8 +57,8 @@ Implemented correspondence:
 
 Verification evidence:
 
-- Orchestrator unit tests cover source-backed run evidence and memory sections, Context Pack token budgets, deterministic tool allow/deny lists, non-authorizing authority fields, planner/verifier checklists, empty-task fail-closed behavior, and no-tool prompt previews.
-- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes run evidence, selected memory, source event ids, event types, Boundary Facts artifact refs, context budget, planner checklist, and verification checklist, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
+- Orchestrator unit tests cover source-backed run evidence and memory sections, Context Pack Capability Cards, Context Pack token budgets, deterministic tool allow/deny lists, non-authorizing authority fields, planner/verifier checklists, empty-task fail-closed behavior, and no-tool prompt previews.
+- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes run evidence, selected memory, source event ids, event types, Boundary Facts artifact refs, capability context, context budget, planner checklist, and verification checklist, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
 - TUI provenance regression tampers the Memory Card registry with a missing source event id and asserts `prompt plan` fails closed with the same provenance error as `context explain`, `memory user-model`, and `sleep`.
 
 Correction and remaining boundary:

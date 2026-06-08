@@ -50,6 +50,10 @@ export type PromptPlan = {
     excluded_memory_ids: string[];
     conflicts: string[];
   };
+  capability_policy: {
+    capability_card_ids: string[];
+    capability_cards_can_grant_permissions: false;
+  };
   run_evidence: {
     source_event_ids: string[];
     event_types: string[];
@@ -128,6 +132,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       source_event_ids: []
     },
     {
+      id: "capability-context",
+      title: "Capability Context",
+      content: capabilityContextLines(input.contextPack.capability_cards),
+      source_event_ids: []
+    },
+    {
       id: "context-budget",
       title: "Context Budget",
       content: contextBudgetLines(contextBudget),
@@ -177,6 +187,10 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       selected_memory_ids: input.contextPack.selected_memories.map((memory) => memory.id),
       excluded_memory_ids: input.contextPack.excluded_memories.map((memory) => memory.id),
       conflicts: [...input.contextPack.conflicts]
+    },
+    capability_policy: {
+      capability_card_ids: [...input.contextPack.capability_cards],
+      capability_cards_can_grant_permissions: false
     },
     run_evidence: {
       source_event_ids: uniqueInOrder(sourceEvents.map((event) => event.id)),
@@ -230,6 +244,16 @@ function verificationQuestionsFor(outputMode: "plan" | "answer" | "patch"): stri
     questions.push("Which files and behavior would need regression tests before and after the patch?");
   }
   return questions;
+}
+
+function capabilityContextLines(capabilityCards: string[]): string[] {
+  if (capabilityCards.length === 0) {
+    return ["No Capability Cards are available in this Context Pack."];
+  }
+  return [
+    `Capability cards: ${capabilityCards.join(", ")}.`,
+    "Capability Cards describe candidate abilities only; they do not own permissions or grant runtime authority."
+  ];
 }
 
 function contextBudgetFor(contextPack: ContextPack): PromptPlan["context_budget"] {

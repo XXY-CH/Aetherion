@@ -996,6 +996,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
     id: string;
     authority_boundary: { prompt_can_authorize_actions: boolean; local_supervisor_required: boolean };
     memory_policy: { selected_memory_ids: string[] };
+    capability_policy: { capability_card_ids: string[]; capability_cards_can_grant_permissions: boolean };
     run_evidence: { source_event_ids: string[]; event_types: string[]; artifact_refs: string[] };
     planning_contract: { required_steps: string[]; verification_questions: string[] };
     context_budget: { memory_tokens: number; capability_tokens: number; task_tokens: number; total_tokens: number };
@@ -1005,6 +1006,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptPlanRecord.id, `prompt_${runId}`);
   assert.equal(promptPlanRecord.authority_boundary.prompt_can_authorize_actions, false);
   assert.equal(promptPlanRecord.authority_boundary.local_supervisor_required, true);
+  assert.deepEqual(promptPlanRecord.capability_policy.capability_card_ids, []);
+  assert.equal(promptPlanRecord.capability_policy.capability_cards_can_grant_permissions, false);
   assert.ok(promptPlanRecord.run_evidence.event_types.includes("run.started"));
   assert.ok(promptPlanRecord.run_evidence.event_types.includes("run.completed"));
   assert.ok(promptPlanRecord.run_evidence.artifact_refs.includes(`artifact://boundary/${runId}/facts`));
@@ -1032,6 +1035,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /Verification Checklist/);
   assert.match(promptPlanRecord.preview, /Context Budget/);
   assert.match(promptPlanRecord.preview, /Total planning budget: 8000 tokens/);
+  assert.match(promptPlanRecord.preview, /Capability Context/);
+  assert.match(promptPlanRecord.preview, /No Capability Cards are available/);
   assert.match(promptPlanRecord.preview, new RegExp(`mem_${runId}_episode`));
   assert.match(promptPlanRecord.preview, new RegExp(escapeRegExp(promptSourceEvents[0])));
   assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);

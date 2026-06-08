@@ -23,6 +23,8 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.equal(plan.tool_policy.may_request_tools, true);
   assert.deepEqual(plan.memory_policy.selected_memory_ids, ["mem_prompt_style"]);
   assert.deepEqual(plan.memory_policy.excluded_memory_ids, ["mem_secret"]);
+  assert.deepEqual(plan.capability_policy.capability_card_ids, ["cap_local_docs_read"]);
+  assert.equal(plan.capability_policy.capability_cards_can_grant_permissions, false);
   assert.deepEqual(plan.run_evidence.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.run_evidence.event_types, ["run.started", "tool.requested", "run.completed"]);
   assert.deepEqual(plan.run_evidence.artifact_refs, ["artifact://boundary/run_prompt/facts"]);
@@ -49,6 +51,9 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /Verification Checklist/);
   assert.match(plan.preview, /Context Budget/);
   assert.match(plan.preview, /Total planning budget: 8000 tokens/);
+  assert.match(plan.preview, /Capability Context/);
+  assert.match(plan.preview, /cap_local_docs_read/);
+  assert.match(plan.preview, /do not own permissions or grant runtime authority/);
   assert.match(plan.preview, /Define verification evidence before claiming completion/);
   assert.match(plan.preview, /mem_prompt_style/);
   assert.match(plan.preview, /sources=evt_user_pref,evt_memory_accept/);
@@ -68,6 +73,7 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
     contextPack: { ...contextPack(), selected_memories: [], excluded_memories: [], conflicts: [] }
   });
   assert.equal(plan.tool_policy.may_request_tools, false);
+  assert.deepEqual(plan.capability_policy.capability_card_ids, ["cap_local_docs_read"]);
   assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("Do not imply tool execution is available")));
   assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /No memory records are selected/);
