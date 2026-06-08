@@ -670,6 +670,27 @@ Correction and remaining boundary:
 
 - This fixes dangling/misleading child-agent failure payload refs. It does not add queue/ask exhaustion behavior, general child-agent orchestration, automatic registry repair, or deterministic rebuild parity for Budget Account/Circuit Breaker registries.
 
+## Phase 32 Review Notes
+
+Matched architecture docs:
+
+- `docs/05-audit-and-data-contracts.md`: replay records must identify the replay mode and remain trace/sandbox evidence rather than live side-effect replay.
+- `docs/11-migration-and-runtime-economics.md`: Soul Fork inherits history references and approved memory, not live authority, and lifecycle artifacts keep JSON registries rebuildable.
+- `docs/13-schema-runtime-governance.md`: registry entries and artifact refs are projections/evidence; existence alone must not be treated as authority.
+
+Implemented correspondence:
+
+- Soul Fork checkpoint replay records now set `artifact_ref` to the actual safe replay artifact path written under `.aetherion/artifacts/replay/<run_id>/`, instead of pointing at the checkpoint id while writing a differently named Replay Record artifact.
+- The fork still remains non-executable and authority-free; this only tightens the evidence pointer used by registry provenance checks.
+
+Verification evidence:
+
+- TUI Soul Fork integration now reads the generated replay record, verifies its `artifact_ref` uses the replay artifact namespace, runs `audit registries`, and asserts the replay-record artifact ref exists and contains the matching item id.
+
+Correction and remaining boundary:
+
+- This closes a registry-artifact reference drift in the fork replay evidence path. It does not add deterministic replay-record repair, live replay, executable forks, or broader inheritance behavior.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

@@ -1763,6 +1763,26 @@ test("Ether governs memory folding, persona branches, and authority-free Soul Fo
   assert.equal(forks[0].budget.token_budget, 0);
   assert.deepEqual(forks[0].workspace_scope.allowed_paths, []);
   assert.ok(forks[0].excluded_memory_ids.includes("mem_secret_account"));
+  const replayRecords = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8")) as Array<{ id: string; artifact_ref: string }>;
+  const forkReplay = replayRecords.find((entry) => entry.id.includes(checkpointId));
+  assert.ok(forkReplay);
+  assert.ok(forkReplay.artifact_ref.startsWith(`artifact://replay/${runId}/replay_`));
+  const registryAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "registries", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      registry: string;
+      item_id: string;
+      artifact_refs: Array<{
+        path: string;
+        artifact_ref: string;
+        exists: boolean;
+        item_id_matches: boolean | null;
+      }>;
+    }>;
+  };
+  const forkReplayFinding = registryAudit.findings.find((finding) => finding.registry === "replay-records" && finding.item_id === forkReplay.id);
+  const replayArtifactFinding = forkReplayFinding?.artifact_refs.find((reference) => reference.path === "$.artifact_ref");
+  assert.equal(replayArtifactFinding?.exists, true);
+  assert.equal(replayArtifactFinding?.item_id_matches, true);
   await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "soul", "fork", checkpointId, "--agent-id", "agent_fork_test", "--workspace", workspace]),
     /already exists/

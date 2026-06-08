@@ -1713,12 +1713,13 @@ async function runSoul(options: CliOptions): Promise<void> {
     || event.sensitivity === "regulated"
     || event.sensitivity === "credential-like"
   );
+  const replayRecordId = `replay_${sanitizePathSegment(checkpoint.run_id)}_${sanitizePathSegment(checkpoint.id)}_trace`;
   const replayRecord = {
-    id: `replay_${sanitizePathSegment(checkpoint.run_id)}_${sanitizePathSegment(checkpoint.id)}_trace`,
+    id: replayRecordId,
     run_id: checkpoint.run_id,
     mode: "trace" as const,
     source_events: sourceEvents.map((event) => event.id),
-    artifact_ref: `artifact://replay/${checkpoint.run_id}/${checkpoint.id}`,
+    artifact_ref: artifactRef("replay", checkpoint.run_id, replayRecordId),
     live_side_effects: {
       allowed: false,
       approval_id: null
