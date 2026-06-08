@@ -77,10 +77,7 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
   if (exitCode !== 0) {
     throw new Error(`supervisor rpc ${timedOut ? "timed out" : "failed"}: ${stderr.trim()}`);
   }
-  const line = stdout.split("\n").find(Boolean);
-  if (!line) {
-    throw new Error("supervisor rpc returned no response");
-  }
+  const line = singleSupervisorResponseLine(request, stdout);
   const response = JSON.parse(line) as SupervisorRpcResponse;
   assertSupervisorResponseEnvelope(request, response);
   if (response.error) {
@@ -118,16 +115,24 @@ async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath
   } finally {
     clearTimeout(timeout);
   }
-  const line = stdout.split("\n").find(Boolean);
-  if (!line) {
-    throw new Error("supervisor socket rpc returned no response");
-  }
+  const line = singleSupervisorResponseLine(request, stdout);
   const response = JSON.parse(line) as SupervisorRpcResponse;
   assertSupervisorResponseEnvelope(request, response);
   if (response.error) {
     throw new Error(`supervisor socket rpc ${request.method} failed: ${response.error}`);
   }
   return response;
+}
+
+function singleSupervisorResponseLine(request: SupervisorRpcRequest, stdout: string): string {
+  const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    throw new Error(`supervisor rpc ${request.method} returned no response`);
+  }
+  if (lines.length > 1) {
+    throw new Error(`supervisor rpc ${request.method} returned multiple response lines`);
+  }
+  return lines[0];
 }
 
 function assertSupervisorResponseEnvelope(request: SupervisorRpcRequest, response: SupervisorRpcResponse): void {

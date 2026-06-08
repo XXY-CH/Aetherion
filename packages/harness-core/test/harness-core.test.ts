@@ -210,6 +210,20 @@ test("supervisor RPC client rejects malformed response envelopes", async () => {
   );
 });
 
+test("supervisor RPC client rejects multiple response lines", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await assert.rejects(
+    callSupervisorRpcWithSocketResponse([
+      "{\"jsonrpc\":\"2.0\",\"id\":\"rpc_expected\",\"result\":{\"accepted\":true}}",
+      "{\"jsonrpc\":\"2.0\",\"id\":\"rpc_expected\",\"result\":{\"accepted\":false}}",
+      ""
+    ].join("\n")),
+    /returned multiple response lines/
+  );
+});
+
 test("supervisor socket run sends approved write commit over the supplied socket", async () => {
   if (process.platform === "win32") {
     return;
