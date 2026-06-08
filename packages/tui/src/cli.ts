@@ -49,6 +49,8 @@ type CliOptions = {
   agentId?: string;
   sourceKind?: UntrustedSource;
   supervisor?: "typescript-seed" | "stdio";
+  socketPath?: string;
+  socketAuthToken?: string;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -261,6 +263,14 @@ function parseArgs(args: string[]): CliOptions {
         index += 1;
         break;
       }
+      case "--socket-path":
+        options.socketPath = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--socket-auth-token":
+        options.socketAuthToken = requireValue(arg, next);
+        index += 1;
+        break;
       default:
         if (!arg.startsWith("--")) {
           continue;
@@ -274,7 +284,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -379,7 +389,10 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     workspace_root: workspaceRoot,
     workspace_id: workspaceIdForRoot(workspaceRoot),
     run_id: "run_supervisor_status"
-  }));
+  }, options.socketPath ? {
+    socketPath: options.socketPath,
+    authToken: options.socketAuthToken
+  } : undefined));
   printKeyValueRecord(result, [
     "workspace_id",
     "authority",
@@ -2755,6 +2768,7 @@ Usage:
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- boundary <run_id> --workspace <path>
   npm run ether -- supervisor status --workspace <path>
+  npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
 
   Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -2831,6 +2845,8 @@ Options:
   --summary <text>     Explicit summary text to write; default output does not copy source content.
   --approve-write      Required to execute the write stage.
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
+  --socket-path <path> Explicit foreground supervisor socket for supervisor status.
+  --socket-auth-token <token> Caller-supplied token for an auth-gated supervisor socket.
 `);
 }
 

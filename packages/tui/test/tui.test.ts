@@ -535,6 +535,19 @@ test("supervisor socket RPC reports status through the explicit local transport"
     assert.equal(result.ledger_events, 0);
     assert.equal(result.ledger_head_event_id, "");
     assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
+
+    const cliStatus = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "status",
+      "--workspace",
+      workspace,
+      "--socket-path",
+      socketPath
+    ]);
+    assert.equal(stdoutValue(cliStatus.stdout, "transport"), "unix-socket");
+    assert.equal(stdoutValue(cliStatus.stdout, "daemon_running"), "false");
+    assert.equal(stdoutValue(cliStatus.stdout, "ledger_events"), "0");
   } finally {
     child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
@@ -569,6 +582,18 @@ test("supervisor socket RPC can require an explicit auth token", async () => {
       /socket RPC auth failed/
     );
     await assert.rejects(access(join(workspace, ".aetherion")));
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        "supervisor",
+        "status",
+        "--workspace",
+        workspace,
+        "--socket-path",
+        socketPath
+      ]),
+      /socket RPC auth failed/
+    );
 
     const result = rpcResult(await callSupervisorRpc(repoRoot, {
       id: "rpc_socket_auth_status",
@@ -582,6 +607,20 @@ test("supervisor socket RPC can require an explicit auth token", async () => {
     assert.equal(result.ledger_chain_valid, true);
     assert.equal(result.ledger_events, 0);
     assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
+
+    const cliStatus = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "status",
+      "--workspace",
+      workspace,
+      "--socket-path",
+      socketPath,
+      "--socket-auth-token",
+      "test-token"
+    ]);
+    assert.equal(stdoutValue(cliStatus.stdout, "transport"), "unix-socket");
+    assert.equal(stdoutValue(cliStatus.stdout, "ledger_events"), "0");
   } finally {
     child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
@@ -636,6 +675,25 @@ test("supervisor socket RPC can bind one workspace with a runtime lock", async (
     assert.equal(result.runtime_lock_socket_path, socketPath);
     assert.equal(result.runtime_lock_workspace_match, true);
     assert.equal(result.runtime_lock_parse_error, "");
+
+    const cliStatus = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "status",
+      "--workspace",
+      workspace,
+      "--socket-path",
+      socketPath
+    ]);
+    assert.equal(stdoutValue(cliStatus.stdout, "transport"), "unix-socket");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_present"), "true");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_path"), lockPath);
+    assert.match(stdoutValue(cliStatus.stdout, "runtime_lock_pid"), /^\d+$/);
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_transport"), "unix-socket");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_workspace_id"), workspaceId);
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_socket_path"), socketPath);
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_workspace_match"), "true");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
 
     await assert.rejects(
       callSupervisorRpc(repoRoot, {
