@@ -98,6 +98,7 @@ docker-compose.override.yml
 .aetherion/
 !.aetherion/README.md
 .omc/
+.omx/
 .omx/state/
 .omx/logs/
 CLAUDE.md
