@@ -11,6 +11,7 @@ Current scope:
 - Emit events to `.aetherion/events/events.jsonl`.
 - Emit the P0 local-file action lifecycle for `run`: `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, `verification.recorded`, and `run.completed`.
 - Print Rust or test-seed event hash-chain status and head pointers in `run`, `replay`, and `trace` output.
+- Print read-only Rust supervisor workspace status with `supervisor status`, including transport, `daemon_running=false`, runtime paths, Ledger hash-chain validity, event count, and head pointers. This is a daemon-readiness preflight, not a background service.
 - Print `manifest_event_ids`, `artifact_refs`, and `artifact_ref_count` in V1 `run`, `replay`, and `trace` output so the run manifest projection and Ledger artifact evidence are visible from stdout.
 - Write `.aetherion/workspace.json` and `.aetherion/runs/<run_id>.json`.
 - Compose and validate risk records plus approval cards before writes.
@@ -114,9 +115,10 @@ Rust supervisor mode:
 
 ```bash
 npm run ether -- run --supervisor stdio --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
+npm run ether -- supervisor status --workspace .
 ```
 
-This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, traced file-action event emission, lease-gated file reads, and approved write commit evidence for this path. Ether still owns the run manifest projection and approval-card display.
+This mode proves Phase 2 wiring only. Ether remains a terminal client surface; the Rust supervisor owns workspace init, event append, policy evaluation, traced file-action event emission, lease-gated file reads, and approved write commit evidence for this path. Ether still owns the run manifest projection and approval-card display. `supervisor status` is read-only: it initializes or validates the workspace registry and Ledger file, verifies the Ledger hash chain, reports the current head, and explicitly reports that no daemon is running. The Rust supervisor also exposes an explicit foreground Unix socket transport for the same RPC handler, with an optional caller-supplied auth token gate for that socket. Ether's default path remains stdio, the token gate is not device identity or a vault, and there is still no service install/start/stop lifecycle.
 
 File rehearsal flow:
 

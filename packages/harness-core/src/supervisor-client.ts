@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 
 export type SupervisorRpcRequest = {
   id: string;
-  method: "workspace.init" | "event.append" | "run.resume.evaluate" | "security.taint.evaluate" | "surface.outbox.evaluate" | "file.read.traced" | "child.file.read" | "file.write.prepare" | "file.write.commit";
+  method: "workspace.init" | "supervisor.status" | "event.append" | "run.resume.evaluate" | "security.taint.evaluate" | "surface.outbox.evaluate" | "file.read.traced" | "child.file.read" | "file.write.prepare" | "file.write.commit";
   workspace_root: string;
+  auth_token?: string;
   workspace_id?: string;
   run_id?: string;
   source?: "manual" | "file" | "deadline";
@@ -31,7 +33,10 @@ export type SupervisorRpcResponse = {
   error?: string;
 };
 
-export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpcRequest, options?: { timeoutMs?: number }): Promise<SupervisorRpcResponse> {
+export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpcRequest, options?: { timeoutMs?: number; socketPath?: string; authToken?: string }): Promise<SupervisorRpcResponse> {
+  if (options?.socketPath) {
+    return callSupervisorSocketRpc(request, options.socketPath, options.timeoutMs, options.authToken);
+  }
   const binary = join(repoRoot, "target", "debug", "aetherion-supervisor");
   const binaryIsFresh = isSupervisorBinaryFresh(repoRoot, binary);
   const command = binaryIsFresh ? binary : "cargo";
@@ -79,6 +84,46 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
   const response = JSON.parse(line) as SupervisorRpcResponse;
   if (response.error) {
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
+  }
+  return response;
+}
+
+async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath: string, timeoutMs = 5000, authToken?: string): Promise<SupervisorRpcResponse> {
+  const socket = createConnection(socketPath);
+  socket.setEncoding("utf8");
+  let stdout = "";
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    socket.destroy(new Error("supervisor socket rpc timed out"));
+  }, timeoutMs);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    const socketRequest = authToken ? { ...request, auth_token: authToken } : request;
+    socket.write(`${JSON.stringify(socketRequest)}\n`);
+    socket.end();
+    await new Promise<void>((resolve, reject) => {
+      socket.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      socket.once("end", resolve);
+      socket.once("error", reject);
+    });
+  } catch (error) {
+    throw new Error(`supervisor socket rpc ${timedOut ? "timed out" : "failed"}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+  const line = stdout.split("\n").find(Boolean);
+  if (!line) {
+    throw new Error("supervisor socket rpc returned no response");
+  }
+  const response = JSON.parse(line) as SupervisorRpcResponse;
+  if (response.error) {
+    throw new Error(`supervisor socket rpc ${request.method} failed: ${response.error}`);
   }
   return response;
 }

@@ -3,10 +3,10 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { appendEvent, defaultSafeSummary, eventRecord, loadWorkspaceFromRegistry, readEvents, validateAgainstSchema, verifyEventHashChain, type EventRecord } from "../../harness-core/src/index.ts";
+import { appendEvent, callSupervisorRpc, defaultSafeSummary, eventRecord, loadWorkspaceFromRegistry, readEvents, rpcResult, validateAgainstSchema, verifyEventHashChain, workspaceIdForRoot, type EventRecord } from "../../harness-core/src/index.ts";
 import { storeSignaturePayload, type StorePackage } from "../../surface-os/src/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -443,6 +443,145 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   const rustEvent = JSON.parse(ledger.trim().split("\n")[0]);
   const rustEventValidation = await validateAgainstSchema(repoRoot, "event.schema.json", rustEvent);
   assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));
+});
+
+test("TUI supervisor status reports Rust runtime health without appending events", async () => {
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-status-"));
+
+  const cleanStatus = await execFileAsync(process.execPath, [
+    cliPath,
+    "supervisor",
+    "status",
+    "--workspace",
+    workspace
+  ]);
+  assert.match(stdoutValue(cleanStatus.stdout, "workspace_id"), /^ws_[a-f0-9]{16}$/);
+  assert.equal(stdoutValue(cleanStatus.stdout, "authority"), "rust-supervisor");
+  assert.equal(stdoutValue(cleanStatus.stdout, "transport"), "stdio");
+  assert.equal(stdoutValue(cleanStatus.stdout, "daemon_running"), "false");
+  assert.equal(stdoutValue(cleanStatus.stdout, "ledger_chain_valid"), "true");
+  assert.equal(stdoutValue(cleanStatus.stdout, "ledger_events"), "0");
+  assert.equal(stdoutValue(cleanStatus.stdout, "ledger_head_event_id"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "ledger_head_event_hash"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_dir"), join(workspace, ".aetherion"));
+  assert.equal(stdoutValue(cleanStatus.stdout, "ledger_path"), join(workspace, ".aetherion", "events", "events.jsonl"));
+  assert.equal(stdoutValue(cleanStatus.stdout, "registry_path"), join(workspace, ".aetherion", "workspace.json"));
+  const emptyLedgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  assert.equal(await readFile(emptyLedgerPath, "utf8"), "");
+
+  await writeFile(join(workspace, "README.md"), "Supervisor status fixture\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--supervisor",
+    "stdio",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerBeforeStatus = await readFile(emptyLedgerPath, "utf8");
+  const eventCount = ledgerBeforeStatus.trim().split("\n").filter(Boolean).length;
+  assert.equal(eventCount, 17);
+  const headEventId = stdoutValue(run.stdout, "head_event_id");
+  const runStatus = await execFileAsync(process.execPath, [
+    cliPath,
+    "supervisor",
+    "status",
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(stdoutValue(runStatus.stdout, "ledger_events"), String(eventCount));
+  assert.equal(stdoutValue(runStatus.stdout, "ledger_head_event_id"), headEventId);
+  assert.match(stdoutValue(runStatus.stdout, "ledger_head_event_hash"), /^sha256:/);
+  assert.equal(await readFile(emptyLedgerPath, "utf8"), ledgerBeforeStatus);
+});
+
+test("supervisor socket RPC reports status through the explicit local transport", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-socket-"));
+  const socketPath = join("/tmp", `aeth-${process.pid}-${Date.now()}-status.sock`);
+  const child = spawn(join(repoRoot, "target", "debug", "aetherion-supervisor"), ["socket", "--path", socketPath], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  try {
+    await waitForFile(socketPath);
+    const result = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: "rpc_socket_status",
+      method: "supervisor.status",
+      workspace_root: workspace,
+      workspace_id: workspaceIdForRoot(workspace),
+      run_id: "run_socket_status"
+    }, { socketPath }));
+    assert.equal(result.transport, "unix-socket");
+    assert.equal(result.daemon_running, false);
+    assert.equal(result.ledger_chain_valid, true);
+    assert.equal(result.ledger_events, 0);
+    assert.equal(result.ledger_head_event_id, "");
+    assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+      setTimeout(resolve, 500);
+    });
+    await rm(socketPath, { force: true });
+  }
+});
+
+test("supervisor socket RPC can require an explicit auth token", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-socket-auth-"));
+  const socketPath = join("/tmp", `aeth-${process.pid}-${Date.now()}-auth.sock`);
+  const child = spawn(join(repoRoot, "target", "debug", "aetherion-supervisor"), ["socket", "--path", socketPath, "--auth-token", "test-token"], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  try {
+    await waitForFile(socketPath);
+    await assert.rejects(
+      callSupervisorRpc(repoRoot, {
+        id: "rpc_socket_missing_auth",
+        method: "supervisor.status",
+        workspace_root: workspace,
+        workspace_id: workspaceIdForRoot(workspace),
+        run_id: "run_socket_auth_missing"
+      }, { socketPath }),
+      /socket RPC auth failed/
+    );
+    await assert.rejects(access(join(workspace, ".aetherion")));
+
+    const result = rpcResult(await callSupervisorRpc(repoRoot, {
+      id: "rpc_socket_auth_status",
+      method: "supervisor.status",
+      workspace_root: workspace,
+      workspace_id: workspaceIdForRoot(workspace),
+      run_id: "run_socket_auth_status"
+    }, { socketPath, authToken: "test-token" }));
+    assert.equal(result.transport, "unix-socket");
+    assert.equal(result.daemon_running, false);
+    assert.equal(result.ledger_chain_valid, true);
+    assert.equal(result.ledger_events, 0);
+    assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), "");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+      setTimeout(resolve, 500);
+    });
+    await rm(socketPath, { force: true });
+  }
 });
 
 test("TUI default summary avoids source content while explicit summary remains user-controlled", async () => {
@@ -2141,6 +2280,19 @@ async function assertSingleEventRunManifest(workspace: string, events: EventReco
   assert.equal(manifest.status, "completed");
   assert.deepEqual(manifest.event_ids, [event.id]);
   assert.deepEqual(events.filter((candidate) => candidate.run_id === event.run_id).map((candidate) => candidate.event_type), [eventType]);
+}
+
+async function waitForFile(path: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error(`Timed out waiting for ${path}`);
 }
 
 function stdoutValue(stdout: string, key: string): string {

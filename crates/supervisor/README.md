@@ -15,15 +15,18 @@ Current scope:
 - Emit traced file-action lifecycle events from Rust RPC methods for workspace reads, child workspace reads, write preparation, and approved write commits.
 - Validate the approved write Consent Record binding, persist the Consent Record artifact, and then attach its `payload_ref` to approved `consent.recorded` events without creating consent events for unapproved writes.
 - Reject expired leases and wrong-path lease reuse.
-- Expose a minimal stdio JSON-RPC POC for workspace init, governance event append, traced file reads, traced write prepare/commit, queue-only resume, and taint/outbox policy gates.
+- Expose a minimal JSON-RPC POC over stdio and an explicit foreground Unix socket mode for workspace init, read-only supervisor status, governance event append, traced file reads, traced write prepare/commit, queue-only resume, and taint/outbox policy gates.
+- Report supervisor status without appending Ledger events: workspace identity, transport, `daemon_running=false`, runtime paths, Ledger hash-chain validity, event count, and head pointers.
+- Optionally require a caller-supplied socket `auth_token` before dispatching foreground socket requests to the normal RPC handler. This is a local transport gate only; it is not device identity, user identity, pairing, or a vault.
 - Parse stdio RPC input with a dependency-free structured JSON object parser, fail closed on malformed JSON, duplicate keys, wrong-typed required string fields, and wrong-typed boolean approval fields, reject legacy policy-only/read/write/replay RPCs that would bypass full Ledger lifecycle evidence, and return the actual operation lease id for approved write commits.
 - Keep replay persistence in Ether's Ledger-backed `replay` command; the legacy `trace.replay` RPC is disabled because a bare `live_side_effects_replayed=false` result is not sufficient replay evidence.
 
 Out of scope:
 
 - Real vault backend.
+- Device identity, user identity, pairing, and token storage.
 - Event signatures, redaction, and branch-specific append streams.
-- JSON-RPC server.
+- Production daemon lifecycle, service installation, and background JSON-RPC server management.
 - Browser, IM, MCP, OAuth, or cloud worker integration.
 - Loading generated or imported code.
 

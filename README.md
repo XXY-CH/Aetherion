@@ -1,3 +1,5 @@
+> **We are looking for like-minded developers and maintainers to help build Aetherion.** If you care about local-first agent runtimes, auditable authority boundaries, governed tool use, and safer autonomous systems, we would welcome your collaboration.
+
 <p align="center">
   <img src="assets/aetherion-icon.png" alt="Aetherion project icon" width="240">
 </p>

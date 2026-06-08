@@ -1,11 +1,16 @@
 use aetherion_supervisor::{
     append_event, append_event_with_payload, assert_workspace_id_for_root, evaluate_policy,
-    file_read_request, file_write_request, init_workspace, parse_json_object, read_with_lease,
-    write_with_lease, write_workspace_registry, Consent, Decision, ParsedJsonObject,
+    file_read_request, file_write_request, init_workspace, ledger_status, parse_json_object,
+    read_with_lease, write_with_lease, write_workspace_registry, Consent, Decision,
+    ParsedJsonObject,
 };
 use std::env;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
 fn main() {
@@ -24,8 +29,12 @@ fn run() -> Result<(), String> {
                 .to_string(),
         ),
         "rpc" => run_rpc(),
+        "socket" => {
+            let socket_options = parse_socket_options(args.collect())?;
+            run_socket(&socket_options.path, socket_options.auth_token.as_deref())
+        }
         _ => {
-            println!("Usage: aetherion-supervisor rpc");
+            println!("Usage: aetherion-supervisor rpc | socket --path <socket>");
             Ok(())
         }
     }
@@ -38,12 +47,125 @@ fn run_rpc() -> Result<(), String> {
         if line.trim().is_empty() {
             continue;
         }
-        println!("{}", handle_rpc_line(&line));
+        println!("{}", handle_rpc_line(&line, "stdio"));
     }
     Ok(())
 }
 
-fn handle_rpc_line(line: &str) -> String {
+struct SocketOptions {
+    path: String,
+    auth_token: Option<String>,
+}
+
+fn parse_socket_options(args: Vec<String>) -> Result<SocketOptions, String> {
+    let mut path: Option<String> = None;
+    let mut auth_token: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--path" => {
+                index += 1;
+                let value = args.get(index).cloned().unwrap_or_default();
+                if value.is_empty() {
+                    return Err(
+                        "Usage: aetherion-supervisor socket --path <socket> [--auth-token <token>]"
+                            .to_string(),
+                    );
+                }
+                path = Some(value);
+            }
+            "--auth-token" => {
+                index += 1;
+                let value = args.get(index).cloned().unwrap_or_default();
+                if value.is_empty() {
+                    return Err("--auth-token requires a non-empty token".to_string());
+                }
+                auth_token = Some(value);
+            }
+            other => return Err(format!("unsupported socket option {other}")),
+        }
+        index += 1;
+    }
+    let Some(path) = path else {
+        return Err(
+            "Usage: aetherion-supervisor socket --path <socket> [--auth-token <token>]".to_string(),
+        );
+    };
+    Ok(SocketOptions { path, auth_token })
+}
+
+#[cfg(unix)]
+fn run_socket(path: &str, auth_token: Option<&str>) -> Result<(), String> {
+    remove_existing_socket(path)?;
+    let listener = UnixListener::bind(path).map_err(|error| error.to_string())?;
+    for stream in listener.incoming() {
+        run_socket_stream(stream.map_err(|error| error.to_string())?, auth_token)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn remove_existing_socket(path: &str) -> Result<(), String> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => {
+            fs::remove_file(path).map_err(|error| error.to_string())
+        }
+        Ok(_) => Err(format!("refusing to remove non-socket path {path}")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[cfg(unix)]
+fn run_socket_stream(
+    mut stream: std::os::unix::net::UnixStream,
+    auth_token: Option<&str>,
+) -> Result<(), String> {
+    let mut line = String::new();
+    {
+        let mut reader = BufReader::new(&stream);
+        reader
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())?;
+    }
+    if line.trim().is_empty() {
+        return Ok(());
+    }
+    stream
+        .write_all(format!("{}\n", handle_socket_rpc_line(&line, auth_token)).as_bytes())
+        .map_err(|error| error.to_string())?;
+    stream.flush().map_err(|error| error.to_string())
+}
+
+#[cfg(not(unix))]
+fn run_socket(_path: &str, _auth_token: Option<&str>) -> Result<(), String> {
+    Err("local socket RPC is only available on Unix platforms in this POC".to_string())
+}
+
+fn handle_socket_rpc_line(line: &str, auth_token: Option<&str>) -> String {
+    let Some(expected_token) = auth_token else {
+        return handle_rpc_line(line, "unix-socket");
+    };
+    let request = match parse_json_object(line) {
+        Ok(request) => request,
+        Err(error) => return error_response("rpc", &format!("invalid JSON RPC request: {error}")),
+    };
+    let id = match optional_string_field(&request, "id") {
+        Ok(Some(value)) if !value.is_empty() => value,
+        Ok(_) => "rpc".to_string(),
+        Err(error) => return error_response("rpc", &error),
+    };
+    let supplied_token = match optional_string_field(&request, "auth_token") {
+        Ok(value) => value,
+        Err(error) => return error_response(&id, &error),
+    };
+    if supplied_token.as_deref() != Some(expected_token) {
+        return error_response(&id, "socket RPC auth failed");
+    }
+    handle_rpc_line(line, "unix-socket")
+}
+
+fn handle_rpc_line(line: &str, transport: &str) -> String {
     let request = match parse_json_object(line) {
         Ok(request) => request,
         Err(error) => return error_response("rpc", &format!("invalid JSON RPC request: {error}")),
@@ -83,6 +205,27 @@ fn handle_rpc_line(line: &str) -> String {
                     escape(&workspace.ledger_path.display().to_string()),
                     escape(&registry_path.display().to_string())
                 ),
+                Err(error) => return error_response(&id, &error.to_string()),
+            },
+            Err(error) => return error_response(&id, &error.to_string()),
+        },
+        "supervisor.status" => match init_workspace(&workspace_root, &workspace_id) {
+            Ok(workspace) => match write_workspace_registry(&workspace) {
+                Ok(registry_path) => match ledger_status(&workspace.ledger_path, &workspace.id) {
+                    Ok(status) => format!(
+                        "{{\"workspace_id\":\"{}\",\"authority\":\"rust-supervisor\",\"transport\":\"{}\",\"daemon_running\":false,\"ledger_chain_valid\":{},\"ledger_events\":{},\"ledger_head_event_id\":\"{}\",\"ledger_head_event_hash\":\"{}\",\"runtime_dir\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\"}}",
+                        escape(&workspace.id),
+                        escape(transport),
+                        status.chain_valid,
+                        status.event_count,
+                        escape(status.head_event_id.as_deref().unwrap_or("")),
+                        escape(status.head_event_hash.as_deref().unwrap_or("")),
+                        escape(&workspace.root.join(".aetherion").display().to_string()),
+                        escape(&workspace.ledger_path.display().to_string()),
+                        escape(&registry_path.display().to_string())
+                    ),
+                    Err(error) => return error_response(&id, &error.to_string()),
+                },
                 Err(error) => return error_response(&id, &error.to_string()),
             },
             Err(error) => return error_response(&id, &error.to_string()),
@@ -945,6 +1088,8 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+    #[cfg(unix)]
+    use std::{os::unix::net::UnixStream, thread};
 
     fn derived_workspace_id(root: &std::path::Path) -> String {
         aetherion_supervisor::workspace_id_for_root(root).unwrap()
@@ -972,7 +1117,7 @@ mod tests {
             workspace_id,
             escape(&target.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("legacy file.write is disabled"));
         assert!(response.contains("file.write.prepare and file.write.commit"));
         assert!(!target.exists());
@@ -1025,7 +1170,7 @@ mod tests {
                 workspace_id,
                 extra
             );
-            let response = handle_rpc_line(&request);
+            let response = handle_rpc_line(&request, "stdio");
             assert!(response.contains(&format!("\"id\":\"{rpc_id}\"")));
             assert!(response.contains(message));
             assert!(!response.contains("legacy read must not leak"));
@@ -1049,7 +1194,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"id\":\"rpc_trace_replay\""));
         assert!(response.contains("legacy trace.replay is disabled"));
         assert!(response.contains("Replay Record artifact"));
@@ -1085,7 +1230,7 @@ mod tests {
                 workspace_id,
                 event_type
             );
-            let response = handle_rpc_line(&request);
+            let response = handle_rpc_line(&request, "stdio");
             assert!(response
                 .contains("event.append cannot write authority-bearing action lifecycle events"));
         }
@@ -1097,7 +1242,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let governance_response = handle_rpc_line(&governance_request);
+        let governance_response = handle_rpc_line(&governance_request, "stdio");
         assert!(governance_response.contains("\"appended\":true"));
         let ledger = fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap();
         assert!(ledger.contains("\"event_type\":\"memory.accepted\""));
@@ -1108,18 +1253,23 @@ mod tests {
 
     #[test]
     fn rpc_json_input_fails_closed_for_duplicate_or_wrong_typed_fields() {
-        let malformed = handle_rpc_line("{\"id\":\"rpc_malformed\",\"method\":\"workspace.init\"");
+        let malformed = handle_rpc_line(
+            "{\"id\":\"rpc_malformed\",\"method\":\"workspace.init\"",
+            "stdio",
+        );
         assert!(malformed.contains("\"id\":\"rpc\""));
         assert!(malformed.contains("invalid JSON RPC request"));
 
         let duplicate = handle_rpc_line(
             "{\"id\":\"rpc_duplicate\",\"id\":\"rpc_shadow\",\"method\":\"workspace.init\",\"workspace_root\":\"/tmp\",\"workspace_id\":\"ws_duplicate\",\"run_id\":\"run_duplicate\"}",
+            "stdio",
         );
         assert!(duplicate.contains("\"id\":\"rpc\""));
         assert!(duplicate.contains("duplicate JSON object key id"));
 
         let wrong_workspace_root = handle_rpc_line(
             "{\"id\":\"rpc_wrong_root\",\"method\":\"workspace.init\",\"workspace_root\":42,\"workspace_id\":\"ws_wrong_root\",\"run_id\":\"run_wrong_root\"}",
+            "stdio",
         );
         assert!(wrong_workspace_root.contains("\"id\":\"rpc_wrong_root\""));
         assert!(wrong_workspace_root.contains("field workspace_root must be a string"));
@@ -1138,7 +1288,7 @@ mod tests {
             workspace_id,
             escape(&target.display().to_string())
         );
-        let approval_response = handle_rpc_line(&wrong_approval);
+        let approval_response = handle_rpc_line(&wrong_approval, "stdio");
         assert!(approval_response.contains("\"id\":\"rpc_wrong_approval\""));
         assert!(approval_response.contains("field approved must be a boolean"));
         assert!(!target.exists());
@@ -1155,7 +1305,7 @@ mod tests {
             "{{\"id\":\"rpc_bad_workspace\",\"method\":\"workspace.init\",\"workspace_root\":\"{}\",\"workspace_id\":\"ws_rpc_wrong\",\"run_id\":\"run_bad_workspace\"}}",
             escape(&root.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"id\":\"rpc_bad_workspace\""));
         assert!(response.contains("does not match resolved root identity"));
         assert!(!root.join(".aetherion").exists());
@@ -1175,7 +1325,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"decision\":\"queue\""));
         assert!(response.contains("\"lease_id\":\"\""));
         assert!(response.contains("\"auto_execute_allowed\":false"));
@@ -1199,7 +1349,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"decision\":\"deny\""));
         assert!(response.contains("\"lease_id\":\"\""));
         assert!(response.contains("\"can_authorize_actions\":false"));
@@ -1222,7 +1372,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let dm_response = handle_rpc_line(&dm_request);
+        let dm_response = handle_rpc_line(&dm_request, "stdio");
         assert!(dm_response.contains("\"decision\":\"ask\""));
         assert!(dm_response.contains("\"risk_level\":\"L3\""));
         assert!(dm_response.contains("\"delivery_allowed\":false"));
@@ -1233,7 +1383,7 @@ mod tests {
             escape(&root.display().to_string()),
             workspace_id
         );
-        let public_response = handle_rpc_line(&public_request);
+        let public_response = handle_rpc_line(&public_request, "stdio");
         assert!(public_response.contains("\"decision\":\"deny\""));
         assert!(public_response.contains("\"risk_level\":\"L5\""));
         assert!(public_response.contains("\"delivery_allowed\":false"));
@@ -1259,7 +1409,7 @@ mod tests {
             workspace_id,
             escape(&target.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"decision\":\"allow\""));
         assert!(response.contains("\"policy_decision_id\":\"policy_"));
         assert!(response.contains("\"lease_id\":\"lease_"));
@@ -1290,7 +1440,7 @@ mod tests {
             escape(&root.display().to_string()),
             escape(&target.display().to_string())
         );
-        let conflict_response = handle_rpc_line(&conflicting_request);
+        let conflict_response = handle_rpc_line(&conflicting_request, "stdio");
         assert!(conflict_response.contains("does not match resolved root identity"));
     }
 
@@ -1314,7 +1464,7 @@ mod tests {
             workspace_id,
             escape(&outside.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"decision\":\"deny\""));
         assert!(response.contains("\"risk_level\":\"L5\""));
         assert!(response.contains("\"risk_event_id\":\"evt_"));
@@ -1359,7 +1509,7 @@ mod tests {
             workspace_id,
             escape(&input.display().to_string())
         );
-        let read_response = handle_rpc_line(&read_request);
+        let read_response = handle_rpc_line(&read_request, "stdio");
         assert!(read_response.contains("\"contents\":\"traced evidence\\n\""));
         assert!(read_response.contains("\"request_event_id\":\"evt_"));
         assert!(read_response.contains("\"risk_event_id\":\"evt_"));
@@ -1373,7 +1523,7 @@ mod tests {
             workspace_id,
             escape(&output.display().to_string())
         );
-        let prepare_response = handle_rpc_line(&prepare_request);
+        let prepare_response = handle_rpc_line(&prepare_request, "stdio");
         assert!(prepare_response.contains("\"decision\":\"ask\""));
         assert!(prepare_response.contains("\"risk_event_id\":\"evt_"));
         assert!(prepare_response.contains("\"lease_id\":\"\""));
@@ -1386,7 +1536,7 @@ mod tests {
             escape(&output.display().to_string()),
             escape(&consent_json)
         );
-        let commit_response = handle_rpc_line(&commit_request);
+        let commit_response = handle_rpc_line(&commit_request, "stdio");
         assert!(commit_response.contains("\"written\":true"));
         assert!(commit_response.contains("\"policy_event_id\":\"evt_"));
         assert!(commit_response.contains("\"lease_event_id\":\"evt_"));
@@ -1436,6 +1586,147 @@ mod tests {
     }
 
     #[test]
+    fn rpc_supervisor_status_reports_runtime_without_appending_events() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let status_request = format!(
+            "{{\"id\":\"rpc_status_empty\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let status_response = handle_rpc_line(&status_request, "stdio");
+        assert!(status_response.contains("\"authority\":\"rust-supervisor\""));
+        assert!(status_response.contains("\"transport\":\"stdio\""));
+        assert!(status_response.contains("\"daemon_running\":false"));
+        assert!(status_response.contains("\"ledger_chain_valid\":true"));
+        assert!(status_response.contains("\"ledger_events\":0"));
+        assert!(status_response.contains("\"ledger_head_event_id\":\"\""));
+        assert!(status_response.contains("\"registry_path\":\""));
+        let ledger_path = root.join(".aetherion/events/events.jsonl");
+        assert_eq!(fs::read_to_string(&ledger_path).unwrap(), "");
+
+        append_event(
+            &init_workspace(&root, &workspace_id).unwrap(),
+            "run.started",
+            "run_status_existing",
+            "Existing run event",
+        )
+        .unwrap();
+        let ledger_before = fs::read_to_string(&ledger_path).unwrap();
+        let status_response = handle_rpc_line(&status_request, "stdio");
+        assert!(status_response.contains("\"ledger_events\":1"));
+        assert!(status_response.contains("\"ledger_head_event_id\":\"evt_"));
+        assert!(status_response.contains("\"ledger_head_event_hash\":\"sha256:"));
+        assert_eq!(fs::read_to_string(&ledger_path).unwrap(), ledger_before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rpc_supervisor_status_over_socket_uses_same_read_only_handler() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-socket-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let socket_path = std::env::temp_dir().join(format!("aeth-{nonce}.sock"));
+        let _ = fs::remove_file(&socket_path);
+        let workspace_id = derived_workspace_id(&root);
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            run_socket_stream(stream, None).unwrap();
+        });
+        let mut client = UnixStream::connect(&socket_path).unwrap();
+        let status_request = format!(
+            "{{\"id\":\"rpc_status_socket\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_socket\"}}\n",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        client.write_all(status_request.as_bytes()).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = String::new();
+        BufReader::new(&client).read_line(&mut response).unwrap();
+        server.join().unwrap();
+
+        assert!(response.contains("\"id\":\"rpc_status_socket\""));
+        assert!(response.contains("\"transport\":\"unix-socket\""));
+        assert!(response.contains("\"daemon_running\":false"));
+        assert!(response.contains("\"ledger_chain_valid\":true"));
+        assert!(response.contains("\"ledger_events\":0"));
+        assert_eq!(
+            fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap(),
+            ""
+        );
+        let _ = fs::remove_file(&socket_path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rpc_socket_auth_gate_rejects_before_runtime_initialization() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-socket-auth-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let request_without_token = format!(
+            "{{\"id\":\"rpc_status_missing_auth\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_socket_auth\"}}\n",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let missing_auth = handle_socket_rpc_line(&request_without_token, Some("expected-token"));
+        assert!(missing_auth.contains("\"id\":\"rpc_status_missing_auth\""));
+        assert!(missing_auth.contains("socket RPC auth failed"));
+        assert!(!root.join(".aetherion").exists());
+
+        let wrong_token = format!(
+            "{{\"id\":\"rpc_status_wrong_auth\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_socket_auth\",\"auth_token\":\"wrong-token\"}}\n",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let wrong_auth = handle_socket_rpc_line(&wrong_token, Some("expected-token"));
+        assert!(wrong_auth.contains("\"id\":\"rpc_status_wrong_auth\""));
+        assert!(wrong_auth.contains("socket RPC auth failed"));
+        assert!(!root.join(".aetherion").exists());
+
+        let correct_token = format!(
+            "{{\"id\":\"rpc_status_correct_auth\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_socket_auth\",\"auth_token\":\"expected-token\"}}\n",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+        let allowed = handle_socket_rpc_line(&correct_token, Some("expected-token"));
+        assert!(allowed.contains("\"id\":\"rpc_status_correct_auth\""));
+        assert!(allowed.contains("\"transport\":\"unix-socket\""));
+        assert!(allowed.contains("\"ledger_events\":0"));
+        assert_eq!(
+            fs::read_to_string(root.join(".aetherion/events/events.jsonl")).unwrap(),
+            ""
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_mode_refuses_to_replace_non_socket_files() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("aeth-not-socket-{nonce}"));
+        fs::write(&path, "do not replace").unwrap();
+        let error = remove_existing_socket(path.to_str().unwrap()).unwrap_err();
+        assert!(error.contains("refusing to remove non-socket path"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "do not replace");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn rpc_write_commit_without_approval_records_policy_but_no_action() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1451,7 +1742,7 @@ mod tests {
             workspace_id,
             escape(&output.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"written\":false"));
         assert!(response.contains("\"decision\":\"ask\""));
         assert!(response.contains("\"action_event_id\":\"\""));
@@ -1479,7 +1770,7 @@ mod tests {
             workspace_id,
             escape(&output.display().to_string())
         );
-        let missing_response = handle_rpc_line(&missing_consent_request);
+        let missing_response = handle_rpc_line(&missing_consent_request, "stdio");
         assert!(missing_response.contains("approved write commit requires consent_record_json"));
         assert!(!output.exists());
         let ledger_path = root.join(".aetherion/events/events.jsonl");
@@ -1495,7 +1786,7 @@ mod tests {
             escape(&output.display().to_string()),
             escape(&mismatched_consent)
         );
-        let mismatch_response = handle_rpc_line(&mismatch_request);
+        let mismatch_response = handle_rpc_line(&mismatch_request, "stdio");
         assert!(mismatch_response
             .contains("consent record field id expected consent_run_consent_required_write"));
         assert!(!output.exists());
@@ -1531,7 +1822,7 @@ mod tests {
             workspace_id,
             escape(&outside.display().to_string())
         );
-        let response = handle_rpc_line(&request);
+        let response = handle_rpc_line(&request, "stdio");
         assert!(response.contains("\"decision\":\"deny\""));
         assert!(response.contains("\"risk_level\":\"L5\""));
         assert!(response.contains("\"lease_id\":\"\""));

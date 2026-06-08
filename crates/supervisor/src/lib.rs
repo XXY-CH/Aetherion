@@ -18,6 +18,14 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerStatus {
+    pub chain_valid: bool,
+    pub event_count: usize,
+    pub head_event_id: Option<String>,
+    pub head_event_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     Allow,
     Ask,
@@ -273,9 +281,15 @@ fn remove_abandoned_ledger_temp_files(ledger_path: &Path) -> io::Result<()> {
 }
 
 fn verify_ledger_hash_chain(ledger_path: &Path, workspace_id: &str) -> io::Result<()> {
+    let _ = ledger_status(ledger_path, workspace_id)?;
+    Ok(())
+}
+
+pub fn ledger_status(ledger_path: &Path, workspace_id: &str) -> io::Result<LedgerStatus> {
     let contents = fs::read_to_string(ledger_path)?;
     let mut previous_id: Option<String> = None;
     let mut previous_hash: Option<String> = None;
+    let mut event_count = 0;
     for (index, line) in contents.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -355,10 +369,16 @@ fn verify_ledger_hash_chain(ledger_path: &Path, workspace_id: &str) -> io::Resul
             }
             None => {}
         }
+        event_count += 1;
         previous_id = Some(event_id);
         previous_hash = Some(event_hash);
     }
-    Ok(())
+    Ok(LedgerStatus {
+        chain_valid: true,
+        event_count,
+        head_event_id: previous_id,
+        head_event_hash: previous_hash,
+    })
 }
 
 fn json_object(value: &JsonValue, line_number: usize) -> io::Result<&BTreeMap<String, JsonValue>> {

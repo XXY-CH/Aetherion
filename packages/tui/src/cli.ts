@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -357,12 +357,42 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "audit":
       await runAudit(options);
       return true;
+    case "supervisor":
+      await runSupervisorCommand(options);
+      return true;
     case "boundary":
       await runBoundary(options);
       return true;
     default:
       return false;
   }
+}
+
+async function runSupervisorCommand(options: CliOptions): Promise<void> {
+  if (options.topic !== "status") {
+    throw new Error("supervisor supports status");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const result = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_supervisor_status_${Date.now()}`,
+    method: "supervisor.status",
+    workspace_root: workspaceRoot,
+    workspace_id: workspaceIdForRoot(workspaceRoot),
+    run_id: "run_supervisor_status"
+  }));
+  printKeyValueRecord(result, [
+    "workspace_id",
+    "authority",
+    "transport",
+    "daemon_running",
+    "ledger_chain_valid",
+    "ledger_events",
+    "ledger_head_event_id",
+    "ledger_head_event_hash",
+    "runtime_dir",
+    "ledger_path",
+    "registry_path"
+  ]);
 }
 
 async function runAudit(options: CliOptions): Promise<void> {
@@ -2668,6 +2698,17 @@ async function printRunEvidence(workspace: Awaited<ReturnType<typeof openWorkspa
   console.log(`artifact_ref_count=${artifactRefs.length}`);
 }
 
+function printKeyValueRecord(record: Record<string, unknown>, keys: string[]): void {
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined || value === null || value === "") {
+      console.log(`${key}=not_recorded`);
+      continue;
+    }
+    console.log(`${key}=${singleLine(String(value))}`);
+  }
+}
+
 async function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): Promise<void> {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
@@ -2705,6 +2746,7 @@ Usage:
   npm run ether -- replay <run_id> --workspace <path>
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- boundary <run_id> --workspace <path>
+  npm run ether -- supervisor status --workspace <path>
 
   Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -2759,6 +2801,7 @@ Usage:
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
+  supervisor             Read-only Rust supervisor workspace status preflight
   import                 Phase 4 dry-run migration report
   memory/context         Phase 3 source-backed Memory OS surfaces
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
