@@ -1787,11 +1787,17 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   const root = await mkdtemp(join(tmpdir(), "aetherion-memory-rebuild-"));
   const artifactRoot = join(root, ".aetherion", "artifacts", "memory");
   const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactRoot, "candidates"), { recursive: true });
   await mkdir(join(artifactRoot, "accept"), { recursive: true });
+  await mkdir(join(artifactRoot, "reject"), { recursive: true });
   await mkdir(join(artifactRoot, "block"), { recursive: true });
   await mkdir(join(artifactRoot, "delete"), { recursive: true });
   await mkdir(registryDir, { recursive: true });
 
+  const pendingCandidate = memoryCandidate("memcand_pending", "pending");
+  const acceptedCandidate = memoryCandidate("memcand_keep", "pending");
+  const rejectedCandidate = memoryCandidate("memcand_reject", "rejected");
+  const staleCandidate = memoryCandidate("memcand_stale", "pending");
   const accepted = memoryCard("mem_keep", "initial");
   const blocked = { ...accepted, blocked_contexts: ["external_send"] };
   const missing = memoryCard("mem_missing", "missing registry");
@@ -1800,6 +1806,9 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   const tombstone = memoryTombstone("tombstone_mem_deleted", "mem_deleted");
   const staleTombstone = memoryTombstone("tombstone_mem_stale", "mem_stale");
 
+  await writeFile(join(artifactRoot, "candidates", "memcand_pending.json"), `${JSON.stringify(pendingCandidate, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "candidates", "memcand_keep.json"), `${JSON.stringify(acceptedCandidate, null, 2)}\n`);
+  await writeFile(join(artifactRoot, "reject", "memcand_reject.json"), `${JSON.stringify(rejectedCandidate, null, 2)}\n`);
   await writeFile(join(artifactRoot, "accept", "mem_keep.json"), `${JSON.stringify(accepted, null, 2)}\n`);
   await writeFile(join(artifactRoot, "block", "mem_keep.json"), `${JSON.stringify(blocked, null, 2)}\n`);
   await writeFile(join(artifactRoot, "accept", "mem_missing.json"), `${JSON.stringify(missing, null, 2)}\n`);
@@ -1807,6 +1816,13 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   await writeFile(join(artifactRoot, "delete", "tombstone_mem_deleted.json"), `${JSON.stringify(tombstone, null, 2)}\n`);
   await writeFile(join(artifactRoot, "accept", "broken.json"), "{not json");
 
+  await writeFile(join(registryDir, "memory-candidates.json"), `${JSON.stringify([
+    pendingCandidate,
+    { ...acceptedCandidate, review: { status: "pending" } },
+    rejectedCandidate,
+    staleCandidate,
+    { id: "memcand_invalid_registry", candidate: {}, review: {} }
+  ], null, 2)}\n`);
   await writeFile(join(registryDir, "memory-cards.json"), `${JSON.stringify([
     blocked,
     { ...missing, content: "tampered registry projection" },
@@ -1820,7 +1836,10 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
 
   const beforeCards = await readFile(join(registryDir, "memory-cards.json"), "utf8");
   const events = [
+    payloadEvent("evt_mem_candidate_pending", "run_mem", "memory.candidate.created", "artifact://memory/candidates/memcand_pending"),
+    payloadEvent("evt_mem_candidate_keep", "run_mem", "memory.candidate.created", "artifact://memory/candidates/memcand_keep"),
     payloadEvent("evt_mem_accept_keep", "run_mem", "memory.accepted", "artifact://memory/accept/mem_keep"),
+    payloadEvent("evt_mem_reject", "run_mem", "memory.rejected", "artifact://memory/reject/memcand_reject"),
     payloadEvent("evt_mem_block_keep", "run_mem", "memory.blocked", "artifact://memory/block/mem_keep"),
     payloadEvent("evt_mem_accept_missing", "run_mem", "memory.accepted", "artifact://memory/accept/mem_missing"),
     payloadEvent("evt_mem_accept_deleted", "run_mem", "memory.accepted", "artifact://memory/accept/mem_deleted"),
@@ -1835,17 +1854,24 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
   assert.equal(audit.scope.mutates_registry, false);
   assert.deepEqual(audit.summary, {
+    expected_memory_candidates: 3,
     expected_memory_cards: 2,
     expected_memory_tombstones: 1,
+    actual_memory_candidates: 4,
     actual_memory_cards: 3,
     actual_memory_tombstones: 2,
-    matched: 2,
+    matched: 4,
     missing_registry: 0,
-    mismatched: 1,
-    stale_registry: 2,
+    mismatched: 2,
+    stale_registry: 3,
     invalid_artifact: 2,
-    invalid_registry: 1
+    invalid_registry: 2
   });
+  assert.ok(finding("memcand_pending", "matched"));
+  assert.ok(finding("memcand_keep", "mismatched"));
+  assert.ok(finding("memcand_reject", "matched"));
+  assert.ok(finding("memcand_stale", "stale_registry"));
+  assert.ok(finding("memcand_invalid_registry", "invalid_registry"));
   assert.ok(finding("mem_keep", "matched"));
   assert.ok(finding("mem_missing", "mismatched"));
   assert.ok(finding("tombstone_mem_deleted", "matched"));
@@ -1854,6 +1880,7 @@ test("memory registry rebuild audit derives active memory from ledger artifacts 
   assert.ok(finding("broken", "invalid_artifact"));
   assert.ok(audit.findings.some((entry) => entry.event_id === "evt_mem_missing_artifact" && entry.status === "invalid_artifact"));
   assert.ok(finding("mem_invalid_registry", "invalid_registry"));
+  assert.deepEqual(audit.expected_memory_candidates.map((item) => item.id), ["memcand_keep", "memcand_pending", "memcand_reject"]);
   assert.deepEqual(audit.expected_memory_cards.map((item) => item.id), ["mem_keep", "mem_missing"]);
   assert.deepEqual(audit.expected_memory_tombstones.map((item) => item.id), ["tombstone_mem_deleted"]);
   assert.equal(await readFile(join(registryDir, "memory-cards.json"), "utf8"), beforeCards);

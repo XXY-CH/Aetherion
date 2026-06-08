@@ -103,7 +103,7 @@ export type ReplayRegistryRebuildAudit = {
   findings: ReplayRegistryRebuildFinding[];
 };
 
-export type MemoryRegistryName = "memory-cards" | "memory-tombstones";
+export type MemoryRegistryName = "memory-candidates" | "memory-cards" | "memory-tombstones";
 
 export type MemoryRegistryRebuildFinding = {
   registry: MemoryRegistryName;
@@ -128,8 +128,10 @@ export type MemoryRegistryRebuildAudit = {
     rebuilds_from: "memory lifecycle Ledger events plus payload_ref artifacts";
   };
   summary: {
+    expected_memory_candidates: number;
     expected_memory_cards: number;
     expected_memory_tombstones: number;
+    actual_memory_candidates: number;
     actual_memory_cards: number;
     actual_memory_tombstones: number;
     matched: number;
@@ -139,6 +141,7 @@ export type MemoryRegistryRebuildAudit = {
     invalid_artifact: number;
     invalid_registry: number;
   };
+  expected_memory_candidates: RegistryItem[];
   expected_memory_cards: RegistryItem[];
   expected_memory_tombstones: RegistryItem[];
   findings: MemoryRegistryRebuildFinding[];
@@ -462,6 +465,7 @@ export function auditReplayRecordRegistryRebuild(workspaceRoot: string): ReplayR
 }
 
 export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventRecord[]): MemoryRegistryRebuildAudit {
+  const expectedCandidates = new Map<string, RegistryItem>();
   const expectedCards = new Map<string, RegistryItem>();
   const expectedTombstones = new Map<string, RegistryItem>();
   const findings: MemoryRegistryRebuildFinding[] = [];
@@ -510,7 +514,24 @@ export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventR
       continue;
     }
 
-    if ((event.event_type === "memory.accepted" || event.event_type === "memory.blocked") && isMemoryCardRecord(parsed)) {
+    if (event.event_type === "memory.candidate.created" && isMemoryCandidateRecord(parsed)) {
+      expectedCandidates.set(parsed.id, parsed);
+      continue;
+    }
+    if (event.event_type === "memory.rejected" && isMemoryCandidateRecord(parsed)) {
+      expectedCandidates.set(parsed.id, parsed);
+      continue;
+    }
+    if (event.event_type === "memory.accepted" && isMemoryCardRecord(parsed)) {
+      const candidateId = parsed.id.replace(/^mem_/, "memcand_");
+      const candidate = expectedCandidates.get(candidateId);
+      if (candidate && isMemoryCandidateRecord(candidate)) {
+        expectedCandidates.set(candidateId, { ...candidate, review: { ...candidate.review, status: "accepted" } });
+      }
+      expectedCards.set(parsed.id, parsed);
+      continue;
+    }
+    if (event.event_type === "memory.blocked" && isMemoryCardRecord(parsed)) {
       expectedCards.set(parsed.id, parsed);
       continue;
     }
@@ -531,26 +552,31 @@ export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventR
     });
   }
 
+  const actualCandidates = readMemoryRegistryItems(workspaceRoot, "memory-candidates", isMemoryCandidateRecord, findings);
   const actualCards = readMemoryRegistryItems(workspaceRoot, "memory-cards", isMemoryCardRecord, findings);
   const actualTombstones = readMemoryRegistryItems(workspaceRoot, "memory-tombstones", isMemoryTombstoneRecord, findings);
+  compareRegistryProjection("memory-candidates", expectedCandidates, actualCandidates, findings);
   compareRegistryProjection("memory-cards", expectedCards, actualCards, findings);
   compareRegistryProjection("memory-tombstones", expectedTombstones, actualTombstones, findings);
 
+  const expectedMemoryCandidates = [...expectedCandidates.values()].sort((left, right) => left.id.localeCompare(right.id));
   const expectedMemoryCards = [...expectedCards.values()].sort((left, right) => left.id.localeCompare(right.id));
   const expectedMemoryTombstones = [...expectedTombstones.values()].sort((left, right) => left.id.localeCompare(right.id));
   return {
     id: "memory_registry_rebuild_audit",
     generated_at: new Date().toISOString(),
     workspace_root: workspaceRoot,
-    registries: ["memory-cards", "memory-tombstones"],
+    registries: ["memory-candidates", "memory-cards", "memory-tombstones"],
     scope: {
       mode: "read_only_ledger_artifact_rebuild_parity",
       mutates_registry: false,
       rebuilds_from: "memory lifecycle Ledger events plus payload_ref artifacts"
     },
     summary: {
+      expected_memory_candidates: expectedMemoryCandidates.length,
       expected_memory_cards: expectedMemoryCards.length,
       expected_memory_tombstones: expectedMemoryTombstones.length,
+      actual_memory_candidates: actualCandidates.size,
       actual_memory_cards: actualCards.size,
       actual_memory_tombstones: actualTombstones.size,
       matched: findings.filter((finding) => finding.status === "matched").length,
@@ -560,6 +586,7 @@ export function auditMemoryRegistryRebuild(workspaceRoot: string, events: EventR
       invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
       invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
     },
+    expected_memory_candidates: expectedMemoryCandidates,
     expected_memory_cards: expectedMemoryCards,
     expected_memory_tombstones: expectedMemoryTombstones,
     findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
@@ -905,8 +932,12 @@ function summarizeReplayRebuild(expected: number, actual: number, findings: Repl
   };
 }
 
-function isMemoryLifecycleRebuildEvent(eventType: string): eventType is "memory.accepted" | "memory.blocked" | "memory.deleted" {
-  return eventType === "memory.accepted" || eventType === "memory.blocked" || eventType === "memory.deleted";
+function isMemoryLifecycleRebuildEvent(eventType: string): eventType is "memory.candidate.created" | "memory.accepted" | "memory.rejected" | "memory.blocked" | "memory.deleted" {
+  return eventType === "memory.candidate.created"
+    || eventType === "memory.accepted"
+    || eventType === "memory.rejected"
+    || eventType === "memory.blocked"
+    || eventType === "memory.deleted";
 }
 
 function isCapsuleLifecycleRebuildEvent(eventType: string): eventType is "capsule.draft.recorded" | "capsule.test.recorded" | "capsule.publish.recorded" | "capsule.rollback.recorded" {
@@ -916,7 +947,10 @@ function isCapsuleLifecycleRebuildEvent(eventType: string): eventType is "capsul
     || eventType === "capsule.rollback.recorded";
 }
 
-function memoryRegistryForEvent(eventType: "memory.accepted" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
+function memoryRegistryForEvent(eventType: "memory.candidate.created" | "memory.accepted" | "memory.rejected" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
+  if (eventType === "memory.candidate.created" || eventType === "memory.rejected") {
+    return "memory-candidates";
+  }
   return eventType === "memory.deleted" ? "memory-tombstones" : "memory-cards";
 }
 
@@ -1158,6 +1192,18 @@ function isMemoryCardRecord(value: unknown): value is RegistryItem {
     && typeof value.confidence === "number"
     && typeof value.sensitivity === "string"
     && (value.blocked_contexts === undefined || (Array.isArray(value.blocked_contexts) && value.blocked_contexts.every((context) => typeof context === "string")));
+}
+
+function isMemoryCandidateRecord(value: unknown): value is RegistryItem & { review: { status: string } } {
+  if (!isRegistryItem(value)) {
+    return false;
+  }
+  return Array.isArray(value.source_events)
+    && value.source_events.length > 0
+    && value.source_events.every((eventId) => typeof eventId === "string")
+    && isObjectRecord(value.candidate)
+    && isObjectRecord(value.review)
+    && typeof value.review.status === "string";
 }
 
 function isMemoryTombstoneRecord(value: unknown): value is RegistryItem & { target_memory_id: string } {

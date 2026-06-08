@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import type { ContextPack } from "../../memory-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse } from "../src/index.ts";
@@ -153,6 +154,25 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.deepEqual(plan.messages[1]?.source_event_ids, []);
   assert.deepEqual(plan.messages[2]?.section_ids, ["task", "run-evidence", "memory-context", "excluded-context"]);
   assert.deepEqual(plan.messages[2]?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed", "evt_user_pref", "evt_memory_accept"]);
+  assert.equal(plan.prompt_bundle.id, "prompt_bundle_run_prompt");
+  assert.equal(plan.prompt_bundle.schema_version, "aetherion-prompt-bundle-v1");
+  assert.equal(plan.prompt_bundle.renderer, "sectioned-markdown-v1");
+  assert.equal(plan.prompt_bundle.join_strategy, "system-developer-user-section-bundle-v1");
+  assert.deepEqual(plan.prompt_bundle.section_order, plan.sections.map((section) => section.id));
+  assert.deepEqual(plan.prompt_bundle.message_order, ["system", "developer", "user"]);
+  assert.equal(plan.prompt_bundle.section_hashes.length, plan.sections.length);
+  assert.equal(plan.prompt_bundle.message_hashes.length, plan.messages.length);
+  assert.equal(plan.prompt_bundle.preview_sha256, sha256(plan.preview));
+  assert.equal(plan.prompt_bundle.char_counts.preview, plan.preview.length);
+  assert.equal(plan.prompt_bundle.char_counts.messages.system, plan.messages[0]?.content.length);
+  assert.equal(plan.prompt_bundle.char_counts.messages.developer, plan.messages[1]?.content.length);
+  assert.equal(plan.prompt_bundle.char_counts.messages.user, plan.messages[2]?.content.length);
+  assert.ok(plan.prompt_bundle.section_hashes.every((entry) => entry.content_sha256.startsWith("sha256:")));
+  assert.deepEqual(plan.prompt_bundle.section_hashes.find((entry) => entry.section_id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
+  assert.deepEqual(plan.prompt_bundle.message_hashes.find((entry) => entry.role === "user")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed", "evt_user_pref", "evt_memory_accept"]);
+  assert.ok(plan.prompt_bundle.engineering_rules.some((rule) => rule.includes("fixed system, developer, and user messages")));
+  assert.ok(plan.prompt_bundle.engineering_rules.some((rule) => rule.includes("stable and auditable")));
+  assert.deepEqual(plan.prompt_bundle.guardrails, plan.assembly_manifest.guardrails);
   assert.match(plan.messages[0]?.content ?? "", /Instruction Hierarchy/);
   assert.match(plan.messages[1]?.content ?? "", /Tool Policy/);
   assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
@@ -343,6 +363,10 @@ function contextPack(): ContextPack {
       task_tokens: 6000
     }
   };
+}
+
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
 function sourceEvents() {

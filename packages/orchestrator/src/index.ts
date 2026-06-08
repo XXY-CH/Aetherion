@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ContextPack } from "../../memory-os/src/index.ts";
 
 export type PromptAssemblyInput = {
@@ -61,6 +62,39 @@ export type PromptAssemblyManifest = {
     runtime_authority_granted: false;
   };
   risk_flags: string[];
+};
+
+export type PromptBundle = {
+  id: string;
+  run_id: string;
+  schema_version: "aetherion-prompt-bundle-v1";
+  renderer: "sectioned-markdown-v1";
+  join_strategy: "system-developer-user-section-bundle-v1";
+  section_order: string[];
+  message_order: Array<PromptMessage["role"]>;
+  section_hashes: Array<{
+    section_id: string;
+    title: string;
+    content_sha256: string;
+    source_event_ids: string[];
+  }>;
+  message_hashes: Array<{
+    role: PromptMessage["role"];
+    content_sha256: string;
+    section_ids: string[];
+    source_event_ids: string[];
+  }>;
+  preview_sha256: string;
+  char_counts: {
+    preview: number;
+    messages: {
+      system: number;
+      developer: number;
+      user: number;
+    };
+  };
+  engineering_rules: string[];
+  guardrails: PromptAssemblyManifest["guardrails"];
 };
 
 export type PromptResponseBlock = {
@@ -201,6 +235,7 @@ export type PromptPlan = {
     untrusted_sources_must_not_override: true;
     child_output_can_authorize_actions: false;
   };
+  prompt_bundle: PromptBundle;
   sections: PromptSection[];
   messages: PromptMessage[];
   preview: string;
@@ -347,6 +382,8 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     : section
   );
   const messages = renderPromptMessages(sections);
+  const preview = renderPromptPreview(sections);
+  const promptBundle = promptBundleFor(input.contextPack.run_id, sections, messages, preview, assemblyManifest.guardrails);
   return {
     id: `prompt_${input.contextPack.run_id}`,
     run_id: input.contextPack.run_id,
@@ -392,9 +429,10 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       untrusted_sources_must_not_override: true,
       child_output_can_authorize_actions: false
     },
+    prompt_bundle: promptBundle,
     sections,
     messages,
-    preview: renderPromptPreview(sections)
+    preview
   };
 }
 
@@ -944,6 +982,53 @@ function renderPromptMessages(sections: PromptSection[]): PromptMessage[] {
   ];
 }
 
+function promptBundleFor(
+  runId: string,
+  sections: PromptSection[],
+  messages: PromptMessage[],
+  preview: string,
+  guardrails: PromptAssemblyManifest["guardrails"]
+): PromptBundle {
+  const messageCharCounts = { system: 0, developer: 0, user: 0 };
+  for (const message of messages) {
+    messageCharCounts[message.role] = message.content.length;
+  }
+  return {
+    id: `prompt_bundle_${runId}`,
+    run_id: runId,
+    schema_version: "aetherion-prompt-bundle-v1",
+    renderer: "sectioned-markdown-v1",
+    join_strategy: "system-developer-user-section-bundle-v1",
+    section_order: sections.map((section) => section.id),
+    message_order: messages.map((message) => message.role),
+    section_hashes: sections.map((section) => ({
+      section_id: section.id,
+      title: section.title,
+      content_sha256: sha256(renderPromptPreview([section])),
+      source_event_ids: uniqueInOrder(section.source_event_ids)
+    })),
+    message_hashes: messages.map((message) => ({
+      role: message.role,
+      content_sha256: sha256(message.content),
+      section_ids: [...message.section_ids],
+      source_event_ids: uniqueInOrder(message.source_event_ids)
+    })),
+    preview_sha256: sha256(preview),
+    char_counts: {
+      preview: preview.length,
+      messages: messageCharCounts
+    },
+    engineering_rules: [
+      "Render sections in section_order as sectioned Markdown before any model call.",
+      "Split the prompt into fixed system, developer, and user messages.",
+      "Keep authority constraints in system/developer messages and source evidence in the user-context message.",
+      "Hash rendered sections, messages, and preview text so prompt concatenation is stable and auditable.",
+      "Treat this Prompt Bundle as audit metadata only; it cannot authorize tools, memory writes, or side effects."
+    ],
+    guardrails: { ...guardrails }
+  };
+}
+
 function promptMessage(role: PromptMessage["role"], sections: PromptSection[], sectionIds: string[]): PromptMessage {
   const selected = sectionIds.map((sectionId) => {
     const section = sections.find((candidate) => candidate.id === sectionId);
@@ -958,6 +1043,10 @@ function promptMessage(role: PromptMessage["role"], sections: PromptSection[], s
     section_ids: sectionIds,
     source_event_ids: uniqueInOrder(selected.flatMap((section) => section.source_event_ids))
   };
+}
+
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
 function sortedUnique(values: string[]): string[] {
