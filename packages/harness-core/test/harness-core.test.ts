@@ -16,6 +16,9 @@ import {
   canonicalLedgerPath,
   canonicalRuntimeDir,
   browserObservationEventSequence,
+  childReadCompletedEventSequence,
+  childReadPolicyDeniedEventSequence,
+  childReadRepeatedDenialEventSequence,
   completeRunManifest,
   completeRunManifestWithEventSequence,
   createFileReadRequest,
@@ -44,6 +47,9 @@ import {
   verifyEventHashChain,
   verifyFileContains,
   BROWSER_OBSERVATION_EVENT_TYPES,
+  CHILD_READ_COMPLETED_EVENT_TYPES,
+  CHILD_READ_POLICY_DENIED_EVENT_TYPES,
+  CHILD_READ_REPEATED_DENIAL_EVENT_TYPES,
   IM_OUTBOX_EVENT_TYPES,
   WAKEUP_QUEUE_RUN_EVENT_TYPES,
   wakeupQueueRunEventSequence,
@@ -934,6 +940,199 @@ test("IM outbox run manifests require policy and outbox artifact refs", async ()
   const publicBlockedCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${publicBlockedRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(publicBlockedCompleted.status, "completed");
   assert.deepEqual(publicBlockedCompleted.event_ids, publicBlockedEvents.map((event) => event.id));
+});
+
+test("child read run manifests require explicit success and denial lifecycles", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-child-read-lifecycle-"));
+  const workspace = await createWorkspace(root, "ws_child_read_lifecycle_guard");
+  const contractRef = "artifact://agent/contract/contract_guard";
+  const childResultRef = "artifact://agent/execute/child_result_run_child_guard";
+  const denialRef = "artifact://agent/execute/account_denial_guard";
+  const breakerRef = "artifact://agent/execute/breaker_denial_guard";
+
+  const missingLeaseRunId = "run_child_missing_lease";
+  const missingLeaseManifest = await createRunManifest(repoRoot, workspace, missingLeaseRunId, "Child read missing lease guard");
+  const missingLeaseEvents = [
+    eventRecord({
+      id: "evt_child_missing_lease_started",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "agent.child.started",
+      actor: { type: "system", id: "test" },
+      summary: "Started child read.",
+      payload_ref: contractRef
+    }),
+    eventRecord({
+      id: "evt_child_missing_lease_requested",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "tool.requested",
+      actor: { type: "agent", id: "test" },
+      summary: "Requested child read."
+    }),
+    eventRecord({
+      id: "evt_child_missing_lease_risk",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "risk.composed",
+      actor: { type: "system", id: "test" },
+      summary: "Composed child read risk."
+    }),
+    eventRecord({
+      id: "evt_child_missing_lease_policy",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Allowed child read."
+    }),
+    eventRecord({
+      id: "evt_child_missing_lease_result",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "tool.result",
+      actor: { type: "system", id: "test" },
+      summary: "Read completed."
+    }),
+    eventRecord({
+      id: "evt_child_missing_lease_completed",
+      workspace_id: workspace.id,
+      run_id: missingLeaseRunId,
+      event_type: "agent.child.completed",
+      actor: { type: "system", id: "test" },
+      summary: "Completed child read.",
+      payload_ref: childResultRef
+    })
+  ];
+  for (const event of missingLeaseEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, missingLeaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, missingLeaseManifest, "completed", childReadCompletedEventSequence(contractRef, childResultRef)),
+    /expected lifecycle agent\.child\.started -> tool\.requested -> risk\.composed -> policy\.decided -> lease\.issued -> tool\.result -> agent\.child\.completed/
+  );
+
+  const wrongResultRefRunId = "run_child_wrong_result_ref";
+  const wrongResultRefManifest = await createRunManifest(repoRoot, workspace, wrongResultRefRunId, "Child read result artifact guard");
+  const wrongResultRefEvents = childReadEvents({
+    workspaceId: workspace.id,
+    runId: wrongResultRefRunId,
+    prefix: "evt_child_wrong_result_ref",
+    contractRef,
+    childResultRef: "artifact://agent/execute/child_result_other"
+  });
+  for (const event of wrongResultRefEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongResultRefManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongResultRefManifest, "completed", childReadCompletedEventSequence(contractRef, childResultRef)),
+    /expected payload_ref artifact:\/\/agent\/execute\/child_result_run_child_guard/
+  );
+
+  const validRunId = "run_child_lifecycle_guard";
+  const validManifest = await createRunManifest(repoRoot, workspace, validRunId, "Child read lifecycle guard");
+  const validEvents = childReadEvents({
+    workspaceId: workspace.id,
+    runId: validRunId,
+    prefix: "evt_child_valid",
+    contractRef,
+    childResultRef
+  });
+  assert.deepEqual(validEvents.map((event) => event.event_type), [...CHILD_READ_COMPLETED_EVENT_TYPES]);
+  for (const event of validEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, validManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, validManifest, "completed", childReadCompletedEventSequence(contractRef, childResultRef));
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${validRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(completed.event_ids, validEvents.map((event) => event.id));
+
+  const denialWithLeaseRunId = "run_child_denial_with_lease";
+  const denialWithLeaseManifest = await createRunManifest(repoRoot, workspace, denialWithLeaseRunId, "Child read denial lease guard");
+  const denialWithLeaseEvents = [
+    ...childReadPolicyDeniedEvents({
+      workspaceId: workspace.id,
+      runId: denialWithLeaseRunId,
+      prefix: "evt_child_denial_with_lease",
+      contractRef,
+      denialRef
+    }).slice(0, 4),
+    eventRecord({
+      id: "evt_child_denial_with_lease_lease",
+      workspace_id: workspace.id,
+      run_id: denialWithLeaseRunId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Invalid lease for denied child read."
+    }),
+    ...childReadPolicyDeniedEvents({
+      workspaceId: workspace.id,
+      runId: denialWithLeaseRunId,
+      prefix: "evt_child_denial_with_lease_tail",
+      contractRef,
+      denialRef
+    }).slice(4)
+  ];
+  for (const event of denialWithLeaseEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, denialWithLeaseManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, denialWithLeaseManifest, "blocked", childReadPolicyDeniedEventSequence(contractRef, denialRef)),
+    /expected lifecycle agent\.child\.started -> tool\.requested -> risk\.composed -> policy\.decided -> tool\.result -> agent\.child\.policy_denied/
+  );
+
+  const denialRunId = "run_child_policy_denied_lifecycle_guard";
+  const denialManifest = await createRunManifest(repoRoot, workspace, denialRunId, "Child read policy denial lifecycle guard");
+  const denialEvents = childReadPolicyDeniedEvents({
+    workspaceId: workspace.id,
+    runId: denialRunId,
+    prefix: "evt_child_denial_valid",
+    contractRef,
+    denialRef
+  });
+  assert.deepEqual(denialEvents.map((event) => event.event_type), [...CHILD_READ_POLICY_DENIED_EVENT_TYPES]);
+  for (const event of denialEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, denialManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, denialManifest, "blocked", childReadPolicyDeniedEventSequence(contractRef, denialRef));
+  const denialCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${denialRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(denialCompleted.status, "blocked");
+  assert.deepEqual(denialCompleted.event_ids, denialEvents.map((event) => event.id));
+
+  const repeatedDenialRunId = "run_child_repeated_denial_lifecycle_guard";
+  const repeatedDenialManifest = await createRunManifest(repoRoot, workspace, repeatedDenialRunId, "Child read repeated denial lifecycle guard");
+  const repeatedDenialEvents = [
+    ...childReadPolicyDeniedEvents({
+      workspaceId: workspace.id,
+      runId: repeatedDenialRunId,
+      prefix: "evt_child_repeated_denial",
+      contractRef,
+      denialRef
+    }),
+    eventRecord({
+      id: "evt_child_repeated_denial_breaker",
+      workspace_id: workspace.id,
+      run_id: repeatedDenialRunId,
+      event_type: "circuit.opened",
+      actor: { type: "system", id: "test" },
+      summary: "Opened repeated-denial breaker.",
+      payload_ref: breakerRef
+    })
+  ];
+  assert.deepEqual(repeatedDenialEvents.map((event) => event.event_type), [...CHILD_READ_REPEATED_DENIAL_EVENT_TYPES]);
+  for (const event of repeatedDenialEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, repeatedDenialManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, repeatedDenialManifest, "blocked", childReadRepeatedDenialEventSequence(contractRef, denialRef, breakerRef));
+  const repeatedDenialCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${repeatedDenialRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(repeatedDenialCompleted.status, "blocked");
+  assert.deepEqual(repeatedDenialCompleted.event_ids, repeatedDenialEvents.map((event) => event.id));
 });
 
 test("run manifest event ids are recorded as the next Ledger event projection", async () => {
@@ -2217,6 +2416,136 @@ function budgetAccount(id: string) {
     wall_time_ms_used: 5,
     status: "stopped"
   };
+}
+
+function childReadEvents(input: {
+  workspaceId: string;
+  runId: string;
+  prefix: string;
+  contractRef: string;
+  childResultRef: string;
+}) {
+  return [
+    eventRecord({
+      id: `${input.prefix}_started`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "agent.child.started",
+      actor: { type: "system", id: "test" },
+      summary: "Started child read.",
+      payload_ref: input.contractRef
+    }),
+    eventRecord({
+      id: `${input.prefix}_requested`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "tool.requested",
+      actor: { type: "agent", id: "test" },
+      summary: "Requested child read."
+    }),
+    eventRecord({
+      id: `${input.prefix}_risk`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "risk.composed",
+      actor: { type: "system", id: "test" },
+      summary: "Composed child read risk."
+    }),
+    eventRecord({
+      id: `${input.prefix}_policy`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Allowed child read."
+    }),
+    eventRecord({
+      id: `${input.prefix}_lease`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "lease.issued",
+      actor: { type: "system", id: "test" },
+      summary: "Issued scoped child read lease."
+    }),
+    eventRecord({
+      id: `${input.prefix}_result`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "tool.result",
+      actor: { type: "system", id: "test" },
+      summary: "Read completed."
+    }),
+    eventRecord({
+      id: `${input.prefix}_completed`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "agent.child.completed",
+      actor: { type: "system", id: "test" },
+      summary: "Completed child read.",
+      payload_ref: input.childResultRef
+    })
+  ];
+}
+
+function childReadPolicyDeniedEvents(input: {
+  workspaceId: string;
+  runId: string;
+  prefix: string;
+  contractRef: string;
+  denialRef: string;
+}) {
+  return [
+    eventRecord({
+      id: `${input.prefix}_started`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "agent.child.started",
+      actor: { type: "system", id: "test" },
+      summary: "Started child read.",
+      payload_ref: input.contractRef
+    }),
+    eventRecord({
+      id: `${input.prefix}_requested`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "tool.requested",
+      actor: { type: "agent", id: "test" },
+      summary: "Requested child read."
+    }),
+    eventRecord({
+      id: `${input.prefix}_risk`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "risk.composed",
+      actor: { type: "system", id: "test" },
+      summary: "Composed denied child read risk."
+    }),
+    eventRecord({
+      id: `${input.prefix}_policy`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Denied child read."
+    }),
+    eventRecord({
+      id: `${input.prefix}_result`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "tool.result",
+      actor: { type: "system", id: "test" },
+      summary: "Read denied."
+    }),
+    eventRecord({
+      id: `${input.prefix}_policy_denied`,
+      workspace_id: input.workspaceId,
+      run_id: input.runId,
+      event_type: "agent.child.policy_denied",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded child policy denial.",
+      payload_ref: input.denialRef
+    })
+  ];
 }
 
 function circuitBreaker(id: string) {

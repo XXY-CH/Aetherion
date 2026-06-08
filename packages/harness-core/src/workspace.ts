@@ -102,6 +102,30 @@ export const IM_OUTBOX_EVENT_TYPES = [
   "im.outbox.queued"
 ] as const;
 
+export const CHILD_READ_COMPLETED_EVENT_TYPES = [
+  "agent.child.started",
+  "tool.requested",
+  "risk.composed",
+  "policy.decided",
+  "lease.issued",
+  "tool.result",
+  "agent.child.completed"
+] as const;
+
+export const CHILD_READ_POLICY_DENIED_EVENT_TYPES = [
+  "agent.child.started",
+  "tool.requested",
+  "risk.composed",
+  "policy.decided",
+  "tool.result",
+  "agent.child.policy_denied"
+] as const;
+
+export const CHILD_READ_REPEATED_DENIAL_EVENT_TYPES = [
+  ...CHILD_READ_POLICY_DENIED_EVENT_TYPES,
+  "circuit.opened"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -152,6 +176,36 @@ export function imOutboxEventSequence(outboxPayloadRef: string): readonly RunEve
   return [
     { event_type: "policy.decided", payload_ref: null },
     { event_type: "im.outbox.queued", payload_ref: outboxPayloadRef }
+  ];
+}
+
+export function childReadCompletedEventSequence(contractPayloadRef: string, childResultPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "agent.child.started", payload_ref: contractPayloadRef },
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "lease.issued",
+    "tool.result",
+    { event_type: "agent.child.completed", payload_ref: childResultPayloadRef }
+  ];
+}
+
+export function childReadPolicyDeniedEventSequence(contractPayloadRef: string, denialPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "agent.child.started", payload_ref: contractPayloadRef },
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "tool.result",
+    { event_type: "agent.child.policy_denied", payload_ref: denialPayloadRef }
+  ];
+}
+
+export function childReadRepeatedDenialEventSequence(contractPayloadRef: string, denialPayloadRef: string, breakerPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    ...childReadPolicyDeniedEventSequence(contractPayloadRef, denialPayloadRef),
+    { event_type: "circuit.opened", payload_ref: breakerPayloadRef }
   ];
 }
 

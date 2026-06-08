@@ -2046,14 +2046,10 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   const childManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${childResult.child_run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(childManifest.status, "completed");
   assert.deepEqual(childManifest.event_ids, childResult.completion_evidence.source_event_ids);
-  const ledgerEvents = new Map(
-    (await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"))
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { id: string; event_type: string })
-      .map((event) => [event.id, event.event_type])
-  );
-  assert.deepEqual(childManifest.event_ids.map((eventId) => ledgerEvents.get(eventId)), [
+  const childLedgerAfterSuccess = await readLedgerEvents(workspace);
+  const ledgerEvents = new Map(childLedgerAfterSuccess.map((event) => [event.id, event]));
+  const childManifestEvents = childManifest.event_ids.map((eventId) => ledgerEvents.get(eventId));
+  assert.deepEqual(childManifestEvents.map((event) => event?.event_type), [
     "agent.child.started",
     "tool.requested",
     "risk.composed",
@@ -2062,6 +2058,13 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
     "tool.result",
     "agent.child.completed"
   ]);
+  assert.equal(childManifestEvents[0]?.payload_ref, `artifact://agent/contract/${contractId}`);
+  assert.equal(childManifestEvents[1]?.payload_ref, undefined);
+  assert.equal(childManifestEvents[2]?.payload_ref, undefined);
+  assert.equal(childManifestEvents[3]?.payload_ref, undefined);
+  assert.equal(childManifestEvents[4]?.payload_ref, undefined);
+  assert.equal(childManifestEvents[5]?.payload_ref, undefined);
+  assert.equal(childManifestEvents[6]?.payload_ref, `artifact://agent/execute/child_result_${childResult.child_run_id}`);
   const accounts = JSON.parse(await readFile(join(registryDir, "budget-accounts.json"), "utf8")) as Array<{ remaining: { tool_call_budget: number; lease_budget: number }; tool_calls_used: number; leases_used: number }>;
   assert.equal(accounts[0].remaining.tool_call_budget, 1);
   assert.equal(accounts[0].remaining.lease_budget, 0);
@@ -2103,8 +2106,36 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
   await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
   const thirdDenial = await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
+  const breaker = JSON.parse(thirdDenial.stdout) as { child_run_id: string };
   assert.match(thirdDenial.stdout, /"trigger": "repeated_policy_denial"/);
   assert.match(thirdDenial.stdout, /"action": "stop"/);
+  const childLedgerAfterDenials = await readLedgerEvents(workspace);
+  const deniedRuns = [...new Set(
+    childLedgerAfterDenials
+      .filter((event) => event.run_id.startsWith("run_child_") && event.run_id !== childResult.child_run_id)
+      .map((event) => event.run_id)
+  )];
+  assert.equal(deniedRuns.length, 3);
+  for (const deniedRunId of deniedRuns) {
+    const manifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${deniedRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+    assert.equal(manifest.status, "blocked");
+    const events = childLedgerAfterDenials.filter((event) => event.run_id === deniedRunId);
+    assert.deepEqual(manifest.event_ids, events.map((event) => event.id));
+    const expectedTypes = deniedRunId === breaker.child_run_id
+      ? ["agent.child.started", "tool.requested", "risk.composed", "policy.decided", "tool.result", "agent.child.policy_denied", "circuit.opened"]
+      : ["agent.child.started", "tool.requested", "risk.composed", "policy.decided", "tool.result", "agent.child.policy_denied"];
+    assert.deepEqual(events.map((event) => event.event_type), expectedTypes);
+    assert.equal(events[0].payload_ref, `artifact://agent/contract/${deniedContractId}`);
+    assert.equal(events[1].payload_ref, undefined);
+    assert.equal(events[2].payload_ref, undefined);
+    assert.equal(events[3].payload_ref, undefined);
+    assert.equal(events[4].payload_ref, undefined);
+    assert.match(events[5].payload_ref ?? "", /^artifact:\/\/agent\/execute\/account_/);
+    assert.equal(events.some((event) => event.event_type === "lease.issued"), false);
+    if (deniedRunId === breaker.child_run_id) {
+      assert.match(events[6].payload_ref ?? "", /^artifact:\/\/agent\/execute\/breaker_/);
+    }
+  }
   const deniedPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
     findings: Array<{
       event_type: string;

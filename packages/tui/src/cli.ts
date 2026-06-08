@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -1861,7 +1861,8 @@ async function runAgent(options: CliOptions): Promise<void> {
   const path = options.path ?? contract.allowed_paths[0];
   const childRunId = `run_child_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const manifest = await createRunManifest(repoRoot, workspace, childRunId, `Child ${contract.child_agent_id}: ${contract.task}`);
-  const startedEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.started", `Child run started under ${contract.id}.`, artifactRef("agent", "contract", contract.id));
+  const contractPayloadRef = artifactRef("agent", "contract", contract.id);
+  const startedEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.started", `Child run started under ${contract.id}.`, contractPayloadRef);
   let account = readRegistry(workspaceRoot, "budget-accounts").filter(isBudgetAccount).find((entry) => entry.contract_id === contract.id) ?? createBudgetAccount(contract);
   const score = readRegistry(workspaceRoot, "agent-scores").filter(isAgentScore).find((entry) => entry.agent_id === contract.child_agent_id);
   const capsule = readRegistry(workspaceRoot, "capsules").filter(isCapsule).find((entry) => entry.id === capsuleId);
@@ -1984,16 +1985,17 @@ async function runAgent(options: CliOptions): Promise<void> {
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "policy_denial"));
     if (account.policy_denials >= 3) {
       const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "repeated_policy_denial");
-      const circuitEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Repeated policy denials stopped ${contract.id}.`, artifactRef("agent", "execute", breakerId));
+      const breakerPayloadRef = artifactRef("agent", "execute", breakerId);
+      const circuitEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Repeated policy denials stopped ${contract.id}.`, breakerPayloadRef);
       const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "repeated_policy_denial", eventId: circuitEventId, reason: "Three supervisor policy denials", action: "stop" });
       await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
       writeAgentExecuteArtifact(workspaceRoot, breaker);
       await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
-      await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+      await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "blocked", childReadRepeatedDenialEventSequence(contractPayloadRef, denialPayloadRef, breakerPayloadRef));
       printRawJson(breaker);
       return;
     }
-    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "blocked", childReadPolicyDeniedEventSequence(contractPayloadRef, denialPayloadRef));
     printRawJson(account);
     return;
   }
@@ -2036,7 +2038,7 @@ async function runAgent(options: CliOptions): Promise<void> {
   await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
   await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "success"));
   await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "completed" });
-  await completeRunManifest(repoRoot, workspace, manifest, "completed");
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", childReadCompletedEventSequence(contractPayloadRef, resultRef));
   printRawJson(result);
 }
 

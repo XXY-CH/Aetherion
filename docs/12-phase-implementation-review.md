@@ -10,7 +10,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 98 passing tests.
+- `npm test`: 99 passing tests.
 - `cargo test`: 38 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -614,7 +614,7 @@ Verification evidence:
 
 Correction and remaining boundary:
 
-- This did not impose one lifecycle on all run families at the time. Later passes added explicit lifecycle contracts for hibernation, security scan, browser-observe, and outbox runs; child-read and any remaining run families still need their own contracts before their terminal manifests can make stronger sequence claims.
+- This did not impose one lifecycle on all run families at the time. Later passes added explicit lifecycle contracts for hibernation, security scan, browser-observe, outbox, and the main child-read success/policy-denial paths; any remaining run families still need their own contracts before their terminal manifests can make stronger sequence claims.
 - The generic creation, terminal, and load guards verify single-create behavior, manifest/Ledger membership, Ledger order, requested run id, and workspace membership. The sequence guard adds event-type order checks only for local-file kernel, sandbox promotion, replay persistence, and single-event governance helper runs. It now validates selected critical `payload_ref` bindings for Boundary Facts, Consent Records, Replay Records, and single-event governance helper artifacts; full artifact JSON semantics remain covered by existing schema validation and source-specific contract tests rather than by the manifest projection itself.
 - The CLI evidence output currently covers the V1 core `run`, `trace`, and `replay` commands; it is not yet a universal output contract for every later-phase Ether command.
 
@@ -715,7 +715,7 @@ Correction and remaining boundary:
 
 - This closes the hibernation run-manifest lifecycle drift without adding a daemon, automatic file/deadline observation, live resume execution, or lease issuance.
 - Hibernation records, wakeup triggers, and context packs remain registries/projections with schema validation and provenance gates; deterministic registry rebuild/parity for this family remains future work.
-- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims; security scan, browser-observe, and outbox lifecycle contracts are covered by later review notes.
+- Later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims; security scan, browser-observe, outbox, and the main child-read success/policy-denial lifecycle contracts are covered by later review notes.
 
 ## Phase 34 Review Notes
 
@@ -742,7 +742,7 @@ Correction and remaining boundary:
 
 - This closes the browser-observe run-manifest lifecycle drift without adding real browser automation, extension capture, DOM/CDP access, screenshot fallback, data egress, or action authority.
 - Browser observation artifacts remain evidence for audit and inspection only. They cannot authorize tool use or side effects.
-- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+- Other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
 
 ## Phase 35 Review Notes
 
@@ -769,7 +769,35 @@ Correction and remaining boundary:
 
 - This closes the outbox run-manifest lifecycle drift without adding IM/email delivery, reusable approval, webhook handling, remote channel identity, or connector authority.
 - Outbox artifacts remain queue/review evidence only. They do not send messages, grant a reusable permission, or authorize later side effects by themselves.
-- Child-read and other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+- Other later run families still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
+
+## Phase 36 Review Notes
+
+Matched architecture docs:
+
+- `docs/01-architecture.md`: child clients and orchestrators cannot become trust roots; the Rust Local Supervisor owns policy and scoped leases.
+- `docs/11-migration-and-runtime-economics.md`: child work needs independent run ids, budgets, circuit breakers, and completion evidence.
+- `docs/13-schema-runtime-governance.md`: terminal run manifests must not hide unprojected Ledger evidence, and evidence artifacts must be bound at the projection boundary.
+
+Implemented correspondence:
+
+- `childReadCompletedEventSequence()` now defines the successful child document-read lifecycle as `agent.child.started -> tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result -> agent.child.completed`.
+- `childReadPolicyDeniedEventSequence()` now defines the denied child-read lifecycle as `agent.child.started -> tool.requested -> risk.composed -> policy.decided -> tool.result -> agent.child.policy_denied`, explicitly without `lease.issued`.
+- `childReadRepeatedDenialEventSequence()` extends the denied lifecycle with `circuit.opened` for the third repeated policy denial.
+- The start event must bind to the Agent Contract artifact, successful completion must bind to the Child Result artifact, policy denial must bind to a Budget Account artifact snapshot, and repeated-denial breaker opening must bind to a Circuit Breaker artifact.
+- `ether agent execute` now completes successful child reads, ordinary policy denials, and repeated-denial breaker runs through those explicit sequence guards. Permission violation, budget exhaustion, timeout, and supervisor execution-failure breaker paths keep their existing completion semantics until they receive similarly explicit lifecycle contracts.
+
+Verification evidence:
+
+- Harness tests reject successful child-read manifests missing `lease.issued`, reject child results with mismatched artifact refs, reject denied child-read manifests that include a lease, and accept the exact success, policy-denial, and repeated-denial lifecycles.
+- TUI integration asserts a real successful `agent execute` child run records the exact success event sequence, binds the Agent Contract and Child Result artifacts, and leaves the supervisor-authored request/risk/policy/lease/result events payload-free.
+- TUI integration asserts three real denied `agent execute` runs complete as blocked manifests, record the exact no-lease denial sequence, bind Budget Account artifacts, and add a Circuit Breaker artifact only on the repeated-denial run.
+
+Correction and remaining boundary:
+
+- This closes the main child-read run-manifest lifecycle drift without adding general LLM orchestration, arbitrary Capsule execution, child writes, network tools, queue/ask exhaustion behavior, or exact supervisor-process CPU accounting.
+- Child outputs remain tainted evidence and cannot authorize parent actions.
+- Remaining child failure families, such as permission violation, budget exhaustion, timeout, and supervisor execution failure, still need explicit lifecycle contracts before their terminal manifests can make stronger sequence claims.
 
 ## Phase 3 Review Notes
 
