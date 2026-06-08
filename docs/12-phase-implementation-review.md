@@ -10,7 +10,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 99 passing tests.
+- `npm test`: 101 passing tests.
 - `cargo test`: 38 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -33,6 +33,34 @@ Verification from the latest pass:
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, risk and lease evidence, accounting, taint, repeated-denial hard stop, and routing-weight reduction. Rust RPC tests cover allowed child reads and denied child reads with risk evidence and no lease. | Governed local document-read slice implemented. General LLM orchestration, writes, network tools, escrow, and exact supervisor-process CPU accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, prevent it from authorizing actions, detect escalation/exfiltration attempts, contain suspicious subjects, and create regression evidence. | `packages/security/src/index.ts`; assessment/signal/trial/fixture contracts; Ether `security scan/ack/trial/fixture`; Rust `security.taint.evaluate`. | Security tests cover hash-only detection, multi-rule signals, taint authorization rejection, decoy-only trials, raw-free fixtures, Rust deny/no-lease policy, and Ledger-backed Ether lifecycle. | Deterministic local defense slice implemented. Semantic classifiers, source adapters, unknown-code process sandboxes, attribution, and active countermeasures remain pending. |
 | 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/surface-os/src/index.ts`; browser/IM/store contracts/examples; `packages/computer-use/src/index.ts`; computer action/observation contracts/examples with requirements-gate and approval-key fields; Ether `surface browser-observe`, `surface im-inbox`, `surface im-outbox`, and `store install`; Rust `surface.outbox.evaluate`. | Surface OS tests cover hash-only browser/IM records, one-scoped outbox approval, no delivery, and Ed25519 package verification. Computer-use tests cover current-tab browser scope, structured-first channel selection, side-effect lease/approval requirements, requirements-only adapter gates, scoped approval keys, tainted egress denial, and non-authorizing observations. Contract tests reject user-config-enabled computer actions and duplicate approval keys. Ether integration proves browser taint denial, IM outbox policy, no raw content in output/Ledger, and signed Capsule declaration install. Rust tests cover outbox ask/deny policy. | Narrow control-plane slice implemented. Real GUI, browser extension, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, and remote Capsule Store remain pending. |
+
+## Agent Orchestrator Prompt Assembly Preview
+
+Matched source docs:
+
+- `docs/01-architecture.md`: the Agent Orchestrator owns context assembly, planning, agent loop, and verification, while the Context and Planning Plane does not persist unreviewed long-term claims directly.
+- `docs/03-memory-os.md`: the Context Assembler chooses task, memory, tools, permissions, uncertainty, conflicts, and source citations under token, privacy, and permission constraints.
+- `docs/10-technical-strategy.md`: the Agent Orchestrator prototype belongs in TypeScript, while Rust remains the authority boundary.
+- `docs/13-schema-runtime-governance.md`: P1 runtime paths must cite Ledger evidence or registry evidence whose Ledger references pass the provenance gate.
+
+Implemented correspondence:
+
+- `packages/orchestrator/src/index.ts` adds `assemblePromptPlan`, a pure TypeScript prompt assembly function that accepts a task plus source-backed Context Pack and emits ordered prompt sections for system boundary, task, memory context, excluded context, tool policy, and response contract.
+- Prompt plans explicitly set `prompt_can_authorize_actions=false`, `local_supervisor_required=true`, and `requires_policy_for_tools=true`. Tool lists are request policy only; execution still requires Local Supervisor policy and scoped lease evidence.
+- The memory section carries selected Memory Card ids and source event ids. Excluded memory and conflicts remain visible so prompt engineering can account for blocked or sensitive context rather than silently omitting it.
+- Taint guidance states that child-agent output, public web content, IM content, and prompt text cannot authorize actions.
+- `ether prompt plan <run_id> --content <task>` reuses the same provenance-gated Context Pack path as `context explain`, returns a JSON preview on stdout, and deliberately calls `printRawJson` so it writes no `.aetherion/artifacts/prompt` file and appends no Ledger event.
+
+Verification evidence:
+
+- Orchestrator unit tests cover source-backed memory sections, deterministic tool allow/deny lists, non-authorizing authority fields, empty-task fail-closed behavior, and no-tool prompt previews.
+- TUI integration runs a real Rust-supervised kernel run, accepts a Memory Card, assembles a prompt plan for that run, asserts the preview includes the selected memory plus source event ids from the Ledger, and verifies the Ledger file remains byte-identical with no prompt artifact directory created.
+- TUI provenance regression tampers the Memory Card registry with a missing source event id and asserts `prompt plan` fails closed with the same provenance error as `context explain`, `memory user-model`, and `sleep`.
+
+Correction and remaining boundary:
+
+- This is prompt engineering and prompt assembly only. It does not call an LLM provider, perform model routing, run a planner loop, invoke tools, write memory, grant permissions, or execute actions.
+- Prompt previews are not product facts and are not persisted as runtime artifacts. If a future model-backed planner needs durable planning evidence, it should introduce a separate reviewed planning artifact and event type rather than treating prompt text as authority.
 
 ## Authority Event Append Guard Review
 

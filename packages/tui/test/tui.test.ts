@@ -981,6 +981,36 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(contextArtifacts.some((entry) => entry.startsWith(`ctx_${runId}`)));
   const contextRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "context-packs.json"), "utf8")) as Array<{ id: string }>;
   assert.ok(contextRegistry.some((entry) => entry.id === `ctx_${runId}`));
+  const ledgerBeforePromptPlan = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const promptPlan = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "plan",
+    runId,
+    "--content",
+    "Draft a local implementation plan.",
+    "--workspace",
+    workspace
+  ]);
+  const promptPlanRecord = JSON.parse(promptPlan.stdout) as {
+    id: string;
+    authority_boundary: { prompt_can_authorize_actions: boolean; local_supervisor_required: boolean };
+    memory_policy: { selected_memory_ids: string[] };
+    sections: Array<{ id: string; source_event_ids: string[] }>;
+    preview: string;
+  };
+  assert.equal(promptPlanRecord.id, `prompt_${runId}`);
+  assert.equal(promptPlanRecord.authority_boundary.prompt_can_authorize_actions, false);
+  assert.equal(promptPlanRecord.authority_boundary.local_supervisor_required, true);
+  assert.ok(promptPlanRecord.memory_policy.selected_memory_ids.includes(`mem_${runId}_episode`));
+  const promptSourceEvents = promptPlanRecord.sections.find((section) => section.id === "memory-context")?.source_event_ids ?? [];
+  assert.ok(promptSourceEvents.length > 0);
+  assert.ok(promptSourceEvents.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
+  assert.match(promptPlanRecord.preview, /System Boundary/);
+  assert.match(promptPlanRecord.preview, new RegExp(`mem_${runId}_episode`));
+  assert.match(promptPlanRecord.preview, new RegExp(escapeRegExp(promptSourceEvents[0])));
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "prompt")), /ENOENT/);
   const deleted = await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);
   assert.match(deleted.stdout, /"event_type": "memory.deleted"/);
   assert.match(deleted.stdout, /"history_rewritten": false/);
@@ -1384,10 +1414,15 @@ test("TUI context and user model fail closed on weak memory registry provenance"
     /Memory registry provenance is not strong enough/
   );
   await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "prompt", "plan", runId, "--content", "Draft a local implementation plan.", "--workspace", workspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await assert.rejects(
     execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]),
     /Memory registry provenance is not strong enough/
   );
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "context", "explain")), /ENOENT/);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "prompt")), /ENOENT/);
   await assert.rejects(access(join(workspace, ".aetherion", "memory", "user-model.json")), /ENOENT/);
   await assert.rejects(access(join(workspace, ".aetherion", "registries", "hibernations.json")), /ENOENT/);
 });

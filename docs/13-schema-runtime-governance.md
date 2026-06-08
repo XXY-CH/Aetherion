@@ -44,7 +44,7 @@ Gate for P0 changes:
 
 P1 contracts support implemented but intentionally narrow local runtime slices. Changes here must cite source Ledger events or persisted registries with auditable Ledger provenance, and must not synthesize missing evidence.
 
-- Memory OS: memory candidate, memory card, memory tombstone, memory patch, episodic timeline, user model, context pack.
+- Memory OS and local prompt assembly: memory candidate, memory card, memory tombstone, memory patch, episodic timeline, user model, context pack, prompt plan preview.
 - Capability OS: capability capsule, capability package, capsule install, migration plan/report, legacy capsule.
 - Sandbox and branching: checkpoint, branch, rehearsal, sandbox approval.
 - Causal reports: causal edge, causal projection, why report, counterfactual report.
@@ -97,7 +97,9 @@ The first loop is now closed for local file reads and approval-gated traced writ
 
 The P1 Memory lifecycle event types `memory.candidate.created`, `memory.accepted`, `memory.rejected`, and `memory.blocked` are runtime-backed extensions, not speculative schema growth. Ether writes a Memory lifecycle artifact, asks the Rust supervisor to append the corresponding Ledger event with `payload_ref`, and only then updates the registry projection. `memory.deleted` remains the tombstone event for delete review.
 
-Memory registry reads that assemble downstream context must not treat projections as source truth. `context explain`, `memory user-model`, and hibernation resume context assembly require Memory Card/Tombstone registry entries to pass the read-only registry provenance reference gate before use. Passing this gate means referenced Ledger event ids exist; it still does not prove deterministic registry rebuild parity. `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards.
+Memory registry reads that assemble downstream context must not treat projections as source truth. `context explain`, `prompt plan`, `memory user-model`, and hibernation resume context assembly require Memory Card/Tombstone registry entries to pass the read-only registry provenance reference gate before use. Passing this gate means referenced Ledger event ids exist; it still does not prove deterministic registry rebuild parity. `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards.
+
+`prompt plan` is a P1 Agent Orchestrator preview, not an authority path. It may assemble a rendered prompt from a source-backed Context Pack, task text, tool request policy, active permissions, and taint warnings, but it must not call a model, request or execute tools, append Ledger events, persist prompt artifacts, or imply that prompt text can authorize an action. Any future model-backed planner must keep tool use behind Local Supervisor policy and scoped lease evidence.
 
 `ether audit memory-records` provides the first scoped Memory parity preview. It walks Memory lifecycle Ledger events in order and reads `payload_ref` artifacts for `memory.accepted`, `memory.blocked`, and `memory.deleted` to reconstruct expected active `memory-cards` and `memory-tombstones` state. It is read-only, excludes pending/rejected candidates, does not repair registries, and does not perform artifact redaction.
 

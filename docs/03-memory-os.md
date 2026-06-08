@@ -133,7 +133,8 @@ Current Ether MVP:
 - `ether memory inspect <memory_id>` shows whether a Memory Card is still active or has a deletion tombstone.
 - `ether memory block <memory_id> --context <context>` adds a context-specific exclusion without changing source provenance.
 - `ether memory delete <memory_id>` removes the active Memory Card projection and persists a `memory.deleted` tombstone that cites the original source events. It does not rewrite Ledger history or perform full artifact redaction.
-- `ether context explain <run_id>`, `ether memory user-model`, and hibernation resume context assembly consume Memory Card/Tombstone registries only after referenced Ledger event ids pass a provenance gate. Weak, missing, or invalid memory registry provenance fails closed.
+- `ether context explain <run_id>`, `ether prompt plan <run_id> --content <task>`, `ether memory user-model`, and hibernation resume context assembly consume Memory Card/Tombstone registries only after referenced Ledger event ids pass a provenance gate. Weak, missing, or invalid memory registry provenance fails closed.
+- `ether prompt plan` is the first local Agent Orchestrator prompt-assembly slice. It renders authority, tool, memory, taint, and response-contract sections from the source-backed Context Pack, but it does not call a model, execute a tool, authorize side effects, append Ledger events, or persist prompt artifacts.
 - `.aetherion/memory/user-model.json` is a projection-only convenience copy derived from accepted Memory Cards, not an independent source of truth.
 
 ## Event-Driven Dreaming Pipeline
