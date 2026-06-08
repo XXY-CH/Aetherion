@@ -201,6 +201,7 @@ export function assertRiskBudget(contract: AgentContract, required: ResourceBudg
 }
 
 export function openCircuitBreaker(input: {
+  id?: string;
   contractId: string;
   childRunId: string;
   trigger: CircuitBreaker["trigger"];
@@ -209,7 +210,7 @@ export function openCircuitBreaker(input: {
   action?: CircuitBreaker["action"];
 }): CircuitBreaker {
   return {
-    id: `breaker_${input.contractId}_${randomUUID().slice(0, 8)}`,
+    id: input.id ?? `breaker_${input.contractId}_${randomUUID().slice(0, 8)}`,
     contract_id: input.contractId,
     child_run_id: input.childRunId,
     trigger: input.trigger,

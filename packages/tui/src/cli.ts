@@ -9,7 +9,7 @@ import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCa
 import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
-import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
+import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
@@ -1305,6 +1305,33 @@ async function validateAndUpsertAgentRecord(
   upsertRegistryItem(workspaceRoot, registryName, value);
 }
 
+function circuitBreakerArtifactId(contractId: string, childRunId: string, trigger: CircuitBreaker["trigger"]): string {
+  return sanitizePathSegment(`breaker_${contractId}_${childRunId}_${trigger}`);
+}
+
+function budgetAccountArtifactSnapshot(account: BudgetAccount, childRunId: string): BudgetAccount {
+  return {
+    ...account,
+    id: sanitizePathSegment(`${account.id}_${childRunId}`)
+  };
+}
+
+function writeAgentArtifact(workspaceRoot: string, topic: "contract" | "execute", value: { id: string }): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "agent", topic);
+  const safeId = sanitizePathSegment(value.id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${safeId}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("agent", topic, safeId);
+}
+
+function writeAgentContractArtifact(workspaceRoot: string, value: { id: string }): string {
+  return writeAgentArtifact(workspaceRoot, "contract", value);
+}
+
+function writeAgentExecuteArtifact(workspaceRoot: string, value: { id: string }): string {
+  return writeAgentArtifact(workspaceRoot, "execute", value);
+}
+
 function capsuleApprovalCard(capsule: Capsule): Record<string, unknown> & { id: string } {
   const approvalSuffix = `${capsule.id}_${capsule.version}`.replace(/[^A-Za-z0-9_-]+/g, "_");
   return {
@@ -1756,8 +1783,10 @@ async function runAgent(options: CliOptions): Promise<void> {
       allowedPaths: [path]
     });
     await requireValidContract("agent-contract.schema.json", contract);
-    await recordGovernanceEvent(workspaceRoot, "agent.contract.created", `Created ${contract.id} as a reviewable child work order; no child execution occurred.`, artifactRef("agent", "contract", contract.id));
-    printJson(contract);
+    const contractRef = writeAgentContractArtifact(workspaceRoot, contract);
+    upsertRegistryItem(workspaceRoot, "agent-contracts", registryItem(contract));
+    await recordGovernanceEvent(workspaceRoot, "agent.contract.created", `Created ${contract.id} as a reviewable child work order; no child execution occurred.`, contractRef);
+    printRawJson(contract);
     return;
   }
   if (options.topic !== "execute") {
@@ -1793,24 +1822,28 @@ async function runAgent(options: CliOptions): Promise<void> {
       throw new Error(`Capsule ${capsuleId} is not an eligible document-only read Capsule`);
     }
   } catch (error) {
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", String(error), artifactRef("agent", "execute", childRunId));
-    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "permission_violation", eventId, reason: String(error) });
+    const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "permission_violation");
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", String(error), artifactRef("agent", "execute", breakerId));
+    const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "permission_violation", eventId, reason: String(error) });
     await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "permission_violation"));
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
     await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-    printJson(breaker);
+    printRawJson(breaker);
     return;
   }
   const reserved = reserveRead(account);
   if (reserved === "exhausted") {
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Budget exhausted for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
-    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "Tool-call or lease budget exhausted" });
+    const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "budget_exhausted");
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Budget exhausted for ${contract.id}.`, artifactRef("agent", "execute", breakerId));
+    const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "Tool-call or lease budget exhausted" });
     await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", { ...account, status: "exhausted" });
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
     await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-    printJson(breaker);
+    printRawJson(breaker);
     return;
   }
   account = reserved;
@@ -1832,31 +1865,37 @@ async function runAgent(options: CliOptions): Promise<void> {
     const timedOut = String(error).includes("timed out");
     account = { ...account, status: timedOut ? "exhausted" : "stopped" };
     const reason = timedOut ? "Wall-time budget exhausted" : `Supervisor child read failed: ${String(error)}`;
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", reason, artifactRef("agent", "execute", childRunId));
+    const trigger = timedOut ? "budget_exhausted" : "execution_failure";
+    const breakerId = circuitBreakerArtifactId(contract.id, childRunId, trigger);
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", reason, artifactRef("agent", "execute", breakerId));
     const breaker = openCircuitBreaker({
+      id: breakerId,
       contractId: contract.id,
       childRunId,
-      trigger: timedOut ? "budget_exhausted" : "execution_failure",
+      trigger,
       eventId,
       reason
     });
     await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
     await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-    printJson(breaker);
+    printRawJson(breaker);
     return;
   }
   const cpuUsed = process.cpuUsage(cpuStarted);
   account = recordRuntimeUsage(account, (cpuUsed.user + cpuUsed.system) / 1000, performance.now() - wallStarted);
   if (account.status === "exhausted") {
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Child execution exceeded CPU or wall-time accounting for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
-    const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "CPU or wall-time budget exhausted" });
+    const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "budget_exhausted");
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Child execution exceeded CPU or wall-time accounting for ${contract.id}.`, artifactRef("agent", "execute", breakerId));
+    const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "CPU or wall-time budget exhausted" });
     await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+    writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
     await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-    printJson(breaker);
+    printRawJson(breaker);
     return;
   }
   const supervisorEventIds = [
@@ -1881,19 +1920,24 @@ async function runAgent(options: CliOptions): Promise<void> {
   }
   if (readResult.decision !== "allow") {
     account = recordPolicyDenial(account);
-    const denialEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.policy_denied", `Supervisor denied ${path} for ${contract.id}.`, artifactRef("agent", "execute", childRunId));
+    const denialPayload = budgetAccountArtifactSnapshot(account, childRunId);
+    const denialPayloadRef = writeAgentExecuteArtifact(workspaceRoot, denialPayload);
+    await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.child.policy_denied", `Supervisor denied ${path} for ${contract.id}.`, denialPayloadRef);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "policy_denial"));
     if (account.policy_denials >= 3) {
-      const breaker = openCircuitBreaker({ contractId: contract.id, childRunId, trigger: "repeated_policy_denial", eventId: denialEventId, reason: "Three supervisor policy denials", action: "stop" });
+      const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "repeated_policy_denial");
+      const circuitEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Repeated policy denials stopped ${contract.id}.`, artifactRef("agent", "execute", breakerId));
+      const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "repeated_policy_denial", eventId: circuitEventId, reason: "Three supervisor policy denials", action: "stop" });
       await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
+      writeAgentExecuteArtifact(workspaceRoot, breaker);
       await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
       await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-      printJson(breaker);
+      printRawJson(breaker);
       return;
     }
     await completeRunManifest(repoRoot, workspace, manifest, "blocked");
-    printJson(account);
+    printRawJson(account);
     return;
   }
   if (typeof readResult.contents !== "string" || typeof readResult.request_id !== "string" || typeof readResult.policy_decision_id !== "string" || typeof readResult.lease_id !== "string" || !readResult.lease_id) {
@@ -1930,11 +1974,13 @@ async function runAgent(options: CliOptions): Promise<void> {
     parent_must_reauthorize_actions: true
   };
   await requireValidContract("child-result.schema.json", result);
+  writeAgentExecuteArtifact(workspaceRoot, result);
+  upsertRegistryItem(workspaceRoot, "child-results", registryItem(result));
   await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
   await validateAndUpsertAgentRecord(workspaceRoot, "agent-score.schema.json", "agent-scores", updateAgentScore(score, contract.child_agent_id, "success"));
   await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "completed" });
   await completeRunManifest(repoRoot, workspace, manifest, "completed");
-  printJson(result);
+  printRawJson(result);
 }
 
 async function runSecurity(options: CliOptions): Promise<void> {

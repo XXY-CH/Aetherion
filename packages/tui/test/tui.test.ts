@@ -1543,7 +1543,7 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   assert.equal(budgetsAfter[0].tool_call_budget, 2);
   const contractId = JSON.parse(result.stdout).id as string;
   const execution = await execFileAsync(process.execPath, [cliPath, "agent", "execute", contractId, "--workspace", workspace]);
-  const childResult = JSON.parse(execution.stdout) as { child_run_id: string; status: string; completion_evidence: { source_event_ids: string[]; lease_id: string; artifact_sha256: string; byte_count: number }; output_taint: { can_authorize_actions: boolean }; parent_must_reauthorize_actions: boolean };
+  const childResult = JSON.parse(execution.stdout) as { id: string; child_run_id: string; status: string; completion_evidence: { source_event_ids: string[]; lease_id: string; artifact_sha256: string; byte_count: number }; output_taint: { can_authorize_actions: boolean }; parent_must_reauthorize_actions: boolean };
   assert.equal(childResult.status, "completed");
   assert.match(childResult.completion_evidence.lease_id, /^lease_/);
   assert.match(childResult.completion_evidence.artifact_sha256, /^sha256:/);
@@ -1612,6 +1612,25 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   const thirdDenial = await execFileAsync(process.execPath, [cliPath, "agent", "execute", deniedContractId, "--workspace", workspace]);
   assert.match(thirdDenial.stdout, /"trigger": "repeated_policy_denial"/);
   assert.match(thirdDenial.stdout, /"action": "stop"/);
+  const deniedPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+    }>;
+  };
+  const policyDeniedFindings = deniedPayloadAudit.findings.filter((finding) => finding.event_type === "agent.child.policy_denied");
+  assert.equal(policyDeniedFindings.length, 3);
+  assert.ok(policyDeniedFindings.every((finding) => finding.payload_ref.startsWith("artifact://agent/execute/account_")));
+  assert.ok(policyDeniedFindings.every((finding) => finding.schema_name === "budget-account.schema.json"));
+  assert.ok(policyDeniedFindings.every((finding) => finding.schema_status === "valid"));
+  const circuitFinding = deniedPayloadAudit.findings.find((finding) => finding.event_type === "circuit.opened");
+  assert.ok(circuitFinding?.payload_ref.startsWith("artifact://agent/execute/breaker_"));
+  assert.equal(circuitFinding?.schema_name, "circuit-breaker.schema.json");
+  assert.equal(circuitFinding?.schema_status, "valid");
+  const childResults = JSON.parse(await readFile(join(registryDir, "child-results.json"), "utf8")) as Array<{ id: string }>;
+  assert.deepEqual(childResults.map((entry) => entry.id), [childResult.id]);
   const scores = JSON.parse(await readFile(join(registryDir, "agent-scores.json"), "utf8")) as Array<{ agent_id: string; routing_weight: number }>;
   assert.ok((scores.find((entry) => entry.agent_id === "agent_denied")?.routing_weight ?? 1) < 1);
 });

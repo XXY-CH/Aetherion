@@ -1164,6 +1164,9 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(agentContractDir, "contract_payload.json"), `${JSON.stringify(agentContract("contract_payload", "draft"), null, 2)}\n`);
   await writeFile(join(agentContractDir, "contract_payload_active.json"), `${JSON.stringify(agentContract("contract_payload_active", "active"), null, 2)}\n`);
   await writeFile(join(agentExecuteDir, "child_result_run_child_payload.json"), `${JSON.stringify(childResult("child_result_run_child_payload"), null, 2)}\n`);
+  await writeFile(join(agentExecuteDir, "account_payload_denial.json"), `${JSON.stringify(budgetAccount("account_payload_denial"), null, 2)}\n`);
+  await writeFile(join(agentExecuteDir, "breaker_payload_denial.json"), `${JSON.stringify(circuitBreaker("breaker_payload_denial"), null, 2)}\n`);
+  await writeFile(join(agentExecuteDir, "breaker_payload_invalid.json"), `${JSON.stringify({ id: "breaker_payload_invalid" }, null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
@@ -1199,6 +1202,9 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_agent_contract", "run_payload_resolved", "agent.contract.created", "artifact://agent/contract/contract_payload"),
     payloadEvent("evt_payload_agent_started", "run_payload_resolved", "agent.child.started", "artifact://agent/contract/contract_payload_active"),
     payloadEvent("evt_payload_agent_completed", "run_payload_resolved", "agent.child.completed", "artifact://agent/execute/child_result_run_child_payload"),
+    payloadEvent("evt_payload_agent_policy_denied", "run_payload_resolved", "agent.child.policy_denied", "artifact://agent/execute/account_payload_denial"),
+    payloadEvent("evt_payload_agent_circuit", "run_payload_resolved", "circuit.opened", "artifact://agent/execute/breaker_payload_denial"),
+    payloadEvent("evt_payload_agent_circuit_invalid", "run_payload_schema_invalid", "circuit.opened", "artifact://agent/execute/breaker_payload_invalid"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1211,13 +1217,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 36,
-    resolved: 33,
+    events_with_payload_ref: 39,
+    resolved: 36,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 27,
-    schema_invalid: 6,
+    schema_valid: 29,
+    schema_invalid: 7,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1293,6 +1299,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_agent_started")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_agent_completed")?.schema_name, "child-result.schema.json");
   assert.equal(byId.get("evt_payload_agent_completed")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_policy_denied")?.schema_name, "budget-account.schema.json");
+  assert.equal(byId.get("evt_payload_agent_policy_denied")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_circuit")?.schema_name, "circuit-breaker.schema.json");
+  assert.equal(byId.get("evt_payload_agent_circuit")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_circuit_invalid")?.schema_name, "circuit-breaker.schema.json");
+  assert.equal(byId.get("evt_payload_agent_circuit_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_agent_circuit_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -1506,6 +1519,40 @@ function resourceBudget(id: string) {
     risk_budget: "L2",
     lease_budget: 1,
     on_exhaustion: "stop"
+  };
+}
+
+function budgetAccount(id: string) {
+  return {
+    id,
+    contract_id: "contract_payload_active",
+    remaining: {
+      ...resourceBudget("budget_payload"),
+      tool_call_budget: 1,
+      lease_budget: 0
+    },
+    tool_calls_used: 1,
+    leases_used: 1,
+    policy_denials: 3,
+    token_used: 0,
+    cpu_ms_used: 1,
+    network_calls_used: 0,
+    wall_time_ms_used: 5,
+    status: "stopped"
+  };
+}
+
+function circuitBreaker(id: string) {
+  return {
+    id,
+    contract_id: "contract_payload_active",
+    child_run_id: "run_child_payload",
+    trigger: "repeated_policy_denial",
+    status: "open",
+    action: "stop",
+    event_id: "evt_payload_agent_circuit",
+    reason: "Three supervisor policy denials",
+    created_at: "2026-06-07T12:05:00.000Z"
   };
 }
 

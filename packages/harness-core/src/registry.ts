@@ -1393,6 +1393,12 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
   if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && eventType === "agent.child.completed") {
     return "child-result.schema.json";
   }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && parts[2].startsWith("account_") && eventType === "agent.child.policy_denied") {
+    return "budget-account.schema.json";
+  }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && parts[2].startsWith("breaker_") && eventType === "circuit.opened") {
+    return "circuit-breaker.schema.json";
+  }
   if (parts[0] === "memory" && parts.length === 3) {
     if (parts[1] === "candidates" || parts[1] === "reject") {
       return "memory-candidate.schema.json";

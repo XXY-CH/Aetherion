@@ -643,7 +643,32 @@ Verification evidence:
 Correction and remaining boundary:
 
 - This closes an audit coverage drift against the original Dreaming/persona/Soul/child-agent designs. It does not add any new runtime authority, background Dreaming loop, persona automation, Soul Fork execution, or general child-agent executor.
-- Circuit breaker and policy-denial payload refs remain outside this schema mapping until their artifact ids and event refs are made explicit enough to validate without guessing.
+- Policy-denial and circuit-breaker payload refs needed a separate event/artifact binding pass; Phase 31 below closes that gap without broadening child-agent authority.
+
+## Phase 31 Review Notes
+
+Matched architecture docs:
+
+- `docs/11-migration-and-runtime-economics.md`: exhaustion or violation should emit events and trigger circuit breakers.
+- `docs/09-computer-use-implementation.md`: child runs receive separate budgets and leases, and child output or failure state remains evidence rather than authority.
+- `docs/13-schema-runtime-governance.md`: `payload_ref` audit may inspect schema-backed evidence but must not repair artifacts or mutate registries.
+
+Implemented correspondence:
+
+- `agent.child.policy_denied` now writes a per-child-run Budget Account snapshot artifact under `.aetherion/artifacts/agent/execute/` and attaches that artifact through `payload_ref`.
+- Repeated policy denial now appends an explicit `circuit.opened` Ledger event before blocking the child run, matching the other breaker paths for permission violation, budget exhaustion, timeout, and execution failure.
+- `circuit.opened` events now point to deterministic Circuit Breaker artifact ids instead of the child run id, so the referenced artifact can be resolved and schema-validated.
+- Agent contract, child result, policy-denial Budget Account, and Circuit Breaker evidence are now written explicitly to the matching `artifact://agent/...` paths instead of relying on command output persistence, and failure accounting/breaker objects no longer pollute the `child-results` projection.
+- `auditLedgerPayloadRefs` now maps `agent.child.policy_denied` account refs to `budget-account.schema.json` and `circuit.opened` breaker refs to `circuit-breaker.schema.json`.
+
+Verification evidence:
+
+- Harness payload-ref audit tests now cover valid Budget Account and Circuit Breaker artifacts plus an invalid Circuit Breaker schema failure.
+- TUI integration drives three real child policy denials, verifies all denial payload refs resolve as schema-valid Budget Account snapshots, verifies the hard-stop breaker event resolves as a schema-valid Circuit Breaker artifact, and checks `child-results` contains only the completed Child Result projection.
+
+Correction and remaining boundary:
+
+- This fixes dangling/misleading child-agent failure payload refs. It does not add queue/ask exhaustion behavior, general child-agent orchestration, automatic registry repair, or deterministic rebuild parity for Budget Account/Circuit Breaker registries.
 
 ## Phase 3 Review Notes
 
