@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
-import { approveRehearsal, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite } from "../../sandbox/src/index.ts";
+import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
@@ -879,6 +879,7 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   }
 
   const { workspace, registry: workspaceRegistry } = await loadWorkspaceFromRegistry(workspaceRoot);
+  await assertSandboxPromotionEvidence(workspaceRoot, workspace, checkpoint, branch, rehearsal);
   const promotionRunId = `run_rehearsal_${sanitizePathSegment(rehearsal.id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const manifest = await createRunManifest(repoRoot, workspace, promotionRunId, `Approve sandbox rehearsal ${rehearsal.id}`);
   const boundaryRef = await writeBoundaryFactsArtifact(repoRoot, workspace, createBoundaryFacts({
@@ -1010,6 +1011,76 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
   await requireValidContract("sandbox-approval.schema.json", approved.approval);
   upsertRegistryItem(workspaceRoot, "branches", approved.branch);
   printJson(approved.approval);
+}
+
+async function assertSandboxPromotionEvidence(
+  workspaceRoot: string,
+  workspace: Awaited<ReturnType<typeof openWorkspace>>,
+  checkpoint: EventCheckpoint,
+  branch: LedgerBranch,
+  rehearsal: SandboxRehearsal
+): Promise<void> {
+  if (branch.status !== "sandbox") {
+    throw new Error(`Branch ${branch.id} must be sandbox before rehearsal approval`);
+  }
+  if (branch.id !== rehearsal.branch_id) {
+    throw new Error(`Rehearsal ${rehearsal.id} does not belong to branch ${branch.id}`);
+  }
+  if (branch.checkpoint_id !== checkpoint.id) {
+    throw new Error(`Branch ${branch.id} checkpoint ${branch.checkpoint_id} does not match checkpoint ${checkpoint.id}`);
+  }
+  if (!checkpoint.event_hash) {
+    throw new Error(`Checkpoint ${checkpoint.id} has no Ledger event hash evidence`);
+  }
+  const checkpointEvent = (await readEvents(workspace)).find((event) => event.id === checkpoint.event_id);
+  if (!checkpointEvent) {
+    throw new Error(`Checkpoint event ${checkpoint.event_id} not found in Ledger`);
+  }
+  if (checkpointEvent.run_id !== checkpoint.run_id) {
+    throw new Error(`Checkpoint ${checkpoint.id} run ${checkpoint.run_id} does not match Ledger event run ${checkpointEvent.run_id}`);
+  }
+  if (checkpointEvent.event_hash !== checkpoint.event_hash) {
+    throw new Error(`Checkpoint ${checkpoint.id} event hash does not match Ledger event ${checkpoint.event_id}`);
+  }
+  if (branch.source_event_id !== checkpoint.event_id || branch.head_event_id !== checkpoint.event_id) {
+    throw new Error(`Branch ${branch.id} event pointers do not match checkpoint event ${checkpoint.event_id}`);
+  }
+  if (branch.source_event_hash !== checkpoint.event_hash || branch.head_event_hash !== checkpoint.event_hash) {
+    throw new Error(`Branch ${branch.id} event hashes do not match checkpoint event hash`);
+  }
+  if (!rehearsal.target_path || !rehearsal.sandbox_path || !rehearsal.original_sha256 || !rehearsal.proposed_sha256) {
+    throw new Error(`File rehearsal ${rehearsal.id} is missing target, sandbox, or content hash evidence`);
+  }
+  const relativeTarget = assertWorkspaceRelativePath(workspaceRoot, rehearsal.target_path);
+  const expectedSandboxPath = resolve(workspaceRoot, sandboxWorkspacePath(branch.id, relativeTarget));
+  const sandboxPath = resolve(workspaceRoot, rehearsal.sandbox_path);
+  if (sandboxPath !== expectedSandboxPath) {
+    throw new Error(`Rehearsal ${rehearsal.id} sandbox path is not bound to target ${relativeTarget}`);
+  }
+  const targetPath = resolve(workspaceRoot, relativeTarget);
+  const currentOriginalHash = contentSha256(readUtf8OrEmpty(targetPath));
+  if (currentOriginalHash !== rehearsal.original_sha256) {
+    throw new Error(`Rehearsal ${rehearsal.id} target content changed since rehearsal`);
+  }
+  const proposedHash = contentSha256(readFileSync(sandboxPath, "utf8"));
+  if (proposedHash !== rehearsal.proposed_sha256) {
+    throw new Error(`Rehearsal ${rehearsal.id} sandbox content hash changed`);
+  }
+}
+
+function readUtf8OrEmpty(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return "";
+    }
+    throw error;
+  }
+}
+
+function contentSha256(contents: string): string {
+  return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
 async function runCapsule(options: CliOptions): Promise<void> {

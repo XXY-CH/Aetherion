@@ -37,7 +37,7 @@ Current scope:
 - Use registries for sandbox checkpoint/branch/rehearsal, causal projection/Why/Counterfactual reports, child-agent resource budgets/circuit breakers, and poisoning signal acknowledgement.
 - Store checkpoint and branch event id/hash pointers so branch replay can refer to a trace head without reusing authority.
 - Rehearse file writes in `.aetherion/sandboxes/<branch>/workspace/` with content hashes and a reviewable diff while leaving the real file unchanged.
-- Approve rehearsals through `approve-rehearsal`, which creates an independent promotion run, asks the Rust supervisor to record the write-prepare/write-commit lifecycle, performs the write through a fresh lease, verifies exact content, and leaves the checkpoint source run untouched after completion.
+- Approve rehearsals through `approve-rehearsal`, which first revalidates checkpoint Ledger event/hash evidence, branch pointers, sandbox path binding, and target/proposed content hashes before creating any promotion run. It then asks the Rust supervisor to record the write-prepare/write-commit lifecycle, performs the write through a fresh lease, verifies exact content, and leaves the checkpoint source run untouched after completion.
 - Draft, replay-test, locally publish, inspect, and roll back document-only Capsules. Capsule tests require two distinct source runs from the real hash-chained Ledger and a playbook sandbox trial; permission expansion requires an Approval Card. Successful draft/test/publish/rollback transitions append supervisor-authored, hash-chained governance events whose `payload_ref` points to versioned Capsule lifecycle snapshots. Local publication is unsigned, does not execute the playbook, and does not grant runtime permissions to the Capsule.
 - Use `dream` for reviewable Memory Fold patches. It requires two real Memory Cards, retains `folded_from` and source events, and requires explicit approval before a sensitive fold becomes active.
 - Use named, TTL-bound persona anchor branches. `persona reset` applies only a branch containing accepted, non-expired anchors and retains business Memory Card references.
@@ -127,7 +127,7 @@ npm run ether -- rehearse <branch_id> --workspace . --path PHASE.md --content "p
 npm run ether -- approve-rehearsal <rehearsal_id> --workspace .
 ```
 
-The rehearsal command mutates only `.aetherion/sandboxes/`. Approval does not reuse checkpoint authority: Ether asks the Rust supervisor for a fresh policy decision, the write boundary reevaluates policy again, and exact file contents are verified before the live action event is recorded.
+The rehearsal command mutates only `.aetherion/sandboxes/`. Approval does not reuse checkpoint authority or trust registry rows by themselves: Ether rechecks the checkpoint Ledger event/hash, branch pointers, sandbox file hash, and current target hash before creating the promotion run. Only then does it ask the Rust supervisor for a fresh policy decision; the write boundary reevaluates policy again, and exact file contents are verified before the live action event is recorded.
 
 Document-only Capsule flow:
 

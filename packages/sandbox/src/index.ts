@@ -99,7 +99,7 @@ export async function rehearseFileWrite(
 ): Promise<SandboxRehearsal> {
   const relativeTarget = assertWorkspaceRelativePath(workspaceRoot, targetPath);
   const realTarget = resolve(workspaceRoot, relativeTarget);
-  const sandboxRelative = `.aetherion/sandboxes/${sanitizePath(branch.id)}/workspace/${relativeTarget}`;
+  const sandboxRelative = sandboxWorkspacePath(branch.id, relativeTarget);
   const sandboxTarget = resolve(workspaceRoot, sandboxRelative);
   const originalContents = await readFile(realTarget, "utf8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return "";
@@ -208,6 +208,10 @@ export function assertWorkspaceRelativePath(workspaceRoot: string, targetPath: s
     throw new Error("Sandbox target cannot modify Aetherion runtime state");
   }
   return relativeTarget;
+}
+
+export function sandboxWorkspacePath(branchId: string, relativeTarget: string): string {
+  return `.aetherion/sandboxes/${sanitizePath(branchId)}/workspace/${relativeTarget}`;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

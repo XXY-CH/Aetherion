@@ -732,6 +732,47 @@ test("TUI migration dry-run redacts tokens and quarantines legacy skills", async
   assert.doesNotMatch(JSON.stringify(reports), /123:SECRET/);
 });
 
+test("Ether refuses sandbox promotion when registry or file evidence drifts", async () => {
+  for (const tamper of [
+    {
+      message: /must be sandbox before rehearsal approval/,
+      mutate: async (fixture: Awaited<ReturnType<typeof createRehearsalFixture>>) => {
+        const branchPath = join(fixture.workspace, ".aetherion", "registries", "branches.json");
+        const branches = JSON.parse(await readFile(branchPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+        await writeFile(branchPath, `${JSON.stringify(branches.map((branch) => branch.id === fixture.branch.id ? { ...branch, status: "approved" } : branch), null, 2)}\n`);
+      },
+      expectedTarget: "original phase\n"
+    },
+    {
+      message: /sandbox content hash changed/,
+      mutate: async (fixture: Awaited<ReturnType<typeof createRehearsalFixture>>) => {
+        await writeFile(join(fixture.workspace, fixture.rehearsal.sandbox_path), "tampered proposal\n");
+      },
+      expectedTarget: "original phase\n"
+    },
+    {
+      message: /target content changed since rehearsal/,
+      mutate: async (fixture: Awaited<ReturnType<typeof createRehearsalFixture>>) => {
+        await writeFile(join(fixture.workspace, fixture.rehearsal.target_path), "concurrent edit\n");
+      },
+      expectedTarget: "concurrent edit\n"
+    }
+  ]) {
+    const fixture = await createRehearsalFixture();
+    await tamper.mutate(fixture);
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, "approve-rehearsal", fixture.rehearsal.id, "--workspace", fixture.workspace]),
+      (error) => {
+        assert.match(commandStderr(error), tamper.message);
+        return true;
+      }
+    );
+    assert.equal(await readFile(join(fixture.workspace, fixture.rehearsal.target_path), "utf8"), tamper.expectedTarget);
+    const runFiles = await readdir(join(fixture.workspace, ".aetherion", "runs"));
+    assert.equal(runFiles.some((fileName) => fileName.startsWith("run_rehearsal_")), false);
+  }
+});
+
 test("TUI memory commands require real source events and missing Capsules do not fake success", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-registries-"));
   await writeFile(join(workspace, "README.md"), "Registry evidence\n");
@@ -1912,6 +1953,49 @@ async function readLedgerEvents(workspace: string): Promise<EventRecord[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as EventRecord);
+}
+
+async function createRehearsalFixture(): Promise<{
+  workspace: string;
+  branch: { id: string };
+  rehearsal: { id: string; sandbox_path: string; target_path: string };
+}> {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rehearsal-guard-"));
+  await writeFile(join(workspace, "README.md"), "Rehearsal source\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+  const checkpoint = await execFileAsync(process.execPath, [cliPath, "checkpoint", runId, "--workspace", workspace]);
+  const checkpointRecord = JSON.parse(checkpoint.stdout) as { id: string };
+  const branch = await execFileAsync(process.execPath, [cliPath, "branch", checkpointRecord.id, "--workspace", workspace]);
+  const branchRecord = JSON.parse(branch.stdout) as { id: string };
+  await writeFile(join(workspace, "PHASE.md"), "original phase\n");
+  const rehearsal = await execFileAsync(process.execPath, [
+    cliPath,
+    "rehearse",
+    branchRecord.id,
+    "--workspace",
+    workspace,
+    "--path",
+    "PHASE.md",
+    "--content",
+    "approved phase\n"
+  ]);
+  return {
+    workspace,
+    branch: branchRecord,
+    rehearsal: JSON.parse(rehearsal.stdout) as { id: string; sandbox_path: string; target_path: string }
+  };
 }
 
 function countEventTypes(events: EventRecord[]): Record<string, number> {

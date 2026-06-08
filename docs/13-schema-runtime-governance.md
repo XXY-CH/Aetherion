@@ -56,6 +56,7 @@ Gate for P1 changes:
 - Add a negative test for missing source events, inherited authority, raw secrets, or live side-effect replay where relevant.
 - Keep advanced behavior report-only or sandbox-only unless Rust supervisor authority exists.
 - Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records`, `audit memory-records`, and `audit capsule-records` are scoped read-only rebuild/parity previews for Replay Records, active Memory Card/Tombstone projections, and Capsule lifecycle projections. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifacts plus Capsule draft/test/publish snapshots, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for remaining registry families remains future work.
+- If a registry-driven P1 path can reach a live side effect, registry provenance is not enough. The command must immediately revalidate the source Ledger events, required artifact or file evidence, and target binding before requesting Rust supervisor authority. For sandbox promotion, checkpoint, branch, and rehearsal registry rows cannot authorize `approve-rehearsal` by themselves.
 
 ### P2: Frozen Innovation Contracts
 
@@ -99,6 +100,8 @@ Memory registry reads that assemble downstream context must not treat projection
 `ether audit memory-records` provides the first scoped Memory parity preview. It walks Memory lifecycle Ledger events in order and reads `payload_ref` artifacts for `memory.accepted`, `memory.blocked`, and `memory.deleted` to reconstruct expected active `memory-cards` and `memory-tombstones` state. It is read-only, excludes pending/rejected candidates, does not repair registries, and does not perform artifact redaction.
 
 `ether audit capsule-records` provides a scoped Capsule lifecycle parity preview. It walks `capsule.draft.recorded`, `capsule.test.recorded`, `capsule.publish.recorded`, and `capsule.rollback.recorded` Ledger events in order, reads their `payload_ref` artifacts, and reconstructs expected `capsules`, `capsule-drafts`, and `capsule-versions` state. It is read-only, does not publish, roll back, repair, sign, execute playbooks, or grant Capsule runtime permissions.
+
+Sandbox promotion is the current P1 live-side-effect exception and therefore has a stricter preflight. `approve-rehearsal` may use checkpoint, branch, and rehearsal registries to locate candidate state, but before creating a promotion run it must revalidate the checkpoint Ledger event id/hash, branch source/head pointers, branch sandbox status, sandbox path binding, current target content hash, and proposed sandbox content hash. Drift fails before any `run_rehearsal_*` manifest, supervisor write authority request, or live file write.
 
 For the action lifecycle, the default Ether supervisor path now writes a `run.started` event with a Boundary Facts `payload_ref` before the file-action lifecycle. That artifact records only the facts the kernel can prove today (`run_id`, `workspace_id`, `entry_surface`, and authority) and explicitly keeps `user_id`, `device_id`, `channel_id`, and `secret_vault` as `not_recorded`. It is not a full identity, pairing, channel, or vault system.
 
