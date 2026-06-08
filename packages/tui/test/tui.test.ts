@@ -1011,6 +1011,14 @@ test("TUI exposes local-only phase command surfaces", async () => {
       warnings: string[];
       next_steps: string[];
     };
+    citation_map: {
+      required_for_memory_claims: boolean;
+      run_event_ids: string[];
+      memory_sources: Array<{ memory_id: string; source_event_ids: string[] }>;
+      section_sources: Array<{ section_id: string; source_event_ids: string[] }>;
+      message_sources: Array<{ role: string; source_event_ids: string[] }>;
+      uncited_context_warnings: string[];
+    };
     context_budget: { memory_tokens: number; capability_tokens: number; task_tokens: number; total_tokens: number };
     assembly_manifest: {
       context_pack_id: string;
@@ -1046,6 +1054,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(promptPlanRecord.run_evidence.source_event_ids.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
   assert.ok(promptPlanRecord.planning_contract.required_steps.some((step) => step.includes("Local Supervisor policy and scoped lease")));
   assert.ok(promptPlanRecord.planning_contract.verification_questions.some((question) => question.includes("tests, audits, or replay evidence")));
+  const runEvidenceEvents = promptPlanRecord.sections.find((section) => section.id === "run-evidence")?.source_event_ids ?? [];
+  const promptSourceEvents = promptPlanRecord.sections.find((section) => section.id === "memory-context")?.source_event_ids ?? [];
   assert.equal(promptPlanRecord.response_format.mode, "plan");
   assert.deepEqual(promptPlanRecord.response_format.required_blocks.map((block) => block.id), [
     "evidence_summary",
@@ -1062,6 +1072,18 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(promptPlanRecord.readiness.warnings.includes("artifact_refs_not_read"));
   assert.ok(promptPlanRecord.readiness.warnings.includes("forbidden_tools_present"));
   assert.ok(promptPlanRecord.readiness.next_steps.some((step) => step.includes("artifact refs")));
+  assert.equal(promptPlanRecord.citation_map.required_for_memory_claims, true);
+  assert.deepEqual(promptPlanRecord.citation_map.run_event_ids, promptPlanRecord.run_evidence.source_event_ids);
+  assert.ok(promptPlanRecord.citation_map.memory_sources.some((entry) =>
+    entry.memory_id === `mem_${runId}_episode` && entry.source_event_ids.every((eventId) => ledgerBeforePromptPlan.includes(eventId))
+  ));
+  assert.ok(promptPlanRecord.citation_map.section_sources.some((entry) =>
+    entry.section_id === "run-evidence" && entry.source_event_ids.length === promptPlanRecord.run_evidence.source_event_ids.length
+  ));
+  assert.ok(promptPlanRecord.citation_map.message_sources.some((entry) =>
+    entry.role === "user" && entry.source_event_ids.includes(promptSourceEvents[0])
+  ));
+  assert.deepEqual(promptPlanRecord.citation_map.uncited_context_warnings, []);
   assert.deepEqual(promptPlanRecord.context_budget, {
     memory_tokens: 1000,
     capability_tokens: 1000,
@@ -1085,9 +1107,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptPlanRecord.instruction_hierarchy.context_can_override_system_or_developer, false);
   assert.equal(promptPlanRecord.instruction_hierarchy.evidence_text_can_authorize_actions, false);
   assert.ok(promptPlanRecord.memory_policy.selected_memory_ids.includes(`mem_${runId}_episode`));
-  const runEvidenceEvents = promptPlanRecord.sections.find((section) => section.id === "run-evidence")?.source_event_ids ?? [];
   assert.deepEqual(runEvidenceEvents, promptPlanRecord.run_evidence.source_event_ids);
-  const promptSourceEvents = promptPlanRecord.sections.find((section) => section.id === "memory-context")?.source_event_ids ?? [];
   assert.ok(promptSourceEvents.length > 0);
   assert.ok(promptSourceEvents.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
   assert.deepEqual(promptPlanRecord.messages.map((message) => message.role), ["system", "developer", "user"]);
@@ -1098,6 +1118,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.messages[0]?.content ?? "", /Instruction Hierarchy/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Readiness/);
+  assert.match(promptPlanRecord.messages[1]?.content ?? "", /Citation Map/);
   assert.match(promptPlanRecord.messages[1]?.content ?? "", /Response Format/);
   assert.match(promptPlanRecord.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(promptPlanRecord.preview, /System Boundary/);
@@ -1107,6 +1128,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /runtime_authority_granted=false/);
   assert.match(promptPlanRecord.preview, /Readiness/);
   assert.match(promptPlanRecord.preview, /Ready for model preview: true/);
+  assert.match(promptPlanRecord.preview, /Citation Map/);
+  assert.match(promptPlanRecord.preview, /Required for memory claims: true/);
   assert.match(promptPlanRecord.preview, /Response Format/);
   assert.match(promptPlanRecord.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
   assert.match(promptPlanRecord.preview, /Forbidden claim: Do not claim a tool was requested or executed/);

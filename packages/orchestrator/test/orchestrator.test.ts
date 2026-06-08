@@ -58,6 +58,27 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   ]);
   assert.ok(plan.readiness.next_steps.some((step) => step.includes("context conflicts")));
   assert.ok(plan.readiness.next_steps.some((step) => step.includes("artifact refs")));
+  assert.equal(plan.citation_map.required_for_memory_claims, true);
+  assert.deepEqual(plan.citation_map.run_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
+  assert.deepEqual(plan.citation_map.memory_sources, [{
+    memory_id: "mem_prompt_style",
+    source_event_ids: ["evt_user_pref", "evt_memory_accept"]
+  }]);
+  assert.deepEqual(plan.citation_map.section_sources, [
+    {
+      section_id: "run-evidence",
+      source_event_ids: ["evt_run_started", "evt_tool_requested", "evt_run_completed"]
+    },
+    {
+      section_id: "memory-context",
+      source_event_ids: ["evt_user_pref", "evt_memory_accept"]
+    }
+  ]);
+  assert.deepEqual(plan.citation_map.message_sources, [{
+    role: "user",
+    source_event_ids: ["evt_run_started", "evt_tool_requested", "evt_run_completed", "evt_user_pref", "evt_memory_accept"]
+  }]);
+  assert.deepEqual(plan.citation_map.uncited_context_warnings, []);
   assert.deepEqual(plan.context_budget, {
     memory_tokens: 1000,
     capability_tokens: 1000,
@@ -106,6 +127,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     "context-budget",
     "assembly-manifest",
     "readiness",
+    "citation-map",
     "response-format",
     "response-contract",
     "planner-checklist",
@@ -118,6 +140,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.messages[1]?.content ?? "", /Tool Policy/);
   assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(plan.messages[1]?.content ?? "", /Readiness/);
+  assert.match(plan.messages[1]?.content ?? "", /Citation Map/);
   assert.match(plan.messages[1]?.content ?? "", /Response Format/);
   assert.match(plan.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(plan.preview, /System Boundary/);
@@ -137,6 +160,10 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /Readiness/);
   assert.match(plan.preview, /Ready for model preview: true/);
   assert.match(plan.preview, /Warnings: context_conflicts_present, excluded_memory_present, forbidden_tools_present, artifact_refs_not_read, active_permissions_are_context_only/);
+  assert.match(plan.preview, /Citation Map/);
+  assert.match(plan.preview, /Required for memory claims: true/);
+  assert.match(plan.preview, /Memory mem_prompt_style sources: evt_user_pref, evt_memory_accept/);
+  assert.match(plan.preview, /Message user sources: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept/);
   assert.match(plan.preview, /Response Format/);
   assert.match(plan.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
   assert.match(plan.preview, /Required block plan: Plan/);
@@ -174,6 +201,9 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.ok(plan.readiness.warnings.includes("selected_memory_missing"));
   assert.ok(plan.readiness.warnings.includes("no_allowed_tool_requests"));
   assert.ok(plan.readiness.next_steps.some((step) => step.includes("Ledger event envelopes")));
+  assert.deepEqual(plan.citation_map.run_event_ids, []);
+  assert.deepEqual(plan.citation_map.memory_sources, []);
+  assert.deepEqual(plan.citation_map.uncited_context_warnings, ["run_evidence_has_no_citations", "no_selected_memory_citations"]);
   assert.deepEqual(plan.response_format.required_blocks.map((block) => block.id), [
     "evidence_summary",
     "assumptions_and_conflicts",
@@ -185,6 +215,7 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /Ready for model preview: false/);
   assert.match(plan.preview, /Blockers: run_evidence_missing/);
+  assert.match(plan.preview, /Uncited context warnings: run_evidence_has_no_citations, no_selected_memory_citations/);
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);

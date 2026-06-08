@@ -84,6 +84,24 @@ export type PromptReadiness = {
   next_steps: string[];
 };
 
+export type PromptCitationMap = {
+  required_for_memory_claims: true;
+  run_event_ids: string[];
+  memory_sources: Array<{
+    memory_id: string;
+    source_event_ids: string[];
+  }>;
+  section_sources: Array<{
+    section_id: string;
+    source_event_ids: string[];
+  }>;
+  message_sources: Array<{
+    role: PromptMessage["role"];
+    source_event_ids: string[];
+  }>;
+  uncited_context_warnings: string[];
+};
+
 export type PromptPlan = {
   id: string;
   run_id: string;
@@ -120,6 +138,7 @@ export type PromptPlan = {
   };
   response_format: PromptResponseFormat;
   readiness: PromptReadiness;
+  citation_map: PromptCitationMap;
   context_budget: {
     memory_tokens: number;
     capability_tokens: number;
@@ -160,7 +179,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const assemblyManifest = assemblyManifestFor(input.contextPack, sourceEvents, allowedTools, forbiddenTools, activePermissions);
   const readiness = readinessFor(assemblyManifest);
   const instructionHierarchy = instructionHierarchyFor();
-  const sections: PromptSection[] = [
+  const baseSections: PromptSection[] = [
     {
       id: "system-boundary",
       title: "System Boundary",
@@ -193,6 +212,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       id: "readiness",
       title: "Readiness",
       content: readinessLines(readiness),
+      source_event_ids: []
+    },
+    {
+      id: "citation-map",
+      title: "Citation Map",
+      content: [],
       source_event_ids: []
     },
     {
@@ -263,6 +288,11 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       source_event_ids: []
     }
   ];
+  const citationMap = citationMapFor(baseSections, input.contextPack, sourceEvents);
+  const sections = baseSections.map((section) => section.id === "citation-map"
+    ? { ...section, content: citationMapLines(citationMap) }
+    : section
+  );
   const messages = renderPromptMessages(sections);
   return {
     id: `prompt_${input.contextPack.run_id}`,
@@ -300,6 +330,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     },
     response_format: responseFormat,
     readiness,
+    citation_map: citationMap,
     context_budget: contextBudget,
     assembly_manifest: assemblyManifest,
     instruction_hierarchy: instructionHierarchy,
@@ -311,6 +342,65 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     messages,
     preview: renderPromptPreview(sections)
   };
+}
+
+function citationMapFor(sections: PromptSection[], contextPack: ContextPack, sourceEvents: PromptSourceEvent[]): PromptCitationMap {
+  const sectionSources = sections
+    .map((section) => ({
+      section_id: section.id,
+      source_event_ids: uniqueInOrder(section.source_event_ids)
+    }))
+    .filter((entry) => entry.source_event_ids.length > 0);
+  const messageSources = renderPromptMessages(sections)
+    .map((message) => ({
+      role: message.role,
+      source_event_ids: uniqueInOrder(message.source_event_ids)
+    }))
+    .filter((entry) => entry.source_event_ids.length > 0);
+  const memorySources = contextPack.selected_memories.map((memory) => ({
+    memory_id: memory.id,
+    source_event_ids: uniqueInOrder(memory.source_events)
+  }));
+  const warnings: string[] = [];
+  if (sourceEvents.length === 0) {
+    warnings.push("run_evidence_has_no_citations");
+  }
+  if (memorySources.length === 0) {
+    warnings.push("no_selected_memory_citations");
+  }
+  if (memorySources.some((memory) => memory.source_event_ids.length === 0)) {
+    warnings.push("selected_memory_missing_source_events");
+  }
+  return {
+    required_for_memory_claims: true,
+    run_event_ids: uniqueInOrder(sourceEvents.map((event) => event.id)),
+    memory_sources: memorySources,
+    section_sources: sectionSources,
+    message_sources: messageSources,
+    uncited_context_warnings: warnings
+  };
+}
+
+function citationMapLines(citationMap: PromptCitationMap): string[] {
+  const lines = [
+    `Required for memory claims: ${citationMap.required_for_memory_claims}.`,
+    `Run event ids: ${citationMap.run_event_ids.length > 0 ? citationMap.run_event_ids.join(", ") : "none"}.`
+  ];
+  if (citationMap.memory_sources.length === 0) {
+    lines.push("Memory sources: none.");
+  } else {
+    lines.push(...citationMap.memory_sources.map((memory) =>
+      `Memory ${memory.memory_id} sources: ${memory.source_event_ids.length > 0 ? memory.source_event_ids.join(", ") : "none"}.`
+    ));
+  }
+  lines.push(...citationMap.section_sources.map((section) =>
+    `Section ${section.section_id} sources: ${section.source_event_ids.join(", ")}.`
+  ));
+  lines.push(...citationMap.message_sources.map((message) =>
+    `Message ${message.role} sources: ${message.source_event_ids.join(", ")}.`
+  ));
+  lines.push(`Uncited context warnings: ${citationMap.uncited_context_warnings.length > 0 ? citationMap.uncited_context_warnings.join(", ") : "none"}.`);
+  return lines;
 }
 
 function readinessFor(manifest: PromptAssemblyManifest): PromptReadiness {
@@ -679,6 +769,7 @@ function renderPromptMessages(sections: PromptSection[]): PromptMessage[] {
       "context-budget",
       "assembly-manifest",
       "readiness",
+      "citation-map",
       "response-format",
       "response-contract",
       "planner-checklist",
