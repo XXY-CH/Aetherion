@@ -34,6 +34,19 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("network.raw")));
   assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("Memory Cards")));
   assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("mistaken for authority")));
+  assert.equal(plan.response_format.mode, "plan");
+  assert.deepEqual(plan.response_format.required_blocks.map((block) => block.id), [
+    "evidence_summary",
+    "assumptions_and_conflicts",
+    "plan",
+    "policy_and_lease_needs",
+    "verification_evidence"
+  ]);
+  assert.equal(plan.response_format.required_blocks[0]?.source_event_ids_required, true);
+  assert.ok(plan.response_format.required_blocks.some((block) => block.purpose.includes("Local Supervisor policy and scoped lease")));
+  assert.ok(plan.response_format.forbidden_claims.some((claim) => claim.includes("model was invoked")));
+  assert.ok(plan.response_format.forbidden_claims.some((claim) => claim.includes("tool was requested or executed")));
+  assert.ok(plan.response_format.completion_rules.some((rule) => rule.includes("Excluded memories")));
   assert.deepEqual(plan.context_budget, {
     memory_tokens: 1000,
     capability_tokens: 1000,
@@ -81,6 +94,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     "capability-context",
     "context-budget",
     "assembly-manifest",
+    "response-format",
     "response-contract",
     "planner-checklist",
     "verification-checklist"
@@ -91,6 +105,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.messages[0]?.content ?? "", /Instruction Hierarchy/);
   assert.match(plan.messages[1]?.content ?? "", /Tool Policy/);
   assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
+  assert.match(plan.messages[1]?.content ?? "", /Response Format/);
   assert.match(plan.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(plan.preview, /System Boundary/);
   assert.match(plan.preview, /Instruction Hierarchy/);
@@ -106,6 +121,10 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /Context Pack: ctx_run_prompt/);
   assert.match(plan.preview, /Guardrails: provenance_gate_required=true; raw_payload_artifacts_read=false; model_invoked=false; tools_requested=false; prompt_artifact_persisted=false; runtime_authority_granted=false/);
   assert.match(plan.preview, /Risk flags: active_permissions_present, artifact_refs_present_but_not_read, excluded_memory_present, context_conflicts_present, forbidden_tools_present/);
+  assert.match(plan.preview, /Response Format/);
+  assert.match(plan.preview, /Required block evidence_summary: Evidence Summary; source_event_ids_required=true/);
+  assert.match(plan.preview, /Required block plan: Plan/);
+  assert.match(plan.preview, /Forbidden claim: Do not claim a model was invoked/);
   assert.match(plan.preview, /Planner Checklist/);
   assert.match(plan.preview, /Verification Checklist/);
   assert.match(plan.preview, /Context Budget/);
@@ -134,11 +153,40 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.equal(plan.tool_policy.may_request_tools, false);
   assert.deepEqual(plan.capability_policy.capability_card_ids, ["cap_local_docs_read"]);
   assert.deepEqual(plan.assembly_manifest.risk_flags, ["no_run_evidence", "no_selected_memory", "no_allowed_tool_requests"]);
+  assert.deepEqual(plan.response_format.required_blocks.map((block) => block.id), [
+    "evidence_summary",
+    "assumptions_and_conflicts",
+    "plan",
+    "policy_and_lease_needs",
+    "verification_evidence"
+  ]);
   assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("Do not imply tool execution is available")));
   assert.match(plan.preview, /No run ledger events were provided/);
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);
+});
+
+test("prompt assembly adapts response format for answer and patch modes", () => {
+  const answer = assemblePromptPlan({
+    task: "Explain current context.",
+    contextPack: contextPack(),
+    outputMode: "answer"
+  });
+  assert.equal(answer.response_format.mode, "answer");
+  assert.ok(answer.response_format.required_blocks.some((block) => block.id === "answer" && block.title === "Answer"));
+  assert.match(answer.preview, /Required block answer: Answer/);
+
+  const patch = assemblePromptPlan({
+    task: "Draft patch intent.",
+    contextPack: contextPack(),
+    outputMode: "patch"
+  });
+  assert.equal(patch.response_format.mode, "patch");
+  assert.ok(patch.response_format.required_blocks.some((block) => block.id === "patch_outline" && block.title === "Patch Outline"));
+  assert.ok(patch.planning_contract.required_steps.some((step) => step.includes("file-level intent and tests")));
+  assert.ok(patch.planning_contract.verification_questions.some((question) => question.includes("regression tests")));
+  assert.match(patch.preview, /Required block patch_outline: Patch Outline/);
 });
 
 function contextPack(): ContextPack {
