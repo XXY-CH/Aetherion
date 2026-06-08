@@ -998,6 +998,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
     memory_policy: { selected_memory_ids: string[] };
     run_evidence: { source_event_ids: string[]; event_types: string[]; artifact_refs: string[] };
     planning_contract: { required_steps: string[]; verification_questions: string[] };
+    context_budget: { memory_tokens: number; capability_tokens: number; task_tokens: number; total_tokens: number };
     sections: Array<{ id: string; source_event_ids: string[] }>;
     preview: string;
   };
@@ -1010,6 +1011,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(promptPlanRecord.run_evidence.source_event_ids.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
   assert.ok(promptPlanRecord.planning_contract.required_steps.some((step) => step.includes("Local Supervisor policy and scoped lease")));
   assert.ok(promptPlanRecord.planning_contract.verification_questions.some((question) => question.includes("tests, audits, or replay evidence")));
+  assert.deepEqual(promptPlanRecord.context_budget, {
+    memory_tokens: 1000,
+    capability_tokens: 1000,
+    task_tokens: 6000,
+    total_tokens: 8000
+  });
   assert.ok(promptPlanRecord.memory_policy.selected_memory_ids.includes(`mem_${runId}_episode`));
   const runEvidenceEvents = promptPlanRecord.sections.find((section) => section.id === "run-evidence")?.source_event_ids ?? [];
   assert.deepEqual(runEvidenceEvents, promptPlanRecord.run_evidence.source_event_ids);
@@ -1023,6 +1030,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /can_authorize=false/);
   assert.match(promptPlanRecord.preview, /Planner Checklist/);
   assert.match(promptPlanRecord.preview, /Verification Checklist/);
+  assert.match(promptPlanRecord.preview, /Context Budget/);
+  assert.match(promptPlanRecord.preview, /Total planning budget: 8000 tokens/);
   assert.match(promptPlanRecord.preview, new RegExp(`mem_${runId}_episode`));
   assert.match(promptPlanRecord.preview, new RegExp(escapeRegExp(promptSourceEvents[0])));
   assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);

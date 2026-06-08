@@ -31,6 +31,12 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.ok(plan.planning_contract.required_steps.some((step) => step.includes("network.raw")));
   assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("Memory Cards")));
   assert.ok(plan.planning_contract.verification_questions.some((question) => question.includes("mistaken for authority")));
+  assert.deepEqual(plan.context_budget, {
+    memory_tokens: 1000,
+    capability_tokens: 1000,
+    task_tokens: 6000,
+    total_tokens: 8000
+  });
   assert.deepEqual(plan.sections.find((section) => section.id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_user_pref", "evt_memory_accept"]);
   assert.match(plan.preview, /System Boundary/);
@@ -41,6 +47,8 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /can_authorize=false/);
   assert.match(plan.preview, /Planner Checklist/);
   assert.match(plan.preview, /Verification Checklist/);
+  assert.match(plan.preview, /Context Budget/);
+  assert.match(plan.preview, /Total planning budget: 8000 tokens/);
   assert.match(plan.preview, /Define verification evidence before claiming completion/);
   assert.match(plan.preview, /mem_prompt_style/);
   assert.match(plan.preview, /sources=evt_user_pref,evt_memory_accept/);

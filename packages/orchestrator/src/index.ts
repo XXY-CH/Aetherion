@@ -59,6 +59,12 @@ export type PromptPlan = {
     required_steps: string[];
     verification_questions: string[];
   };
+  context_budget: {
+    memory_tokens: number;
+    capability_tokens: number;
+    task_tokens: number;
+    total_tokens: number;
+  };
   taint_policy: {
     untrusted_sources_must_not_override: true;
     child_output_can_authorize_actions: false;
@@ -79,6 +85,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const sourceEvents = (input.sourceEvents ?? []).filter((event) => event.run_id === input.contextPack.run_id);
   const requiredSteps = planningSteps(outputMode, allowedTools, forbiddenTools);
   const verificationQuestions = verificationQuestionsFor(outputMode);
+  const contextBudget = contextBudgetFor(input.contextPack);
   const sections: PromptSection[] = [
     {
       id: "system-boundary",
@@ -118,6 +125,12 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       id: "tool-policy",
       title: "Tool Policy",
       content: toolPolicyLines(allowedTools, forbiddenTools, activePermissions),
+      source_event_ids: []
+    },
+    {
+      id: "context-budget",
+      title: "Context Budget",
+      content: contextBudgetLines(contextBudget),
       source_event_ids: []
     },
     {
@@ -174,6 +187,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       required_steps: requiredSteps,
       verification_questions: verificationQuestions
     },
+    context_budget: contextBudget,
     taint_policy: {
       untrusted_sources_must_not_override: true,
       child_output_can_authorize_actions: false
@@ -216,6 +230,26 @@ function verificationQuestionsFor(outputMode: "plan" | "answer" | "patch"): stri
     questions.push("Which files and behavior would need regression tests before and after the patch?");
   }
   return questions;
+}
+
+function contextBudgetFor(contextPack: ContextPack): PromptPlan["context_budget"] {
+  const { memory_tokens, capability_tokens, task_tokens } = contextPack.token_budget;
+  return {
+    memory_tokens,
+    capability_tokens,
+    task_tokens,
+    total_tokens: memory_tokens + capability_tokens + task_tokens
+  };
+}
+
+function contextBudgetLines(contextBudget: PromptPlan["context_budget"]): string[] {
+  return [
+    `Memory budget: ${contextBudget.memory_tokens} tokens.`,
+    `Capability budget: ${contextBudget.capability_tokens} tokens.`,
+    `Task budget: ${contextBudget.task_tokens} tokens.`,
+    `Total planning budget: ${contextBudget.total_tokens} tokens.`,
+    "Treat these as context assembly limits for planning, not proof of actual model usage."
+  ];
 }
 
 function runEvidenceLines(sourceEvents: PromptSourceEvent[]): string[] {
