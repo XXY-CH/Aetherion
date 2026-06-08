@@ -5,6 +5,7 @@ export type MemoryCandidate = {
     type: string;
     subject: string;
     content: string;
+    contradicts?: string[];
   };
   confidence: number;
   review: {
@@ -23,6 +24,7 @@ export type MemoryCard = {
   source_events: string[];
   confidence: number;
   sensitivity: string;
+  contradicts?: string[];
   blocked_contexts?: string[];
 };
 
@@ -207,6 +209,7 @@ export function acceptMemoryCandidate(candidate: MemoryCandidate): MemoryCard {
     source_events: candidate.source_events,
     confidence: candidate.confidence,
     sensitivity: candidate.sensitivity ?? "private",
+    contradicts: candidate.candidate.contradicts ?? [],
     blocked_contexts: candidate.blocked_contexts ?? []
   };
 }
@@ -265,7 +268,7 @@ export function assembleContextPack(runId: string, memories: MemoryCard[], conte
     run_id: runId,
     selected_memories,
     excluded_memories,
-    conflicts: [],
+    conflicts: contextConflicts(selected_memories.map((selected) => selected.id), excluded_memories, eligible_memories),
     active_leases: [],
     capability_cards: [],
     token_budget: { ...DEFAULT_CONTEXT_TOKEN_BUDGET }
@@ -373,6 +376,27 @@ function estimateMemoryTokenCost(memory: MemoryCard): number {
     memory.source_events.join(" ")
   ].join(" ");
   return Math.max(1, Math.ceil(serializedMemory.length / 4));
+}
+
+function contextConflicts(selectedMemoryIds: string[], excludedMemories: ContextPack["excluded_memories"], eligibleMemories: MemoryCard[]): string[] {
+  const selected = new Set(selectedMemoryIds);
+  const known = new Set(eligibleMemories.map((memory) => memory.id));
+  const excluded = new Map(excludedMemories.map((memory) => [memory.id, memory.reason]));
+  const conflicts: string[] = [];
+
+  for (const memory of eligibleMemories.sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const contradictedId of [...new Set(memory.contradicts ?? [])].sort()) {
+      if (selected.has(memory.id) && selected.has(contradictedId)) {
+        conflicts.push(`selected memory ${memory.id} contradicts selected memory ${contradictedId}`);
+      } else if (selected.has(memory.id) && excluded.has(contradictedId)) {
+        conflicts.push(`selected memory ${memory.id} contradicts excluded memory ${contradictedId} (${excluded.get(contradictedId)})`);
+      } else if (selected.has(memory.id) && !known.has(contradictedId) && !excluded.has(contradictedId)) {
+        conflicts.push(`selected memory ${memory.id} contradicts missing memory ${contradictedId}`);
+      }
+    }
+  }
+
+  return [...new Set(conflicts)];
 }
 
 function inferToolsUsed(events: MemorySourceEvent[]): string[] {

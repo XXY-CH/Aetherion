@@ -147,6 +147,52 @@ test("context assembly applies deletion blocking and sensitivity before budget s
   ]);
 });
 
+test("context assembly reports selected memory contradictions", () => {
+  const localFirst = memoryCard({
+    id: "mem_local_first",
+    content: "Use local-first execution.",
+    confidence: 0.91,
+    source_events: ["evt_local"],
+    contradicts: ["mem_cloud_first"]
+  });
+  const cloudFirst = memoryCard({
+    id: "mem_cloud_first",
+    content: "Use cloud-first execution.",
+    confidence: 0.9,
+    source_events: ["evt_cloud"]
+  });
+
+  const pack = assembleContextPack("run_conflict_selected", [cloudFirst, localFirst], "planning");
+
+  assert.deepEqual(pack.selected_memories.map((memory) => memory.id), ["mem_local_first", "mem_cloud_first"]);
+  assert.deepEqual(pack.conflicts, ["selected memory mem_local_first contradicts selected memory mem_cloud_first"]);
+});
+
+test("context assembly reports contradictions against excluded and missing memories", () => {
+  const selected = memoryCard({
+    id: "mem_selected_conflict",
+    content: "Use a reviewed local-only plan.",
+    confidence: 0.91,
+    source_events: ["evt_selected"],
+    contradicts: ["mem_blocked_conflict", "mem_missing_conflict"]
+  });
+  const blocked = blockMemoryContext(memoryCard({
+    id: "mem_blocked_conflict",
+    content: "Send the plan externally.",
+    confidence: 0.89,
+    source_events: ["evt_blocked"]
+  }), "planning");
+
+  const pack = assembleContextPack("run_conflict_excluded", [blocked, selected], "planning");
+
+  assert.deepEqual(pack.selected_memories.map((memory) => memory.id), ["mem_selected_conflict"]);
+  assert.deepEqual(pack.excluded_memories, [{ id: "mem_blocked_conflict", reason: "blocked for planning" }]);
+  assert.deepEqual(pack.conflicts, [
+    "selected memory mem_selected_conflict contradicts excluded memory mem_blocked_conflict (blocked for planning)",
+    "selected memory mem_selected_conflict contradicts missing memory mem_missing_conflict"
+  ]);
+});
+
 test("memory candidates can be derived from real run trace events", () => {
   const events = [
     {
