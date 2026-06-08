@@ -82,7 +82,7 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     throw new Error("supervisor rpc returned no response");
   }
   const response = JSON.parse(line) as SupervisorRpcResponse;
-  assertSupervisorResponseId(request, response);
+  assertSupervisorResponseEnvelope(request, response);
   if (response.error) {
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
   }
@@ -123,16 +123,31 @@ async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath
     throw new Error("supervisor socket rpc returned no response");
   }
   const response = JSON.parse(line) as SupervisorRpcResponse;
-  assertSupervisorResponseId(request, response);
+  assertSupervisorResponseEnvelope(request, response);
   if (response.error) {
     throw new Error(`supervisor socket rpc ${request.method} failed: ${response.error}`);
   }
   return response;
 }
 
-function assertSupervisorResponseId(request: SupervisorRpcRequest, response: SupervisorRpcResponse): void {
-  if (response.id !== request.id) {
-    throw new Error(`supervisor rpc ${request.method} response id mismatch: expected ${request.id}, got ${response.id}`);
+function assertSupervisorResponseEnvelope(request: SupervisorRpcRequest, response: SupervisorRpcResponse): void {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    throw new Error(`supervisor rpc ${request.method} returned a non-object response`);
+  }
+  const envelope = response as Record<string, unknown>;
+  if (envelope.jsonrpc !== "2.0") {
+    throw new Error(`supervisor rpc ${request.method} returned invalid jsonrpc version`);
+  }
+  if (envelope.id !== request.id) {
+    throw new Error(`supervisor rpc ${request.method} response id mismatch: expected ${request.id}, got ${String(envelope.id)}`);
+  }
+  const hasResult = "result" in envelope;
+  const hasError = "error" in envelope;
+  if (!hasResult && !hasError) {
+    throw new Error(`supervisor rpc ${request.method} response ${request.id} included neither result nor error`);
+  }
+  if (hasError && typeof envelope.error !== "string") {
+    throw new Error(`supervisor rpc ${request.method} response ${request.id} included a non-string error`);
   }
 }
 

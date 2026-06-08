@@ -178,32 +178,28 @@ test("supervisor RPC client rejects mismatched response ids", async () => {
   if (process.platform === "win32") {
     return;
   }
-  const socketPath = join(tmpdir(), `aeth-rpc-id-${process.pid}-${Date.now()}.sock`);
-  const server = createServer((socket) => {
-    socket.setEncoding("utf8");
-    socket.on("data", () => {
-      socket.end("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_wrong\",\"result\":{\"accepted\":true}}\n");
-    });
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, resolve);
-  });
-  try {
-    await assert.rejects(
-      callSupervisorRpc(repoRoot, {
-        id: "rpc_expected",
-        method: "supervisor.status",
-        workspace_root: "/tmp/aetherion-rpc-id-test",
-        workspace_id: "ws_rpc_id_test",
-        run_id: "run_rpc_id_test"
-      }, { socketPath }),
-      /response id mismatch: expected rpc_expected, got rpc_wrong/
-    );
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(socketPath, { force: true });
+  await assert.rejects(
+    callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_wrong\",\"result\":{\"accepted\":true}}\n"),
+    /response id mismatch: expected rpc_expected, got rpc_wrong/
+  );
+});
+
+test("supervisor RPC client rejects malformed response envelopes", async () => {
+  if (process.platform === "win32") {
+    return;
   }
+  await assert.rejects(
+    callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"1.0\",\"id\":\"rpc_expected\",\"result\":{\"accepted\":true}}\n"),
+    /returned invalid jsonrpc version/
+  );
+  await assert.rejects(
+    callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_expected\"}\n"),
+    /included neither result nor error/
+  );
+  await assert.rejects(
+    callSupervisorRpcWithSocketResponse("{\"jsonrpc\":\"2.0\",\"id\":\"rpc_expected\",\"error\":{\"message\":\"bad\"}}\n"),
+    /included a non-string error/
+  );
 });
 
 test("supervisor socket run sends approved write commit over the supplied socket", async () => {
@@ -2113,6 +2109,32 @@ type SocketRunShimRequest = {
   contents?: string;
   consent_payload_ref?: string;
 };
+
+async function callSupervisorRpcWithSocketResponse(responseLine: string): Promise<unknown> {
+  const socketPath = join("/tmp", `aeth-env-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sock`);
+  const server = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.on("data", () => {
+      socket.end(responseLine);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    return await callSupervisorRpc(repoRoot, {
+      id: "rpc_expected",
+      method: "supervisor.status",
+      workspace_root: "/tmp/aetherion-rpc-envelope-test",
+      workspace_id: "ws_rpc_envelope_test",
+      run_id: "run_rpc_envelope_test"
+    }, { socketPath });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(socketPath, { force: true });
+  }
+}
 
 async function socketRunShimResult(
   workspace: Awaited<ReturnType<typeof createWorkspace>>,
