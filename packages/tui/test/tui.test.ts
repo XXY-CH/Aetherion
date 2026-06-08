@@ -445,6 +445,182 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));
 });
 
+test("TUI run can use explicit supervisor socket for the Phase 1 loop", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rust-socket-run-"));
+  await writeFile(join(workspace, "README.md"), "Aetherion socket run fixture\n");
+  const socketPath = join("/tmp", `aeth-${process.pid}-${Date.now()}-run.sock`);
+  const child = spawn(join(repoRoot, "target", "debug", "aetherion-supervisor"), ["socket", "--path", socketPath], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  try {
+    await waitForFile(socketPath);
+    const { stdout } = await execFileAsync(process.execPath, [
+      cliPath,
+      "run",
+      "--supervisor",
+      "socket",
+      "--socket-path",
+      socketPath,
+      "--workspace",
+      workspace,
+      "--input",
+      "README.md",
+      "--output",
+      ".aetherion/SUMMARY.md",
+      "--approve-write"
+    ]);
+
+    assert.match(stdout, /supervisor=socket/);
+    assert.match(stdout, /write_policy_final=allow:L3/);
+    assert.match(stdout, /verification=passed/);
+    assert.match(stdout, /chain_valid=true/);
+    const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+    assert.ok(runId);
+    assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
+    assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://consent/${runId}/write`));
+    const summary = await readFile(join(workspace, ".aetherion", "SUMMARY.md"), "utf8");
+    assert.equal(summary, "Summary: Workspace file read completed; source content was not copied by default.\n");
+    const eventTypes = (await readLedgerEvents(workspace)).map((event) => event.event_type);
+    assert.deepEqual(eventTypes, [
+      "run.started",
+      "user.message",
+      "tool.requested",
+      "risk.composed",
+      "policy.decided",
+      "lease.issued",
+      "tool.result",
+      "tool.requested",
+      "risk.composed",
+      "policy.decided",
+      "consent.recorded",
+      "policy.decided",
+      "lease.issued",
+      "action.recorded",
+      "observation.recorded",
+      "verification.recorded",
+      "run.completed"
+    ]);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+      setTimeout(resolve, 500);
+    });
+    await rm(socketPath, { force: true });
+  }
+});
+
+test("TUI run over supervisor socket honors auth and workspace binding", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rust-socket-bound-run-"));
+  const otherWorkspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rust-socket-bound-other-"));
+  await writeFile(join(workspace, "README.md"), "Aetherion socket auth fixture\n");
+  await writeFile(join(otherWorkspace, "README.md"), "Wrong workspace fixture\n");
+  const socketPath = join("/tmp", `aeth-${process.pid}-${Date.now()}-bound-run.sock`);
+  const lockPath = join(workspace, ".aetherion", "supervisor.lock");
+  const child = spawn(join(repoRoot, "target", "debug", "aetherion-supervisor"), ["socket", "--path", socketPath, "--auth-token", "run-token", "--workspace-root", workspace], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  try {
+    await waitForFile(socketPath);
+    await waitForFile(lockPath);
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        "run",
+        "--supervisor",
+        "socket",
+        "--socket-path",
+        socketPath,
+        "--workspace",
+        workspace,
+        "--input",
+        "README.md",
+        "--output",
+        ".aetherion/SUMMARY.md",
+        "--approve-write"
+      ]),
+      /socket RPC auth failed/
+    );
+    await assert.rejects(access(join(workspace, ".aetherion", "runs")));
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        "run",
+        "--supervisor",
+        "socket",
+        "--socket-path",
+        socketPath,
+        "--socket-auth-token",
+        "run-token",
+        "--workspace",
+        otherWorkspace,
+        "--input",
+        "README.md",
+        "--output",
+        ".aetherion/SUMMARY.md",
+        "--approve-write"
+      ]),
+      /socket RPC workspace binding mismatch/
+    );
+    await assert.rejects(access(join(otherWorkspace, ".aetherion")));
+
+    const { stdout } = await execFileAsync(process.execPath, [
+      cliPath,
+      "run",
+      "--supervisor",
+      "socket",
+      "--socket-path",
+      socketPath,
+      "--socket-auth-token",
+      "run-token",
+      "--workspace",
+      workspace,
+      "--input",
+      "README.md",
+      "--output",
+      ".aetherion/SUMMARY.md",
+      "--approve-write"
+    ]);
+    assert.match(stdout, /supervisor=socket/);
+    assert.match(stdout, /verification=passed/);
+    assert.equal(await readFile(lockPath, "utf8").then((text) => /workspace_id=ws_[a-f0-9]{16}/.test(text)), true);
+
+    const status = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "status",
+      "--workspace",
+      workspace,
+      "--socket-path",
+      socketPath,
+      "--socket-auth-token",
+      "run-token"
+    ]);
+    assert.equal(stdoutValue(status.stdout, "transport"), "unix-socket");
+    assert.equal(stdoutValue(status.stdout, "runtime_lock_present"), "true");
+    assert.equal(stdoutValue(status.stdout, "runtime_lock_workspace_match"), "true");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+      setTimeout(resolve, 500);
+    });
+    await rm(socketPath, { force: true });
+    await rm(lockPath, { force: true });
+  }
+});
+
 test("TUI supervisor status reports Rust runtime health without appending events", async () => {
   await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-status-"));

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { Workspace } from "./ledger.ts";
 import { createApprovalCard, type ApprovalCard } from "./approval.ts";
 import { createBoundaryFacts, writeBoundaryFactsArtifact } from "./boundary.ts";
@@ -34,6 +33,8 @@ export type SupervisorKernelRunInput = {
   outputPath: string;
   summaryText?: string;
   approveWrite: boolean;
+  socketPath?: string;
+  socketAuthToken?: string;
 };
 
 export type SupervisorKernelRunResult = {
@@ -52,7 +53,7 @@ export type SupervisorKernelRunResult = {
   observation?: ObservationRecord;
   verification?: VerificationRecord;
   trace: ReconstructedTrace;
-  supervisor: "stdio";
+  supervisor: "stdio" | "socket";
 };
 
 export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): Promise<SupervisorKernelRunResult> {
@@ -62,7 +63,11 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
   const runId = input.runId ?? `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const inputPath = resolve(workspaceRoot, input.inputPath);
   const outputPath = resolve(workspaceRoot, input.outputPath);
-  await mkdir(dirname(outputPath), { recursive: true });
+  const supervisorOptions = input.socketPath ? {
+    socketPath: input.socketPath,
+    authToken: input.socketAuthToken
+  } : undefined;
+  const supervisorTransport = input.socketPath ? "socket" : "stdio";
 
   await supervisorCall(input.repoRoot, {
     id: `rpc_${runId}_workspace_init`,
@@ -70,7 +75,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     workspace_root: workspaceRoot,
     workspace_id: workspaceId,
     run_id: runId
-  });
+  }, supervisorOptions);
   const { workspace, registry: workspaceRegistry } = await loadWorkspaceFromRegistry(workspaceRoot);
   const runManifest = await createRunManifest(input.repoRoot, workspace, runId, "Ether Rust supervisor kernel loop");
   const boundaryFacts = createBoundaryFacts({
@@ -87,10 +92,11 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     runId,
     "run.started",
     `Ether run started on tui with authority ${workspaceRegistry.authority}; user_id, device_id, channel_id, and secret_vault are not recorded.`,
-    boundaryRef
+    boundaryRef,
+    supervisorOptions
   );
 
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "user.message", `Ether requested supervisor summary from ${input.inputPath} to ${input.outputPath}.`);
+  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "user.message", `Ether requested supervisor summary from ${input.inputPath} to ${input.outputPath}.`, undefined, supervisorOptions);
 
   const readRequest = createFileReadRequest(runId, inputPath);
   const readRisk = composeRisk(readRequest);
@@ -101,7 +107,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     workspace_id: workspaceId,
     run_id: runId,
     path: inputPath
-  });
+  }, supervisorOptions);
   await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, readResult, ["request_event_id", "risk_event_id", "policy_event_id", "lease_event_id", "result_event_id"]);
   const readDecision = policyFromSupervisor(runId, readRequest, readResult, "Explicit workspace-scoped read evaluated and executed by Rust supervisor.");
   if (typeof readResult.contents !== "string") {
@@ -117,13 +123,13 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     workspace_id: workspaceId,
     run_id: runId,
     path: outputPath
-  });
+  }, supervisorOptions);
   await recordSupervisorEventIds(input.repoRoot, workspace, runManifest, writePreEval, ["request_event_id", "risk_event_id", "policy_event_id"]);
   const writePreDecision = policyFromSupervisor(runId, writeRequest, writePreEval, "Workspace write requires explicit consent from Rust supervisor policy.");
   const approvalCard = createApprovalCard(writeRequest, writePreDecision);
 
   if (!input.approveWrite) {
-    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Run stopped before supervisor write because approval was not provided.");
+    await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Run stopped before supervisor write because approval was not provided.", undefined, supervisorOptions);
     await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "blocked", kernelFileRunBlockedEventSequence(runId));
     return {
       workspace,
@@ -138,7 +144,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
       writePreDecision,
       approvalCard,
       trace: await reconstructTrace(workspace, runId),
-      supervisor: "stdio"
+      supervisor: supervisorTransport
     };
   }
 
@@ -148,7 +154,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     workspaceId,
     toolRequestId: writeRequest.id,
     path: outputPath
-  });
+  }, supervisorOptions);
   const consentValidation = await validateConsentRecord(input.repoRoot, consent);
   const consentRef = consentRecordArtifactRef(runId);
   const writeResult = await supervisorCall(input.repoRoot, {
@@ -178,7 +184,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
 
   const observation = observationFromSupervisor(runId, writeResult);
   const verification = verificationFromSupervisor(runId, writeResult, observation);
-  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Ether Rust supervisor kernel loop completed.");
+  await appendSupervisorEvent(input.repoRoot, workspace, runManifest, runId, "run.completed", "Ether Rust supervisor kernel loop completed.", undefined, supervisorOptions);
   await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "completed", kernelFileRunApprovedEventSequence(runId));
 
   return {
@@ -197,7 +203,7 @@ export async function runSupervisorKernelLoop(input: SupervisorKernelRunInput): 
     observation,
     verification,
     trace: await reconstructTrace(workspace, runId),
-    supervisor: "stdio"
+    supervisor: supervisorTransport
   };
 }
 
@@ -209,11 +215,24 @@ async function validateConsentRecord(repoRoot: string, consent: unknown): Promis
   return `${JSON.stringify(consent, null, 2)}\n`;
 }
 
-async function supervisorCall(repoRoot: string, request: Parameters<typeof callSupervisorRpc>[1]): Promise<Record<string, unknown>> {
-  return rpcResult(await callSupervisorRpc(repoRoot, request));
+async function supervisorCall(
+  repoRoot: string,
+  request: Parameters<typeof callSupervisorRpc>[1],
+  options?: Parameters<typeof callSupervisorRpc>[2]
+): Promise<Record<string, unknown>> {
+  return rpcResult(await callSupervisorRpc(repoRoot, request, options));
 }
 
-async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, runId: string, event_type: string, summary: string, payloadRef?: string): Promise<void> {
+async function appendSupervisorEvent(
+  repoRoot: string,
+  workspace: Workspace,
+  manifest: RunManifest,
+  runId: string,
+  event_type: string,
+  summary: string,
+  payloadRef?: string,
+  options?: Parameters<typeof callSupervisorRpc>[2]
+): Promise<void> {
   const appendResult = await supervisorCall(repoRoot, {
     id: `rpc_${event_type}_${randomUUID()}`,
     method: "event.append",
@@ -223,7 +242,7 @@ async function appendSupervisorEvent(repoRoot: string, workspace: Workspace, man
     event_type,
     summary,
     payload_ref: payloadRef
-  });
+  }, options);
   if (typeof appendResult.event_id !== "string" || !appendResult.event_id) {
     throw new Error(`Rust supervisor event.append returned no event id for ${event_type}`);
   }

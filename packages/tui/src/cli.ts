@@ -48,7 +48,7 @@ type CliOptions = {
   budget?: string;
   agentId?: string;
   sourceKind?: UntrustedSource;
-  supervisor?: "typescript-seed" | "stdio";
+  supervisor?: "typescript-seed" | "stdio" | "socket";
   socketPath?: string;
   socketAuthToken?: string;
 };
@@ -77,6 +77,9 @@ async function main(): Promise<void> {
   if (options.supervisor === "typescript-seed" && process.env.AETHERION_ALLOW_TYPESCRIPT_SEED !== "1") {
     throw new Error("typescript-seed is test-only; set AETHERION_ALLOW_TYPESCRIPT_SEED=1 explicitly");
   }
+  if (options.supervisor === "socket" && !options.socketPath) {
+    throw new Error("--supervisor socket requires --socket-path <socket>");
+  }
   const result = options.supervisor === "typescript-seed"
     ? await runLocalKernelLoop({
         repoRoot,
@@ -92,7 +95,9 @@ async function main(): Promise<void> {
         inputPath: options.input,
         outputPath: options.output,
         approveWrite: options.approveWrite,
-        summaryText: options.summary
+        summaryText: options.summary,
+        socketPath: options.supervisor === "socket" ? options.socketPath : undefined,
+        socketAuthToken: options.supervisor === "socket" ? options.socketAuthToken : undefined
       });
 
   await printRunResult(result);
@@ -256,8 +261,8 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--supervisor": {
         const supervisor = requireValue(arg, next);
-        if (supervisor !== "stdio" && supervisor !== "typescript-seed") {
-          throw new Error("--supervisor must be stdio or typescript-seed");
+        if (supervisor !== "stdio" && supervisor !== "socket" && supervisor !== "typescript-seed") {
+          throw new Error("--supervisor must be stdio, socket, or typescript-seed");
         }
         options.supervisor = supervisor;
         index += 1;
@@ -2764,6 +2769,7 @@ Usage:
   V1 core:
   npm run ether -- run --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
   npm run ether -- run --supervisor stdio --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
+  npm run ether -- run --supervisor socket --socket-path <socket> --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
   npm run ether -- replay <run_id> --workspace <path>
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- boundary <run_id> --workspace <path>
