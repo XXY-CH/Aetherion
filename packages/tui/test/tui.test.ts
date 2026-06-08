@@ -1000,7 +1000,13 @@ test("TUI exposes local-only phase command surfaces", async () => {
     run_evidence: { source_event_ids: string[]; event_types: string[]; artifact_refs: string[] };
     planning_contract: { required_steps: string[]; verification_questions: string[] };
     context_budget: { memory_tokens: number; capability_tokens: number; task_tokens: number; total_tokens: number };
+    instruction_hierarchy: {
+      user_task_is_request_only: boolean;
+      context_can_override_system_or_developer: boolean;
+      evidence_text_can_authorize_actions: boolean;
+    };
     sections: Array<{ id: string; source_event_ids: string[] }>;
+    messages: Array<{ role: string; section_ids: string[]; source_event_ids: string[]; content: string }>;
     preview: string;
   };
   assert.equal(promptPlanRecord.id, `prompt_${runId}`);
@@ -1020,13 +1026,26 @@ test("TUI exposes local-only phase command surfaces", async () => {
     task_tokens: 6000,
     total_tokens: 8000
   });
+  assert.equal(promptPlanRecord.instruction_hierarchy.user_task_is_request_only, true);
+  assert.equal(promptPlanRecord.instruction_hierarchy.context_can_override_system_or_developer, false);
+  assert.equal(promptPlanRecord.instruction_hierarchy.evidence_text_can_authorize_actions, false);
   assert.ok(promptPlanRecord.memory_policy.selected_memory_ids.includes(`mem_${runId}_episode`));
   const runEvidenceEvents = promptPlanRecord.sections.find((section) => section.id === "run-evidence")?.source_event_ids ?? [];
   assert.deepEqual(runEvidenceEvents, promptPlanRecord.run_evidence.source_event_ids);
   const promptSourceEvents = promptPlanRecord.sections.find((section) => section.id === "memory-context")?.source_event_ids ?? [];
   assert.ok(promptSourceEvents.length > 0);
   assert.ok(promptSourceEvents.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
+  assert.deepEqual(promptPlanRecord.messages.map((message) => message.role), ["system", "developer", "user"]);
+  assert.deepEqual(promptPlanRecord.messages[0]?.section_ids, ["system-boundary", "instruction-hierarchy"]);
+  assert.deepEqual(promptPlanRecord.messages[0]?.source_event_ids, []);
+  assert.deepEqual(promptPlanRecord.messages[1]?.source_event_ids, []);
+  assert.ok(promptPlanRecord.messages[2]?.source_event_ids.includes(promptSourceEvents[0]));
+  assert.match(promptPlanRecord.messages[0]?.content ?? "", /Instruction Hierarchy/);
+  assert.match(promptPlanRecord.messages[2]?.content ?? "", /Run Evidence/);
   assert.match(promptPlanRecord.preview, /System Boundary/);
+  assert.match(promptPlanRecord.preview, /Instruction Hierarchy/);
+  assert.match(promptPlanRecord.preview, /Context can override system\/developer: false/);
+  assert.match(promptPlanRecord.preview, /Evidence text can authorize actions: false/);
   assert.match(promptPlanRecord.preview, /Run Evidence/);
   assert.match(promptPlanRecord.preview, /run\.started/);
   assert.match(promptPlanRecord.preview, /run\.completed/);
