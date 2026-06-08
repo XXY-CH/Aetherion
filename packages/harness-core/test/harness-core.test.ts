@@ -31,6 +31,7 @@ import {
   readLocalFileThroughPolicy,
   recordRunEvent,
   reconstructTrace,
+  replayRecordRunEventSequence,
   validateAgainstSchema,
   verifyEventHashChain,
   verifyFileContains,
@@ -210,6 +211,27 @@ test("completed replay run manifests require a replay recorded event", async () 
     /expected lifecycle replay\.recorded, got run\.started/
   );
 
+  const wrongRefRunId = "run_replay_wrong_payload_ref";
+  const wrongRefManifest = await createRunManifest(repoRoot, workspace, wrongRefRunId, "Wrong replay payload ref");
+  const wrongRefEvent = eventRecord({
+    id: "evt_replay_wrong_payload_ref",
+    workspace_id: workspace.id,
+    run_id: wrongRefRunId,
+    event_type: "replay.recorded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded replay evidence with the wrong artifact ref.",
+    payload_ref: "artifact://replay/run_other/trace"
+  });
+  await appendEvent(repoRoot, workspace, wrongRefEvent);
+  await recordRunEvent(repoRoot, workspace, wrongRefManifest, wrongRefEvent.id);
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongRefManifest, "completed", replayRecordRunEventSequence("artifact://replay/run_source/trace")),
+    /expected payload_ref artifact:\/\/replay\/run_source\/trace, got artifact:\/\/replay\/run_other\/trace/
+  );
+  const wrongRefPersisted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${wrongRefRunId}.json`), "utf8")) as { status: string; completed_at: string | null };
+  assert.equal(wrongRefPersisted.status, "running");
+  assert.equal(wrongRefPersisted.completed_at, null);
+
   const replayRunId = "run_replay_lifecycle_guard";
   const replayManifest = await createRunManifest(repoRoot, workspace, replayRunId, "Replay lifecycle guard");
   const replayEvent = eventRecord({
@@ -223,7 +245,7 @@ test("completed replay run manifests require a replay recorded event", async () 
   });
   await appendEvent(repoRoot, workspace, replayEvent);
   await recordRunEvent(repoRoot, workspace, replayManifest, replayEvent.id);
-  await completeRunManifestWithEventSequence(repoRoot, workspace, replayManifest, "completed", REPLAY_RECORD_RUN_EVENT_TYPES);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, replayManifest, "completed", replayRecordRunEventSequence("artifact://replay/run_source/trace"));
 
   const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${replayRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(completed.status, "completed");

@@ -614,6 +614,10 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.ok(promotionManifest.event_ids.includes(approvalRecord.policy_event_id));
   assert.ok(promotionManifest.event_ids.includes(approvalRecord.live_action_event_id));
   const promotionEvents = (await readLedgerEvents(workspace)).filter((event) => event.run_id === approvalRecord.promotion_run_id);
+  assert.equal(promotionEvents.find((event) => event.event_type === "run.started")?.payload_ref, `artifact://boundary/${approvalRecord.promotion_run_id}/facts`);
+  assert.equal(promotionEvents.find((event) => event.event_type === "consent.recorded")?.payload_ref, `artifact://consent/${approvalRecord.promotion_run_id}/write`);
+  await access(join(workspace, ".aetherion", "artifacts", "boundary", approvalRecord.promotion_run_id, `boundary_${approvalRecord.promotion_run_id}_facts.json`));
+  await access(join(workspace, ".aetherion", "artifacts", "consent", approvalRecord.promotion_run_id, `consent_${approvalRecord.promotion_run_id}_write.json`));
   assert.deepEqual(
     promotionEvents.map((event) => event.event_type),
     [

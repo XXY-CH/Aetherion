@@ -31,8 +31,8 @@ import { verifyFileContains, type ObservationRecord, type VerificationRecord } f
 import {
   completeRunManifestWithEventSequence,
   createRunManifest,
-  KERNEL_FILE_RUN_APPROVED_EVENT_TYPES,
-  KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES,
+  kernelFileRunApprovedEventSequence,
+  kernelFileRunBlockedEventSequence,
   recordRunEvent,
   workspaceIdForRoot,
   writeWorkspaceRegistry,
@@ -205,7 +205,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
       actor: { type: "system", id: "ether.test_orchestrator" },
       summary: "Run stopped before write because approval was not provided."
     }));
-    await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "blocked", KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES);
+    await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "blocked", kernelFileRunBlockedEventSequence(runId));
     return {
       workspace,
       workspaceRegistry,
@@ -305,7 +305,7 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
     actor: { type: "system", id: "ether.test_orchestrator" },
     summary: "Ether test-only local kernel loop completed."
   }));
-  await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "completed", KERNEL_FILE_RUN_APPROVED_EVENT_TYPES);
+  await completeRunManifestWithEventSequence(input.repoRoot, workspace, runManifest, "completed", kernelFileRunApprovedEventSequence(runId));
 
   return {
     workspace,

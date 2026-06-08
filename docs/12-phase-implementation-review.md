@@ -558,32 +558,32 @@ Matched architecture docs:
 
 Implemented correspondence:
 
-- `packages/harness-core/src/workspace.ts` now exposes fixed event-type sequences for approved P0 file runs, blocked unapproved file runs, approved sandbox promotion runs, and single-event replay persistence runs; Ether's `run_governance_*` helper also completes through the same sequence guard using the exact event type it just appended.
+- `packages/harness-core/src/workspace.ts` now exposes fixed event expectations for approved P0 file runs, blocked unapproved file runs, approved sandbox promotion runs, and single-event replay persistence runs; Ether's `run_governance_*` helper also completes through the same sequence guard using the exact event type and payload ref it just appended.
 - `createRunManifest` now refuses to overwrite an existing manifest for the same run id, keeping later projection updates on the guarded `recordRunEvent` and completion paths.
-- `completeRunManifestWithEventSequence` reads the Ledger, verifies the manifest event ids match Ledger order for that run, and only then delegates to `completeRunManifest`.
+- `completeRunManifestWithEventSequence` reads the Ledger, verifies the manifest event ids match Ledger order for that run, checks selected critical `payload_ref` bindings when supplied, and only then delegates to `completeRunManifest`.
 - `recordRunEvent` now treats run manifest `event_ids` as a Ledger projection: it only records the next unrecorded Ledger event for that run, rejects missing, repeated, skipped, or tampered ids, and checks workspace membership before projection.
 - `completeRunManifest` now applies the same Ledger-order projection check before any run manifest can enter a terminal status, so completed/blocked/failed manifests cannot hide unprojected Ledger events for their run.
 - `loadRunManifest` now rejects manifest files whose embedded run id does not match the requested run or whose workspace id does not match the active workspace.
 - `runLocalKernelLoop` and `runSupervisorKernelLoop` now use the sequence guard before marking approved runs `completed` or unapproved-write runs `blocked`.
-- `approve-rehearsal` now uses the promotion sequence guard before marking its independent promotion run `completed`.
+- `approve-rehearsal` now writes Boundary Facts for the independent promotion run and uses the promotion sequence guard before marking that run `completed`.
 - V1 `run`, `trace`, and `replay` stdout now expose manifest status, manifest event count, manifest event ids, and Ledger `payload_ref` artifact refs; `replay` also prints the independent replay run id, replay event id, and Replay Record artifact ref.
 
 Verification evidence:
 
 - Harness tests assert an incomplete kernel file run with only `run.started` cannot be marked `completed` and that the persisted manifest remains `running`.
-- Harness tests assert a replay persistence run cannot complete with `run.started` standing in for `replay.recorded`, and that the valid replay lifecycle completes with exactly one `replay.recorded` event.
+- Harness tests assert a replay persistence run cannot complete with `run.started` standing in for `replay.recorded`, rejects a correct `replay.recorded` event with the wrong replay artifact ref, and confirms the valid replay lifecycle completes with exactly one `replay.recorded` event.
 - TUI integration asserts governance helper runs for memory fold, persona anchor/reset, and Soul Fork events complete as single-event manifests whose only Ledger event is the recorded governance event type.
 - Harness tests assert duplicate run manifest creation fails closed and leaves the original projection unchanged.
 - Harness tests assert run manifest projection rejects missing Ledger events, out-of-order event ids, repeated ids, tampered manifest prefixes, and workspace-mismatched Ledger entries.
 - Harness tests assert a generic run manifest cannot enter a terminal status until it has projected every Ledger event for that run.
 - Harness tests assert tampered manifest files are rejected on load, and TUI tests assert `trace`/`replay` fail closed on tampered manifests while preserving the missing-manifest visibility path.
-- Existing Ether and TUI tests continue to assert the full approved run lifecycle and sandbox promotion lifecycle event order.
+- Existing Ether and TUI tests continue to assert the full approved run lifecycle and sandbox promotion lifecycle event order. The sandbox promotion integration also asserts the promotion `run.started` and `consent.recorded` events point to the expected Boundary Facts and Consent Record artifacts.
 - TUI tests assert `run`, `trace`, and `replay` stdout include manifest event ids, Boundary/Consent artifact refs, artifact ref count, and the replay artifact ref.
 
 Correction and remaining boundary:
 
 - This does not impose one lifecycle on all run families. Hibernation, child-read, security, browser-observe, and outbox runs retain their existing completion semantics until they get explicit lifecycle contracts.
-- The generic creation, terminal, and load guards verify single-create behavior, manifest/Ledger membership, Ledger order, requested run id, and workspace membership. The sequence guard adds event-type order checks only for local-file kernel, sandbox promotion, replay persistence, and single-event governance helper runs. Neither guard yet validates per-event payload shape beyond existing Event schema validation and source-specific contract tests.
+- The generic creation, terminal, and load guards verify single-create behavior, manifest/Ledger membership, Ledger order, requested run id, and workspace membership. The sequence guard adds event-type order checks only for local-file kernel, sandbox promotion, replay persistence, and single-event governance helper runs. It now validates selected critical `payload_ref` bindings for Boundary Facts, Consent Records, Replay Records, and single-event governance helper artifacts; full artifact JSON semantics remain covered by existing schema validation and source-specific contract tests rather than by the manifest projection itself.
 - The CLI evidence output currently covers the V1 core `run`, `trace`, and `replay` commands; it is not yet a universal output contract for every later-phase Ether command.
 
 ## Phase 3 Review Notes

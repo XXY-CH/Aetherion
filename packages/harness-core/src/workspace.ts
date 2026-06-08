@@ -76,6 +76,27 @@ export const REPLAY_RECORD_RUN_EVENT_TYPES = [
   "replay.recorded"
 ] as const;
 
+export type RunEventExpectation = string | {
+  event_type: string;
+  payload_ref?: string | null;
+};
+
+export function kernelFileRunApprovedEventSequence(runId: string): readonly RunEventExpectation[] {
+  return withKernelFilePayloadRefs(KERNEL_FILE_RUN_APPROVED_EVENT_TYPES, runId);
+}
+
+export function kernelFileRunBlockedEventSequence(runId: string): readonly RunEventExpectation[] {
+  return withKernelFilePayloadRefs(KERNEL_FILE_RUN_BLOCKED_EVENT_TYPES, runId);
+}
+
+export function approvedWritePromotionEventSequence(runId: string): readonly RunEventExpectation[] {
+  return withKernelFilePayloadRefs(APPROVED_WRITE_PROMOTION_EVENT_TYPES, runId);
+}
+
+export function replayRecordRunEventSequence(payloadRef: string): readonly RunEventExpectation[] {
+  return [{ event_type: "replay.recorded", payload_ref: payloadRef }];
+}
+
 export function workspaceRegistryPath(workspace: Workspace): string {
   return join(workspace.root, ".aetherion", "workspace.json");
 }
@@ -191,15 +212,17 @@ export async function completeRunManifestWithEventSequence(
   workspace: Workspace,
   manifest: RunManifest,
   status: RunManifest["status"],
-  expectedEventTypes: readonly string[]
+  expectedEvents: readonly RunEventExpectation[]
 ): Promise<RunManifest> {
   const manifestEvents = await manifestEventsInLedgerOrder(workspace, manifest);
   const actualEventTypes = manifestEvents.map((event) => event.event_type);
+  const expectedEventTypes = expectedEvents.map(expectedEventType);
   if (!stringArraysEqual(actualEventTypes, expectedEventTypes)) {
     throw new Error(
       `Run manifest ${manifest.id} cannot complete as ${status}: expected lifecycle ${expectedEventTypes.join(" -> ")}, got ${actualEventTypes.join(" -> ")}`
     );
   }
+  assertExpectedPayloadRefs(manifest, manifestEvents, expectedEvents);
   return completeRunManifest(repoRoot, workspace, manifest, status);
 }
 
@@ -239,6 +262,45 @@ function assertRunEventsBelongToWorkspace(workspace: Workspace, manifest: RunMan
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function withKernelFilePayloadRefs(eventTypes: readonly string[], runId: string): readonly RunEventExpectation[] {
+  return eventTypes.map((eventType) => {
+    if (eventType === "run.started") {
+      return { event_type: eventType, payload_ref: `artifact://boundary/${runId}/facts` };
+    }
+    if (eventType === "consent.recorded") {
+      return { event_type: eventType, payload_ref: `artifact://consent/${runId}/write` };
+    }
+    return eventType;
+  });
+}
+
+function expectedEventType(expected: RunEventExpectation): string {
+  return typeof expected === "string" ? expected : expected.event_type;
+}
+
+function assertExpectedPayloadRefs(manifest: RunManifest, events: readonly EventRecord[], expectedEvents: readonly RunEventExpectation[]): void {
+  expectedEvents.forEach((expected, index) => {
+    if (typeof expected === "string" || !("payload_ref" in expected)) {
+      return;
+    }
+    const event = events[index];
+    const expectedPayloadRef = expected.payload_ref;
+    if (expectedPayloadRef === null || expectedPayloadRef === undefined) {
+      if (event.payload_ref !== undefined) {
+        throw new Error(
+          `Run manifest ${manifest.id} event ${event.id} (${event.event_type}) cannot complete: expected no payload_ref, got ${event.payload_ref}`
+        );
+      }
+      return;
+    }
+    if (event.payload_ref !== expectedPayloadRef) {
+      throw new Error(
+        `Run manifest ${manifest.id} event ${event.id} (${event.event_type}) cannot complete: expected payload_ref ${expectedPayloadRef}, got ${event.payload_ref ?? "not_recorded"}`
+      );
+    }
+  });
 }
 
 async function saveRunManifest(repoRoot: string, workspace: Workspace, manifest: RunManifest): Promise<void> {

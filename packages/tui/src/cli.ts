@@ -12,7 +12,7 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type ChildResult } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { appendEvent, APPROVED_WRITE_PROMOTION_EVENT_TYPES, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, REPLAY_RECORD_RUN_EVENT_TYPES, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, callSupervisorRpc, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -878,15 +878,22 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
     throw new Error(`Rehearsal ${rehearsal.id} has no implemented live operation`);
   }
 
-  const workspace = await openWorkspace(workspaceRoot);
+  const { workspace, registry: workspaceRegistry } = await loadWorkspaceFromRegistry(workspaceRoot);
   const promotionRunId = `run_rehearsal_${sanitizePathSegment(rehearsal.id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const manifest = await createRunManifest(repoRoot, workspace, promotionRunId, `Approve sandbox rehearsal ${rehearsal.id}`);
+  const boundaryRef = await writeBoundaryFactsArtifact(repoRoot, workspace, createBoundaryFacts({
+    workspace,
+    registry: workspaceRegistry,
+    manifest,
+    workspaceFileWriteRequested: true
+  }));
   await appendManagedRunEvent(
     workspaceRoot,
     workspace,
     manifest,
     "run.started",
-    `Started independent sandbox promotion run for rehearsal ${rehearsal.id}; checkpoint ${checkpoint.id} authority was not reused.`
+    `Started independent sandbox promotion run for rehearsal ${rehearsal.id}; checkpoint ${checkpoint.id} authority was not reused.`,
+    boundaryRef
   );
 
   let policyEventId = "";
@@ -990,7 +997,7 @@ async function runApproveRehearsal(options: CliOptions): Promise<void> {
     "run.completed",
     `Completed independent sandbox promotion run for rehearsal ${rehearsal.id}.`
   );
-  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", APPROVED_WRITE_PROMOTION_EVENT_TYPES);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", approvedWritePromotionEventSequence(promotionRunId));
 
   const approved = approveRehearsal(rehearsal, branch, policyEventId, liveActionEventId);
   if (rehearsal.operation === "file.write") {
@@ -2309,6 +2316,7 @@ async function recordReplayEvidence(
 ): Promise<{ eventId: string; runId: string }> {
   await requireValidContract("replay-record.schema.json", replayRecord);
   writeReplayArtifact(workspaceRoot, replayRecord);
+  const replayArtifactRef = replayRecord.artifact_ref ?? `artifact://replay/${replayRecord.run_id}/trace`;
   const replayRunId = `run_replay_${sanitizePathSegment(replayRecord.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const manifest = await createRunManifest(
     repoRoot,
@@ -2322,9 +2330,9 @@ async function recordReplayEvidence(
     manifest,
     "replay.recorded",
     `Replay Record ${replayRecord.id} persisted as read-only trace evidence for ${replayRecord.run_id}.`,
-    replayRecord.artifact_ref ?? `artifact://replay/${replayRecord.run_id}/trace`
+    replayArtifactRef
   );
-  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", REPLAY_RECORD_RUN_EVENT_TYPES);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", replayRecordRunEventSequence(replayArtifactRef));
   upsertRegistryItem(workspaceRoot, "replay-records", replayRecord);
   return { eventId, runId: replayRunId };
 }
@@ -2481,7 +2489,7 @@ async function recordGovernanceEvent(workspaceRoot: string, eventType: string, s
     throw new Error(`Supervisor did not append governance event ${eventType}`);
   }
   await recordRunEvent(repoRoot, workspace, manifest, result.event_id);
-  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [eventType]);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [{ event_type: eventType, payload_ref: payloadRef }]);
   return result.event_id;
 }
 
