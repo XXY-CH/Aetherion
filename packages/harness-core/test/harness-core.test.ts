@@ -1082,6 +1082,10 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const memoryRejectDir = join(root, ".aetherion", "artifacts", "memory", "reject");
   const memoryBlockDir = join(root, ".aetherion", "artifacts", "memory", "block");
   const memoryDeleteDir = join(root, ".aetherion", "artifacts", "memory", "delete");
+  const securityScanDir = join(root, ".aetherion", "artifacts", "security", "scan");
+  const securityAckDir = join(root, ".aetherion", "artifacts", "security", "ack");
+  const securityTrialDir = join(root, ".aetherion", "artifacts", "security", "trial");
+  const securityFixtureDir = join(root, ".aetherion", "artifacts", "security", "fixture");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
   await mkdir(consentDir, { recursive: true });
@@ -1092,6 +1096,10 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await mkdir(memoryRejectDir, { recursive: true });
   await mkdir(memoryBlockDir, { recursive: true });
   await mkdir(memoryDeleteDir, { recursive: true });
+  await mkdir(securityScanDir, { recursive: true });
+  await mkdir(securityAckDir, { recursive: true });
+  await mkdir(securityTrialDir, { recursive: true });
+  await mkdir(securityFixtureDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
   await writeFile(join(consentDir, "consent_run_payload_resolved_write.json"), `${JSON.stringify(consentRecordFixture("run_payload_resolved"), null, 2)}\n`);
@@ -1103,6 +1111,12 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(memoryBlockDir, "mem_payload_blocked.json"), `${JSON.stringify({ ...memoryCard("mem_payload_blocked", "blocked memory"), blocked_contexts: ["external_send"] }, null, 2)}\n`);
   await writeFile(join(memoryDeleteDir, "tombstone_mem_payload.json"), `${JSON.stringify(memoryTombstone("tombstone_mem_payload", "mem_payload"), null, 2)}\n`);
   await writeFile(join(memoryAcceptDir, "mem_payload_invalid.json"), `${JSON.stringify({ id: "mem_payload_invalid" }, null, 2)}\n`);
+  await writeFile(join(securityScanDir, "assessment_payload.json"), `${JSON.stringify(contentAssessment("assessment_payload"), null, 2)}\n`);
+  await writeFile(join(securityScanDir, "poison_payload.json"), `${JSON.stringify(poisoningSignal("poison_payload", "detected"), null, 2)}\n`);
+  await writeFile(join(securityAckDir, "poison_payload_ack.json"), `${JSON.stringify(poisoningSignal("poison_payload_ack", "acknowledged"), null, 2)}\n`);
+  await writeFile(join(securityTrialDir, "honeypot_payload.json"), `${JSON.stringify(honeypotTrial("honeypot_payload"), null, 2)}\n`);
+  await writeFile(join(securityFixtureDir, "poison_fixture_payload.json"), `${JSON.stringify(poisoningFixture("poison_fixture_payload"), null, 2)}\n`);
+  await writeFile(join(securityScanDir, "assessment_invalid.json"), `${JSON.stringify({ id: "assessment_invalid" }, null, 2)}\n`);
 
   const beforeBoundary = await readFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), "utf8");
   const events = [
@@ -1115,6 +1129,12 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_memory_block", "run_payload_resolved", "memory.blocked", "artifact://memory/block/mem_payload_blocked"),
     payloadEvent("evt_payload_memory_delete", "run_payload_resolved", "memory.deleted", "artifact://memory/delete/tombstone_mem_payload"),
     payloadEvent("evt_payload_memory_invalid", "run_payload_schema_invalid", "memory.accepted", "artifact://memory/accept/mem_payload_invalid"),
+    payloadEvent("evt_payload_security_assessment", "run_payload_resolved", "security.content.assessed", "artifact://security/scan/assessment_payload"),
+    payloadEvent("evt_payload_security_signal", "run_payload_resolved", "poisoning.detected", "artifact://security/scan/poison_payload"),
+    payloadEvent("evt_payload_security_ack", "run_payload_resolved", "poisoning.acknowledged", "artifact://security/ack/poison_payload_ack"),
+    payloadEvent("evt_payload_security_trial", "run_payload_resolved", "honeypot.trial.completed", "artifact://security/trial/honeypot_payload"),
+    payloadEvent("evt_payload_security_fixture", "run_payload_resolved", "poisoning.regression.created", "artifact://security/fixture/poison_fixture_payload"),
+    payloadEvent("evt_payload_security_invalid", "run_payload_schema_invalid", "security.content.assessed", "artifact://security/scan/assessment_invalid"),
     payloadEvent("evt_payload_schema_invalid", "run_payload_schema_invalid", "run.started", "artifact://boundary/run_payload_schema_invalid/facts"),
     payloadEvent("evt_payload_missing", "run_payload_missing", "consent.recorded", "artifact://consent/run_payload_missing/write"),
     payloadEvent("evt_payload_invalid", "run_payload_invalid", "capsule.test.recorded", "artifact://capsule/test/broken"),
@@ -1127,13 +1147,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 13,
-    resolved: 10,
+    events_with_payload_ref: 19,
+    resolved: 16,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 8,
-    schema_invalid: 2,
+    schema_valid: 13,
+    schema_invalid: 3,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -1159,6 +1179,19 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_memory_invalid")?.schema_name, "memory-card.schema.json");
   assert.equal(byId.get("evt_payload_memory_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_memory_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
+  assert.equal(byId.get("evt_payload_security_assessment")?.schema_name, "content-assessment.schema.json");
+  assert.equal(byId.get("evt_payload_security_assessment")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_security_signal")?.schema_name, "poisoning-signal.schema.json");
+  assert.equal(byId.get("evt_payload_security_signal")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_security_ack")?.schema_name, "poisoning-signal.schema.json");
+  assert.equal(byId.get("evt_payload_security_ack")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_security_trial")?.schema_name, "honeypot-trial.schema.json");
+  assert.equal(byId.get("evt_payload_security_trial")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_security_fixture")?.schema_name, "poisoning-regression-fixture.schema.json");
+  assert.equal(byId.get("evt_payload_security_fixture")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_security_invalid")?.schema_name, "content-assessment.schema.json");
+  assert.equal(byId.get("evt_payload_security_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_security_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
   assert.equal(byId.get("evt_payload_schema_invalid")?.status, "resolved");
   assert.equal(byId.get("evt_payload_schema_invalid")?.schema_status, "invalid");
   assert.ok(byId.get("evt_payload_schema_invalid")?.schema_errors.some((error) => error.includes("missing required property")));
@@ -1250,6 +1283,84 @@ function memoryTombstone(id: string, targetMemoryId: string) {
     active_memory_removed: true,
     history_rewritten: false,
     redaction_status: "tombstone_only"
+  };
+}
+
+const securityContentHash = `sha256:${"a".repeat(64)}`;
+const securitySourceEventId = "evt_source_security_payload";
+const securityMatchedRules = ["rule_prompt_ignore_prior"];
+
+function contentAssessment(id: string) {
+  return {
+    id,
+    source_event_id: securitySourceEventId,
+    source_kind: "public_web",
+    content_sha256: securityContentHash,
+    status: "suspicious",
+    matched_rules: securityMatchedRules,
+    taint: {
+      sources: ["public_web"],
+      can_authorize_actions: false
+    },
+    raw_content_persisted: false,
+    created_at: "2026-06-07T10:00:00.000Z"
+  };
+}
+
+function poisoningSignal(id: string, status: "detected" | "acknowledged") {
+  return {
+    id,
+    assessment_id: "assessment_payload",
+    source_event_id: securitySourceEventId,
+    source_kind: "public_web",
+    content_sha256: securityContentHash,
+    signal_type: "prompt_injection",
+    severity: "high",
+    matched_rules: securityMatchedRules,
+    status,
+    quarantined: true,
+    sandbox_required: true,
+    can_authorize_actions: false,
+    acknowledged_at: status === "acknowledged" ? "2026-06-07T10:01:00.000Z" : null,
+    regression_fixture_id: null,
+    created_at: "2026-06-07T10:00:00.000Z"
+  };
+}
+
+function honeypotTrial(id: string) {
+  return {
+    id,
+    signal_id: "poison_payload",
+    source_event_ids: [securitySourceEventId],
+    subject: {
+      kind: "content",
+      id: "assessment_payload"
+    },
+    mode: "deterministic_decoy_trial",
+    decoy_secret_refs: ["decoy://honeypot/poison_payload/credential"],
+    real_secret_accessed: false,
+    network_accessed: false,
+    authorization_issued: false,
+    observed_attempts: ["prompt_injection"],
+    outcome: "contained",
+    quarantine_recommended: true,
+    capsule_quarantined: false,
+    created_at: "2026-06-07T10:02:00.000Z"
+  };
+}
+
+function poisoningFixture(id: string) {
+  return {
+    id,
+    signal_id: "poison_payload",
+    source_event_ids: [securitySourceEventId],
+    input_sha256: securityContentHash,
+    replay_mode: "detector_only",
+    expected_signal_type: "prompt_injection",
+    expected_matched_rules: securityMatchedRules,
+    expected_authorization_blocked: true,
+    raw_content_included: false,
+    created_at: "2026-06-07T10:03:00.000Z"
   };
 }
 

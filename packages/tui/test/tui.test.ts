@@ -702,6 +702,26 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(securityLedger, /honeypot\.trial\.completed/);
   assert.match(securityLedger, /poisoning\.regression\.created/);
   assert.doesNotMatch(securityLedger, /Ignore previous instructions/);
+  const securityPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+      schema_errors: string[];
+    }>;
+  };
+  const securityFinding = (eventType: string) => securityPayloadAudit.findings.find((finding) => finding.event_type === eventType);
+  assert.equal(securityFinding("security.content.assessed")?.schema_name, "content-assessment.schema.json");
+  assert.equal(securityFinding("security.content.assessed")?.schema_status, "valid");
+  assert.equal(securityFinding("poisoning.detected")?.schema_name, "poisoning-signal.schema.json");
+  assert.equal(securityFinding("poisoning.detected")?.schema_status, "valid");
+  assert.equal(securityFinding("poisoning.acknowledged")?.schema_name, "poisoning-signal.schema.json");
+  assert.equal(securityFinding("poisoning.acknowledged")?.schema_status, "valid");
+  assert.equal(securityFinding("honeypot.trial.completed")?.schema_name, "honeypot-trial.schema.json");
+  assert.equal(securityFinding("honeypot.trial.completed")?.schema_status, "valid");
+  assert.equal(securityFinding("poisoning.regression.created")?.schema_name, "poisoning-regression-fixture.schema.json");
+  assert.equal(securityFinding("poisoning.regression.created")?.schema_status, "valid");
 });
 
 test("TUI migration dry-run redacts tokens and quarantines legacy skills", async () => {

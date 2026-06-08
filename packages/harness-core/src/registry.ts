@@ -711,7 +711,7 @@ export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: st
         payload_ref: event.payload_ref,
         status: "invalid_json",
         resolved_path: resolved.path,
-        schema_name: schemaNameForArtifactReference(event.payload_ref),
+        schema_name: schemaNameForArtifactReference(event.payload_ref, event.event_type),
         schema_status: "not_checked",
         schema_errors: [],
         reason: "resolved artifact exists but JSON could not be parsed"
@@ -719,7 +719,7 @@ export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: st
       continue;
     }
 
-    const schemaName = schemaNameForArtifactReference(event.payload_ref);
+    const schemaName = schemaNameForArtifactReference(event.payload_ref, event.event_type);
     const validation = schemaName ? await validateAgainstSchema(repoRoot, schemaName, parsed) : null;
     findings.push({
       event_id: event.id,
@@ -1355,7 +1355,7 @@ function resolveLocalArtifactReference(workspaceRoot: string, artifactRef: strin
   return { status: "resolvable", path };
 }
 
-function schemaNameForArtifactReference(artifactRef: string): string | undefined {
+function schemaNameForArtifactReference(artifactRef: string, eventType?: string): string | undefined {
   if (!artifactRef.startsWith("artifact://")) {
     return undefined;
   }
@@ -1381,6 +1381,20 @@ function schemaNameForArtifactReference(artifactRef: string): string | undefined
     }
     if (parts[1] === "delete") {
       return "memory-tombstone.schema.json";
+    }
+  }
+  if (parts[0] === "security" && parts.length === 3) {
+    if (parts[1] === "scan" && eventType === "security.content.assessed") {
+      return "content-assessment.schema.json";
+    }
+    if ((parts[1] === "scan" && eventType === "poisoning.detected") || (parts[1] === "ack" && eventType === "poisoning.acknowledged")) {
+      return "poisoning-signal.schema.json";
+    }
+    if (parts[1] === "trial" && eventType === "honeypot.trial.completed") {
+      return "honeypot-trial.schema.json";
+    }
+    if (parts[1] === "fixture" && eventType === "poisoning.regression.created") {
+      return "poisoning-regression-fixture.schema.json";
     }
   }
   return undefined;
