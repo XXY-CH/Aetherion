@@ -1280,6 +1280,173 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(promptPlanRecord.preview, /No Capability Cards are available/);
   assert.match(promptPlanRecord.preview, new RegExp(`mem_${runId}_episode`));
   assert.match(promptPlanRecord.preview, new RegExp(escapeRegExp(promptSourceEvents[0])));
+  const bindRuntime = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "bind-runtime",
+    runId,
+    "--content",
+    "Draft a local implementation plan.",
+    "--workspace",
+    workspace
+  ]);
+  const bindingRecord = JSON.parse(bindRuntime.stdout) as {
+    invocation_id: string;
+    source_run_id: string;
+    prompt_plan_id: string;
+    artifact_ref: string;
+    expected_artifact_ref: string;
+    binding_run_id: string;
+    binding_event_id: string;
+    model_invoked: boolean;
+    tools_requested: boolean;
+    runtime_authority_granted: boolean;
+    prompt_artifact_persisted: boolean;
+    raw_payload_artifacts_read: boolean;
+    model_request_artifact_created: boolean;
+    model_response_artifact_created: boolean;
+  };
+  assert.match(bindingRecord.invocation_id, new RegExp(`^agent_runtime_invocation_${escapeRegExp(runId)}_[a-f0-9]{16}$`));
+  assert.equal(bindingRecord.source_run_id, runId);
+  assert.equal(bindingRecord.prompt_plan_id, `prompt_${runId}`);
+  assert.equal(bindingRecord.artifact_ref, `artifact://agent/runtime/${bindingRecord.invocation_id}`);
+  assert.equal(bindingRecord.expected_artifact_ref, bindingRecord.artifact_ref);
+  assert.match(bindingRecord.binding_run_id, /^run_runtime_binding_/);
+  assert.match(bindingRecord.binding_event_id, /^evt_/);
+  assert.equal(bindingRecord.model_invoked, false);
+  assert.equal(bindingRecord.tools_requested, false);
+  assert.equal(bindingRecord.runtime_authority_granted, false);
+  assert.equal(bindingRecord.prompt_artifact_persisted, false);
+  assert.equal(bindingRecord.raw_payload_artifacts_read, false);
+  assert.equal(bindingRecord.model_request_artifact_created, false);
+  assert.equal(bindingRecord.model_response_artifact_created, false);
+  const runtimeArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "runtime", `${bindingRecord.invocation_id}.json`);
+  const runtimeArtifactText = await readFile(runtimeArtifactPath, "utf8");
+  const runtimeArtifact = JSON.parse(runtimeArtifactText) as {
+    id: string;
+    run_id: string;
+    prompt_plan_id: string;
+    scope: {
+      model_invoked: boolean;
+      tools_requested: boolean;
+      raw_payload_artifacts_read: boolean;
+      prompt_artifact_persisted: boolean;
+      runtime_authority_granted: boolean;
+    };
+    prompt: {
+      bundle_id: string;
+      preview_sha256: string;
+      message_hashes: Array<{ role: string; content_sha256: string; source_event_ids: string[] }>;
+    };
+    model_call: { request_artifact_ref: string | null; response_artifact_ref: string | null; can_invoke_now: boolean };
+    context: { source_event_ids: string[]; selected_memory_ids: string[]; raw_payload_artifacts_read: boolean };
+    stages: Array<{ id: string; required_evidence: string[]; authority_granted: boolean }>;
+  };
+  assert.equal(runtimeArtifact.id, bindingRecord.invocation_id);
+  assert.equal(runtimeArtifact.run_id, runId);
+  assert.equal(runtimeArtifact.prompt_plan_id, `prompt_${runId}`);
+  assert.equal(runtimeArtifact.scope.model_invoked, false);
+  assert.equal(runtimeArtifact.scope.tools_requested, false);
+  assert.equal(runtimeArtifact.scope.raw_payload_artifacts_read, false);
+  assert.equal(runtimeArtifact.scope.prompt_artifact_persisted, false);
+  assert.equal(runtimeArtifact.scope.runtime_authority_granted, false);
+  assert.equal(runtimeArtifact.model_call.request_artifact_ref, null);
+  assert.equal(runtimeArtifact.model_call.response_artifact_ref, null);
+  assert.equal(runtimeArtifact.model_call.can_invoke_now, false);
+  assert.equal(runtimeArtifact.prompt.bundle_id, `prompt_bundle_${runId}`);
+  assert.match(runtimeArtifact.prompt.preview_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(runtimeArtifact.prompt.message_hashes.map((message) => message.role), ["system", "developer", "user"]);
+  assert.ok(runtimeArtifact.context.source_event_ids.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
+  assert.ok(runtimeArtifact.context.selected_memory_ids.includes(`mem_${runId}_episode`));
+  assert.equal(runtimeArtifact.context.raw_payload_artifacts_read, false);
+  assert.deepEqual(runtimeArtifact.stages.find((stage) => stage.id === "runtime.binding.required")?.required_evidence, [
+    "durable_runtime_invocation_artifact",
+    "agent.runtime.bound"
+  ]);
+  assert.ok(runtimeArtifact.stages.every((stage) => stage.authority_granted === false));
+  assert.doesNotMatch(runtimeArtifactText, /"preview"/);
+  assert.doesNotMatch(runtimeArtifactText, /"messages"/);
+  assert.doesNotMatch(runtimeArtifactText, /"sections"/);
+  assert.doesNotMatch(runtimeArtifactText, /Draft a local implementation plan/);
+  assert.doesNotMatch(runtimeArtifactText, /Summary: Workspace file read completed/);
+  assert.doesNotMatch(runtimeArtifactText, /System Boundary/);
+  const ledgerAfterBinding = await readLedgerEvents(workspace);
+  const bindingEvent = ledgerAfterBinding.find((event) => event.id === bindingRecord.binding_event_id);
+  assert.ok(bindingEvent);
+  assert.equal(bindingEvent.run_id, bindingRecord.binding_run_id);
+  assert.equal(bindingEvent.event_type, "agent.runtime.bound");
+  assert.equal(bindingEvent.payload_ref, bindingRecord.artifact_ref);
+  assert.equal(bindingEvent.actor.type, "system");
+  assert.equal(bindingEvent.actor.id, "local_supervisor");
+  assert.match(bindingEvent.summary, /no model, tool, or runtime authority was granted/);
+  const sourceRunEventsAfterBinding = ledgerAfterBinding.filter((event) => event.run_id === runId);
+  assert.equal(sourceRunEventsAfterBinding.some((event) => event.event_type === "agent.runtime.bound"), false);
+  assert.equal(sourceRunEventsAfterBinding.some((event) => event.event_type === "model.requested"), false);
+  assert.equal(sourceRunEventsAfterBinding.some((event) => event.event_type === "model.responded"), false);
+  assert.equal(sourceRunEventsAfterBinding.some((event) => event.event_type === "tool.requested"), true);
+  assert.equal(sourceRunEventsAfterBinding.some((event) => event.event_type === "lease.issued"), true);
+  const bindingManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${bindingRecord.binding_run_id}.json`), "utf8")) as {
+    id: string;
+    status: string;
+    event_ids: string[];
+  };
+  assert.equal(bindingManifest.id, bindingRecord.binding_run_id);
+  assert.equal(bindingManifest.status, "completed");
+  assert.deepEqual(bindingManifest.event_ids, [bindingRecord.binding_event_id]);
+  const bindingEvents = ledgerAfterBinding.filter((event) => event.run_id === bindingRecord.binding_run_id);
+  assert.deepEqual(bindingEvents.map((event) => event.event_type), ["agent.runtime.bound"]);
+  assert.deepEqual(bindingEvents.map((event) => event.payload_ref), [bindingRecord.artifact_ref]);
+  assert.equal(bindingEvents.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(bindingEvents.some((event) => event.event_type === "lease.issued"), false);
+  const bindingPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_id: string;
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+      schema_errors: string[];
+    }>;
+  };
+  const bindingPayloadFinding = bindingPayloadAudit.findings.find((finding) => finding.event_id === bindingRecord.binding_event_id);
+  assert.ok(bindingPayloadFinding);
+  assert.equal(bindingPayloadFinding.event_type, "agent.runtime.bound");
+  assert.equal(bindingPayloadFinding.payload_ref, bindingRecord.artifact_ref);
+  assert.equal(bindingPayloadFinding.schema_name, "agent-runtime-invocation.schema.json");
+  assert.equal(bindingPayloadFinding.schema_status, "valid");
+  assert.deepEqual(bindingPayloadFinding.schema_errors, []);
+  const secondBindRuntime = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "bind-runtime",
+    runId,
+    "--content",
+    "Draft a different local implementation plan.",
+    "--workspace",
+    workspace
+  ]);
+  const secondBindingRecord = JSON.parse(secondBindRuntime.stdout) as {
+    invocation_id: string;
+    artifact_ref: string;
+    binding_run_id: string;
+    binding_event_id: string;
+  };
+  assert.match(secondBindingRecord.invocation_id, new RegExp(`^agent_runtime_invocation_${escapeRegExp(runId)}_[a-f0-9]{16}$`));
+  assert.notEqual(secondBindingRecord.invocation_id, bindingRecord.invocation_id);
+  assert.notEqual(secondBindingRecord.artifact_ref, bindingRecord.artifact_ref);
+  assert.notEqual(secondBindingRecord.binding_run_id, bindingRecord.binding_run_id);
+  assert.notEqual(secondBindingRecord.binding_event_id, bindingRecord.binding_event_id);
+  assert.equal(await readFile(runtimeArtifactPath, "utf8"), runtimeArtifactText);
+  const secondRuntimeArtifactText = await readFile(join(workspace, ".aetherion", "artifacts", "agent", "runtime", `${secondBindingRecord.invocation_id}.json`), "utf8");
+  assert.doesNotMatch(secondRuntimeArtifactText, /Draft a different local implementation plan/);
+  const ledgerAfterSecondBinding = await readLedgerEvents(workspace);
+  assert.ok(ledgerAfterSecondBinding.some((event) =>
+    event.id === secondBindingRecord.binding_event_id
+    && event.run_id === secondBindingRecord.binding_run_id
+    && event.event_type === "agent.runtime.bound"
+    && event.payload_ref === secondBindingRecord.artifact_ref
+  ));
+  const ledgerBeforePromptAudit = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   const responsePath = join(workspace, "prompt-response.md");
   await writeFile(responsePath, [
     "## Evidence Summary",
@@ -1385,7 +1552,7 @@ test("TUI exposes local-only phase command surfaces", async () => {
     ]),
     /Read target is outside workspace boundary/
   );
-  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptPlan);
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforePromptAudit);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "prompt")), /ENOENT/);
   const deleted = await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);
   assert.match(deleted.stdout, /"event_type": "memory.deleted"/);

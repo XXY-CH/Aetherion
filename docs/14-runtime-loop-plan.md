@@ -190,9 +190,35 @@ Acceptance:
 
 Remaining boundary:
 
-- No TUI command writes this artifact yet, and no `agent.runtime.bound` Ledger event path is implemented.
 - The artifact is not a model request, model response, runtime status, verification result, permission gate, or authority grant.
 
 Next likely increment after this one:
 
-- Choose between supervisor-backed no-tools model preview binding, trace-backed Memory lifecycle hardening, or deeper Capsule proposal typing after another docs/code review.
+- Bind this artifact through a supervisor-authored Ledger event before adding any provider or model request path.
+
+## Completed Increment: Agent Runtime Binding Event
+
+Target: make Agent Runtime Invocation metadata bindable through the TUI and Event Ledger without invoking a model, requesting tools, or granting authority.
+
+Why this slice:
+
+- It closes the first Agent Orchestrator runtime-binding evidence gap while staying inside V1 TUI-first boundaries.
+- It lets the Ledger point at a schema-valid runtime metadata artifact through `agent.runtime.bound` instead of leaving the binding step as prose.
+- It keeps the source run immutable by recording binding evidence in an independent single-event governance run.
+
+Acceptance:
+
+- `prompt bind-runtime <run_id> --content <task>` reuses the same Memory provenance gate and prompt assembly path as `prompt plan` and `prompt audit`.
+- The command writes `.aetherion/artifacts/agent/runtime/<invocation_id>.json`, returns `artifact://agent/runtime/<invocation_id>`, and appends a supervisor-authored `agent.runtime.bound` event with that `payload_ref`.
+- The binding run manifest completes with only the `agent.runtime.bound` event; the source run is not extended after completion.
+- TUI tests assert the artifact contains only ids, hashes, refs, budgets, gates, and stage metadata, with no rendered prompt preview, messages, sections, task prose, run summary, or memory prose.
+- `audit payload-refs` resolves the binding event payload and schema-validates the Agent Runtime Invocation artifact.
+
+Remaining boundary:
+
+- The binding event is not a model request, model response, runtime status, verification result, permission gate, policy decision, lease, or authority grant.
+- No provider config, model invocation loop, model request/response artifact, tool proposal loop, daemon, IM/browser connector, OAuth/MCP connector, or vault path exists yet.
+
+Next likely increment after this one:
+
+- Define model request/response artifacts and a no-tools provider preview loop behind the existing runtime binding, or harden trace-backed Memory lifecycle parity before widening runtime behavior.

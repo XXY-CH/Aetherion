@@ -12,8 +12,8 @@ import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersona
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
-import { assemblePromptPlan, auditPromptResponse } from "../../orchestrator/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
+import { agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -984,14 +984,64 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan" && options.topic !== "audit") {
-    throw new Error("prompt supports plan <run_id> --content <task> and audit <run_id> --content <task> --path <response-file>");
+  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime") {
+    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, and bind-runtime <run_id> --content <task>");
   }
-  const runId = options.target ?? options.input;
   if (!options.content) {
     throw new Error(`prompt ${options.topic} requires --content <task>`);
   }
   const workspaceRoot = resolve(options.workspace);
+  const runId = options.target ?? options.input;
+  const { workspace, plan } = await assemblePromptPlanForRun(workspaceRoot, runId, options.content);
+  if (options.topic === "plan") {
+    printRawJson(plan);
+    return;
+  }
+  if (options.topic === "bind-runtime") {
+    const invocation = createAgentRuntimeInvocationArtifact(plan);
+    const artifactRef = await writeAgentRuntimeInvocationArtifact(repoRoot, workspace, invocation);
+    const bindingRunId = `run_runtime_binding_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const summary = `Bound ${invocation.id} for source run ${runId}; no model, tool, or runtime authority was granted.`;
+    const manifest = await createRunManifest(repoRoot, workspace, bindingRunId, summary);
+    const bindingEventId = await appendManagedRunEvent(
+      workspaceRoot,
+      workspace,
+      manifest,
+      "agent.runtime.bound",
+      summary,
+      artifactRef
+    );
+    await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+      { event_type: "agent.runtime.bound", payload_ref: artifactRef }
+    ]);
+    printRawJson({
+      invocation_id: invocation.id,
+      source_run_id: runId,
+      prompt_plan_id: invocation.prompt_plan_id,
+      artifact_ref: artifactRef,
+      expected_artifact_ref: agentRuntimeInvocationArtifactRef(invocation.id),
+      binding_run_id: bindingRunId,
+      binding_event_id: bindingEventId,
+      model_invoked: false,
+      tools_requested: false,
+      runtime_authority_granted: false,
+      prompt_artifact_persisted: false,
+      raw_payload_artifacts_read: false,
+      model_request_artifact_created: false,
+      model_response_artifact_created: false
+    });
+    return;
+  }
+  const responsePath = requirePositional(options.path, "prompt audit requires --path <response-file>");
+  const relativeResponsePath = assertWorkspaceReadPath(workspaceRoot, responsePath);
+  const response = readFileSync(join(workspaceRoot, relativeResponsePath), "utf8");
+  printRawJson(auditPromptResponse({ plan, response }));
+}
+
+async function assemblePromptPlanForRun(workspaceRoot: string, runId: string, task: string): Promise<{
+  workspace: Awaited<ReturnType<typeof openWorkspace>>;
+  plan: PromptPlan;
+}> {
   const workspace = await openWorkspace(workspaceRoot);
   const events = await readEvents(workspace);
   if (!events.some((event) => event.run_id === runId)) {
@@ -1001,23 +1051,18 @@ async function runPrompt(options: CliOptions): Promise<void> {
   const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
   const tombstones = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone);
   const contextPack = assembleContextPack(runId, memories, "planning", tombstones);
-  const plan = assemblePromptPlan({
-    task: options.content,
-    contextPack,
-    sourceEvents: events,
-    allowedTools: contextPack.capability_cards,
-    forbiddenTools: ["network.raw", "filesystem.write"],
-    activePermissions: contextPack.active_leases,
-    outputMode: "plan"
-  });
-  if (options.topic === "plan") {
-    printRawJson(plan);
-    return;
-  }
-  const responsePath = requirePositional(options.path, "prompt audit requires --path <response-file>");
-  const relativeResponsePath = assertWorkspaceReadPath(workspaceRoot, responsePath);
-  const response = readFileSync(join(workspaceRoot, relativeResponsePath), "utf8");
-  printRawJson(auditPromptResponse({ plan, response }));
+  return {
+    workspace,
+    plan: assemblePromptPlan({
+      task,
+      contextPack,
+      sourceEvents: events,
+      allowedTools: contextPack.capability_cards,
+      forbiddenTools: ["network.raw", "filesystem.write"],
+      activePermissions: contextPack.active_leases,
+      outputMode: "plan"
+    })
+  };
 }
 
 async function runCheckpoint(options: CliOptions): Promise<void> {
@@ -3128,6 +3173,7 @@ Usage:
   npm run ether -- memory user-model --workspace <path>
   npm run ether -- context explain <run_id> --workspace <path>
   npm run ether -- prompt plan <run_id> --content <task> --workspace <path>
+  npm run ether -- prompt bind-runtime <run_id> --content <task> --workspace <path>
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>

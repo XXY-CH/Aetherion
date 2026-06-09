@@ -1292,8 +1292,9 @@ function agentRuntimeInvocationFor(input: AgentRuntimeInvocationInput): AgentRun
     ? "scaffold_ready"
     : "blocked_by_prompt_readiness";
   const stages = runtimeStagesFor(input);
+  const previewHashId = input.promptBundle.preview_sha256.replace("sha256:", "").slice(0, 16);
   const withoutHash: Omit<AgentRuntimeInvocation, "invocation_sha256"> = {
-    id: `agent_runtime_invocation_${input.runId}`,
+    id: `agent_runtime_invocation_${input.runId}_${previewHashId}`,
     run_id: input.runId,
     prompt_plan_id: input.promptPlanId,
     schema_version: "aetherion-agent-runtime-invocation-v1",
@@ -1409,7 +1410,7 @@ function runtimeStagesFor(input: AgentRuntimeInvocationInput): AgentRuntimeStage
     {
       id: "runtime.binding.required",
       status: "pending",
-      required_evidence: ["durable_runtime_invocation_artifact", "ledger_event_for_model_request"],
+      required_evidence: ["durable_runtime_invocation_artifact", "agent.runtime.bound"],
       supervisor_policy_required: false,
       authority_granted: false
     },
@@ -1477,6 +1478,7 @@ function runtimeFailClosedConditions(input: AgentRuntimeInvocationInput): string
 
 function runtimeNextSteps(input: AgentRuntimeInvocationInput): string[] {
   const steps = [
+    "Bind the runtime invocation through a durable artifact and agent.runtime.bound Ledger event before any provider call.",
     "Persist a reviewed model-request artifact before invoking a provider.",
     "Append a typed model-request Ledger event only after the runtime binding exists.",
     "Record model response artifact hashes and usage accounting before response audit.",

@@ -146,7 +146,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     child_output_can_authorize_actions: false,
     source_event_ids_can_authorize_actions: []
   });
-  assert.equal(plan.runtime_invocation.id, "agent_runtime_invocation_run_prompt");
+  assert.match(plan.runtime_invocation.id, /^agent_runtime_invocation_run_prompt_[a-f0-9]{16}$/);
   assert.equal(plan.runtime_invocation.run_id, "run_prompt");
   assert.equal(plan.runtime_invocation.prompt_plan_id, plan.id);
   assert.equal(plan.runtime_invocation.schema_version, "aetherion-agent-runtime-invocation-v1");
