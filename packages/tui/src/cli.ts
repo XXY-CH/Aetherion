@@ -7,7 +7,7 @@ import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuild
 import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
 import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
-import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup } from "../../hibernation/src/index.ts";
+import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup, type HibernationRecord, type WakeupTrigger } from "../../hibernation/src/index.ts";
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
@@ -52,6 +52,7 @@ type CliOptions = {
   supervisor?: "typescript-seed" | "stdio" | "socket";
   socketPath?: string;
   socketAuthToken?: string;
+  checkWakeups: boolean;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -118,7 +119,8 @@ function parseArgs(args: string[]): CliOptions {
     dryRun: false,
     replayRuns: [],
     approvePermissions: false,
-    approveSensitive: false
+    approveSensitive: false,
+    checkWakeups: false
   };
 
   for (let index = 1; index < args.length; index += 1) {
@@ -276,6 +278,9 @@ function parseArgs(args: string[]): CliOptions {
       case "--socket-auth-token":
         options.socketAuthToken = requireValue(arg, next);
         index += 1;
+        break;
+      case "--check-wakeups":
+        options.checkWakeups = true;
         break;
       default:
         if (!arg.startsWith("--")) {
@@ -1761,7 +1766,77 @@ async function runWake(options: CliOptions): Promise<void> {
 }
 
 function runSleepers(options: CliOptions): void {
-  printJson(readRegistry(resolve(options.workspace), "hibernations").filter(isHibernationRecord));
+  const workspaceRoot = resolve(options.workspace);
+  const hibernations = readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord);
+  if (!options.checkWakeups) {
+    printJson(hibernations);
+    return;
+  }
+  const wakeups = readRegistry(workspaceRoot, "wakeups").filter(isWakeupTrigger);
+  printRawJson(buildWakeupEligibilityPreview(workspaceRoot, hibernations, wakeups));
+}
+
+function buildWakeupEligibilityPreview(
+  workspaceRoot: string,
+  hibernations: HibernationRecord[],
+  wakeups: WakeupTrigger[]
+): Record<string, unknown> {
+  const hibernationById = new Map(hibernations.filter(isHibernationRecord).map((record) => [record.id, record]));
+  const previews = wakeups.filter(isWakeupTrigger).map((trigger) => {
+    const hibernation = hibernationById.get(trigger.hibernation_id);
+    if (!hibernation) {
+      return {
+        trigger_id: trigger.id,
+        hibernation_id: trigger.hibernation_id,
+        source: trigger.source,
+        current_status: trigger.status,
+        evaluated_status: "orphaned",
+        eligible_for_queue: false,
+        reason: "Wakeup trigger references a missing hibernation record."
+      };
+    }
+    try {
+      const evaluated = evaluateWakeup(workspaceRoot, hibernation, trigger);
+      return {
+        trigger_id: trigger.id,
+        hibernation_id: trigger.hibernation_id,
+        source: trigger.source,
+        current_status: trigger.status,
+        evaluated_status: evaluated.status,
+        eligible_for_queue: evaluated.status === "eligible",
+        reason: evaluated.reason
+      };
+    } catch (error) {
+      return {
+        trigger_id: trigger.id,
+        hibernation_id: trigger.hibernation_id,
+        source: trigger.source,
+        current_status: trigger.status,
+        evaluated_status: "invalid",
+        eligible_for_queue: false,
+        reason: error instanceof Error ? error.message : String(error)
+      };
+    }
+  });
+  const eligibleTriggerIds = previews
+    .filter((preview) => preview.eligible_for_queue === true)
+    .map((preview) => preview.trigger_id);
+  return {
+    id: "wakeup_eligibility_preview",
+    mode: "read_only",
+    hibernation_count: hibernations.length,
+    trigger_count: wakeups.length,
+    eligible_trigger_ids: eligibleTriggerIds,
+    scope: {
+      mutates_registries: false,
+      appends_ledger_events: false,
+      calls_supervisor_policy: false,
+      queues_wakeups: false,
+      issues_lease: false,
+      resumes_actions: false
+    },
+    wakeups: previews
+  };
 }
 
 async function runDream(options: CliOptions): Promise<void> {
@@ -2973,6 +3048,7 @@ Usage:
   npm run ether -- sleep <run_id> [--deadline <iso-date>] [--watch-file <workspace-file>]
   npm run ether -- wake <trigger_or_hibernation_id>
   npm run ether -- sleepers
+  npm run ether -- sleepers --check-wakeups
   npm run ether -- dream run <run_id> --content <proposed-memory> --confidence <0..1>
   npm run ether -- dream accept <fold_id> [--approve-sensitive]
   npm run ether -- anchors propose --source-event <event> --content <text> --confidence <0..1> [--branch <name>]
@@ -3027,6 +3103,7 @@ Options:
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
   --socket-path <path> Explicit foreground supervisor socket for supervisor status.
   --socket-auth-token <token> Caller-supplied token for an auth-gated supervisor socket.
+  --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
 `);
 }
 

@@ -29,7 +29,7 @@ Current scope:
 - Run `audit replay-records` as a read-only rebuild/parity preview for the `replay-records` registry only. It rebuilds expected entries from `.aetherion/artifacts/replay/**/*.json` and reports matched, missing, mismatched, stale, or invalid projection state without repairing it.
 - Run `audit memory-records` as a read-only rebuild/parity preview for `memory-candidates`, `memory-cards`, and `memory-tombstones`. It replays Memory lifecycle Ledger events with `payload_ref` artifacts for candidate creation, acceptance, rejection, blocking, and deletion, then reports projection drift without repairing it.
 - Run `audit capsule-records` as a read-only rebuild/parity preview for `capsules`, `capsule-drafts`, and `capsule-versions`. It replays Capsule lifecycle Ledger events with `payload_ref` artifacts for draft, test, publish, and rollback, then reports projection drift without repairing it.
-- Run `audit hibernation-records` as a read-only rebuild/parity preview for `hibernations` and `wakeups`. It rebuilds expected entries from persisted sleep/wake artifacts and reports projection drift without repairing registries, evaluating triggers, queueing wakeups, or issuing leases.
+- Run `audit hibernation-records` as a read-only rebuild/parity preview for `hibernations` and `wakeups`. It rebuilds expected entries from persisted sleep/wake artifacts and reports projection drift without repairing registries, evaluating triggers, queueing wakeups, or issuing leases. `sleepers --check-wakeups` is a separate read-only eligibility preview that evaluates current local trigger conditions without writing registry updates, calling supervisor policy, queueing wakeups, issuing leases, or resuming actions.
 - Run `audit sandbox-records` as a read-only rebuild/parity preview for `checkpoints`, `branches`, `rehearsals`, and `sandbox-approvals`. It rebuilds expected entries from checkpoint/branch/rehearse/approve-rehearsal command artifacts, applies approval artifacts to branch projection state, and reports projection drift without requesting supervisor authority or promoting rehearsals.
 - Run `audit payload-refs` as a read-only Event Ledger artifact-reference audit. It scans events with `payload_ref`, resolves known local `artifact://` references, validates known Boundary Facts, Consent Record, Replay Record, Memory lifecycle artifacts, Dream fold artifacts, persona anchor/reset artifacts, Soul Fork artifacts, child agent contract/result/budget/circuit artifacts, Security scan/ack/trial/fixture artifacts, Surface browser/IM artifacts, Store install artifacts, and Capsule draft/test/publish/rollback artifacts against their existing schemas, and reports resolved, missing, invalid JSON, unresolved, schema-valid, schema-invalid, or not-checked references without repairing artifacts or treating payloads as authority.
 - Derive Memory Candidates from a real run ledger with `memory candidates --from-run <run_id>` before user/policy acceptance.
@@ -53,7 +53,7 @@ Current scope:
 - Treat `public_web`, `email`, `pdf`, `im`, `github_issue`, `mcp_description`, and `third_party_content` as untrusted sources. `security scan` persists hashes and detector rule ids rather than raw content, while Rust records a deny-only taint policy with no lease. `security trial` is a deterministic decoy exercise, not execution of unknown content or Capsule code; `security fixture` is detector-only replay metadata.
 - Treat browser, IM, and Store as client surfaces, not authority. `surface browser-observe` requires current-tab input, hash-only DOM evidence, a source event, and Rust taint denial. `surface im-inbox` stores only sender/message hashes and cannot authorize actions. `surface im-outbox` asks the Rust supervisor for outbox policy, queues only one scoped approval for DM/group sends, blocks public sends, and attempts no delivery. `store install` verifies a signed Capsule package and installs only a declaration after replay, sandbox, and permission-diff checks.
 - Rebuild `.aetherion/projections/causal.sqlite` from Ledger events for `why` and `counterfactual`. The SQLite file is explicitly a disposable projection; typed edges are temporal dependency candidates, not proof of causation, and redacted source links lower report confidence.
-- Persist Digital Hibernation records with a hash-bound Ledger cursor, minimal `resume` Context Pack, no active leases, bounded wake attention, and manual/deadline/file triggers. `wake` evaluates a trigger only when invoked, requests a fresh Rust supervisor queue decision, and appends `policy.decided` plus `wakeup.queued` to a new blocked resume run. It does not run a daemon, issue a lease, or resume task actions.
+- Persist Digital Hibernation records with a hash-bound Ledger cursor, minimal `resume` Context Pack, no active leases, bounded wake attention, and manual/deadline/file triggers. `sleepers --check-wakeups` previews which triggers are currently eligible without queueing. `wake` evaluates one trigger when invoked, requests a fresh Rust supervisor queue decision, and appends `policy.decided` plus `wakeup.queued` to a new blocked resume run. It does not run a daemon, issue a lease, or resume task actions.
 
 Later-phase contract commands do not connect real IM, take over webhooks, run imported skills, install executable packages, or execute external side effects. They fail when required ledger or registry evidence is absent.
 
@@ -159,11 +159,12 @@ Digital Hibernation flow:
 
 ```bash
 npm run ether -- sleep <run_id> --deadline <iso-date> --watch-file README.md --workspace .
+npm run ether -- sleepers --check-wakeups --workspace .
 npm run ether -- wake <trigger_or_hibernation_id> --workspace .
 npm run ether -- sleepers --workspace .
 ```
 
-Deadline and file conditions are checked when `wake` is explicitly invoked. Reliable background wakeup still requires a future local daemon or OS integration.
+Deadline and file conditions are checked by explicit user commands only. `sleepers --check-wakeups` is read-only planning evidence; `wake` is the only command here that can request fresh queue policy. Reliable background wakeup still requires a future local daemon or OS integration.
 
 Out of scope:
 

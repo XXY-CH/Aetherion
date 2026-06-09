@@ -2356,8 +2356,44 @@ test("Ether hibernation evaluates local triggers and queues a fresh-policy resum
   assert.ok(fileTrigger);
   const unchanged = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
   assert.match(unchanged.stdout, /"status": "scheduled"/);
+  const wakeupRegistryPath = join(workspace, ".aetherion", "registries", "wakeups.json");
+  const hibernationRegistryPath = join(workspace, ".aetherion", "registries", "hibernations.json");
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const wakeupsBeforePreview = await readFile(wakeupRegistryPath, "utf8");
+  const hibernationsBeforePreview = await readFile(hibernationRegistryPath, "utf8");
+  const ledgerBeforePreview = await readFile(ledgerPath, "utf8");
+  const scheduledPreview = await execFileAsync(process.execPath, [cliPath, "sleepers", "--check-wakeups", "--workspace", workspace]);
+  const scheduledReport = JSON.parse(scheduledPreview.stdout) as {
+    mode: string;
+    trigger_count: number;
+    eligible_trigger_ids: string[];
+    scope: { mutates_registries: boolean; appends_ledger_events: boolean; calls_supervisor_policy: boolean; queues_wakeups: boolean; issues_lease: boolean; resumes_actions: boolean };
+    wakeups: Array<{ trigger_id: string; evaluated_status: string; eligible_for_queue: boolean }>;
+  };
+  assert.equal(scheduledReport.id, "wakeup_eligibility_preview");
+  assert.equal(scheduledReport.mode, "read_only");
+  assert.equal(scheduledReport.trigger_count, 3);
+  assert.equal(scheduledReport.scope.mutates_registries, false);
+  assert.equal(scheduledReport.scope.appends_ledger_events, false);
+  assert.equal(scheduledReport.scope.calls_supervisor_policy, false);
+  assert.equal(scheduledReport.scope.queues_wakeups, false);
+  assert.equal(scheduledReport.scope.issues_lease, false);
+  assert.equal(scheduledReport.scope.resumes_actions, false);
+  assert.equal(scheduledReport.wakeups.find((entry) => entry.trigger_id === fileTrigger.id)?.evaluated_status, "scheduled");
+  assert.equal(await readFile(wakeupRegistryPath, "utf8"), wakeupsBeforePreview);
+  assert.equal(await readFile(hibernationRegistryPath, "utf8"), hibernationsBeforePreview);
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBeforePreview);
 
   await writeFile(join(workspace, "README.md"), "Hibernation evidence changed\n");
+  const eligiblePreview = await execFileAsync(process.execPath, [cliPath, "sleepers", "--check-wakeups", "--workspace", workspace]);
+  const eligibleReport = JSON.parse(eligiblePreview.stdout) as typeof scheduledReport;
+  assert.ok(eligibleReport.eligible_trigger_ids.includes(fileTrigger.id));
+  assert.equal(eligibleReport.wakeups.find((entry) => entry.trigger_id === fileTrigger.id)?.evaluated_status, "eligible");
+  assert.equal(eligibleReport.wakeups.find((entry) => entry.trigger_id === fileTrigger.id)?.eligible_for_queue, true);
+  assert.equal(await readFile(wakeupRegistryPath, "utf8"), wakeupsBeforePreview);
+  assert.equal(await readFile(hibernationRegistryPath, "utf8"), hibernationsBeforePreview);
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBeforePreview);
+
   const wake = await execFileAsync(process.execPath, [cliPath, "wake", fileTrigger.id, "--workspace", workspace]);
   assert.match(wake.stdout, /"status": "queued"/);
   assert.match(wake.stdout, /"auto_execute_allowed": false/);
@@ -2365,7 +2401,7 @@ test("Ether hibernation evaluates local triggers and queues a fresh-policy resum
   const resumeRunId = wake.stdout.match(/"resume_run_id": "(run_resume_[^"]+)"/)?.[1];
   assert.ok(resumeRunId);
 
-  const hibernations = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "hibernations.json"), "utf8")) as Array<{ id: string; status: string; active_leases_retained: boolean; attention_budget: { used_wakeups: number } }>;
+  const hibernations = JSON.parse(await readFile(hibernationRegistryPath, "utf8")) as Array<{ id: string; status: string; active_leases_retained: boolean; attention_budget: { used_wakeups: number } }>;
   const record = hibernations.find((entry) => entry.id === `hibernate_${runId}`);
   assert.equal(record?.status, "queued");
   assert.equal(record?.active_leases_retained, false);
@@ -2376,7 +2412,7 @@ test("Ether hibernation evaluates local triggers and queues a fresh-policy resum
   const resumeManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${resumeRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(resumeManifest.status, "blocked");
   assert.equal(resumeManifest.event_ids.length, 2);
-  const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const ledger = await readFile(ledgerPath, "utf8");
   const resumeEvents = ledger.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { run_id: string; event_type: string; payload_ref?: string }).filter((event) => event.run_id === resumeRunId);
   assert.deepEqual(resumeEvents.map((event) => event.event_type), ["policy.decided", "wakeup.queued"]);
   assert.deepEqual(resumeEvents.map((event) => event.payload_ref ?? null), [null, null]);

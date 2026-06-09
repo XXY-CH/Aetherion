@@ -37,7 +37,7 @@ Next likely increment after this one:
 
 - Choose between typed supervisor lifecycle commands (`supervisor start/status/stop` preflight semantics) or a small durable queue/wake runtime slice, based on the same docs review.
 
-## Current Increment: Supervisor Lifecycle Preflight
+## Completed Increment: Supervisor Lifecycle Preflight
 
 Target: add a read-only `ether supervisor preflight` surface that classifies supervisor lifecycle readiness from the existing status evidence.
 
@@ -53,3 +53,23 @@ Acceptance:
 - The output classifies no lock, live foreground socket, stale lock, unknown lock, invalid/mismatched lock, and malformed lock states.
 - The command reports that daemon start, stop, and lock repair are unsupported in this POC.
 - Docs state that preflight is visibility only and cannot grant authority or mutate runtime state.
+
+## Completed Increment: Wakeup Eligibility Preview
+
+Target: add a read-only `ether sleepers --check-wakeups` preview that evaluates persisted hibernation triggers without queueing or mutating runtime state.
+
+Why this slice:
+
+- It is the next queue-runtime step after explicit `wake <trigger>` because operators need to see which sleepers are eligible before asking the supervisor for queue policy.
+- It reuses the existing deterministic `evaluateWakeup` rules instead of adding a daemon or scheduler.
+- It keeps trigger evaluation separate from queueing: preflight can observe, but only `wake` may request fresh policy and append `wakeup.queued`.
+
+Acceptance:
+
+- `sleepers --check-wakeups` reports hibernation count, trigger count, per-trigger evaluated status, and eligible trigger ids.
+- The command does not update hibernation/wakeup registries, append Ledger events, call `run.resume.evaluate`, issue leases, or resume task actions.
+- Docs state that the preview is an operator planning surface, not a scheduler or queue.
+
+Next likely increment after this one:
+
+- Re-read `docs/13-schema-runtime-governance.md` and choose between resume Context Pack parity, trace-backed Memory lifecycle hardening, or trace-backed Capability Draft lifecycle hardening.
