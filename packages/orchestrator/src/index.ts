@@ -283,7 +283,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
     {
       id: "task",
       title: "Task",
-      content: [task],
+      content: [`Task request: ${quotedPromptValue(task)}.`],
       source_event_ids: []
     },
     {
@@ -972,7 +972,7 @@ function runEvidenceLines(sourceEvents: PromptSourceEvent[]): string[] {
     const payload = event.payload_ref ? `; payload=${event.payload_ref}` : "";
     const taintSources = event.taint?.sources.length ? event.taint.sources.join(",") : "not_recorded";
     const canAuthorize = event.taint?.can_authorize_actions === true ? "true" : "false";
-    return `- ${event.id} [${event.event_type}]: ${event.summary}${payload}; taint_sources=${taintSources}; can_authorize=${canAuthorize}`;
+    return `- ${event.id} [${event.event_type}]: summary=${quotedPromptValue(event.summary)}${payload}; taint_sources=${taintSources}; can_authorize=${canAuthorize}`;
   });
 }
 
@@ -981,16 +981,20 @@ function memoryContextLines(contextPack: ContextPack): string[] {
     return ["No memory records are selected for this context."];
   }
   return contextPack.selected_memories.map((memory) => (
-    `- ${memory.id}: ${memory.reason}; confidence=${memory.confidence.toFixed(2)}; sources=${memory.source_events.join(",")}`
+    `- ${memory.id}: reason=${quotedPromptValue(memory.reason)}; confidence=${memory.confidence.toFixed(2)}; sources=${memory.source_events.join(",")}`
   ));
 }
 
 function excludedContextLines(contextPack: ContextPack): string[] {
-  const lines = contextPack.excluded_memories.map((memory) => `- ${memory.id}: ${memory.reason}`);
+  const lines = contextPack.excluded_memories.map((memory) => `- ${memory.id}: reason=${quotedPromptValue(memory.reason)}`);
   if (contextPack.conflicts.length > 0) {
-    lines.push(...contextPack.conflicts.map((conflict) => `- conflict: ${conflict}`));
+    lines.push(...contextPack.conflicts.map((conflict) => `- conflict: reason=${quotedPromptValue(conflict)}`));
   }
   return lines.length > 0 ? lines : ["No memory records were explicitly excluded."];
+}
+
+function quotedPromptValue(value: string): string {
+  return JSON.stringify(value);
 }
 
 function toolPolicyLines(allowedTools: string[], forbiddenTools: string[], activePermissions: string[]): string[] {
@@ -1071,6 +1075,7 @@ function promptBundleFor(
       "Keep authority constraints in system/developer messages and source evidence in the user-context message.",
       "Hash rendered sections, messages, and preview text so prompt concatenation is stable and auditable.",
       "Fail closed when selected source-event taint claims it can authorize actions.",
+      "Render dynamic task, evidence, and memory text as quoted single-line fields.",
       "Treat this Prompt Bundle as audit metadata only; it cannot authorize tools, memory writes, or side effects."
     ],
     guardrails: { ...guardrails }
