@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import { test } from "node:test";
+import { validateAgainstSchema } from "../../harness-core/src/index.ts";
 import type { ContextPack } from "../../memory-os/src/index.ts";
-import { assemblePromptPlan, auditPromptResponse } from "../src/index.ts";
+import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact } from "../src/index.ts";
+
+const repoRoot = resolve(import.meta.dirname, "../../..");
 
 test("prompt assembly keeps context source-backed and non-authorizing", () => {
   const plan = assemblePromptPlan({
@@ -423,6 +427,56 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);
+});
+
+test("agent runtime invocation artifact keeps durable metadata text-free", async () => {
+  const plan = assemblePromptPlan({
+    task: "Draft a local implementation plan for prompt assembly.",
+    contextPack: contextPack(),
+    sourceEvents: sourceEvents(),
+    allowedTools: ["filesystem.read"],
+    forbiddenTools: ["network.raw", "filesystem.write"],
+    activePermissions: ["lease_read_docs"]
+  });
+
+  const artifact = createAgentRuntimeInvocationArtifact(plan);
+  assert.deepEqual(artifact, plan.runtime_invocation);
+  assert.notEqual(artifact, plan.runtime_invocation);
+  assert.notEqual(artifact.prompt, plan.runtime_invocation.prompt);
+  assert.notEqual(artifact.prompt.message_hashes, plan.runtime_invocation.prompt.message_hashes);
+  assert.notEqual(artifact.prompt.message_hashes[0], plan.runtime_invocation.prompt.message_hashes[0]);
+  assert.notEqual(artifact.context, plan.runtime_invocation.context);
+  assert.notEqual(artifact.stages, plan.runtime_invocation.stages);
+  assert.notEqual(artifact.stages[0], plan.runtime_invocation.stages[0]);
+
+  artifact.prompt.message_hashes[0]?.section_ids.push("mutated_test_section");
+  artifact.context.selected_memory_ids.push("mem_mutated_test");
+  artifact.stages[0]?.required_evidence.push("mutated_test_evidence");
+  assert.doesNotMatch(plan.runtime_invocation.prompt.message_hashes[0]?.section_ids.join(","), /mutated_test_section/);
+  assert.doesNotMatch(plan.runtime_invocation.context.selected_memory_ids.join(","), /mem_mutated_test/);
+  assert.doesNotMatch(plan.runtime_invocation.stages[0]?.required_evidence.join(","), /mutated_test_evidence/);
+
+  const freshArtifact = createAgentRuntimeInvocationArtifact(plan);
+  const serialized = JSON.stringify(freshArtifact);
+  assert.doesNotMatch(serialized, /"preview"/);
+  assert.doesNotMatch(serialized, /"messages"/);
+  assert.doesNotMatch(serialized, /"sections"/);
+  assert.doesNotMatch(serialized, /Task request:/);
+  assert.doesNotMatch(serialized, /Draft a local implementation plan for prompt assembly/);
+  assert.doesNotMatch(serialized, /context-compatible source-backed memory/);
+  assert.doesNotMatch(serialized, /sensitivity secret not allowed in planning/);
+  assert.doesNotMatch(serialized, /Run started/);
+  assert.doesNotMatch(serialized, /Requested a local file read/);
+
+  const validation = await validateAgainstSchema(repoRoot, "agent-runtime-invocation.schema.json", freshArtifact);
+  assert.equal(validation.valid, true, validation.errors.join("; "));
+
+  const invalid = await validateAgainstSchema(repoRoot, "agent-runtime-invocation.schema.json", {
+    ...freshArtifact,
+    preview: plan.preview
+  });
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.errors.some((error) => error.includes("additional property not allowed")));
 });
 
 test("prompt assembly blocks source evidence that claims authorization", () => {

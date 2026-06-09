@@ -8,6 +8,7 @@ import {
   appendEvent,
   auditCapsuleRegistryRebuild,
   auditHibernationRegistryRebuild,
+  agentRuntimeInvocationArtifactRef,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
   approveWriteWithConsent,
@@ -38,6 +39,7 @@ import {
   loadRunManifest,
   loadWorkspaceFromRegistry,
   readEvents,
+  readAgentRuntimeInvocationArtifact,
   REPLAY_RECORD_RUN_EVENT_TYPES,
   CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES,
   evaluateSeedPolicy,
@@ -59,6 +61,7 @@ import {
   WAKEUP_QUEUE_RUN_EVENT_TYPES,
   wakeupQueueRunEventSequence,
   writeConsentRecordArtifact,
+  writeAgentRuntimeInvocationArtifact,
   writeLocalFileThroughPolicy,
   workspaceIdForRoot,
   workspaceRegistryPath,
@@ -119,6 +122,7 @@ const schemaExamplePairs = [
   ["budget-account.schema.json", "budget-account.json"],
   ["circuit-breaker.schema.json", "circuit-breaker.json"],
   ["child-result.schema.json", "child-result.json"],
+  ["agent-runtime-invocation.schema.json", "agent-runtime-invocation.json"],
   ["agent-score.schema.json", "agent-score.json"],
   ["content-assessment.schema.json", "content-assessment.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"],
@@ -140,6 +144,20 @@ test("contract examples validate against seed JSON schemas", async () => {
     const result = await validateAgainstSchema(repoRoot, schemaName, example);
     assert.equal(result.valid, true, `${exampleName} failed ${schemaName}: ${result.errors.join("; ")}`);
   }
+});
+
+test("agent runtime invocation artifacts round-trip through local workspace storage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-runtime-artifact-"));
+  const workspace = await createWorkspace(root, "ws_agent_runtime_artifact");
+  const invocation = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")
+  );
+
+  const ref = await writeAgentRuntimeInvocationArtifact(repoRoot, workspace, invocation);
+  assert.equal(ref, agentRuntimeInvocationArtifactRef(invocation.id));
+  assert.equal(ref, "artifact://agent/runtime/agent_runtime_invocation_run_example");
+  assert.deepEqual(await readAgentRuntimeInvocationArtifact(root, invocation.id), invocation);
+  assert.equal(await readAgentRuntimeInvocationArtifact(root, "agent_runtime_invocation_missing"), null);
 });
 
 test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {
@@ -2310,6 +2328,7 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   const personaResetDir = join(root, ".aetherion", "artifacts", "persona", "reset");
   const soulForkDir = join(root, ".aetherion", "artifacts", "soul", "fork");
   const agentContractDir = join(root, ".aetherion", "artifacts", "agent", "contract");
+  const agentRuntimeDir = join(root, ".aetherion", "artifacts", "agent", "runtime");
   const agentExecuteDir = join(root, ".aetherion", "artifacts", "agent", "execute");
   await mkdir(boundaryDir, { recursive: true });
   await mkdir(invalidSchemaBoundaryDir, { recursive: true });
@@ -2337,6 +2356,7 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await mkdir(personaResetDir, { recursive: true });
   await mkdir(soulForkDir, { recursive: true });
   await mkdir(agentContractDir, { recursive: true });
+  await mkdir(agentRuntimeDir, { recursive: true });
   await mkdir(agentExecuteDir, { recursive: true });
   await writeFile(join(boundaryDir, "boundary_run_payload_resolved_facts.json"), `${JSON.stringify(boundaryFactsFixture("run_payload_resolved"), null, 2)}\n`);
   await writeFile(join(invalidSchemaBoundaryDir, "boundary_run_payload_schema_invalid_facts.json"), `${JSON.stringify({ id: "boundary_run_payload_schema_invalid_facts" }, null, 2)}\n`);
@@ -2374,6 +2394,27 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   await writeFile(join(soulForkDir, "soulfork_payload.json"), `${JSON.stringify(soulFork("soulfork_payload"), null, 2)}\n`);
   await writeFile(join(agentContractDir, "contract_payload.json"), `${JSON.stringify(agentContract("contract_payload", "draft"), null, 2)}\n`);
   await writeFile(join(agentContractDir, "contract_payload_active.json"), `${JSON.stringify(agentContract("contract_payload_active", "active"), null, 2)}\n`);
+  const runtimeInvocation = {
+    ...JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")),
+    id: "agent_runtime_invocation_run_payload",
+    run_id: "run_payload_resolved",
+    prompt_plan_id: "prompt_run_payload_resolved",
+    entry: {
+      surface: "tui",
+      output_mode: "plan",
+      context_pack_id: "ctx_run_payload_resolved"
+    },
+    prompt: {
+      ...JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")).prompt,
+      bundle_id: "prompt_bundle_run_payload_resolved"
+    }
+  };
+  await writeFile(join(agentRuntimeDir, "agent_runtime_invocation_run_payload.json"), `${JSON.stringify(runtimeInvocation, null, 2)}\n`);
+  await writeFile(join(agentRuntimeDir, "agent_runtime_invocation_run_payload_invalid.json"), `${JSON.stringify({
+    ...runtimeInvocation,
+    id: "agent_runtime_invocation_run_payload_invalid",
+    preview: "Task request: this raw prompt text must not be durable runtime metadata."
+  }, null, 2)}\n`);
   await writeFile(join(agentExecuteDir, "child_result_run_child_payload.json"), `${JSON.stringify(childResult("child_result_run_child_payload"), null, 2)}\n`);
   await writeFile(join(agentExecuteDir, "account_payload_denial.json"), `${JSON.stringify(budgetAccount("account_payload_denial"), null, 2)}\n`);
   await writeFile(join(agentExecuteDir, "breaker_payload_denial.json"), `${JSON.stringify(circuitBreaker("breaker_payload_denial"), null, 2)}\n`);
@@ -2412,6 +2453,8 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
     payloadEvent("evt_payload_soul_fork", "run_payload_resolved", "soul.fork.created", "artifact://soul/fork/soulfork_payload"),
     payloadEvent("evt_payload_agent_contract", "run_payload_resolved", "agent.contract.created", "artifact://agent/contract/contract_payload"),
     payloadEvent("evt_payload_agent_started", "run_payload_resolved", "agent.child.started", "artifact://agent/contract/contract_payload_active"),
+    payloadEvent("evt_payload_agent_runtime", "run_payload_resolved", "agent.runtime.bound", "artifact://agent/runtime/agent_runtime_invocation_run_payload"),
+    payloadEvent("evt_payload_agent_runtime_invalid", "run_payload_schema_invalid", "agent.runtime.bound", "artifact://agent/runtime/agent_runtime_invocation_run_payload_invalid"),
     payloadEvent("evt_payload_agent_completed", "run_payload_resolved", "agent.child.completed", "artifact://agent/execute/child_result_run_child_payload"),
     payloadEvent("evt_payload_agent_policy_denied", "run_payload_resolved", "agent.child.policy_denied", "artifact://agent/execute/account_payload_denial"),
     payloadEvent("evt_payload_agent_circuit", "run_payload_resolved", "circuit.opened", "artifact://agent/execute/breaker_payload_denial"),
@@ -2428,13 +2471,13 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(audit.scope.mutates_ledger, false);
   assert.equal(audit.scope.mutates_artifacts, false);
   assert.deepEqual(audit.summary, {
-    events_with_payload_ref: 39,
-    resolved: 36,
+    events_with_payload_ref: 41,
+    resolved: 38,
     missing: 1,
     invalid_json: 1,
     unresolved: 1,
-    schema_valid: 29,
-    schema_invalid: 7,
+    schema_valid: 30,
+    schema_invalid: 8,
     schema_not_checked: 3
   });
   assert.equal(byId.get("evt_payload_boundary")?.status, "resolved");
@@ -2508,6 +2551,11 @@ test("ledger payload-ref audit resolves local artifact refs without mutating", a
   assert.equal(byId.get("evt_payload_agent_contract")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_agent_started")?.schema_name, "agent-contract.schema.json");
   assert.equal(byId.get("evt_payload_agent_started")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_runtime")?.schema_name, "agent-runtime-invocation.schema.json");
+  assert.equal(byId.get("evt_payload_agent_runtime")?.schema_status, "valid");
+  assert.equal(byId.get("evt_payload_agent_runtime_invalid")?.schema_name, "agent-runtime-invocation.schema.json");
+  assert.equal(byId.get("evt_payload_agent_runtime_invalid")?.schema_status, "invalid");
+  assert.ok(byId.get("evt_payload_agent_runtime_invalid")?.schema_errors.some((error) => error.includes("additional property not allowed")));
   assert.equal(byId.get("evt_payload_agent_completed")?.schema_name, "child-result.schema.json");
   assert.equal(byId.get("evt_payload_agent_completed")?.schema_status, "valid");
   assert.equal(byId.get("evt_payload_agent_policy_denied")?.schema_name, "budget-account.schema.json");

@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-runtime-invocation.schema.json",
+  "title": "AgentRuntimeInvocation",
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "prompt_plan_id",
+    "schema_version",
+    "status",
+    "scope",
+    "entry",
+    "model_call",
+    "prompt",
+    "context",
+    "authority_gates",
+    "tool_gateway",
+    "response_audit",
+    "stages",
+    "fail_closed_conditions",
+    "next_runtime_steps",
+    "invocation_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^agent_runtime_invocation_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "prompt_plan_id": { "type": "string", "pattern": "^prompt_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-agent-runtime-invocation-v1"] },
+    "status": { "type": "string", "enum": ["scaffold_ready", "blocked_by_prompt_readiness"] },
+    "scope": {
+      "type": "object",
+      "required": [
+        "model_invoked",
+        "tools_requested",
+        "raw_payload_artifacts_read",
+        "ledger_appended",
+        "prompt_artifact_persisted",
+        "runtime_authority_granted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model_invoked": { "type": "boolean", "enum": [false] },
+        "tools_requested": { "type": "boolean", "enum": [false] },
+        "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] },
+        "ledger_appended": { "type": "boolean", "enum": [false] },
+        "prompt_artifact_persisted": { "type": "boolean", "enum": [false] },
+        "runtime_authority_granted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["surface", "output_mode", "context_pack_id"],
+      "additionalProperties": false,
+      "properties": {
+        "surface": { "type": "string", "enum": ["tui"] },
+        "output_mode": { "type": "string", "enum": ["plan", "answer", "patch"] },
+        "context_pack_id": { "type": "string", "pattern": "^ctx_[A-Za-z0-9_-]+$" }
+      }
+    },
+    "model_call": {
+      "type": "object",
+      "required": [
+        "provider_configured",
+        "provider_ref",
+        "model_ref",
+        "request_artifact_ref",
+        "response_artifact_ref",
+        "model_preview_ready",
+        "can_invoke_now",
+        "blockers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider_configured": { "type": "boolean", "enum": [false] },
+        "provider_ref": { "type": "null" },
+        "model_ref": { "type": "null" },
+        "request_artifact_ref": { "type": "null" },
+        "response_artifact_ref": { "type": "null" },
+        "model_preview_ready": { "type": "boolean" },
+        "can_invoke_now": { "type": "boolean", "enum": [false] },
+        "blockers": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "required": [
+        "bundle_id",
+        "renderer",
+        "join_strategy",
+        "message_order",
+        "preview_sha256",
+        "message_hashes",
+        "role_boundaries"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bundle_id": { "type": "string", "pattern": "^prompt_bundle_[A-Za-z0-9_-]+$" },
+        "renderer": { "type": "string", "enum": ["sectioned-markdown-v1"] },
+        "join_strategy": { "type": "string", "enum": ["system-developer-user-section-bundle-v1"] },
+        "message_order": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "type": "string", "enum": ["system"] },
+            { "type": "string", "enum": ["developer"] },
+            { "type": "string", "enum": ["user"] }
+          ],
+          "items": false
+        },
+        "preview_sha256": { "$ref": "#/$defs/sha256" },
+        "message_hashes": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/messageHash" }
+        },
+        "role_boundaries": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/roleBoundary" }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "source_event_ids",
+        "selected_memory_ids",
+        "excluded_memory_ids",
+        "memory_source_event_ids",
+        "capability_card_ids",
+        "active_permission_ids",
+        "artifact_refs",
+        "conflicts",
+        "context_budget",
+        "raw_payload_artifacts_read"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "selected_memory_ids": { "$ref": "#/$defs/stringArray" },
+        "excluded_memory_ids": { "$ref": "#/$defs/stringArray" },
+        "memory_source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "capability_card_ids": { "$ref": "#/$defs/stringArray" },
+        "active_permission_ids": { "$ref": "#/$defs/stringArray" },
+        "artifact_refs": { "$ref": "#/$defs/stringArray" },
+        "conflicts": { "$ref": "#/$defs/stringArray" },
+        "context_budget": {
+          "type": "object",
+          "required": ["memory_tokens", "capability_tokens", "task_tokens", "total_tokens"],
+          "additionalProperties": false,
+          "properties": {
+            "memory_tokens": { "type": "integer", "minimum": 0 },
+            "capability_tokens": { "type": "integer", "minimum": 0 },
+            "task_tokens": { "type": "integer", "minimum": 0 },
+            "total_tokens": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority_gates": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required",
+        "prompt_can_authorize_actions",
+        "context_can_authorize_actions",
+        "memory_can_authorize_actions",
+        "capability_cards_can_grant_permissions",
+        "active_permissions_are_context_only",
+        "tool_request_event_requires_supervisor_path",
+        "tool_execution_requires_scoped_lease",
+        "memory_writes_require_review",
+        "side_effects_require_policy_or_approval"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required": { "type": "boolean", "enum": [true] },
+        "prompt_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "context_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "memory_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "capability_cards_can_grant_permissions": { "type": "boolean", "enum": [false] },
+        "active_permissions_are_context_only": { "type": "boolean" },
+        "tool_request_event_requires_supervisor_path": { "type": "boolean", "enum": [true] },
+        "tool_execution_requires_scoped_lease": { "type": "boolean", "enum": [true] },
+        "memory_writes_require_review": { "type": "boolean", "enum": [true] },
+        "side_effects_require_policy_or_approval": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "tool_gateway": {
+      "type": "object",
+      "required": [
+        "allowed_tool_requests",
+        "forbidden_tools",
+        "may_propose_tool_requests",
+        "execution_without_policy_allowed",
+        "delivery_attempted",
+        "connector_calls_attempted",
+        "package_code_execution_attempted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowed_tool_requests": { "$ref": "#/$defs/stringArray" },
+        "forbidden_tools": { "$ref": "#/$defs/stringArray" },
+        "may_propose_tool_requests": { "type": "boolean" },
+        "execution_without_policy_allowed": { "type": "boolean", "enum": [false] },
+        "delivery_attempted": { "type": "boolean", "enum": [false] },
+        "connector_calls_attempted": { "type": "boolean", "enum": [false] },
+        "package_code_execution_attempted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "response_audit": {
+      "type": "object",
+      "required": [
+        "required_block_ids",
+        "required_citation_ids",
+        "forbidden_claim_checks",
+        "audit_required_before_runtime_claims"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_block_ids": { "$ref": "#/$defs/stringArray" },
+        "required_citation_ids": { "$ref": "#/$defs/stringArray" },
+        "forbidden_claim_checks": { "$ref": "#/$defs/stringArray" },
+        "audit_required_before_runtime_claims": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    },
+    "fail_closed_conditions": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "next_runtime_steps": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "invocation_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "messageHash": {
+      "type": "object",
+      "required": ["role", "content_sha256", "section_ids", "source_event_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["system", "developer", "user"] },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "section_ids": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "source_event_ids": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "roleBoundary": {
+      "type": "object",
+      "required": ["role", "section_ids", "source_event_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["system", "developer", "user"] },
+        "section_ids": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "source_event_ids": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "required": ["id", "status", "required_evidence", "supervisor_policy_required", "authority_granted"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "context.assembled",
+            "prompt.rendered",
+            "runtime.binding.required",
+            "model.invocation.required",
+            "model.response.required",
+            "response.audit.required",
+            "tool.request.gate",
+            "lease.gate",
+            "observation.verification.gate"
+          ]
+        },
+        "status": { "type": "string", "enum": ["ready", "pending", "blocked"] },
+        "required_evidence": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "supervisor_policy_required": { "type": "boolean" },
+        "authority_granted": { "type": "boolean", "enum": [false] }
+      }
+    }
+  }
+}

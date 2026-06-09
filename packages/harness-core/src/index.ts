@@ -2,6 +2,7 @@ export * from "./ledger.ts";
 export * from "./local-file.ts";
 export * from "./policy.ts";
 export * from "./approval.ts";
+export * from "./agent-runtime.ts";
 export * from "./boundary.ts";
 export * from "./consent.ts";
 export * from "./lease.ts";

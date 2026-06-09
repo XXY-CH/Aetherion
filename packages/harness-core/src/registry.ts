@@ -1979,6 +1979,8 @@ function resolveLocalArtifactReference(workspaceRoot: string, artifactRef: strin
     path = resolve(artifactsRoot, "consent", parts[1], `consent_${parts[1]}_write.json`);
   } else if (parts[0] === "replay" && parts.length === 3 && parts[2] === "trace") {
     path = resolve(artifactsRoot, "replay", parts[1], `replay_${parts[1]}_trace.json`);
+  } else if (parts[0] === "agent" && parts.length === 3 && parts[1] === "runtime") {
+    path = resolve(artifactsRoot, "agent", "runtime", `${parts[2]}.json`);
   } else {
     path = resolve(artifactsRoot, ...parts.slice(0, -1), `${parts.at(-1)}.json`);
   }
@@ -2023,6 +2025,9 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
   }
   if (parts[0] === "agent" && parts.length === 3 && parts[1] === "contract" && (eventType === "agent.contract.created" || eventType === "agent.child.started")) {
     return "agent-contract.schema.json";
+  }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "runtime" && eventType === "agent.runtime.bound") {
+    return "agent-runtime-invocation.schema.json";
   }
   if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && eventType === "agent.child.completed") {
     return "child-result.schema.json";

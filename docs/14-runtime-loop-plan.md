@@ -170,3 +170,29 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Choose between deeper Capsule proposal typing, trace-backed Memory lifecycle hardening, or a narrow durable queue/runtime slice after another docs/code review.
+
+## Completed Increment: Agent Runtime Invocation Artifact
+
+Target: turn the existing Agent Runtime Invocation scaffold into a schema-valid local artifact shape for future runtime binding evidence.
+
+Why this slice:
+
+- It closes the first Agent Orchestrator runtime-contract gap without calling a model, requesting tools, appending Ledger events, or introducing a daemon.
+- It gives future `agent.runtime.bound` work a durable metadata contract for ids, hashes, context refs, authority gates, tool gateway limits, response-audit requirements, fail-closed conditions, and missing-evidence stages.
+- It keeps prompt text and raw memory prose out of durable runtime metadata while still making prompt assembly auditable by hash.
+
+Acceptance:
+
+- `agent-runtime-invocation.schema.json` and its example validate with the existing contract examples.
+- Harness artifact helpers write/read `.aetherion/artifacts/agent/runtime/<invocation_id>.json` and return `artifact://agent/runtime/<invocation_id>`.
+- `audit payload-refs` resolves `agent.runtime.bound` refs and schema-validates Agent Runtime Invocation artifacts without mutating Ledger, artifacts, or registries.
+- Orchestrator artifact creation deep-copies runtime metadata and does not serialize prompt previews, messages, sections, task text, run summaries, memory reasons, or excluded-context reasons.
+
+Remaining boundary:
+
+- No TUI command writes this artifact yet, and no `agent.runtime.bound` Ledger event path is implemented.
+- The artifact is not a model request, model response, runtime status, verification result, permission gate, or authority grant.
+
+Next likely increment after this one:
+
+- Choose between supervisor-backed no-tools model preview binding, trace-backed Memory lifecycle hardening, or deeper Capsule proposal typing after another docs/code review.

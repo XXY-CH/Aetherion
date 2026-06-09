@@ -353,6 +353,63 @@ export type PromptPlan = {
   preview: string;
 };
 
+export function createAgentRuntimeInvocationArtifact(plan: PromptPlan): AgentRuntimeInvocation {
+  return {
+    ...plan.runtime_invocation,
+    scope: { ...plan.runtime_invocation.scope },
+    entry: { ...plan.runtime_invocation.entry },
+    model_call: {
+      ...plan.runtime_invocation.model_call,
+      blockers: [...plan.runtime_invocation.model_call.blockers]
+    },
+    prompt: {
+      ...plan.runtime_invocation.prompt,
+      message_order: [...plan.runtime_invocation.prompt.message_order],
+      message_hashes: plan.runtime_invocation.prompt.message_hashes.map((message) => ({
+        role: message.role,
+        content_sha256: message.content_sha256,
+        section_ids: [...message.section_ids],
+        source_event_ids: [...message.source_event_ids]
+      })),
+      role_boundaries: plan.runtime_invocation.prompt.role_boundaries.map((boundary) => ({
+        role: boundary.role,
+        section_ids: [...boundary.section_ids],
+        source_event_ids: [...boundary.source_event_ids]
+      }))
+    },
+    context: {
+      ...plan.runtime_invocation.context,
+      source_event_ids: [...plan.runtime_invocation.context.source_event_ids],
+      selected_memory_ids: [...plan.runtime_invocation.context.selected_memory_ids],
+      excluded_memory_ids: [...plan.runtime_invocation.context.excluded_memory_ids],
+      memory_source_event_ids: [...plan.runtime_invocation.context.memory_source_event_ids],
+      capability_card_ids: [...plan.runtime_invocation.context.capability_card_ids],
+      active_permission_ids: [...plan.runtime_invocation.context.active_permission_ids],
+      artifact_refs: [...plan.runtime_invocation.context.artifact_refs],
+      conflicts: [...plan.runtime_invocation.context.conflicts],
+      context_budget: { ...plan.runtime_invocation.context.context_budget }
+    },
+    authority_gates: { ...plan.runtime_invocation.authority_gates },
+    tool_gateway: {
+      ...plan.runtime_invocation.tool_gateway,
+      allowed_tool_requests: [...plan.runtime_invocation.tool_gateway.allowed_tool_requests],
+      forbidden_tools: [...plan.runtime_invocation.tool_gateway.forbidden_tools]
+    },
+    response_audit: {
+      ...plan.runtime_invocation.response_audit,
+      required_block_ids: [...plan.runtime_invocation.response_audit.required_block_ids],
+      required_citation_ids: [...plan.runtime_invocation.response_audit.required_citation_ids],
+      forbidden_claim_checks: [...plan.runtime_invocation.response_audit.forbidden_claim_checks]
+    },
+    stages: plan.runtime_invocation.stages.map((stage) => ({
+      ...stage,
+      required_evidence: [...stage.required_evidence]
+    })),
+    fail_closed_conditions: [...plan.runtime_invocation.fail_closed_conditions],
+    next_runtime_steps: [...plan.runtime_invocation.next_runtime_steps]
+  };
+}
+
 export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const task = input.task.trim();
   if (!task) {

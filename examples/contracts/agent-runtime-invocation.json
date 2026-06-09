@@ -1,0 +1,151 @@
+{
+  "id": "agent_runtime_invocation_run_example",
+  "run_id": "run_example",
+  "prompt_plan_id": "prompt_run_example",
+  "schema_version": "aetherion-agent-runtime-invocation-v1",
+  "status": "scaffold_ready",
+  "scope": {
+    "model_invoked": false,
+    "tools_requested": false,
+    "raw_payload_artifacts_read": false,
+    "ledger_appended": false,
+    "prompt_artifact_persisted": false,
+    "runtime_authority_granted": false
+  },
+  "entry": {
+    "surface": "tui",
+    "output_mode": "plan",
+    "context_pack_id": "ctx_run_example"
+  },
+  "model_call": {
+    "provider_configured": false,
+    "provider_ref": null,
+    "model_ref": null,
+    "request_artifact_ref": null,
+    "response_artifact_ref": null,
+    "model_preview_ready": true,
+    "can_invoke_now": false,
+    "blockers": ["model_provider_not_configured", "runtime_binding_not_implemented"]
+  },
+  "prompt": {
+    "bundle_id": "prompt_bundle_run_example",
+    "renderer": "sectioned-markdown-v1",
+    "join_strategy": "system-developer-user-section-bundle-v1",
+    "message_order": ["system", "developer", "user"],
+    "preview_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "message_hashes": [
+      {
+        "role": "system",
+        "content_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "section_ids": ["system-boundary", "instruction-hierarchy"],
+        "source_event_ids": []
+      },
+      {
+        "role": "developer",
+        "content_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "section_ids": ["tool-policy", "response-audit"],
+        "source_event_ids": []
+      },
+      {
+        "role": "user",
+        "content_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "section_ids": ["task", "run-evidence", "memory-context"],
+        "source_event_ids": ["evt_run_started", "evt_memory_accept"]
+      }
+    ],
+    "role_boundaries": [
+      {
+        "role": "system",
+        "section_ids": ["system-boundary", "instruction-hierarchy"],
+        "source_event_ids": []
+      },
+      {
+        "role": "developer",
+        "section_ids": ["tool-policy", "response-audit"],
+        "source_event_ids": []
+      },
+      {
+        "role": "user",
+        "section_ids": ["task", "run-evidence", "memory-context"],
+        "source_event_ids": ["evt_run_started", "evt_memory_accept"]
+      }
+    ]
+  },
+  "context": {
+    "source_event_ids": ["evt_run_started"],
+    "selected_memory_ids": ["mem_example"],
+    "excluded_memory_ids": ["mem_secret"],
+    "memory_source_event_ids": ["evt_memory_accept"],
+    "capability_card_ids": ["cap_local_docs_read"],
+    "active_permission_ids": ["lease_read_docs"],
+    "artifact_refs": ["artifact://boundary/run_example/facts"],
+    "conflicts": ["memory confidence below automation threshold"],
+    "context_budget": {
+      "memory_tokens": 1000,
+      "capability_tokens": 1000,
+      "task_tokens": 6000,
+      "total_tokens": 8000
+    },
+    "raw_payload_artifacts_read": false
+  },
+  "authority_gates": {
+    "local_supervisor_required": true,
+    "prompt_can_authorize_actions": false,
+    "context_can_authorize_actions": false,
+    "memory_can_authorize_actions": false,
+    "capability_cards_can_grant_permissions": false,
+    "active_permissions_are_context_only": true,
+    "tool_request_event_requires_supervisor_path": true,
+    "tool_execution_requires_scoped_lease": true,
+    "memory_writes_require_review": true,
+    "side_effects_require_policy_or_approval": true
+  },
+  "tool_gateway": {
+    "allowed_tool_requests": ["filesystem.read"],
+    "forbidden_tools": ["filesystem.write"],
+    "may_propose_tool_requests": true,
+    "execution_without_policy_allowed": false,
+    "delivery_attempted": false,
+    "connector_calls_attempted": false,
+    "package_code_execution_attempted": false
+  },
+  "response_audit": {
+    "required_block_ids": ["evidence_summary", "plan", "verification_evidence"],
+    "required_citation_ids": ["evt_run_started", "evt_memory_accept"],
+    "forbidden_claim_checks": ["model was invoked", "tool was requested or executed"],
+    "audit_required_before_runtime_claims": true
+  },
+  "stages": [
+    {
+      "id": "context.assembled",
+      "status": "ready",
+      "required_evidence": ["context_pack", "source_ledger_events", "memory_provenance_gate"],
+      "supervisor_policy_required": false,
+      "authority_granted": false
+    },
+    {
+      "id": "prompt.rendered",
+      "status": "ready",
+      "required_evidence": ["prompt_bundle_hashes", "system_developer_user_message_boundaries"],
+      "supervisor_policy_required": false,
+      "authority_granted": false
+    },
+    {
+      "id": "runtime.binding.required",
+      "status": "pending",
+      "required_evidence": ["durable_runtime_invocation_artifact", "ledger_event_for_model_request"],
+      "supervisor_policy_required": false,
+      "authority_granted": false
+    }
+  ],
+  "fail_closed_conditions": [
+    "model_provider_missing",
+    "runtime_binding_missing",
+    "tool_request_without_supervisor_policy"
+  ],
+  "next_runtime_steps": [
+    "Persist a reviewed model-request artifact before invoking a provider.",
+    "Route any proposed tool request through Local Supervisor policy and scoped lease evidence."
+  ],
+  "invocation_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+}
