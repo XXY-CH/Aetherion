@@ -126,6 +126,11 @@ export const CHILD_READ_REPEATED_DENIAL_EVENT_TYPES = [
   "circuit.opened"
 ] as const;
 
+export const CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES = [
+  "agent.child.started",
+  "circuit.opened"
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -205,6 +210,13 @@ export function childReadPolicyDeniedEventSequence(contractPayloadRef: string, d
 export function childReadRepeatedDenialEventSequence(contractPayloadRef: string, denialPayloadRef: string, breakerPayloadRef: string): readonly RunEventExpectation[] {
   return [
     ...childReadPolicyDeniedEventSequence(contractPayloadRef, denialPayloadRef),
+    { event_type: "circuit.opened", payload_ref: breakerPayloadRef }
+  ];
+}
+
+export function childReadPreExecutionBreakerEventSequence(contractPayloadRef: string, breakerPayloadRef: string): readonly RunEventExpectation[] {
+  return [
+    { event_type: "agent.child.started", payload_ref: contractPayloadRef },
     { event_type: "circuit.opened", payload_ref: breakerPayloadRef }
   ];
 }

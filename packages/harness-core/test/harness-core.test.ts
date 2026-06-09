@@ -20,6 +20,7 @@ import {
   browserObservationEventSequence,
   childReadCompletedEventSequence,
   childReadPolicyDeniedEventSequence,
+  childReadPreExecutionBreakerEventSequence,
   childReadRepeatedDenialEventSequence,
   completeRunManifest,
   completeRunManifestWithEventSequence,
@@ -37,6 +38,7 @@ import {
   loadWorkspaceFromRegistry,
   readEvents,
   REPLAY_RECORD_RUN_EVENT_TYPES,
+  CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES,
   evaluateSeedPolicy,
   composeRisk,
   primeSchemaCache,
@@ -1135,6 +1137,55 @@ test("child read run manifests require explicit success and denial lifecycles", 
   const repeatedDenialCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${repeatedDenialRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(repeatedDenialCompleted.status, "blocked");
   assert.deepEqual(repeatedDenialCompleted.event_ids, repeatedDenialEvents.map((event) => event.id));
+
+  const preExecutionBreakerRunId = "run_child_pre_execution_breaker_guard";
+  const preExecutionBreakerManifest = await createRunManifest(repoRoot, workspace, preExecutionBreakerRunId, "Child pre-execution breaker lifecycle guard");
+  const preExecutionBreakerEvents = [
+    eventRecord({
+      id: "evt_child_pre_execution_started",
+      workspace_id: workspace.id,
+      run_id: preExecutionBreakerRunId,
+      event_type: "agent.child.started",
+      actor: { type: "system", id: "test" },
+      summary: "Started child pre-execution guard.",
+      payload_ref: contractRef
+    }),
+    eventRecord({
+      id: "evt_child_pre_execution_breaker",
+      workspace_id: workspace.id,
+      run_id: preExecutionBreakerRunId,
+      event_type: "circuit.opened",
+      actor: { type: "system", id: "test" },
+      summary: "Opened pre-execution breaker.",
+      payload_ref: breakerRef
+    })
+  ];
+  assert.deepEqual(preExecutionBreakerEvents.map((event) => event.event_type), [...CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES]);
+  for (const event of preExecutionBreakerEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, preExecutionBreakerManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(repoRoot, workspace, preExecutionBreakerManifest, "blocked", childReadPreExecutionBreakerEventSequence(contractRef, breakerRef));
+  const preExecutionCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${preExecutionBreakerRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(preExecutionCompleted.status, "blocked");
+  assert.deepEqual(preExecutionCompleted.event_ids, preExecutionBreakerEvents.map((event) => event.id));
+
+  const wrongBreakerRefRunId = "run_child_pre_execution_wrong_breaker_ref";
+  const wrongBreakerRefManifest = await createRunManifest(repoRoot, workspace, wrongBreakerRefRunId, "Child pre-execution breaker artifact guard");
+  const wrongBreakerRefEvents = preExecutionBreakerEvents.map((event) => ({
+    ...event,
+    id: event.id.replace("pre_execution", "wrong_breaker_ref"),
+    run_id: wrongBreakerRefRunId,
+    payload_ref: event.event_type === "circuit.opened" ? "artifact://agent/execute/breaker_other" : event.payload_ref
+  }));
+  for (const event of wrongBreakerRefEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, wrongBreakerRefManifest, event.id);
+  }
+  await assert.rejects(
+    completeRunManifestWithEventSequence(repoRoot, workspace, wrongBreakerRefManifest, "blocked", childReadPreExecutionBreakerEventSequence(contractRef, breakerRef)),
+    /expected payload_ref artifact:\/\/agent\/execute\/breaker_denial_guard/
+  );
 });
 
 test("run manifest event ids are recorded as the next Ledger event projection", async () => {

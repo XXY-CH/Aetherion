@@ -94,3 +94,28 @@ Acceptance:
 Next likely increment after this one:
 
 - Choose between deeper trace-backed Memory lifecycle hardening, trace-backed Capability Draft lifecycle hardening, or explicit lifecycle contracts for one remaining run family.
+
+## Completed Increment: Child Pre-Execution Breaker Lifecycle
+
+Target: make `ether agent execute` complete permission-violation and execution-budget-exhausted child runs through an explicit pre-supervisor breaker lifecycle.
+
+Why this slice:
+
+- It closes one of the remaining run-family lifecycle gaps documented in `docs/13-schema-runtime-governance.md` and `docs/12-phase-implementation-review.md`.
+- These failures happen before the child read asks the Rust supervisor for `tool.requested`, policy, lease, or result evidence, so the correct minimal lifecycle is smaller than success or policy-denial child reads.
+- It strengthens terminal manifest evidence without adding general LLM orchestration, child writes, network tools, or new schemas.
+
+Acceptance:
+
+- Pre-supervisor child breakers must complete only as `agent.child.started -> circuit.opened`.
+- The start event must bind to the Agent Contract artifact and the breaker event must bind to the Circuit Breaker artifact.
+- The lifecycle must contain no `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `tool.result`, or child completion/denial event.
+- Real TUI permission-violation and exhausted-budget executions produce blocked manifests with exactly this sequence.
+
+Remaining boundary:
+
+- Timeout and supervisor-failure child breakers can occur after an RPC has partially emitted supervisor events, so they still need their own explicit lifecycle design before their terminal manifests can make stronger sequence claims.
+
+Next likely increment after this one:
+
+- Choose between timeout/supervisor-failure child breaker lifecycle contracts, trace-backed Capability Draft lifecycle hardening, or deeper Memory lifecycle hardening.

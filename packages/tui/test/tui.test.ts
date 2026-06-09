@@ -2521,6 +2521,16 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
     risk_budget: "L2",
     lease_budget: 1,
     on_exhaustion: "stop"
+  }, {
+    id: "budget_empty",
+    token_budget: 0,
+    tool_call_budget: 0,
+    cpu_ms_budget: 10000,
+    network_call_budget: 0,
+    wall_time_ms_budget: 30000,
+    risk_budget: "L2",
+    lease_budget: 1,
+    on_exhaustion: "stop"
   }]));
   await writeFile(join(registryDir, "capsules.json"), JSON.stringify([{
     id: "cap_local_docs_read",
@@ -2700,6 +2710,47 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   assert.deepEqual(childResults.map((entry) => entry.id), [childResult.id]);
   const scores = JSON.parse(await readFile(join(registryDir, "agent-scores.json"), "utf8")) as Array<{ agent_id: string; routing_weight: number }>;
   assert.ok((scores.find((entry) => entry.agent_id === "agent_denied")?.routing_weight ?? 1) < 1);
+
+  const permissionContract = await execFileAsync(process.execPath, [
+    cliPath, "agent", "contract",
+    "--parent-run", runId,
+    "--child-agent", "agent_permission",
+    "--budget", "budget_cli",
+    "--capsule", "cap_local_docs_read",
+    "--path", "README.md",
+    "--content", "Attempt an uncontracted path",
+    "--workspace", workspace
+  ]);
+  const permissionContractId = JSON.parse(permissionContract.stdout).id as string;
+  const permissionExecution = await execFileAsync(process.execPath, [
+    cliPath,
+    "agent",
+    "execute",
+    permissionContractId,
+    "--path",
+    "UNCONTRACTED.md",
+    "--workspace",
+    workspace
+  ]);
+  const permissionBreaker = JSON.parse(permissionExecution.stdout) as { child_run_id: string; trigger: string };
+  assert.equal(permissionBreaker.trigger, "permission_violation");
+  await assertChildPreExecutionBreakerRun(workspace, permissionBreaker.child_run_id, permissionContractId);
+
+  const exhaustedContract = await execFileAsync(process.execPath, [
+    cliPath, "agent", "contract",
+    "--parent-run", runId,
+    "--child-agent", "agent_exhausted",
+    "--budget", "budget_empty",
+    "--capsule", "cap_local_docs_read",
+    "--path", "README.md",
+    "--content", "Attempt execution with no tool-call budget",
+    "--workspace", workspace
+  ]);
+  const exhaustedContractId = JSON.parse(exhaustedContract.stdout).id as string;
+  const exhaustedExecution = await execFileAsync(process.execPath, [cliPath, "agent", "execute", exhaustedContractId, "--workspace", workspace]);
+  const exhaustedBreaker = JSON.parse(exhaustedExecution.stdout) as { child_run_id: string; trigger: string };
+  assert.equal(exhaustedBreaker.trigger, "budget_exhausted");
+  await assertChildPreExecutionBreakerRun(workspace, exhaustedBreaker.child_run_id, exhaustedContractId);
 });
 
 test("Ether governs memory folding, persona branches, and authority-free Soul Fork inheritance", async () => {
@@ -3372,6 +3423,18 @@ async function assertSingleEventRunManifest(workspace: string, events: EventReco
   assert.equal(manifest.status, "completed");
   assert.deepEqual(manifest.event_ids, [event.id]);
   assert.deepEqual(events.filter((candidate) => candidate.run_id === event.run_id).map((candidate) => candidate.event_type), [eventType]);
+}
+
+async function assertChildPreExecutionBreakerRun(workspace: string, childRunId: string, contractId: string): Promise<void> {
+  const manifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${childRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  const events = (await readLedgerEvents(workspace)).filter((event) => event.run_id === childRunId);
+  assert.equal(manifest.status, "blocked");
+  assert.deepEqual(manifest.event_ids, events.map((event) => event.id));
+  assert.deepEqual(events.map((event) => event.event_type), ["agent.child.started", "circuit.opened"]);
+  assert.equal(events[0]?.payload_ref, `artifact://agent/contract/${contractId}`);
+  assert.match(events[1]?.payload_ref ?? "", /^artifact:\/\/agent\/execute\/breaker_/);
+  assert.equal(events.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(events.some((event) => event.event_type === "lease.issued"), false);
 }
 
 async function waitForFile(path: string): Promise<void> {
