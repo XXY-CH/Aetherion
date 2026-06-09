@@ -1661,8 +1661,10 @@ async function runSleep(options: CliOptions): Promise<void> {
   if (!head?.event_hash) {
     throw new Error(`Cannot hibernate run ${runId} without a hash-bound Ledger cursor`);
   }
-  await requireStrongRegistryProvenance(workspaceRoot, ledgerEvents, ["memory-cards"]);
-  const contextPack = assembleContextPack(runId, readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard), "resume");
+  await requireStrongRegistryProvenance(workspaceRoot, ledgerEvents, ["memory-cards", "memory-tombstones"]);
+  const memories = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
+  const tombstones = readRegistry(workspaceRoot, "memory-tombstones").filter(isMemoryTombstone);
+  const contextPack = assembleContextPack(runId, memories, "resume", tombstones);
   contextPack.id = `ctx_resume_${runId}`;
   contextPack.active_leases = [];
   contextPack.token_budget = { memory_tokens: 256, capability_tokens: 256, task_tokens: 1024 };

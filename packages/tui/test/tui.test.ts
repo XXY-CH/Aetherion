@@ -1830,6 +1830,75 @@ test("TUI context and user model fail closed on weak memory registry provenance"
   await assert.rejects(access(join(workspace, ".aetherion", "registries", "hibernations.json")), /ENOENT/);
 });
 
+test("TUI sleep resume context honors tombstones and fails weak tombstone provenance", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-sleep-tombstone-"));
+  await writeFile(join(workspace, "README.md"), "Sleep tombstone fixture\n");
+  const run = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(runId);
+
+  await execFileAsync(process.execPath, [cliPath, "memory", "candidates", "--from-run", runId, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "accept", `memcand_${runId}_episode`, "--workspace", workspace]);
+  const memoryCardsPath = join(workspace, ".aetherion", "registries", "memory-cards.json");
+  const cardsBeforeDelete = await readFile(memoryCardsPath, "utf8");
+  await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${runId}_episode`, "--workspace", workspace]);
+  await writeFile(memoryCardsPath, cardsBeforeDelete);
+
+  await execFileAsync(process.execPath, [cliPath, "sleep", runId, "--workspace", workspace]);
+  const contextPacks = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "context-packs.json"), "utf8")) as Array<{
+    id: string;
+    selected_memories: Array<{ id: string }>;
+    excluded_memories: Array<{ id: string; reason: string }>;
+  }>;
+  const resumePack = contextPacks.find((entry) => entry.id === `ctx_resume_${runId}`);
+  assert.ok(resumePack);
+  assert.ok(!resumePack.selected_memories.some((entry) => entry.id === `mem_${runId}_episode`));
+  assert.equal(
+    resumePack.excluded_memories.find((entry) => entry.id === `mem_${runId}_episode`)?.reason,
+    "deleted by memory tombstone"
+  );
+
+  const weakWorkspace = await mkdtemp(join(tmpdir(), "aetherion-tui-sleep-weak-tombstone-"));
+  await writeFile(join(weakWorkspace, "README.md"), "Weak sleep tombstone fixture\n");
+  const weakRun = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    weakWorkspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const weakRunId = weakRun.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(weakRunId);
+  await execFileAsync(process.execPath, [cliPath, "memory", "candidates", "--from-run", weakRunId, "--workspace", weakWorkspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "accept", `memcand_${weakRunId}_episode`, "--workspace", weakWorkspace]);
+  await execFileAsync(process.execPath, [cliPath, "memory", "delete", `mem_${weakRunId}_episode`, "--workspace", weakWorkspace]);
+  const tombstonePath = join(weakWorkspace, ".aetherion", "registries", "memory-tombstones.json");
+  const tombstones = JSON.parse(await readFile(tombstonePath, "utf8")) as Array<{ id: string; source_events: string[] }>;
+  await writeFile(tombstonePath, `${JSON.stringify(tombstones.map((entry) => ({
+    ...entry,
+    source_events: ["evt_missing_tombstone_provenance"]
+  })), null, 2)}\n`);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "sleep", weakRunId, "--workspace", weakWorkspace]),
+    /Memory registry provenance is not strong enough/
+  );
+  await assert.rejects(access(join(weakWorkspace, ".aetherion", "registries", "hibernations.json")), /ENOENT/);
+});
+
 test("Ether surface and store commands remain supervisor-gated and non-authoritative", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-surface-"));
   await writeFile(join(workspace, "README.md"), "Surface fixture\n");

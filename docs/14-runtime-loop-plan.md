@@ -73,3 +73,24 @@ Acceptance:
 Next likely increment after this one:
 
 - Re-read `docs/13-schema-runtime-governance.md` and choose between resume Context Pack parity, trace-backed Memory lifecycle hardening, or trace-backed Capability Draft lifecycle hardening.
+
+## Completed Increment: Resume Context Tombstone Parity
+
+Target: make `ether sleep` assemble its minimal resume Context Pack through the same Memory Card/Tombstone provenance and deletion-exclusion path used by `context explain` and `prompt plan`.
+
+Why this slice:
+
+- It closes the hibernation resume-context parity gap called out by `docs/13-schema-runtime-governance.md` without adding a daemon, scheduler, or automatic resume executor.
+- It keeps Memory tombstones as first-class context-exclusion evidence, so stale Memory Card projections cannot re-enter a suspended run's resume packet.
+- It hardens the queue/runtime path that follows `sleepers --check-wakeups`: wake eligibility and queueing stay separate, while the stored resume context is now safer.
+
+Acceptance:
+
+- `sleep` requires both `memory-cards` and `memory-tombstones` registry entries to pass the read-only Ledger provenance reference gate before context assembly.
+- `sleep` passes tombstones into `assembleContextPack`, so deleted Memory Cards are recorded as excluded context instead of selected resume memory.
+- Weak or missing tombstone source events fail closed before hibernation records, wakeup records, Ledger events, leases, or resume actions are created.
+- Docs continue to state that resume Context Packs are projection evidence only and cannot authorize task continuation.
+
+Next likely increment after this one:
+
+- Choose between deeper trace-backed Memory lifecycle hardening, trace-backed Capability Draft lifecycle hardening, or explicit lifecycle contracts for one remaining run family.
