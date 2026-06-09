@@ -388,8 +388,8 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
 }
 
 async function runSupervisorCommand(options: CliOptions): Promise<void> {
-  if (options.topic !== "status") {
-    throw new Error("supervisor supports status");
+  if (options.topic !== "status" && options.topic !== "preflight") {
+    throw new Error("supervisor supports status and preflight");
   }
   const workspaceRoot = resolve(options.workspace);
   const result = rpcResult(await callSupervisorRpc(repoRoot, {
@@ -402,6 +402,26 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     socketPath: options.socketPath,
     authToken: options.socketAuthToken
   } : undefined));
+  if (options.topic === "preflight") {
+    printKeyValueRecord(supervisorLifecyclePreflight(result), [
+      "workspace_id",
+      "lifecycle_state",
+      "lifecycle_summary",
+      "operator_next_step",
+      "transport",
+      "daemon_running",
+      "runtime_lock_present",
+      "runtime_lock_workspace_match",
+      "runtime_lock_process_status",
+      "runtime_lock_stale",
+      "start_supported",
+      "stop_supported",
+      "repair_supported",
+      "mutates_ledger",
+      "issues_lease"
+    ]);
+    return;
+  }
   printKeyValueRecord(result, [
     "workspace_id",
     "authority",
@@ -425,6 +445,67 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     "runtime_lock_stale",
     "runtime_lock_parse_error"
   ]);
+}
+
+function supervisorLifecyclePreflight(status: Record<string, unknown>): Record<string, unknown> {
+  const lockPresent = status.runtime_lock_present === true;
+  const lockMatchesWorkspace = status.runtime_lock_workspace_match === true;
+  const lockStale = status.runtime_lock_stale === true;
+  const processStatus = stringField(status, "runtime_lock_process_status");
+  const parseError = stringField(status, "runtime_lock_parse_error");
+  const lockTransport = stringField(status, "runtime_lock_transport");
+  let lifecycleState = "not_running";
+  let summary = "No foreground supervisor runtime lock is present for this workspace.";
+  let nextStep = "Use a foreground supervisor socket when needed; production daemon start is not implemented.";
+
+  if (lockPresent && parseError) {
+    lifecycleState = "runtime_lock_invalid";
+    summary = "A supervisor runtime lock exists but cannot be parsed as valid preflight evidence.";
+    nextStep = "Inspect the runtime lock manually; automatic lock repair is not implemented.";
+  } else if (lockPresent && !lockMatchesWorkspace) {
+    lifecycleState = "runtime_lock_workspace_mismatch";
+    summary = "A supervisor runtime lock exists but does not match this workspace.";
+    nextStep = "Do not use this lock as authority; automatic lock repair is not implemented.";
+  } else if (lockPresent && (lockStale || processStatus === "missing")) {
+    lifecycleState = "stale_runtime_lock";
+    summary = "A supervisor runtime lock points at a missing owner process.";
+    nextStep = "Treat the lock as operator evidence only; automatic lock repair is not implemented.";
+  } else if (lockPresent && processStatus === "unknown") {
+    lifecycleState = "runtime_lock_owner_unknown";
+    summary = "A supervisor runtime lock exists but owner process liveness is unknown on this platform.";
+    nextStep = "Use an explicit foreground socket check before relying on this runtime.";
+  } else if (lockPresent && processStatus === "running" && lockTransport === "unix-socket") {
+    lifecycleState = "foreground_socket_running";
+    summary = "A foreground Unix socket supervisor appears to own this workspace lock.";
+    nextStep = "Use the bound foreground socket for this workspace; production daemon lifecycle remains unimplemented.";
+  } else if (lockPresent) {
+    lifecycleState = "runtime_lock_unclassified";
+    summary = "A supervisor runtime lock exists but does not match a known lifecycle state.";
+    nextStep = "Inspect supervisor status before requesting runtime work.";
+  }
+
+  return {
+    workspace_id: status.workspace_id,
+    lifecycle_state: lifecycleState,
+    lifecycle_summary: summary,
+    operator_next_step: nextStep,
+    transport: status.transport,
+    daemon_running: status.daemon_running,
+    runtime_lock_present: status.runtime_lock_present,
+    runtime_lock_workspace_match: status.runtime_lock_workspace_match,
+    runtime_lock_process_status: status.runtime_lock_process_status,
+    runtime_lock_stale: status.runtime_lock_stale,
+    start_supported: false,
+    stop_supported: false,
+    repair_supported: false,
+    mutates_ledger: false,
+    issues_lease: false
+  };
+}
+
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === "string" ? value : "";
 }
 
 async function runAudit(options: CliOptions): Promise<void> {
@@ -2862,6 +2943,7 @@ Usage:
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- boundary <run_id> --workspace <path>
   npm run ether -- supervisor status --workspace <path>
+  npm run ether -- supervisor preflight --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
 
   Trace-backed local runtime:
@@ -2921,7 +3003,7 @@ Usage:
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
-  supervisor             Read-only Rust supervisor workspace status preflight
+  supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces

@@ -659,6 +659,21 @@ test("TUI supervisor status reports Rust runtime health without appending events
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
   const emptyLedgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
   assert.equal(await readFile(emptyLedgerPath, "utf8"), "");
+  const cleanPreflight = await execFileAsync(process.execPath, [
+    cliPath,
+    "supervisor",
+    "preflight",
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(stdoutValue(cleanPreflight.stdout, "lifecycle_state"), "not_running");
+  assert.match(stdoutValue(cleanPreflight.stdout, "lifecycle_summary"), /No foreground supervisor runtime lock/);
+  assert.equal(stdoutValue(cleanPreflight.stdout, "start_supported"), "false");
+  assert.equal(stdoutValue(cleanPreflight.stdout, "stop_supported"), "false");
+  assert.equal(stdoutValue(cleanPreflight.stdout, "repair_supported"), "false");
+  assert.equal(stdoutValue(cleanPreflight.stdout, "mutates_ledger"), "false");
+  assert.equal(stdoutValue(cleanPreflight.stdout, "issues_lease"), "false");
+  assert.equal(await readFile(emptyLedgerPath, "utf8"), "");
 
   if (process.platform !== "win32") {
     const staleLockPath = join(workspace, ".aetherion", "supervisor.lock");
@@ -675,6 +690,17 @@ test("TUI supervisor status reports Rust runtime health without appending events
     assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_workspace_match"), "true");
     assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_process_status"), "missing");
     assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_stale"), "true");
+    assert.equal(await readFile(staleLockPath, "utf8"), staleLock);
+    const stalePreflight = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "preflight",
+      "--workspace",
+      workspace
+    ]);
+    assert.equal(stdoutValue(stalePreflight.stdout, "lifecycle_state"), "stale_runtime_lock");
+    assert.match(stdoutValue(stalePreflight.stdout, "operator_next_step"), /operator evidence/);
+    assert.equal(stdoutValue(stalePreflight.stdout, "repair_supported"), "false");
     assert.equal(await readFile(staleLockPath, "utf8"), staleLock);
     await rm(staleLockPath, { force: true });
   }
@@ -899,6 +925,21 @@ test("supervisor socket RPC can bind one workspace with a runtime lock", async (
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_process_status"), "running");
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_stale"), "false");
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
+    const cliPreflight = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "preflight",
+      "--workspace",
+      workspace,
+      "--socket-path",
+      socketPath
+    ]);
+    assert.equal(stdoutValue(cliPreflight.stdout, "lifecycle_state"), "foreground_socket_running");
+    assert.match(stdoutValue(cliPreflight.stdout, "lifecycle_summary"), /foreground Unix socket supervisor/);
+    assert.equal(stdoutValue(cliPreflight.stdout, "stop_supported"), "false");
+    assert.equal(stdoutValue(cliPreflight.stdout, "mutates_ledger"), "false");
+    assert.equal(stdoutValue(cliPreflight.stdout, "issues_lease"), "false");
+    assert.equal(await readFile(lockPath, "utf8"), lock);
 
     await assert.rejects(
       callSupervisorRpc(repoRoot, {

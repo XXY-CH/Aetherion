@@ -16,7 +16,7 @@ This is the working loop for moving Aetherion from contract-backed slices toward
 3. Verify with the smallest test set that proves the slice plus the broader guardrails.
 4. Review the result against the source docs and record any remaining boundary.
 
-## Current Increment
+## Completed Increment: Runtime Lock Liveness
 
 Target: supervisor runtime status should expose whether a foreground supervisor runtime lock points at a live, missing, unknown, or invalid owner process.
 
@@ -36,3 +36,20 @@ Acceptance:
 Next likely increment after this one:
 
 - Choose between typed supervisor lifecycle commands (`supervisor start/status/stop` preflight semantics) or a small durable queue/wake runtime slice, based on the same docs review.
+
+## Current Increment: Supervisor Lifecycle Preflight
+
+Target: add a read-only `ether supervisor preflight` surface that classifies supervisor lifecycle readiness from the existing status evidence.
+
+Why this slice:
+
+- It is the next typed lifecycle step after raw runtime-lock status.
+- It gives operators a stable state and next-step summary before any future start/stop/recover command exists.
+- It avoids pretending Aetherion has a production daemon, service manager, process killer, or lock repair path.
+
+Acceptance:
+
+- `supervisor preflight` calls the existing status RPC and appends no Ledger events.
+- The output classifies no lock, live foreground socket, stale lock, unknown lock, invalid/mismatched lock, and malformed lock states.
+- The command reports that daemon start, stop, and lock repair are unsupported in this POC.
+- Docs state that preflight is visibility only and cannot grant authority or mutate runtime state.
