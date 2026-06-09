@@ -1,0 +1,91 @@
+{
+  "id": "agent_model_request_run_example_preview",
+  "run_id": "run_example",
+  "runtime_invocation_id": "agent_runtime_invocation_run_example",
+  "runtime_invocation_artifact_ref": "artifact://agent/runtime/agent_runtime_invocation_run_example",
+  "prompt_plan_id": "prompt_run_example",
+  "schema_version": "aetherion-agent-model-request-v1",
+  "status": "request_prepared",
+  "scope": {
+    "model_invoked": false,
+    "provider_called": false,
+    "tools_requested": false,
+    "raw_prompt_persisted": false,
+    "raw_context_persisted": false,
+    "raw_payload_artifacts_read": false,
+    "secrets_resolved": false,
+    "runtime_authority_granted": false
+  },
+  "provider": {
+    "provider_configured": false,
+    "provider_ref": null,
+    "model_ref": null,
+    "credential_ref": null,
+    "credential_resolved": false,
+    "network_call_attempted": false
+  },
+  "request": {
+    "mode": "no_tools_model_preview",
+    "output_mode": "plan",
+    "message_order": ["system", "developer", "user"],
+    "prompt_bundle_id": "prompt_bundle_run_example",
+    "prompt_preview_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "request_payload_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "raw_request_payload_persisted": false
+  },
+  "prompt_hashes": [
+    {
+      "role": "system",
+      "content_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "section_ids": ["system-boundary", "instruction-hierarchy"],
+      "source_event_ids": []
+    },
+    {
+      "role": "developer",
+      "content_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "section_ids": ["tool-policy", "response-audit"],
+      "source_event_ids": []
+    },
+    {
+      "role": "user",
+      "content_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "section_ids": ["task", "run-evidence", "memory-context"],
+      "source_event_ids": ["evt_run_started", "evt_memory_accept"]
+    }
+  ],
+  "context": {
+    "source_event_ids": ["evt_run_started"],
+    "selected_memory_ids": ["mem_example"],
+    "excluded_memory_ids": ["mem_secret"],
+    "memory_source_event_ids": ["evt_memory_accept"],
+    "capability_card_ids": ["cap_local_docs_read"],
+    "active_permission_ids": ["lease_read_docs"],
+    "artifact_refs": ["artifact://boundary/run_example/facts"],
+    "raw_payload_artifacts_read": false
+  },
+  "tool_gateway": {
+    "declared_tools": [],
+    "tool_choice": "none",
+    "may_propose_tool_requests": true,
+    "tool_request_events_appended": false,
+    "execution_without_policy_allowed": false
+  },
+  "authority_gates": {
+    "local_supervisor_required": true,
+    "prompt_can_authorize_actions": false,
+    "context_can_authorize_actions": false,
+    "memory_can_authorize_actions": false,
+    "capability_cards_can_grant_permissions": false,
+    "model_request_can_authorize_actions": false,
+    "tool_execution_requires_scoped_lease": true,
+    "side_effects_require_policy_or_approval": true
+  },
+  "response_expectations": {
+    "response_artifact_required": true,
+    "response_audit_required": true,
+    "required_block_ids": ["evidence_summary", "plan", "verification_evidence"],
+    "required_citation_ids": ["evt_run_started", "evt_memory_accept"],
+    "forbidden_claim_checks": ["model output can authorize actions", "tool execution without policy"]
+  },
+  "request_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+}

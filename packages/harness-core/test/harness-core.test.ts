@@ -8,6 +8,8 @@ import {
   appendEvent,
   auditCapsuleRegistryRebuild,
   auditHibernationRegistryRebuild,
+  agentModelRequestArtifactRef,
+  agentModelResponseArtifactRef,
   agentRuntimeInvocationArtifactRef,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
@@ -39,6 +41,8 @@ import {
   loadRunManifest,
   loadWorkspaceFromRegistry,
   readEvents,
+  readAgentModelRequestArtifact,
+  readAgentModelResponseArtifact,
   readAgentRuntimeInvocationArtifact,
   REPLAY_RECORD_RUN_EVENT_TYPES,
   CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES,
@@ -61,6 +65,8 @@ import {
   WAKEUP_QUEUE_RUN_EVENT_TYPES,
   wakeupQueueRunEventSequence,
   writeConsentRecordArtifact,
+  writeAgentModelRequestArtifact,
+  writeAgentModelResponseArtifact,
   writeAgentRuntimeInvocationArtifact,
   writeLocalFileThroughPolicy,
   workspaceIdForRoot,
@@ -123,6 +129,8 @@ const schemaExamplePairs = [
   ["circuit-breaker.schema.json", "circuit-breaker.json"],
   ["child-result.schema.json", "child-result.json"],
   ["agent-runtime-invocation.schema.json", "agent-runtime-invocation.json"],
+  ["agent-model-request.schema.json", "agent-model-request.json"],
+  ["agent-model-response.schema.json", "agent-model-response.json"],
   ["agent-score.schema.json", "agent-score.json"],
   ["content-assessment.schema.json", "content-assessment.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"],
@@ -160,6 +168,76 @@ test("agent runtime invocation artifacts round-trip through local workspace stor
   assert.equal(await readAgentRuntimeInvocationArtifact(root, "agent_runtime_invocation_missing"), null);
 });
 
+test("agent model request and response artifacts round-trip and audit through local payload refs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-model-artifacts-"));
+  const workspace = await createWorkspace(root, "ws_agent_model_artifacts");
+  const request = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8")
+  );
+  const response = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-model-response.json"), "utf8")
+  );
+
+  const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
+  const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspace, response);
+  assert.equal(requestRef, agentModelRequestArtifactRef(request.id));
+  assert.equal(responseRef, agentModelResponseArtifactRef(response.id));
+  assert.equal(requestRef, "artifact://agent/model-request/agent_model_request_run_example_preview");
+  assert.equal(responseRef, "artifact://agent/model-response/agent_model_response_run_example_preview");
+  assert.deepEqual(await readAgentModelRequestArtifact(root, request.id), request);
+  assert.deepEqual(await readAgentModelResponseArtifact(root, response.id), response);
+  assert.equal(await readAgentModelRequestArtifact(root, "agent_model_request_missing"), null);
+  assert.equal(await readAgentModelResponseArtifact(root, "agent_model_response_missing"), null);
+
+  const requestEvent = eventRecord({
+    id: "evt_agent_model_requested",
+    workspace_id: workspace.id,
+    run_id: "run_agent_model_artifacts",
+    event_type: "agent.model.requested",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded no-tools model request metadata.",
+    payload_ref: requestRef
+  });
+  const responseEvent = eventRecord({
+    id: "evt_agent_model_responded",
+    workspace_id: workspace.id,
+    run_id: "run_agent_model_artifacts",
+    event_type: "agent.model.responded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded model response metadata.",
+    payload_ref: responseRef
+  });
+  await appendEvent(repoRoot, workspace, requestEvent);
+  await appendEvent(repoRoot, workspace, responseEvent);
+
+  const audit = await auditLedgerPayloadRefs(repoRoot, root, [requestEvent, responseEvent]);
+  const requestFinding = audit.findings.find((finding) => finding.event_id === requestEvent.id);
+  const responseFinding = audit.findings.find((finding) => finding.event_id === responseEvent.id);
+  assert.equal(requestFinding?.schema_name, "agent-model-request.schema.json");
+  assert.equal(requestFinding?.schema_status, "valid");
+  assert.deepEqual(requestFinding?.schema_errors, []);
+  assert.equal(responseFinding?.schema_name, "agent-model-response.schema.json");
+  assert.equal(responseFinding?.schema_status, "valid");
+  assert.deepEqual(responseFinding?.schema_errors, []);
+
+  const requestText = await readFile(join(root, ".aetherion", "artifacts", "agent", "model-request", `${request.id}.json`), "utf8");
+  const responseText = await readFile(join(root, ".aetherion", "artifacts", "agent", "model-response", `${response.id}.json`), "utf8");
+  assert.doesNotMatch(requestText, /System Boundary/);
+  assert.doesNotMatch(requestText, /Draft a local implementation plan/);
+  assert.doesNotMatch(responseText, /raw model answer/i);
+  assert.equal(request.scope.raw_prompt_persisted, false);
+  assert.equal(request.scope.raw_context_persisted, false);
+  assert.equal(request.scope.secrets_resolved, false);
+  assert.equal(request.authority_gates.model_request_can_authorize_actions, false);
+  assert.deepEqual(request.tool_gateway.declared_tools, []);
+  assert.equal(request.tool_gateway.execution_without_policy_allowed, false);
+  assert.equal(response.scope.raw_response_persisted, false);
+  assert.equal(response.scope.tool_execution_allowed, false);
+  assert.equal(response.scope.runtime_authority_granted, false);
+  assert.equal(response.authority_gates.model_output_can_authorize_actions, false);
+  assert.equal(response.response_audit.may_present_as_verified_runtime_evidence, false);
+});
+
 test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {
   await primeSchemaCache(repoRoot);
   const event = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "event.json"), "utf8"));
@@ -186,6 +264,34 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   const childResultValidation = await validateAgainstSchema(repoRoot, "child-result.schema.json", childResult);
   assert.equal(childResultValidation.valid, false);
   assert.ok(childResultValidation.errors.some((error) => error.includes("expected one of false")));
+
+  const modelRequest = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8"));
+  modelRequest.scope.raw_prompt_persisted = true;
+  modelRequest.tool_gateway.declared_tools = ["filesystem.read"];
+  modelRequest.authority_gates.model_request_can_authorize_actions = true;
+  const modelRequestValidation = await validateAgainstSchema(repoRoot, "agent-model-request.schema.json", modelRequest);
+  assert.equal(modelRequestValidation.valid, false);
+  assert.ok(modelRequestValidation.errors.some((error) => error.includes("expected one of false")));
+  assert.ok(modelRequestValidation.errors.some((error) => error.includes("expected at most 0 items")));
+
+  const modelRequestRoleOrder = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8"));
+  modelRequestRoleOrder.prompt_hashes = [
+    modelRequestRoleOrder.prompt_hashes[1],
+    modelRequestRoleOrder.prompt_hashes[0],
+    modelRequestRoleOrder.prompt_hashes[2]
+  ];
+  const modelRequestRoleOrderValidation = await validateAgainstSchema(repoRoot, "agent-model-request.schema.json", modelRequestRoleOrder);
+  assert.equal(modelRequestRoleOrderValidation.valid, false);
+  assert.ok(modelRequestRoleOrderValidation.errors.some((error) => error.includes("expected one of system")));
+  assert.ok(modelRequestRoleOrderValidation.errors.some((error) => error.includes("expected one of developer")));
+
+  const modelResponse = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-response.json"), "utf8"));
+  modelResponse.scope.tool_execution_allowed = true;
+  modelResponse.authority_gates.model_output_can_authorize_actions = true;
+  modelResponse.response_audit.may_present_as_verified_runtime_evidence = true;
+  const modelResponseValidation = await validateAgainstSchema(repoRoot, "agent-model-response.schema.json", modelResponse);
+  assert.equal(modelResponseValidation.valid, false);
+  assert.ok(modelResponseValidation.errors.some((error) => error.includes("expected one of false")));
 
   const computerAction = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "computer-action.json"), "utf8"));
   computerAction.adapter_requirements_gate.enabled_by_user_config = true;

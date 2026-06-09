@@ -217,8 +217,33 @@ Acceptance:
 Remaining boundary:
 
 - The binding event is not a model request, model response, runtime status, verification result, permission gate, policy decision, lease, or authority grant.
-- No provider config, model invocation loop, model request/response artifact, tool proposal loop, daemon, IM/browser connector, OAuth/MCP connector, or vault path exists yet.
+- No provider config, model invocation loop, tool proposal loop, daemon, IM/browser connector, OAuth/MCP connector, or vault path exists yet.
 
 Next likely increment after this one:
 
-- Define model request/response artifacts and a no-tools provider preview loop behind the existing runtime binding, or harden trace-backed Memory lifecycle parity before widening runtime behavior.
+- Define a no-tools provider preview loop behind the existing runtime binding and model metadata artifacts, or harden trace-backed Memory lifecycle parity before widening runtime behavior.
+
+## Completed Increment: Agent Model Request/Response Artifacts
+
+Target: define schema-valid metadata artifacts for future model request and response evidence without calling a provider or widening tool authority.
+
+Why this slice:
+
+- It adds the next Agent runtime contract directly behind `agent.runtime.bound`, where the real loop will need auditable request and response evidence.
+- It keeps raw prompt text, raw context prose, raw provider payloads, raw model output, credentials, and tool execution out of durable metadata.
+- It lets `audit payload-refs` validate future `agent.model.requested` and `agent.model.responded` events before any provider loop exists.
+
+Acceptance:
+
+- `agent-model-request.schema.json` and `agent-model-response.schema.json` plus their examples validate with the existing contract examples.
+- Harness artifact helpers write/read `.aetherion/artifacts/agent/model-request/<request_id>.json` and `.aetherion/artifacts/agent/model-response/<response_id>.json`.
+- `audit payload-refs` resolves `artifact://agent/model-request/<request_id>` for `agent.model.requested` and `artifact://agent/model-response/<response_id>` for `agent.model.responded`, then schema-validates the artifacts.
+- Tests reject request/response artifacts that persist raw prompt/response authority flags, declare tools, allow tool execution, treat model output as authorization, or present unaudited response output as verified runtime evidence.
+
+Remaining boundary:
+
+- These artifacts are not produced by a TUI command yet and do not configure providers, resolve vault credentials, perform network calls, invoke models, append tool requests, issue leases, execute tools, pass response audit, or grant runtime authority.
+
+Next likely increment after this one:
+
+- Add a narrow no-tools model-preview command behind `prompt bind-runtime`, or harden trace-backed Memory lifecycle parity if runtime evidence gaps need to stay ahead of provider wiring.

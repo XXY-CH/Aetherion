@@ -1,0 +1,60 @@
+{
+  "id": "agent_model_response_run_example_preview",
+  "request_id": "agent_model_request_run_example_preview",
+  "request_artifact_ref": "artifact://agent/model-request/agent_model_request_run_example_preview",
+  "run_id": "run_example",
+  "runtime_invocation_id": "agent_runtime_invocation_run_example",
+  "runtime_invocation_artifact_ref": "artifact://agent/runtime/agent_runtime_invocation_run_example",
+  "schema_version": "aetherion-agent-model-response-v1",
+  "status": "response_recorded",
+  "scope": {
+    "model_invoked": true,
+    "provider_called": true,
+    "tools_requested": false,
+    "tool_execution_allowed": false,
+    "raw_response_persisted": false,
+    "raw_prompt_persisted": false,
+    "raw_payload_artifacts_read": false,
+    "runtime_authority_granted": false
+  },
+  "provider": {
+    "provider_ref": "provider_local_preview",
+    "model_ref": "model_preview",
+    "credential_ref": null,
+    "credential_resolved": false
+  },
+  "response": {
+    "finish_reason": "stop",
+    "response_payload_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "output_text_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "raw_response_payload_persisted": false,
+    "output_artifact_ref": null,
+    "refusal_present": false
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 320,
+    "total_tokens": 1520,
+    "usage_source": "provider_reported"
+  },
+  "tool_gateway": {
+    "tool_calls_present": false,
+    "proposed_tool_request_ids": [],
+    "tool_request_events_appended": false,
+    "execution_without_policy_allowed": false
+  },
+  "authority_gates": {
+    "local_supervisor_required": true,
+    "model_output_can_authorize_actions": false,
+    "tool_request_event_requires_supervisor_path": true,
+    "tool_execution_requires_scoped_lease": true,
+    "side_effects_require_policy_or_approval": true
+  },
+  "response_audit": {
+    "required": true,
+    "audit_artifact_ref": null,
+    "passed": null,
+    "may_present_as_verified_runtime_evidence": false
+  },
+  "response_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

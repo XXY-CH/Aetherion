@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-model-request.schema.json",
+  "title": "AgentModelRequest",
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "runtime_invocation_id",
+    "runtime_invocation_artifact_ref",
+    "prompt_plan_id",
+    "schema_version",
+    "status",
+    "scope",
+    "provider",
+    "request",
+    "prompt_hashes",
+    "context",
+    "tool_gateway",
+    "authority_gates",
+    "response_expectations",
+    "request_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^agent_model_request_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_id": { "type": "string", "pattern": "^agent_runtime_invocation_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/runtime/agent_runtime_invocation_[A-Za-z0-9_-]+$"
+    },
+    "prompt_plan_id": { "type": "string", "pattern": "^prompt_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-agent-model-request-v1"] },
+    "status": { "type": "string", "enum": ["request_prepared"] },
+    "scope": {
+      "type": "object",
+      "required": [
+        "model_invoked",
+        "provider_called",
+        "tools_requested",
+        "raw_prompt_persisted",
+        "raw_context_persisted",
+        "raw_payload_artifacts_read",
+        "secrets_resolved",
+        "runtime_authority_granted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model_invoked": { "type": "boolean", "enum": [false] },
+        "provider_called": { "type": "boolean", "enum": [false] },
+        "tools_requested": { "type": "boolean", "enum": [false] },
+        "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
+        "raw_context_persisted": { "type": "boolean", "enum": [false] },
+        "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] },
+        "secrets_resolved": { "type": "boolean", "enum": [false] },
+        "runtime_authority_granted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "required": [
+        "provider_configured",
+        "provider_ref",
+        "model_ref",
+        "credential_ref",
+        "credential_resolved",
+        "network_call_attempted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider_configured": { "type": "boolean" },
+        "provider_ref": { "type": ["string", "null"], "minLength": 1 },
+        "model_ref": { "type": ["string", "null"], "minLength": 1 },
+        "credential_ref": { "type": "null" },
+        "credential_resolved": { "type": "boolean", "enum": [false] },
+        "network_call_attempted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "mode",
+        "output_mode",
+        "message_order",
+        "prompt_bundle_id",
+        "prompt_preview_sha256",
+        "request_payload_sha256",
+        "raw_request_payload_persisted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["no_tools_model_preview"] },
+        "output_mode": { "type": "string", "enum": ["plan", "answer", "patch"] },
+        "message_order": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "type": "string", "enum": ["system"] },
+            { "type": "string", "enum": ["developer"] },
+            { "type": "string", "enum": ["user"] }
+          ],
+          "items": false
+        },
+        "prompt_bundle_id": { "type": "string", "pattern": "^prompt_bundle_[A-Za-z0-9_-]+$" },
+        "prompt_preview_sha256": { "$ref": "#/$defs/sha256" },
+        "request_payload_sha256": { "$ref": "#/$defs/sha256" },
+        "raw_request_payload_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "prompt_hashes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/systemMessageHash" },
+        { "$ref": "#/$defs/developerMessageHash" },
+        { "$ref": "#/$defs/userMessageHash" }
+      ],
+      "items": false
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "source_event_ids",
+        "selected_memory_ids",
+        "excluded_memory_ids",
+        "memory_source_event_ids",
+        "capability_card_ids",
+        "active_permission_ids",
+        "artifact_refs",
+        "raw_payload_artifacts_read"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "selected_memory_ids": { "$ref": "#/$defs/stringArray" },
+        "excluded_memory_ids": { "$ref": "#/$defs/stringArray" },
+        "memory_source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "capability_card_ids": { "$ref": "#/$defs/stringArray" },
+        "active_permission_ids": { "$ref": "#/$defs/stringArray" },
+        "artifact_refs": { "$ref": "#/$defs/stringArray" },
+        "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "tool_gateway": {
+      "type": "object",
+      "required": [
+        "declared_tools",
+        "tool_choice",
+        "may_propose_tool_requests",
+        "tool_request_events_appended",
+        "execution_without_policy_allowed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "declared_tools": { "type": "array", "maxItems": 0 },
+        "tool_choice": { "type": "string", "enum": ["none"] },
+        "may_propose_tool_requests": { "type": "boolean" },
+        "tool_request_events_appended": { "type": "boolean", "enum": [false] },
+        "execution_without_policy_allowed": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority_gates": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required",
+        "prompt_can_authorize_actions",
+        "context_can_authorize_actions",
+        "memory_can_authorize_actions",
+        "capability_cards_can_grant_permissions",
+        "model_request_can_authorize_actions",
+        "tool_execution_requires_scoped_lease",
+        "side_effects_require_policy_or_approval"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required": { "type": "boolean", "enum": [true] },
+        "prompt_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "context_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "memory_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "capability_cards_can_grant_permissions": { "type": "boolean", "enum": [false] },
+        "model_request_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "tool_execution_requires_scoped_lease": { "type": "boolean", "enum": [true] },
+        "side_effects_require_policy_or_approval": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "response_expectations": {
+      "type": "object",
+      "required": [
+        "response_artifact_required",
+        "response_audit_required",
+        "required_block_ids",
+        "required_citation_ids",
+        "forbidden_claim_checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "response_artifact_required": { "type": "boolean", "enum": [true] },
+        "response_audit_required": { "type": "boolean", "enum": [true] },
+        "required_block_ids": { "$ref": "#/$defs/stringArray" },
+        "required_citation_ids": { "$ref": "#/$defs/stringArray" },
+        "forbidden_claim_checks": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "request_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "systemMessageHash": {
+      "type": "object",
+      "required": ["role", "content_sha256", "section_ids", "source_event_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["system"] },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "section_ids": { "$ref": "#/$defs/stringArray" },
+        "source_event_ids": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "developerMessageHash": {
+      "type": "object",
+      "required": ["role", "content_sha256", "section_ids", "source_event_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["developer"] },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "section_ids": { "$ref": "#/$defs/stringArray" },
+        "source_event_ids": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "userMessageHash": {
+      "type": "object",
+      "required": ["role", "content_sha256", "section_ids", "source_event_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["user"] },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "section_ids": { "$ref": "#/$defs/stringArray" },
+        "source_event_ids": { "$ref": "#/$defs/stringArray" }
+      }
+    }
+  }
+}

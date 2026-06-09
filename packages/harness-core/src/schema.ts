@@ -90,8 +90,24 @@ function validateValue(value: unknown, schema: JsonSchema, path: string, context
         errors.push(`${path}: expected unique items`);
       }
     }
+    if (Array.isArray(schema.prefixItems)) {
+      for (const [index, itemSchema] of schema.prefixItems.entries()) {
+        if (index >= value.length) {
+          break;
+        }
+        if (isObject(itemSchema)) {
+          errors.push(...validateValue(value[index], itemSchema, `${path}[${index}]`, context).errors);
+        }
+      }
+      if (schema.items === false && value.length > schema.prefixItems.length) {
+        errors.push(`${path}: expected at most ${schema.prefixItems.length} prefix items`);
+      }
+    }
     if (isObject(schema.items)) {
       for (const [index, item] of value.entries()) {
+        if (Array.isArray(schema.prefixItems) && index < schema.prefixItems.length) {
+          continue;
+        }
         errors.push(...validateValue(item, schema.items, `${path}[${index}]`, context).errors);
       }
     }
