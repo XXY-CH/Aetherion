@@ -459,6 +459,20 @@ test("prompt response audit checks structure, citations, and forbidden claims", 
   assert.ok(negationBypass.forbidden_claims_detected.includes("raw_payload_read_claim"));
   assert.ok(negationBypass.forbidden_claims_detected.includes("runtime_authority_claim"));
   assert.ok(negationBypass.forbidden_claims_detected.includes("completion_without_verification_claim"));
+
+  const repeatedClaimLine = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      "Source events: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept.",
+      "## Assumptions And Conflicts",
+      "No tool was requested; the planner requested a filesystem tool.",
+      "## Plan",
+      "Not complete, but all tests pass."
+    ].join("\n")
+  });
+  assert.ok(repeatedClaimLine.forbidden_claims_detected.includes("tool_execution_claim"));
+  assert.ok(repeatedClaimLine.forbidden_claims_detected.includes("completion_without_verification_claim"));
 });
 
 test("prompt response audit requires block headings and evidence-summary citations", () => {

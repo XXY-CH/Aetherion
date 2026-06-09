@@ -1267,8 +1267,19 @@ function forbiddenClaimFindingsFor(response: string): PromptResponseAuditFinding
 }
 
 function hasUnnegatedPattern(line: string, pattern: RegExp): boolean {
-  const match = pattern.exec(line);
-  return match !== null && !isNegatedClaimAt(line, match.index);
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const matcher = new RegExp(pattern.source, flags);
+  let match = matcher.exec(line);
+  while (match !== null) {
+    if (!isNegatedClaimAt(line, match.index)) {
+      return true;
+    }
+    if (match[0].length === 0) {
+      matcher.lastIndex += 1;
+    }
+    match = matcher.exec(line);
+  }
+  return false;
 }
 
 function isNegatedClaimAt(line: string, claimStart: number): boolean {
