@@ -457,7 +457,7 @@ export function auditPromptResponse(input: PromptResponseAuditInput): PromptResp
   const missingBlockIds = requiredBlockIds.filter((blockId) => !presentBlockIds.includes(blockId));
   const requiredCitationIds = input.plan.response_audit_contract.required_citation_ids;
   const evidenceSummary = responseBlocks.find((entry) => entry.block.id === "evidence_summary");
-  const citedSourceEventIds = uniqueInOrder(extractSourceEventIds(evidenceSummary?.content ?? ""));
+  const citedSourceEventIds = uniqueInOrder(extractSourceEventIds(textOutsideFencedCode(evidenceSummary?.content ?? "")));
   const allCitedSourceEventIds = uniqueInOrder(extractSourceEventIds(response));
   const knownCitationIds = uniqueInOrder([
     ...requiredCitationIds,
@@ -1113,6 +1113,22 @@ function uniqueInOrder(values: string[]): string[] {
 
 function responseContainsBlock(response: string, block: PromptResponseBlock): boolean {
   return responseBlockRanges(response, [block]).length > 0;
+}
+
+function textOutsideFencedCode(value: string): string {
+  const lines = value.split(/\r?\n/);
+  const kept: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) {
+      kept.push(line);
+    }
+  }
+  return kept.join("\n");
 }
 
 type ResponseBlockRange = {

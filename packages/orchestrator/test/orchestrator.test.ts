@@ -473,6 +473,28 @@ test("prompt response audit requires block headings and evidence-summary citatio
   assert.deepEqual(fencedHeading.missing_citation_ids, plan.response_audit_contract.required_citation_ids);
   assert.deepEqual(fencedHeading.unknown_source_event_ids, []);
 
+  const fencedCitations = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      "```text",
+      `Source events: ${requiredCitations}.`,
+      "```",
+      "## Assumptions And Conflicts",
+      "The response uses only source-backed prompt context.",
+      "## Plan",
+      "Keep work behind the prompt audit contract.",
+      "## Policy And Lease Needs",
+      "No tool use is claimed.",
+      "## Verification Evidence",
+      "Not complete without tests."
+    ].join("\n")
+  });
+  assert.equal(fencedCitations.status, "needs_revision");
+  assert.deepEqual(fencedCitations.cited_source_event_ids, []);
+  assert.deepEqual(fencedCitations.missing_citation_ids, plan.response_audit_contract.required_citation_ids);
+  assert.deepEqual(fencedCitations.unknown_source_event_ids, []);
+
   const inlineHeading = auditPromptResponse({
     plan,
     response: [
