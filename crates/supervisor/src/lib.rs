@@ -39,6 +39,23 @@ pub enum RiskLevel {
     L5,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessLiveness {
+    Running,
+    Missing,
+    Unknown,
+}
+
+impl ProcessLiveness {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Missing => "missing",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolRequest {
     pub id: String,
@@ -653,6 +670,14 @@ fn process_is_running(pid: u32) -> Option<bool> {
 #[cfg(not(unix))]
 fn process_is_running(_pid: u32) -> Option<bool> {
     None
+}
+
+pub fn process_liveness_for_pid(pid: u32) -> ProcessLiveness {
+    match process_is_running(pid) {
+        Some(true) => ProcessLiveness::Running,
+        Some(false) => ProcessLiveness::Missing,
+        None => ProcessLiveness::Unknown,
+    }
 }
 
 fn lock_is_stale_by_age(path: &Path) -> bool {

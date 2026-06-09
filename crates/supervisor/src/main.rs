@@ -2,7 +2,7 @@ use aetherion_supervisor::{
     append_event, append_event_with_payload, assert_workspace_id_for_root, evaluate_policy,
     file_read_request, file_write_request, init_workspace, ledger_status, parse_json_object,
     read_with_lease, write_with_lease, write_workspace_registry, Consent, Decision,
-    ParsedJsonObject,
+    ParsedJsonObject, ProcessLiveness,
 };
 use std::env;
 use std::fs;
@@ -231,6 +231,8 @@ struct RuntimeLockStatus {
     workspace_id: String,
     socket_path: String,
     workspace_match: bool,
+    process_status: String,
+    stale: bool,
     parse_error: String,
 }
 
@@ -247,6 +249,8 @@ fn runtime_lock_status(workspace_root: &Path, expected_workspace_id: &str) -> Ru
                 workspace_id: String::new(),
                 socket_path: String::new(),
                 workspace_match: false,
+                process_status: String::new(),
+                stale: false,
                 parse_error: String::new(),
             };
         }
@@ -259,6 +263,8 @@ fn runtime_lock_status(workspace_root: &Path, expected_workspace_id: &str) -> Ru
                 workspace_id: String::new(),
                 socket_path: String::new(),
                 workspace_match: false,
+                process_status: String::new(),
+                stale: false,
                 parse_error: error.to_string(),
             };
         }
@@ -295,6 +301,19 @@ fn runtime_lock_status(workspace_root: &Path, expected_workspace_id: &str) -> Ru
             }
         }
     }
+    let process_status = if parse_error.is_empty() {
+        match pid.parse::<u32>().ok().filter(|value| *value > 0) {
+            Some(owner_pid) => aetherion_supervisor::process_liveness_for_pid(owner_pid).as_str(),
+            None => {
+                parse_error = "runtime lock pid is not a positive integer".to_string();
+                "invalid"
+            }
+        }
+    } else {
+        "invalid"
+    }
+    .to_string();
+    let stale = process_status == ProcessLiveness::Missing.as_str();
 
     RuntimeLockStatus {
         present: true,
@@ -302,6 +321,8 @@ fn runtime_lock_status(workspace_root: &Path, expected_workspace_id: &str) -> Ru
         pid,
         transport,
         workspace_match: workspace_id == expected_workspace_id && parse_error.is_empty(),
+        process_status,
+        stale,
         workspace_id,
         socket_path,
         parse_error,
@@ -401,7 +422,7 @@ fn handle_rpc_line(line: &str, transport: &str) -> String {
                     Ok(status) => {
                         let runtime_lock = runtime_lock_status(&workspace.root, &workspace.id);
                         format!(
-                            "{{\"workspace_id\":\"{}\",\"authority\":\"rust-supervisor\",\"transport\":\"{}\",\"daemon_running\":false,\"ledger_chain_valid\":{},\"ledger_events\":{},\"ledger_head_event_id\":\"{}\",\"ledger_head_event_hash\":\"{}\",\"runtime_dir\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\",\"runtime_lock_present\":{},\"runtime_lock_path\":\"{}\",\"runtime_lock_pid\":\"{}\",\"runtime_lock_transport\":\"{}\",\"runtime_lock_workspace_id\":\"{}\",\"runtime_lock_socket_path\":\"{}\",\"runtime_lock_workspace_match\":{},\"runtime_lock_parse_error\":\"{}\"}}",
+                            "{{\"workspace_id\":\"{}\",\"authority\":\"rust-supervisor\",\"transport\":\"{}\",\"daemon_running\":false,\"ledger_chain_valid\":{},\"ledger_events\":{},\"ledger_head_event_id\":\"{}\",\"ledger_head_event_hash\":\"{}\",\"runtime_dir\":\"{}\",\"ledger_path\":\"{}\",\"registry_path\":\"{}\",\"runtime_lock_present\":{},\"runtime_lock_path\":\"{}\",\"runtime_lock_pid\":\"{}\",\"runtime_lock_transport\":\"{}\",\"runtime_lock_workspace_id\":\"{}\",\"runtime_lock_socket_path\":\"{}\",\"runtime_lock_workspace_match\":{},\"runtime_lock_process_status\":\"{}\",\"runtime_lock_stale\":{},\"runtime_lock_parse_error\":\"{}\"}}",
                             escape(&workspace.id),
                             escape(transport),
                             status.chain_valid,
@@ -418,6 +439,8 @@ fn handle_rpc_line(line: &str, transport: &str) -> String {
                             escape(&runtime_lock.workspace_id),
                             escape(&runtime_lock.socket_path),
                             runtime_lock.workspace_match,
+                            escape(&runtime_lock.process_status),
+                            runtime_lock.stale,
                             escape(&runtime_lock.parse_error)
                         )
                     }
@@ -1826,6 +1849,8 @@ mod tests {
         assert!(status_response.contains("\"registry_path\":\""));
         assert!(status_response.contains("\"runtime_lock_present\":false"));
         assert!(status_response.contains("\"runtime_lock_workspace_match\":false"));
+        assert!(status_response.contains("\"runtime_lock_process_status\":\"\""));
+        assert!(status_response.contains("\"runtime_lock_stale\":false"));
         let ledger_path = root.join(".aetherion/events/events.jsonl");
         assert_eq!(fs::read_to_string(&ledger_path).unwrap(), "");
 
@@ -1857,7 +1882,8 @@ mod tests {
         fs::write(
             &lock_path,
             format!(
-                "pid=12345\ntransport=unix-socket\nworkspace_id={workspace_id}\nsocket_path=/tmp/aeth-status-lock.sock\n"
+                "pid={}\ntransport=unix-socket\nworkspace_id={workspace_id}\nsocket_path=/tmp/aeth-status-lock.sock\n",
+                std::process::id()
             ),
         )
         .unwrap();
@@ -1875,7 +1901,9 @@ mod tests {
             "\"runtime_lock_path\":\"{}\"",
             escape(&lock_path.display().to_string())
         )));
-        assert!(status_response.contains("\"runtime_lock_pid\":\"12345\""));
+        assert!(
+            status_response.contains(&format!("\"runtime_lock_pid\":\"{}\"", std::process::id()))
+        );
         assert!(status_response.contains("\"runtime_lock_transport\":\"unix-socket\""));
         assert!(status_response.contains(&format!(
             "\"runtime_lock_workspace_id\":\"{}\"",
@@ -1885,6 +1913,43 @@ mod tests {
             status_response.contains("\"runtime_lock_socket_path\":\"/tmp/aeth-status-lock.sock\"")
         );
         assert!(status_response.contains("\"runtime_lock_workspace_match\":true"));
+        assert!(status_response.contains("\"runtime_lock_process_status\":\"running\""));
+        assert!(status_response.contains("\"runtime_lock_stale\":false"));
+        assert!(status_response.contains("\"runtime_lock_parse_error\":\"\""));
+        assert_eq!(fs::read_to_string(lock_path).unwrap(), lock_before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rpc_supervisor_status_reports_stale_runtime_lock_without_repair() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-status-stale-lock-{nonce}"));
+        fs::create_dir_all(root.join(".aetherion")).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let lock_path = root.join(".aetherion/supervisor.lock");
+        fs::write(
+            &lock_path,
+            format!(
+                "pid=999999999\ntransport=unix-socket\nworkspace_id={workspace_id}\nsocket_path=/tmp/aeth-stale-lock.sock\n"
+            ),
+        )
+        .unwrap();
+        let lock_before = fs::read_to_string(&lock_path).unwrap();
+        let status_request = format!(
+            "{{\"id\":\"rpc_status_stale_lock\",\"method\":\"supervisor.status\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_status_stale_lock\"}}",
+            escape(&root.display().to_string()),
+            workspace_id
+        );
+
+        let status_response = handle_rpc_line(&status_request, "stdio");
+
+        assert!(status_response.contains("\"runtime_lock_present\":true"));
+        assert!(status_response.contains("\"runtime_lock_workspace_match\":true"));
+        assert!(status_response.contains("\"runtime_lock_process_status\":\"missing\""));
+        assert!(status_response.contains("\"runtime_lock_stale\":true"));
         assert!(status_response.contains("\"runtime_lock_parse_error\":\"\""));
         assert_eq!(fs::read_to_string(lock_path).unwrap(), lock_before);
     }
@@ -1916,6 +1981,8 @@ mod tests {
         assert!(status_response.contains("\"runtime_lock_present\":true"));
         assert!(status_response.contains("\"runtime_lock_workspace_id\":\"ws_other\""));
         assert!(status_response.contains("\"runtime_lock_workspace_match\":false"));
+        assert!(status_response.contains("\"runtime_lock_process_status\":\"invalid\""));
+        assert!(status_response.contains("\"runtime_lock_stale\":false"));
         assert!(status_response.contains("malformed runtime lock line: bad_line"));
         assert_eq!(fs::read_to_string(lock_path).unwrap(), lock_before);
     }

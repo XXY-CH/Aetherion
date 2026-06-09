@@ -421,6 +421,8 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     "runtime_lock_workspace_id",
     "runtime_lock_socket_path",
     "runtime_lock_workspace_match",
+    "runtime_lock_process_status",
+    "runtime_lock_stale",
     "runtime_lock_parse_error"
   ]);
 }

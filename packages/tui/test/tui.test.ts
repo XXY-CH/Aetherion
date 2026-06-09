@@ -612,6 +612,8 @@ test("TUI run over supervisor socket honors auth and workspace binding", async (
     assert.equal(stdoutValue(status.stdout, "transport"), "unix-socket");
     assert.equal(stdoutValue(status.stdout, "runtime_lock_present"), "true");
     assert.equal(stdoutValue(status.stdout, "runtime_lock_workspace_match"), "true");
+    assert.equal(stdoutValue(status.stdout, "runtime_lock_process_status"), "running");
+    assert.equal(stdoutValue(status.stdout, "runtime_lock_stale"), "false");
   } finally {
     child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
@@ -652,9 +654,30 @@ test("TUI supervisor status reports Rust runtime health without appending events
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_workspace_id"), "not_recorded");
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_socket_path"), "not_recorded");
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_workspace_match"), "false");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_process_status"), "not_recorded");
+  assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_stale"), "false");
   assert.equal(stdoutValue(cleanStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
   const emptyLedgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
   assert.equal(await readFile(emptyLedgerPath, "utf8"), "");
+
+  if (process.platform !== "win32") {
+    const staleLockPath = join(workspace, ".aetherion", "supervisor.lock");
+    const staleLock = `pid=999999999\ntransport=unix-socket\nworkspace_id=${workspaceIdForRoot(workspace)}\nsocket_path=/tmp/aeth-stale-status.sock\n`;
+    await writeFile(staleLockPath, staleLock);
+    const staleStatus = await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "status",
+      "--workspace",
+      workspace
+    ]);
+    assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_present"), "true");
+    assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_workspace_match"), "true");
+    assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_process_status"), "missing");
+    assert.equal(stdoutValue(staleStatus.stdout, "runtime_lock_stale"), "true");
+    assert.equal(await readFile(staleLockPath, "utf8"), staleLock);
+    await rm(staleLockPath, { force: true });
+  }
 
   await writeFile(join(workspace, "README.md"), "Supervisor status fixture\n");
   const run = await execFileAsync(process.execPath, [
@@ -852,6 +875,8 @@ test("supervisor socket RPC can bind one workspace with a runtime lock", async (
     assert.equal(result.runtime_lock_workspace_id, workspaceId);
     assert.equal(result.runtime_lock_socket_path, socketPath);
     assert.equal(result.runtime_lock_workspace_match, true);
+    assert.equal(result.runtime_lock_process_status, "running");
+    assert.equal(result.runtime_lock_stale, false);
     assert.equal(result.runtime_lock_parse_error, "");
 
     const cliStatus = await execFileAsync(process.execPath, [
@@ -871,6 +896,8 @@ test("supervisor socket RPC can bind one workspace with a runtime lock", async (
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_workspace_id"), workspaceId);
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_socket_path"), socketPath);
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_workspace_match"), "true");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_process_status"), "running");
+    assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_stale"), "false");
     assert.equal(stdoutValue(cliStatus.stdout, "runtime_lock_parse_error"), "not_recorded");
 
     await assert.rejects(
