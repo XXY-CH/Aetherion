@@ -1242,13 +1242,14 @@ function forbiddenClaimFindingsFor(response: string): PromptResponseAuditFinding
     }
   ];
   for (const check of checks) {
-    if (lines.some((line) => check.pattern.test(line) && !isNegatedClaim(line))) {
+    if (lines.some((line) => hasUnnegatedPattern(line, check.pattern))) {
       findings.push({ id: check.id, severity: "error", message: check.message });
     }
   }
-  const completionClaim = lines.some((line) =>
-    /\b(?:done|complete|completed|finished|verified|all tests pass|tests passed)\b/i.test(line) && !isNegatedClaim(line)
-  );
+  const completionClaim = lines.some((line) => hasUnnegatedPattern(
+    line,
+    /\b(?:done|complete|completed|finished|verified|all tests pass|tests passed)\b/i
+  ));
   const hasVerificationBlock = responseContainsBlock(response, {
     id: "verification_evidence",
     title: "Verification Evidence",
@@ -1265,8 +1266,15 @@ function forbiddenClaimFindingsFor(response: string): PromptResponseAuditFinding
   return findings;
 }
 
-function isNegatedClaim(line: string): boolean {
-  return /\b(?:do not|did not|does not|no|not|never|without|cannot|can't|must not)\b/i.test(line);
+function hasUnnegatedPattern(line: string, pattern: RegExp): boolean {
+  const match = pattern.exec(line);
+  return match !== null && !isNegatedClaimAt(line, match.index);
+}
+
+function isNegatedClaimAt(line: string, claimStart: number): boolean {
+  const prefix = line.slice(Math.max(0, claimStart - 40), claimStart).toLowerCase();
+  return /\b(?:no|not|never|without|cannot|can't)\s+(?:[a-z0-9_-]+\s+){0,4}$/.test(prefix)
+    || /\b(?:do|did|does|must)\s+not\s+(?:[a-z0-9_-]+\s+){0,4}$/.test(prefix);
 }
 
 function nextStepForFinding(finding: PromptResponseAuditFinding): string {
