@@ -441,6 +441,54 @@ test("prompt response audit checks structure, citations, and forbidden claims", 
   assert.ok(failing.next_steps.some((step) => step.includes("required response-format block")));
 });
 
+test("prompt response audit requires block headings and evidence-summary citations", () => {
+  const plan = assemblePromptPlan({
+    task: "Draft a local implementation plan for prompt assembly.",
+    contextPack: contextPack(),
+    sourceEvents: sourceEvents(),
+    allowedTools: ["filesystem.read"]
+  });
+  const requiredCitations = plan.response_audit_contract.required_citation_ids.join(", ");
+
+  const fencedHeading = auditPromptResponse({
+    plan,
+    response: [
+      "```markdown",
+      "## Evidence Summary",
+      `Source events: ${requiredCitations}.`,
+      "```",
+      "## Assumptions And Conflicts",
+      "The response uses only source-backed prompt context.",
+      "## Plan",
+      `The same citations appear outside the evidence block: ${requiredCitations}.`,
+      "## Policy And Lease Needs",
+      "No tool use is claimed.",
+      "## Verification Evidence",
+      "Not complete without tests."
+    ].join("\n")
+  });
+  assert.equal(fencedHeading.status, "needs_revision");
+  assert.ok(fencedHeading.missing_block_ids.includes("evidence_summary"));
+  assert.deepEqual(fencedHeading.cited_source_event_ids, []);
+  assert.deepEqual(fencedHeading.missing_citation_ids, plan.response_audit_contract.required_citation_ids);
+  assert.deepEqual(fencedHeading.unknown_source_event_ids, []);
+
+  const inlineHeading = auditPromptResponse({
+    plan,
+    response: [
+      `Evidence Summary: ${requiredCitations}.`,
+      "Assumptions And Conflicts: no additional assumptions.",
+      "Plan: keep work behind the prompt audit contract.",
+      "Policy And Lease Needs: no tool use is claimed.",
+      "Verification Evidence: tests are required before completion."
+    ].join("\n")
+  });
+  assert.equal(inlineHeading.status, "pass");
+  assert.deepEqual(inlineHeading.missing_block_ids, []);
+  assert.deepEqual(inlineHeading.missing_citation_ids, []);
+  assert.deepEqual(inlineHeading.cited_source_event_ids, plan.response_audit_contract.required_citation_ids);
+});
+
 test("prompt assembly adapts response format for answer and patch modes", () => {
   const answer = assemblePromptPlan({
     task: "Explain current context.",

@@ -452,19 +452,20 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
 export function auditPromptResponse(input: PromptResponseAuditInput): PromptResponseAudit {
   const response = input.response.trim();
   const requiredBlockIds = input.plan.response_audit_contract.required_block_ids;
-  const presentBlockIds = input.plan.response_format.required_blocks
-    .filter((block) => responseContainsBlock(response, block))
-    .map((block) => block.id);
+  const responseBlocks = responseBlockRanges(response, input.plan.response_format.required_blocks);
+  const presentBlockIds = uniqueInOrder(responseBlocks.map((entry) => entry.block.id));
   const missingBlockIds = requiredBlockIds.filter((blockId) => !presentBlockIds.includes(blockId));
   const requiredCitationIds = input.plan.response_audit_contract.required_citation_ids;
-  const citedSourceEventIds = uniqueInOrder(extractSourceEventIds(response));
+  const evidenceSummary = responseBlocks.find((entry) => entry.block.id === "evidence_summary");
+  const citedSourceEventIds = uniqueInOrder(extractSourceEventIds(evidenceSummary?.content ?? ""));
+  const allCitedSourceEventIds = uniqueInOrder(extractSourceEventIds(response));
   const knownCitationIds = uniqueInOrder([
     ...requiredCitationIds,
     ...input.plan.citation_map.section_sources.flatMap((section) => section.source_event_ids),
     ...input.plan.citation_map.message_sources.flatMap((message) => message.source_event_ids)
   ]);
   const missingCitationIds = requiredCitationIds.filter((eventId) => !citedSourceEventIds.includes(eventId));
-  const unknownSourceEventIds = citedSourceEventIds.filter((eventId) => !knownCitationIds.includes(eventId));
+  const unknownSourceEventIds = allCitedSourceEventIds.filter((eventId) => !knownCitationIds.includes(eventId));
   const forbiddenClaimFindings = forbiddenClaimFindingsFor(response);
   const findings: PromptResponseAuditFinding[] = [];
 
@@ -1111,21 +1112,83 @@ function uniqueInOrder(values: string[]): string[] {
 }
 
 function responseContainsBlock(response: string, block: PromptResponseBlock): boolean {
-  const title = normalizeBlockLabel(block.title);
-  const id = normalizeBlockLabel(block.id);
-  return response.split(/\r?\n/).some((line) => {
-    const label = normalizeBlockLabel(line);
-    return label === title || label === id || label.startsWith(`${title} `) || label.startsWith(`${id} `);
+  return responseBlockRanges(response, [block]).length > 0;
+}
+
+type ResponseBlockRange = {
+  block: PromptResponseBlock;
+  content: string;
+};
+
+function responseBlockRanges(response: string, blocks: PromptResponseBlock[]): ResponseBlockRange[] {
+  const lines = response.split(/\r?\n/);
+  const headings: Array<{ block: PromptResponseBlock; lineIndex: number; inlineContent: string }> = [];
+  let inFence = false;
+
+  lines.forEach((line, lineIndex) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) {
+      return;
+    }
+    const heading = responseBlockHeadingForLine(line, blocks);
+    if (heading) {
+      headings.push({ ...heading, lineIndex });
+    }
+  });
+
+  return headings.map((heading, index) => {
+    const nextHeadingLine = headings[index + 1]?.lineIndex ?? lines.length;
+    const body = lines.slice(heading.lineIndex + 1, nextHeadingLine);
+    const content = heading.inlineContent
+      ? [heading.inlineContent, ...body].join("\n")
+      : body.join("\n");
+    return {
+      block: heading.block,
+      content
+    };
   });
 }
 
-function normalizeBlockLabel(value: string): string {
+function responseBlockHeadingForLine(
+  line: string,
+  blocks: PromptResponseBlock[]
+): { block: PromptResponseBlock; inlineContent: string } | undefined {
+  const text = normalizeHeadingSyntax(line);
+  if (!text) {
+    return undefined;
+  }
+  const colonIndex = text.indexOf(":");
+  if (colonIndex >= 0) {
+    const label = normalizeBlockHeadingLabel(text.slice(0, colonIndex));
+    const inlineContent = text.slice(colonIndex + 1).trim();
+    const block = blocks.find((candidate) => isBlockLabel(candidate, label));
+    return block ? { block, inlineContent } : undefined;
+  }
+  const label = normalizeBlockHeadingLabel(text);
+  const block = blocks.find((candidate) => isBlockLabel(candidate, label));
+  return block ? { block, inlineContent: "" } : undefined;
+}
+
+function normalizeHeadingSyntax(value: string): string {
   return value
     .trim()
-    .replace(/^#{1,6}\s*/, "")
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
     .replace(/\*\*/g, "")
     .replace(/`/g, "")
-    .replace(/:.*$/, "")
+    .trim();
+}
+
+function isBlockLabel(block: PromptResponseBlock, label: string): boolean {
+  return label === normalizeBlockHeadingLabel(block.title) || label === normalizeBlockHeadingLabel(block.id);
+}
+
+function normalizeBlockHeadingLabel(value: string): string {
+  return value
+    .trim()
     .replace(/[_-]+/g, " ")
     .replace(/[^a-zA-Z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
