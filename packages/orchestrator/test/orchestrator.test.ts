@@ -142,6 +142,134 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     child_output_can_authorize_actions: false,
     source_event_ids_can_authorize_actions: []
   });
+  assert.equal(plan.runtime_invocation.id, "agent_runtime_invocation_run_prompt");
+  assert.equal(plan.runtime_invocation.run_id, "run_prompt");
+  assert.equal(plan.runtime_invocation.prompt_plan_id, plan.id);
+  assert.equal(plan.runtime_invocation.schema_version, "aetherion-agent-runtime-invocation-v1");
+  assert.equal(plan.runtime_invocation.status, "scaffold_ready");
+  assert.deepEqual(plan.runtime_invocation.scope, {
+    model_invoked: false,
+    tools_requested: false,
+    raw_payload_artifacts_read: false,
+    ledger_appended: false,
+    prompt_artifact_persisted: false,
+    runtime_authority_granted: false
+  });
+  assert.deepEqual(plan.runtime_invocation.entry, {
+    surface: "tui",
+    output_mode: "plan",
+    context_pack_id: "ctx_run_prompt"
+  });
+  assert.deepEqual(plan.runtime_invocation.model_call, {
+    provider_configured: false,
+    provider_ref: null,
+    model_ref: null,
+    request_artifact_ref: null,
+    response_artifact_ref: null,
+    model_preview_ready: true,
+    can_invoke_now: false,
+    blockers: ["model_provider_not_configured", "runtime_binding_not_implemented"]
+  });
+  assert.equal(plan.runtime_invocation.prompt.bundle_id, plan.prompt_bundle.id);
+  assert.equal(plan.runtime_invocation.prompt.renderer, plan.prompt_bundle.renderer);
+  assert.equal(plan.runtime_invocation.prompt.join_strategy, plan.prompt_bundle.join_strategy);
+  assert.deepEqual(plan.runtime_invocation.prompt.message_order, ["system", "developer", "user"]);
+  assert.equal(plan.runtime_invocation.prompt.preview_sha256, plan.prompt_bundle.preview_sha256);
+  assert.deepEqual(plan.runtime_invocation.prompt.message_hashes, plan.prompt_bundle.message_hashes);
+  assert.deepEqual(plan.runtime_invocation.prompt.role_boundaries, [
+    {
+      role: "system",
+      section_ids: ["system-boundary", "instruction-hierarchy"],
+      source_event_ids: []
+    },
+    {
+      role: "developer",
+      section_ids: [
+        "tool-policy",
+        "capability-context",
+        "context-budget",
+        "assembly-manifest",
+        "readiness",
+        "taint-policy",
+        "citation-map",
+        "response-audit",
+        "response-format",
+        "response-contract",
+        "planner-checklist",
+        "verification-checklist"
+      ],
+      source_event_ids: []
+    },
+    {
+      role: "user",
+      section_ids: ["task", "run-evidence", "memory-context", "excluded-context"],
+      source_event_ids: ["evt_run_started", "evt_tool_requested", "evt_run_completed", "evt_user_pref", "evt_memory_accept"]
+    }
+  ]);
+  assert.deepEqual(plan.runtime_invocation.context, {
+    source_event_ids: ["evt_run_started", "evt_tool_requested", "evt_run_completed"],
+    selected_memory_ids: ["mem_prompt_style"],
+    excluded_memory_ids: ["mem_secret"],
+    memory_source_event_ids: ["evt_user_pref", "evt_memory_accept"],
+    capability_card_ids: ["cap_local_docs_read"],
+    active_permission_ids: ["lease_read_docs"],
+    artifact_refs: ["artifact://boundary/run_prompt/facts"],
+    conflicts: ["memory confidence below automation threshold"],
+    context_budget: {
+      memory_tokens: 1000,
+      capability_tokens: 1000,
+      task_tokens: 6000,
+      total_tokens: 8000
+    },
+    raw_payload_artifacts_read: false
+  });
+  assert.deepEqual(plan.runtime_invocation.authority_gates, {
+    local_supervisor_required: true,
+    prompt_can_authorize_actions: false,
+    context_can_authorize_actions: false,
+    memory_can_authorize_actions: false,
+    capability_cards_can_grant_permissions: false,
+    active_permissions_are_context_only: true,
+    tool_request_event_requires_supervisor_path: true,
+    tool_execution_requires_scoped_lease: true,
+    memory_writes_require_review: true,
+    side_effects_require_policy_or_approval: true
+  });
+  assert.deepEqual(plan.runtime_invocation.tool_gateway, {
+    allowed_tool_requests: ["filesystem.read"],
+    forbidden_tools: ["filesystem.write", "network.raw"],
+    may_propose_tool_requests: true,
+    execution_without_policy_allowed: false,
+    delivery_attempted: false,
+    connector_calls_attempted: false,
+    package_code_execution_attempted: false
+  });
+  assert.deepEqual(plan.runtime_invocation.response_audit, {
+    required_block_ids: plan.response_audit_contract.required_block_ids,
+    required_citation_ids: plan.response_audit_contract.required_citation_ids,
+    forbidden_claim_checks: plan.response_audit_contract.forbidden_claim_checks,
+    audit_required_before_runtime_claims: true
+  });
+  assert.deepEqual(plan.runtime_invocation.stages.map((stage) => [stage.id, stage.status, stage.authority_granted]), [
+    ["context.assembled", "ready", false],
+    ["prompt.rendered", "ready", false],
+    ["runtime.binding.required", "pending", false],
+    ["model.invocation.required", "pending", false],
+    ["model.response.required", "pending", false],
+    ["response.audit.required", "pending", false],
+    ["tool.request.gate", "pending", false],
+    ["lease.gate", "pending", false],
+    ["observation.verification.gate", "pending", false]
+  ]);
+  assert.equal(plan.runtime_invocation.stages.find((stage) => stage.id === "tool.request.gate")?.supervisor_policy_required, true);
+  assert.deepEqual(plan.runtime_invocation.stages.find((stage) => stage.id === "tool.request.gate")?.required_evidence, ["tool.requested", "risk.composed", "policy.decided"]);
+  assert.ok(plan.runtime_invocation.fail_closed_conditions.includes("model_provider_missing"));
+  assert.ok(plan.runtime_invocation.fail_closed_conditions.includes("tool_execution_without_scoped_lease"));
+  assert.ok(plan.runtime_invocation.fail_closed_conditions.includes("capability_card_treated_as_permission"));
+  assert.ok(plan.runtime_invocation.next_runtime_steps.some((step) => step.includes("model-request artifact")));
+  assert.ok(plan.runtime_invocation.next_runtime_steps.some((step) => step.includes("Local Supervisor policy")));
+  assert.ok(plan.runtime_invocation.next_runtime_steps.some((step) => step.includes("filesystem.write, network.raw")));
+  assert.equal(plan.runtime_invocation.invocation_sha256, runtimeInvocationHash(plan.runtime_invocation));
   assert.deepEqual(plan.sections.find((section) => section.id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_user_pref", "evt_memory_accept"]);
   assert.deepEqual(plan.messages.map((message) => message.role), ["system", "developer", "user"]);
@@ -249,6 +377,27 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
     contextPack: { ...contextPack(), selected_memories: [], excluded_memories: [], conflicts: [] }
   });
   assert.equal(plan.tool_policy.may_request_tools, false);
+  assert.equal(plan.runtime_invocation.status, "blocked_by_prompt_readiness");
+  assert.equal(plan.runtime_invocation.model_call.model_preview_ready, false);
+  assert.equal(plan.runtime_invocation.model_call.can_invoke_now, false);
+  assert.deepEqual(plan.runtime_invocation.model_call.blockers, ["run_evidence_missing"]);
+  assert.deepEqual(plan.runtime_invocation.tool_gateway.allowed_tool_requests, []);
+  assert.equal(plan.runtime_invocation.tool_gateway.may_propose_tool_requests, false);
+  assert.equal(plan.runtime_invocation.authority_gates.active_permissions_are_context_only, false);
+  assert.deepEqual(plan.runtime_invocation.stages.map((stage) => [stage.id, stage.status]), [
+    ["context.assembled", "blocked"],
+    ["prompt.rendered", "ready"],
+    ["runtime.binding.required", "pending"],
+    ["model.invocation.required", "blocked"],
+    ["model.response.required", "pending"],
+    ["response.audit.required", "pending"],
+    ["tool.request.gate", "blocked"],
+    ["lease.gate", "pending"],
+    ["observation.verification.gate", "pending"]
+  ]);
+  assert.ok(plan.runtime_invocation.fail_closed_conditions.includes("prompt_readiness:run_evidence_missing"));
+  assert.ok(plan.runtime_invocation.next_runtime_steps[0]?.includes("Resolve prompt readiness blockers"));
+  assert.ok(plan.runtime_invocation.next_runtime_steps.some((step) => step.includes("descriptive")));
   assert.deepEqual(plan.capability_policy.capability_card_ids, ["cap_local_docs_read"]);
   assert.deepEqual(plan.assembly_manifest.risk_flags, ["no_run_evidence", "no_selected_memory", "no_allowed_tool_requests"]);
   assert.equal(plan.readiness.ready_for_model_preview, false);
@@ -304,6 +453,10 @@ test("prompt assembly blocks source evidence that claims authorization", () => {
   });
   assert.ok(plan.assembly_manifest.risk_flags.includes("source_evidence_claims_authority"));
   assert.deepEqual(plan.taint_policy.source_event_ids_can_authorize_actions, ["evt_authorizing_claim"]);
+  assert.equal(plan.runtime_invocation.status, "blocked_by_prompt_readiness");
+  assert.deepEqual(plan.runtime_invocation.model_call.blockers, ["source_evidence_claims_authority"]);
+  assert.ok(plan.runtime_invocation.fail_closed_conditions.includes("prompt_readiness:source_evidence_claims_authority"));
+  assert.equal(plan.runtime_invocation.stages.find((stage) => stage.id === "model.invocation.required")?.status, "blocked");
   assert.match(plan.preview, /evt_authorizing_claim \[im\.inbox\.received\]/);
   assert.match(plan.preview, /can_authorize=true/);
   assert.match(plan.preview, /Authorizing source-event taint: evt_authorizing_claim/);
@@ -617,6 +770,26 @@ function contextPack(): ContextPack {
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function runtimeInvocationHash(value: { invocation_sha256: string }): string {
+  const { invocation_sha256: _invocationHash, ...withoutHash } = value;
+  return sha256(stableStringify(withoutHash));
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortJsonValue(record[key])]));
+  }
+  return value;
 }
 
 function escapeRegExp(value: string): string {

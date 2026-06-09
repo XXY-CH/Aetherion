@@ -67,6 +67,13 @@ export type PromptAssemblyManifest = {
   risk_flags: string[];
 };
 
+export type PromptContextBudget = {
+  memory_tokens: number;
+  capability_tokens: number;
+  task_tokens: number;
+  total_tokens: number;
+};
+
 export type PromptBundle = {
   id: string;
   run_id: string;
@@ -98,6 +105,110 @@ export type PromptBundle = {
   };
   engineering_rules: string[];
   guardrails: PromptAssemblyManifest["guardrails"];
+};
+
+export type AgentRuntimeStage = {
+  id:
+    | "context.assembled"
+    | "prompt.rendered"
+    | "runtime.binding.required"
+    | "model.invocation.required"
+    | "model.response.required"
+    | "response.audit.required"
+    | "tool.request.gate"
+    | "lease.gate"
+    | "observation.verification.gate";
+  status: "ready" | "pending" | "blocked";
+  required_evidence: string[];
+  supervisor_policy_required: boolean;
+  authority_granted: false;
+};
+
+export type AgentRuntimeInvocation = {
+  id: string;
+  run_id: string;
+  prompt_plan_id: string;
+  schema_version: "aetherion-agent-runtime-invocation-v1";
+  status: "scaffold_ready" | "blocked_by_prompt_readiness";
+  scope: {
+    model_invoked: false;
+    tools_requested: false;
+    raw_payload_artifacts_read: false;
+    ledger_appended: false;
+    prompt_artifact_persisted: false;
+    runtime_authority_granted: false;
+  };
+  entry: {
+    surface: "tui";
+    output_mode: "plan" | "answer" | "patch";
+    context_pack_id: string;
+  };
+  model_call: {
+    provider_configured: false;
+    provider_ref: null;
+    model_ref: null;
+    request_artifact_ref: null;
+    response_artifact_ref: null;
+    model_preview_ready: boolean;
+    can_invoke_now: false;
+    blockers: string[];
+  };
+  prompt: {
+    bundle_id: string;
+    renderer: PromptBundle["renderer"];
+    join_strategy: PromptBundle["join_strategy"];
+    message_order: Array<PromptMessage["role"]>;
+    preview_sha256: string;
+    message_hashes: PromptBundle["message_hashes"];
+    role_boundaries: Array<{
+      role: PromptMessage["role"];
+      section_ids: string[];
+      source_event_ids: string[];
+    }>;
+  };
+  context: {
+    source_event_ids: string[];
+    selected_memory_ids: string[];
+    excluded_memory_ids: string[];
+    memory_source_event_ids: string[];
+    capability_card_ids: string[];
+    active_permission_ids: string[];
+    artifact_refs: string[];
+    conflicts: string[];
+    context_budget: PromptContextBudget;
+    raw_payload_artifacts_read: false;
+  };
+  authority_gates: {
+    local_supervisor_required: true;
+    prompt_can_authorize_actions: false;
+    context_can_authorize_actions: false;
+    memory_can_authorize_actions: false;
+    capability_cards_can_grant_permissions: false;
+    active_permissions_are_context_only: boolean;
+    tool_request_event_requires_supervisor_path: true;
+    tool_execution_requires_scoped_lease: true;
+    memory_writes_require_review: true;
+    side_effects_require_policy_or_approval: true;
+  };
+  tool_gateway: {
+    allowed_tool_requests: string[];
+    forbidden_tools: string[];
+    may_propose_tool_requests: boolean;
+    execution_without_policy_allowed: false;
+    delivery_attempted: false;
+    connector_calls_attempted: false;
+    package_code_execution_attempted: false;
+  };
+  response_audit: {
+    required_block_ids: string[];
+    required_citation_ids: string[];
+    forbidden_claim_checks: string[];
+    audit_required_before_runtime_claims: true;
+  };
+  stages: AgentRuntimeStage[];
+  fail_closed_conditions: string[];
+  next_runtime_steps: string[];
+  invocation_sha256: string;
 };
 
 export type PromptResponseBlock = {
@@ -220,12 +331,7 @@ export type PromptPlan = {
   response_audit_contract: PromptResponseAuditContract;
   readiness: PromptReadiness;
   citation_map: PromptCitationMap;
-  context_budget: {
-    memory_tokens: number;
-    capability_tokens: number;
-    task_tokens: number;
-    total_tokens: number;
-  };
+  context_budget: PromptContextBudget;
   assembly_manifest: PromptAssemblyManifest;
   instruction_hierarchy: {
     system_rules: string[];
@@ -240,6 +346,7 @@ export type PromptPlan = {
     child_output_can_authorize_actions: false;
     source_event_ids_can_authorize_actions: string[];
   };
+  runtime_invocation: AgentRuntimeInvocation;
   prompt_bundle: PromptBundle;
   sections: PromptSection[];
   messages: PromptMessage[];
@@ -395,8 +502,24 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
   const messages = renderPromptMessages(sections);
   const preview = renderPromptPreview(sections);
   const promptBundle = promptBundleFor(input.contextPack.run_id, sections, messages, preview, assemblyManifest.guardrails);
+  const promptPlanId = `prompt_${input.contextPack.run_id}`;
+  const runtimeInvocation = agentRuntimeInvocationFor({
+    promptPlanId,
+    runId: input.contextPack.run_id,
+    outputMode,
+    contextPack: input.contextPack,
+    promptBundle,
+    messages,
+    assemblyManifest,
+    readiness,
+    responseAuditContract,
+    contextBudget,
+    allowedTools,
+    forbiddenTools,
+    activePermissions
+  });
   return {
-    id: `prompt_${input.contextPack.run_id}`,
+    id: promptPlanId,
     run_id: input.contextPack.run_id,
     task,
     output_mode: outputMode,
@@ -442,6 +565,7 @@ export function assemblePromptPlan(input: PromptAssemblyInput): PromptPlan {
       child_output_can_authorize_actions: false,
       source_event_ids_can_authorize_actions: [...assemblyManifest.taint.source_event_ids_can_authorize_actions]
     },
+    runtime_invocation: runtimeInvocation,
     prompt_bundle: promptBundle,
     sections,
     messages,
@@ -951,7 +1075,7 @@ function capabilityContextLines(capabilityCards: string[]): string[] {
   ];
 }
 
-function contextBudgetFor(contextPack: ContextPack): PromptPlan["context_budget"] {
+function contextBudgetFor(contextPack: ContextPack): PromptContextBudget {
   const { memory_tokens, capability_tokens, task_tokens } = contextPack.token_budget;
   return {
     memory_tokens,
@@ -961,7 +1085,7 @@ function contextBudgetFor(contextPack: ContextPack): PromptPlan["context_budget"
   };
 }
 
-function contextBudgetLines(contextBudget: PromptPlan["context_budget"]): string[] {
+function contextBudgetLines(contextBudget: PromptContextBudget): string[] {
   return [
     `Memory budget: ${contextBudget.memory_tokens} tokens.`,
     `Capability budget: ${contextBudget.capability_tokens} tokens.`,
@@ -1089,6 +1213,231 @@ function promptBundleFor(
   };
 }
 
+type AgentRuntimeInvocationInput = {
+  promptPlanId: string;
+  runId: string;
+  outputMode: PromptPlan["output_mode"];
+  contextPack: ContextPack;
+  promptBundle: PromptBundle;
+  messages: PromptMessage[];
+  assemblyManifest: PromptAssemblyManifest;
+  readiness: PromptReadiness;
+  responseAuditContract: PromptResponseAuditContract;
+  contextBudget: PromptContextBudget;
+  allowedTools: string[];
+  forbiddenTools: string[];
+  activePermissions: string[];
+};
+
+function agentRuntimeInvocationFor(input: AgentRuntimeInvocationInput): AgentRuntimeInvocation {
+  const memorySourceEventIds = uniqueInOrder(input.contextPack.selected_memories.flatMap((memory) => memory.source_events));
+  const status: AgentRuntimeInvocation["status"] = input.readiness.ready_for_model_preview
+    ? "scaffold_ready"
+    : "blocked_by_prompt_readiness";
+  const stages = runtimeStagesFor(input);
+  const withoutHash: Omit<AgentRuntimeInvocation, "invocation_sha256"> = {
+    id: `agent_runtime_invocation_${input.runId}`,
+    run_id: input.runId,
+    prompt_plan_id: input.promptPlanId,
+    schema_version: "aetherion-agent-runtime-invocation-v1",
+    status,
+    scope: {
+      model_invoked: false,
+      tools_requested: false,
+      raw_payload_artifacts_read: false,
+      ledger_appended: false,
+      prompt_artifact_persisted: false,
+      runtime_authority_granted: false
+    },
+    entry: {
+      surface: "tui",
+      output_mode: input.outputMode,
+      context_pack_id: input.contextPack.id
+    },
+    model_call: {
+      provider_configured: false,
+      provider_ref: null,
+      model_ref: null,
+      request_artifact_ref: null,
+      response_artifact_ref: null,
+      model_preview_ready: input.readiness.ready_for_model_preview,
+      can_invoke_now: false,
+      blockers: input.readiness.blockers.length > 0
+        ? [...input.readiness.blockers]
+        : ["model_provider_not_configured", "runtime_binding_not_implemented"]
+    },
+    prompt: {
+      bundle_id: input.promptBundle.id,
+      renderer: input.promptBundle.renderer,
+      join_strategy: input.promptBundle.join_strategy,
+      message_order: [...input.promptBundle.message_order],
+      preview_sha256: input.promptBundle.preview_sha256,
+      message_hashes: input.promptBundle.message_hashes.map((message) => ({
+        role: message.role,
+        content_sha256: message.content_sha256,
+        section_ids: [...message.section_ids],
+        source_event_ids: [...message.source_event_ids]
+      })),
+      role_boundaries: input.messages.map((message) => ({
+        role: message.role,
+        section_ids: [...message.section_ids],
+        source_event_ids: [...message.source_event_ids]
+      }))
+    },
+    context: {
+      source_event_ids: [...input.assemblyManifest.included.source_event_ids],
+      selected_memory_ids: [...input.assemblyManifest.included.selected_memory_ids],
+      excluded_memory_ids: [...input.assemblyManifest.excluded.memory_ids],
+      memory_source_event_ids: memorySourceEventIds,
+      capability_card_ids: [...input.assemblyManifest.included.capability_card_ids],
+      active_permission_ids: [...input.assemblyManifest.included.active_permission_ids],
+      artifact_refs: [...input.assemblyManifest.included.artifact_refs],
+      conflicts: [...input.assemblyManifest.excluded.conflicts],
+      context_budget: { ...input.contextBudget },
+      raw_payload_artifacts_read: false
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      prompt_can_authorize_actions: false,
+      context_can_authorize_actions: false,
+      memory_can_authorize_actions: false,
+      capability_cards_can_grant_permissions: false,
+      active_permissions_are_context_only: input.activePermissions.length > 0,
+      tool_request_event_requires_supervisor_path: true,
+      tool_execution_requires_scoped_lease: true,
+      memory_writes_require_review: true,
+      side_effects_require_policy_or_approval: true
+    },
+    tool_gateway: {
+      allowed_tool_requests: [...input.allowedTools],
+      forbidden_tools: [...input.forbiddenTools],
+      may_propose_tool_requests: input.allowedTools.length > 0,
+      execution_without_policy_allowed: false,
+      delivery_attempted: false,
+      connector_calls_attempted: false,
+      package_code_execution_attempted: false
+    },
+    response_audit: {
+      required_block_ids: [...input.responseAuditContract.required_block_ids],
+      required_citation_ids: [...input.responseAuditContract.required_citation_ids],
+      forbidden_claim_checks: [...input.responseAuditContract.forbidden_claim_checks],
+      audit_required_before_runtime_claims: true
+    },
+    stages,
+    fail_closed_conditions: runtimeFailClosedConditions(input),
+    next_runtime_steps: runtimeNextSteps(input)
+  };
+  return {
+    ...withoutHash,
+    invocation_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
+function runtimeStagesFor(input: AgentRuntimeInvocationInput): AgentRuntimeStage[] {
+  return [
+    {
+      id: "context.assembled",
+      status: input.assemblyManifest.included.source_event_ids.length > 0 ? "ready" : "blocked",
+      required_evidence: ["context_pack", "source_ledger_events", "memory_provenance_gate"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "prompt.rendered",
+      status: "ready",
+      required_evidence: ["prompt_bundle_hashes", "system_developer_user_message_boundaries"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "runtime.binding.required",
+      status: "pending",
+      required_evidence: ["durable_runtime_invocation_artifact", "ledger_event_for_model_request"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "model.invocation.required",
+      status: input.readiness.ready_for_model_preview ? "pending" : "blocked",
+      required_evidence: ["provider_ref", "model_ref", "request_artifact_ref"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "model.response.required",
+      status: "pending",
+      required_evidence: ["response_artifact_ref", "model_usage_accounting", "response_hash"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "response.audit.required",
+      status: "pending",
+      required_evidence: ["prompt_response_audit"],
+      supervisor_policy_required: false,
+      authority_granted: false
+    },
+    {
+      id: "tool.request.gate",
+      status: input.allowedTools.length > 0 ? "pending" : "blocked",
+      required_evidence: ["tool.requested", "risk.composed", "policy.decided"],
+      supervisor_policy_required: true,
+      authority_granted: false
+    },
+    {
+      id: "lease.gate",
+      status: "pending",
+      required_evidence: ["policy.decided:allow", "lease.issued"],
+      supervisor_policy_required: true,
+      authority_granted: false
+    },
+    {
+      id: "observation.verification.gate",
+      status: "pending",
+      required_evidence: ["tool.result", "observation.recorded", "verification.recorded"],
+      supervisor_policy_required: true,
+      authority_granted: false
+    }
+  ];
+}
+
+function runtimeFailClosedConditions(input: AgentRuntimeInvocationInput): string[] {
+  return uniqueInOrder([
+    ...input.readiness.blockers.map((blocker) => `prompt_readiness:${blocker}`),
+    "model_provider_missing",
+    "runtime_binding_missing",
+    "raw_payload_artifact_read_requested",
+    "tool_request_without_supervisor_policy",
+    "tool_execution_without_scoped_lease",
+    "side_effect_without_approval_or_policy",
+    "memory_write_without_review",
+    "capability_card_treated_as_permission",
+    "active_permission_treated_as_reusable_authority",
+    "context_or_evidence_claims_authority",
+    "response_audit_missing_or_failed"
+  ]);
+}
+
+function runtimeNextSteps(input: AgentRuntimeInvocationInput): string[] {
+  const steps = [
+    "Persist a reviewed model-request artifact before invoking a provider.",
+    "Append a typed model-request Ledger event only after the runtime binding exists.",
+    "Record model response artifact hashes and usage accounting before response audit.",
+    "Run prompt response audit before presenting model output as runtime evidence.",
+    "Route any proposed tool request through Local Supervisor policy and scoped lease evidence."
+  ];
+  if (!input.readiness.ready_for_model_preview) {
+    steps.unshift("Resolve prompt readiness blockers before model invocation.");
+  }
+  if (input.allowedTools.length === 0) {
+    steps.push("Keep the invocation descriptive until a tool request family is allowed.");
+  }
+  if (input.forbiddenTools.length > 0) {
+    steps.push(`Keep forbidden tools unavailable to the runtime loop: ${input.forbiddenTools.join(", ")}.`);
+  }
+  return steps;
+}
+
 function promptMessage(role: PromptMessage["role"], sections: PromptSection[], sectionIds: string[]): PromptMessage {
   const selected = sectionIds.map((sectionId) => {
     const section = sections.find((candidate) => candidate.id === sectionId);
@@ -1107,6 +1456,21 @@ function promptMessage(role: PromptMessage["role"], sections: PromptSection[], s
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortJsonValue(record[key])]));
+  }
+  return value;
 }
 
 function sortedUnique(values: string[]): string[] {
