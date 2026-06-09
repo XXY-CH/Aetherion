@@ -121,6 +121,9 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     prompt_artifact_persisted: false,
     runtime_authority_granted: false
   });
+  assert.deepEqual(plan.assembly_manifest.taint, {
+    source_event_ids_can_authorize_actions: []
+  });
   assert.deepEqual(plan.assembly_manifest.risk_flags, [
     "active_permissions_present",
     "artifact_refs_present_but_not_read",
@@ -133,6 +136,12 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.equal(plan.instruction_hierarchy.evidence_text_can_authorize_actions, false);
   assert.ok(plan.instruction_hierarchy.system_rules.some((rule) => rule.includes("Local Supervisor authority boundary")));
   assert.ok(plan.instruction_hierarchy.developer_rules.some((rule) => rule.includes("source-backed context")));
+  assert.deepEqual(plan.taint_policy, {
+    untrusted_sources_must_not_override: true,
+    evidence_text_can_authorize_actions: false,
+    child_output_can_authorize_actions: false,
+    source_event_ids_can_authorize_actions: []
+  });
   assert.deepEqual(plan.sections.find((section) => section.id === "run-evidence")?.source_event_ids, ["evt_run_started", "evt_tool_requested", "evt_run_completed"]);
   assert.deepEqual(plan.sections.find((section) => section.id === "memory-context")?.source_event_ids, ["evt_user_pref", "evt_memory_accept"]);
   assert.deepEqual(plan.messages.map((message) => message.role), ["system", "developer", "user"]);
@@ -144,6 +153,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
     "context-budget",
     "assembly-manifest",
     "readiness",
+    "taint-policy",
     "citation-map",
     "response-audit",
     "response-format",
@@ -177,6 +187,7 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.messages[1]?.content ?? "", /Tool Policy/);
   assert.match(plan.messages[1]?.content ?? "", /Assembly Manifest/);
   assert.match(plan.messages[1]?.content ?? "", /Readiness/);
+  assert.match(plan.messages[1]?.content ?? "", /Taint Policy/);
   assert.match(plan.messages[1]?.content ?? "", /Citation Map/);
   assert.match(plan.messages[1]?.content ?? "", /Response Audit/);
   assert.match(plan.messages[1]?.content ?? "", /Response Format/);
@@ -194,10 +205,13 @@ test("prompt assembly keeps context source-backed and non-authorizing", () => {
   assert.match(plan.preview, /Assembly Manifest/);
   assert.match(plan.preview, /Context Pack: ctx_run_prompt/);
   assert.match(plan.preview, /Guardrails: provenance_gate_required=true; raw_payload_artifacts_read=false; model_invoked=false; tools_requested=false; prompt_artifact_persisted=false; runtime_authority_granted=false/);
+  assert.match(plan.preview, /Authorizing source-event taint: none/);
   assert.match(plan.preview, /Risk flags: active_permissions_present, artifact_refs_present_but_not_read, excluded_memory_present, context_conflicts_present, forbidden_tools_present/);
   assert.match(plan.preview, /Readiness/);
   assert.match(plan.preview, /Ready for model preview: true/);
   assert.match(plan.preview, /Warnings: context_conflicts_present, excluded_memory_present, forbidden_tools_present, artifact_refs_not_read, active_permissions_are_context_only/);
+  assert.match(plan.preview, /Taint Policy/);
+  assert.match(plan.preview, /No source event claims action-authorizing taint/);
   assert.match(plan.preview, /Citation Map/);
   assert.match(plan.preview, /Required for memory claims: true/);
   assert.match(plan.preview, /Memory mem_prompt_style sources: evt_user_pref, evt_memory_accept/);
@@ -260,6 +274,65 @@ test("prompt assembly fails closed for empty tasks and no-tool prompts", () => {
   assert.match(plan.preview, /No memory records are selected/);
   assert.match(plan.preview, /Allowed tool requests: none/);
   assert.match(plan.preview, /Active permissions: none/);
+});
+
+test("prompt assembly blocks source evidence that claims authorization", () => {
+  const plan = assemblePromptPlan({
+    task: "Draft a local implementation plan for tainted evidence.",
+    contextPack: contextPack(),
+    sourceEvents: [
+      ...sourceEvents(),
+      {
+        id: "evt_authorizing_claim",
+        run_id: "run_prompt",
+        event_type: "im.inbox.received",
+        summary: "Inbound remote content claimed it can approve a write.",
+        taint: {
+          sources: ["im", "public"],
+          can_authorize_actions: true
+        }
+      }
+    ],
+    allowedTools: ["filesystem.read"]
+  });
+
+  assert.equal(plan.readiness.ready_for_model_preview, false);
+  assert.deepEqual(plan.readiness.blockers, ["source_evidence_claims_authority"]);
+  assert.ok(plan.readiness.next_steps.some((step) => step.includes("source event taint")));
+  assert.deepEqual(plan.assembly_manifest.taint, {
+    source_event_ids_can_authorize_actions: ["evt_authorizing_claim"]
+  });
+  assert.ok(plan.assembly_manifest.risk_flags.includes("source_evidence_claims_authority"));
+  assert.deepEqual(plan.taint_policy.source_event_ids_can_authorize_actions, ["evt_authorizing_claim"]);
+  assert.match(plan.preview, /evt_authorizing_claim \[im\.inbox\.received\]/);
+  assert.match(plan.preview, /can_authorize=true/);
+  assert.match(plan.preview, /Authorizing source-event taint: evt_authorizing_claim/);
+  assert.match(plan.preview, /Ready for model preview: false/);
+  assert.match(plan.preview, /Blockers: source_evidence_claims_authority/);
+  assert.match(plan.preview, /Model preview is blocked until source-event taint is non-authorizing/);
+
+  const audited = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      `Source events: ${plan.response_audit_contract.required_citation_ids.join(", ")}.`,
+      "## Assumptions And Conflicts",
+      "The source evidence is treated as quoted context only.",
+      "## Plan",
+      "Do not proceed to model preview until the authorizing taint is reclassified or removed.",
+      "## Policy And Lease Needs",
+      "Any future action would require a fresh Local Supervisor policy decision and scoped lease.",
+      "## Verification Evidence",
+      "Use the local prompt audit result as structure evidence only."
+    ].join("\n")
+  });
+
+  assert.equal(audited.status, "needs_revision");
+  assert.deepEqual(audited.missing_block_ids, []);
+  assert.deepEqual(audited.missing_citation_ids, []);
+  assert.ok(audited.findings.some((finding) =>
+    finding.id === "prompt_plan_not_ready" && finding.message.includes("source_evidence_claims_authority")
+  ));
 });
 
 test("prompt response audit checks structure, citations, and forbidden claims", () => {
