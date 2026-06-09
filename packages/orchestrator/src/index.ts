@@ -454,6 +454,7 @@ export function auditPromptResponse(input: PromptResponseAuditInput): PromptResp
   const requiredBlockIds = input.plan.response_audit_contract.required_block_ids;
   const responseBlocks = responseBlockRanges(response, input.plan.response_format.required_blocks);
   const presentBlockIds = uniqueInOrder(responseBlocks.map((entry) => entry.block.id));
+  const duplicateBlockIds = duplicateValues(responseBlocks.map((entry) => entry.block.id));
   const missingBlockIds = requiredBlockIds.filter((blockId) => !presentBlockIds.includes(blockId));
   const requiredCitationIds = input.plan.response_audit_contract.required_citation_ids;
   const evidenceSummary = responseBlocks.find((entry) => entry.block.id === "evidence_summary");
@@ -480,6 +481,11 @@ export function auditPromptResponse(input: PromptResponseAuditInput): PromptResp
     id: `missing_required_block:${blockId}`,
     severity: "error" as const,
     message: `Response is missing required block ${blockId}.`
+  })));
+  findings.push(...duplicateBlockIds.map((blockId) => ({
+    id: `duplicate_required_block:${blockId}`,
+    severity: "warning" as const,
+    message: `Response repeats required block ${blockId}; repeated blocks can make audit interpretation ambiguous.`
   })));
   findings.push(...missingCitationIds.map((eventId) => ({
     id: `missing_required_citation:${eventId}`,
@@ -1111,6 +1117,19 @@ function uniqueInOrder(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function duplicateValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicates.add(value);
+    } else {
+      seen.add(value);
+    }
+  }
+  return [...duplicates];
+}
+
 function responseContainsBlock(response: string, block: PromptResponseBlock): boolean {
   return responseBlockRanges(response, [block]).length > 0;
 }
@@ -1291,6 +1310,9 @@ function isNegatedClaimAt(line: string, claimStart: number): boolean {
 function nextStepForFinding(finding: PromptResponseAuditFinding): string {
   if (finding.id.startsWith("missing_required_block:")) {
     return "Rewrite the response with every required response-format block.";
+  }
+  if (finding.id.startsWith("duplicate_required_block:")) {
+    return "Collapse repeated response-format blocks into one block per required id.";
   }
   if (finding.id.startsWith("missing_required_citation:")) {
     return "Add explicit source event ids from the citation map to the evidence summary.";

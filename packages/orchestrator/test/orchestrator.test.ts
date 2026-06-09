@@ -473,6 +473,29 @@ test("prompt response audit checks structure, citations, and forbidden claims", 
   });
   assert.ok(repeatedClaimLine.forbidden_claims_detected.includes("tool_execution_claim"));
   assert.ok(repeatedClaimLine.forbidden_claims_detected.includes("completion_without_verification_claim"));
+
+  const duplicateBlock = auditPromptResponse({
+    plan,
+    response: [
+      "## Evidence Summary",
+      "Source events: evt_run_started, evt_tool_requested, evt_run_completed, evt_user_pref, evt_memory_accept.",
+      "## Evidence Summary",
+      "Repeated evidence summary should stay visible as an audit warning.",
+      "## Assumptions And Conflicts",
+      "The plan uses only source-backed prompt context.",
+      "## Plan",
+      "Keep work behind the prompt audit contract.",
+      "## Policy And Lease Needs",
+      "No tool was requested or executed.",
+      "## Verification Evidence",
+      "Run tests before claiming completion."
+    ].join("\n")
+  });
+  assert.equal(duplicateBlock.status, "pass");
+  assert.ok(duplicateBlock.findings.some((finding) =>
+    finding.id === "duplicate_required_block:evidence_summary" && finding.severity === "warning"
+  ));
+  assert.ok(duplicateBlock.next_steps.some((step) => step.includes("Collapse repeated response-format blocks")));
 });
 
 test("prompt response audit requires block headings and evidence-summary citations", () => {
