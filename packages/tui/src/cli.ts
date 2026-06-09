@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse } from "../../orchestrator/src/index.ts";
-import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -2154,7 +2154,14 @@ async function runAgent(options: CliOptions): Promise<void> {
     const reason = timedOut ? "Wall-time budget exhausted" : `Supervisor child read failed: ${String(error)}`;
     const trigger = timedOut ? "budget_exhausted" : "execution_failure";
     const breakerId = circuitBreakerArtifactId(contract.id, childRunId, trigger);
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", reason, artifactRef("agent", "execute", breakerId));
+    const breakerPayloadRef = artifactRef("agent", "execute", breakerId);
+    const observedSupervisorEvents = await recordUnprojectedRunEvents(repoRoot, workspace, manifest);
+    const expectedSequence = childReadPostSupervisorBreakerEventSequence(
+      contractPayloadRef,
+      breakerPayloadRef,
+      observedSupervisorEvents.map((event) => event.event_type)
+    );
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", reason, breakerPayloadRef);
     const breaker = openCircuitBreaker({
       id: breakerId,
       contractId: contract.id,
@@ -2167,44 +2174,31 @@ async function runAgent(options: CliOptions): Promise<void> {
     writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
-    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "blocked", expectedSequence);
     printRawJson(breaker);
     return;
   }
   const cpuUsed = process.cpuUsage(cpuStarted);
   account = recordRuntimeUsage(account, (cpuUsed.user + cpuUsed.system) / 1000, performance.now() - wallStarted);
+  const supervisorEvidence = childReadSupervisorEvidence(readResult, childRunId);
+  for (const eventId of supervisorEvidence.eventIds) {
+    await recordRunEvent(repoRoot, workspace, manifest, eventId);
+  }
   if (account.status === "exhausted") {
     const breakerId = circuitBreakerArtifactId(contract.id, childRunId, "budget_exhausted");
-    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Child execution exceeded CPU or wall-time accounting for ${contract.id}.`, artifactRef("agent", "execute", breakerId));
+    const breakerPayloadRef = artifactRef("agent", "execute", breakerId);
+    const expectedSequence = childReadPostSupervisorBreakerEventSequence(contractPayloadRef, breakerPayloadRef, supervisorEvidence.eventTypes);
+    const eventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "circuit.opened", `Child execution exceeded CPU or wall-time accounting for ${contract.id}.`, breakerPayloadRef);
     const breaker = openCircuitBreaker({ id: breakerId, contractId: contract.id, childRunId, trigger: "budget_exhausted", eventId, reason: "CPU or wall-time budget exhausted" });
     await validateAndUpsertAgentRecord(workspaceRoot, "circuit-breaker.schema.json", "circuit-breakers", breaker);
     writeAgentExecuteArtifact(workspaceRoot, breaker);
     await validateAndUpsertAgentRecord(workspaceRoot, "budget-account.schema.json", "budget-accounts", account);
     await validateAndUpsertAgentRecord(workspaceRoot, "agent-contract.schema.json", "agent-contracts", { ...contract, status: "stopped" });
-    await completeRunManifest(repoRoot, workspace, manifest, "blocked");
+    await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "blocked", expectedSequence);
     printRawJson(breaker);
     return;
   }
-  const supervisorEventIds = [
-    readResult.request_event_id,
-    readResult.risk_event_id,
-    readResult.policy_event_id,
-    readResult.lease_event_id,
-    readResult.result_event_id
-  ];
-  const requiredSupervisorEventIds = [
-    readResult.request_event_id,
-    readResult.risk_event_id,
-    readResult.policy_event_id,
-    readResult.result_event_id
-  ];
-  if (!requiredSupervisorEventIds.every((eventId) => typeof eventId === "string" && eventId.length > 0)) {
-    throw new Error(`Supervisor child read did not return Ledger event evidence for ${childRunId}`);
-  }
-  const recordedSupervisorEventIds = supervisorEventIds.filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0);
-  for (const eventId of recordedSupervisorEventIds) {
-    await recordRunEvent(repoRoot, workspace, manifest, eventId);
-  }
+  const recordedSupervisorEventIds = supervisorEvidence.eventIds;
   if (readResult.decision !== "allow") {
     account = recordPolicyDenial(account);
     const denialPayload = budgetAccountArtifactSnapshot(account, childRunId);
@@ -2938,6 +2932,48 @@ async function appendManagedRunEvent(
   }
   await recordRunEvent(repoRoot, workspace, manifest, result.event_id);
   return result.event_id;
+}
+
+async function recordUnprojectedRunEvents(
+  repoRoot: string,
+  workspace: Awaited<ReturnType<typeof openWorkspace>>,
+  manifest: RunManifest
+): Promise<EventRecord[]> {
+  const runEvents = (await readEvents(workspace)).filter((event) => event.run_id === manifest.id);
+  const unprojected = runEvents.slice(manifest.event_ids.length);
+  for (const event of unprojected) {
+    await recordRunEvent(repoRoot, workspace, manifest, event.id);
+  }
+  return unprojected;
+}
+
+function childReadSupervisorEvidence(readResult: Record<string, unknown>, childRunId: string): { eventIds: string[]; eventTypes: string[] } {
+  const requestEventId = requiredSupervisorEventId(readResult, "request_event_id", childRunId);
+  const riskEventId = requiredSupervisorEventId(readResult, "risk_event_id", childRunId);
+  const policyEventId = requiredSupervisorEventId(readResult, "policy_event_id", childRunId);
+  const resultEventId = requiredSupervisorEventId(readResult, "result_event_id", childRunId);
+  if (readResult.decision === "allow") {
+    const leaseEventId = readResult.lease_event_id;
+    if (typeof leaseEventId !== "string" || leaseEventId.length === 0) {
+      throw new Error(`Supervisor child read did not return lease event evidence for ${childRunId}`);
+    }
+    return {
+      eventIds: [requestEventId, riskEventId, policyEventId, leaseEventId, resultEventId],
+      eventTypes: ["tool.requested", "risk.composed", "policy.decided", "lease.issued", "tool.result"]
+    };
+  }
+  return {
+    eventIds: [requestEventId, riskEventId, policyEventId, resultEventId],
+    eventTypes: ["tool.requested", "risk.composed", "policy.decided", "tool.result"]
+  };
+}
+
+function requiredSupervisorEventId(readResult: Record<string, unknown>, key: string, childRunId: string): string {
+  const eventId = readResult[key];
+  if (typeof eventId !== "string" || eventId.length === 0) {
+    throw new Error(`Supervisor child read did not return Ledger event evidence for ${childRunId}`);
+  }
+  return eventId;
 }
 
 async function recordSupervisorEventIds(

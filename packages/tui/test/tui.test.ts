@@ -2531,6 +2531,16 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
     risk_budget: "L2",
     lease_budget: 1,
     on_exhaustion: "stop"
+  }, {
+    id: "budget_cpu_exhaust",
+    token_budget: 0,
+    tool_call_budget: 1,
+    cpu_ms_budget: 1,
+    network_call_budget: 0,
+    wall_time_ms_budget: 30000,
+    risk_budget: "L2",
+    lease_budget: 1,
+    on_exhaustion: "stop"
   }]));
   await writeFile(join(registryDir, "capsules.json"), JSON.stringify([{
     id: "cap_local_docs_read",
@@ -2751,6 +2761,22 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   const exhaustedBreaker = JSON.parse(exhaustedExecution.stdout) as { child_run_id: string; trigger: string };
   assert.equal(exhaustedBreaker.trigger, "budget_exhausted");
   await assertChildPreExecutionBreakerRun(workspace, exhaustedBreaker.child_run_id, exhaustedContractId);
+
+  const runtimeExhaustedContract = await execFileAsync(process.execPath, [
+    cliPath, "agent", "contract",
+    "--parent-run", runId,
+    "--child-agent", "agent_runtime_exhausted",
+    "--budget", "budget_cpu_exhaust",
+    "--capsule", "cap_local_docs_read",
+    "--path", "README.md",
+    "--content", "Attempt execution that exhausts CPU accounting after supervisor read",
+    "--workspace", workspace
+  ]);
+  const runtimeExhaustedContractId = JSON.parse(runtimeExhaustedContract.stdout).id as string;
+  const runtimeExhaustedExecution = await execFileAsync(process.execPath, [cliPath, "agent", "execute", runtimeExhaustedContractId, "--workspace", workspace]);
+  const runtimeExhaustedBreaker = JSON.parse(runtimeExhaustedExecution.stdout) as { child_run_id: string; trigger: string };
+  assert.equal(runtimeExhaustedBreaker.trigger, "budget_exhausted");
+  await assertChildPostSupervisorBreakerRun(workspace, runtimeExhaustedBreaker.child_run_id, runtimeExhaustedContractId);
 });
 
 test("Ether governs memory folding, persona branches, and authority-free Soul Fork inheritance", async () => {
@@ -3435,6 +3461,26 @@ async function assertChildPreExecutionBreakerRun(workspace: string, childRunId: 
   assert.match(events[1]?.payload_ref ?? "", /^artifact:\/\/agent\/execute\/breaker_/);
   assert.equal(events.some((event) => event.event_type === "tool.requested"), false);
   assert.equal(events.some((event) => event.event_type === "lease.issued"), false);
+}
+
+async function assertChildPostSupervisorBreakerRun(workspace: string, childRunId: string, contractId: string): Promise<void> {
+  const manifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${childRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  const events = (await readLedgerEvents(workspace)).filter((event) => event.run_id === childRunId);
+  assert.equal(manifest.status, "blocked");
+  assert.deepEqual(manifest.event_ids, events.map((event) => event.id));
+  assert.deepEqual(events.map((event) => event.event_type), [
+    "agent.child.started",
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "lease.issued",
+    "tool.result",
+    "circuit.opened"
+  ]);
+  assert.equal(events[0]?.payload_ref, `artifact://agent/contract/${contractId}`);
+  assert.equal(events.slice(1, -1).some((event) => event.payload_ref !== undefined), false);
+  assert.match(events.at(-1)?.payload_ref ?? "", /^artifact:\/\/agent\/execute\/breaker_/);
+  assert.equal(events.some((event) => event.event_type === "agent.child.completed"), false);
 }
 
 async function waitForFile(path: string): Promise<void> {

@@ -114,8 +114,34 @@ Acceptance:
 
 Remaining boundary:
 
-- Timeout and supervisor-failure child breakers can occur after an RPC has partially emitted supervisor events, so they still need their own explicit lifecycle design before their terminal manifests can make stronger sequence claims.
+- Timeout and supervisor-failure child breakers can occur after an RPC has partially emitted supervisor events. The next increment below closes the observed-prefix manifest lifecycle for those cases.
 
 Next likely increment after this one:
 
 - Choose between timeout/supervisor-failure child breaker lifecycle contracts, trace-backed Capability Draft lifecycle hardening, or deeper Memory lifecycle hardening.
+
+## Completed Increment: Child Post-Supervisor Breaker Lifecycle
+
+Target: make `ether agent execute` complete timeout, supervisor-failure, and runtime-accounting child breakers through an explicit lifecycle that preserves any supervisor Ledger facts already written for the child run.
+
+Why this slice:
+
+- It closes the remaining child breaker lifecycle gap called out by `docs/13-schema-runtime-governance.md` and the Phase 36 review notes.
+- These failures happen after Ether attempts the Rust supervisor child-read RPC, so the correct lifecycle must not erase supervisor-authored request/risk/policy/lease/result facts that may already exist in the Ledger.
+- It strengthens terminal manifest evidence without adding a daemon, general LLM orchestration, child writes, network tools, or new schemas.
+
+Acceptance:
+
+- Post-supervisor child breakers complete as `agent.child.started -> <observed supervisor child-read prefix> -> circuit.opened`.
+- The observed prefix must be a valid child-read lifecycle prefix: empty, request-only, request/risk, request/risk/policy, request/risk/policy/lease, full allowed read, or full denied read.
+- The start event must bind to the Agent Contract artifact and the breaker event must bind to the Circuit Breaker artifact.
+- Real TUI runtime-accounting exhaustion after a Rust-supervised child read produces a blocked manifest with the full supervisor read prefix before `circuit.opened`.
+
+Remaining boundary:
+
+- Failed RPC responses still do not return structured partial event ids. Ether can only reconstruct supervisor events that are already durably present in the Ledger for that child run before it appends the breaker.
+- This does not add queue/ask exhaustion behavior, exact supervisor-process CPU accounting, child writes, network tools, or general child-agent orchestration.
+
+Next likely increment after this one:
+
+- Choose between trace-backed Capability Draft lifecycle hardening, deeper Memory lifecycle hardening, or a narrow durable queue/runtime slice, based on a fresh docs/code review.

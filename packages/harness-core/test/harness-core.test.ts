@@ -20,6 +20,7 @@ import {
   browserObservationEventSequence,
   childReadCompletedEventSequence,
   childReadPolicyDeniedEventSequence,
+  childReadPostSupervisorBreakerEventSequence,
   childReadPreExecutionBreakerEventSequence,
   childReadRepeatedDenialEventSequence,
   completeRunManifest,
@@ -1185,6 +1186,72 @@ test("child read run manifests require explicit success and denial lifecycles", 
   await assert.rejects(
     completeRunManifestWithEventSequence(repoRoot, workspace, wrongBreakerRefManifest, "blocked", childReadPreExecutionBreakerEventSequence(contractRef, breakerRef)),
     /expected payload_ref artifact:\/\/agent\/execute\/breaker_denial_guard/
+  );
+
+  const postSupervisorBreakerRunId = "run_child_post_supervisor_breaker_guard";
+  const postSupervisorBreakerManifest = await createRunManifest(repoRoot, workspace, postSupervisorBreakerRunId, "Child post-supervisor breaker lifecycle guard");
+  const postSupervisorBreakerEvents = [
+    eventRecord({
+      id: "evt_child_post_supervisor_started",
+      workspace_id: workspace.id,
+      run_id: postSupervisorBreakerRunId,
+      event_type: "agent.child.started",
+      actor: { type: "system", id: "test" },
+      summary: "Started child post-supervisor guard.",
+      payload_ref: contractRef
+    }),
+    eventRecord({
+      id: "evt_child_post_supervisor_requested",
+      workspace_id: workspace.id,
+      run_id: postSupervisorBreakerRunId,
+      event_type: "tool.requested",
+      actor: { type: "agent", id: "test" },
+      summary: "Requested child read before supervisor failure."
+    }),
+    eventRecord({
+      id: "evt_child_post_supervisor_risk",
+      workspace_id: workspace.id,
+      run_id: postSupervisorBreakerRunId,
+      event_type: "risk.composed",
+      actor: { type: "system", id: "test" },
+      summary: "Composed child read risk before supervisor failure."
+    }),
+    eventRecord({
+      id: "evt_child_post_supervisor_policy",
+      workspace_id: workspace.id,
+      run_id: postSupervisorBreakerRunId,
+      event_type: "policy.decided",
+      actor: { type: "system", id: "test" },
+      summary: "Recorded child policy before supervisor failure."
+    }),
+    eventRecord({
+      id: "evt_child_post_supervisor_breaker",
+      workspace_id: workspace.id,
+      run_id: postSupervisorBreakerRunId,
+      event_type: "circuit.opened",
+      actor: { type: "system", id: "test" },
+      summary: "Opened post-supervisor breaker.",
+      payload_ref: breakerRef
+    })
+  ];
+  for (const event of postSupervisorBreakerEvents) {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEvent(repoRoot, workspace, postSupervisorBreakerManifest, event.id);
+  }
+  await completeRunManifestWithEventSequence(
+    repoRoot,
+    workspace,
+    postSupervisorBreakerManifest,
+    "blocked",
+    childReadPostSupervisorBreakerEventSequence(contractRef, breakerRef, ["tool.requested", "risk.composed", "policy.decided"])
+  );
+  const postSupervisorCompleted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${postSupervisorBreakerRunId}.json`), "utf8")) as { status: string; event_ids: string[] };
+  assert.equal(postSupervisorCompleted.status, "blocked");
+  assert.deepEqual(postSupervisorCompleted.event_ids, postSupervisorBreakerEvents.map((event) => event.id));
+
+  assert.throws(
+    () => childReadPostSupervisorBreakerEventSequence(contractRef, breakerRef, ["tool.requested", "tool.result"]),
+    /Invalid child read supervisor breaker lifecycle prefix/
   );
 });
 

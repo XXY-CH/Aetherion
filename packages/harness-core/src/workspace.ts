@@ -131,6 +131,16 @@ export const CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES = [
   "circuit.opened"
 ] as const;
 
+const CHILD_READ_POST_SUPERVISOR_BREAKER_PREFIXES = [
+  [],
+  ["tool.requested"],
+  ["tool.requested", "risk.composed"],
+  ["tool.requested", "risk.composed", "policy.decided"],
+  ["tool.requested", "risk.composed", "policy.decided", "lease.issued"],
+  ["tool.requested", "risk.composed", "policy.decided", "lease.issued", "tool.result"],
+  ["tool.requested", "risk.composed", "policy.decided", "tool.result"]
+] as const;
+
 export type RunEventExpectation = string | {
   event_type: string;
   payload_ref?: string | null;
@@ -217,6 +227,22 @@ export function childReadRepeatedDenialEventSequence(contractPayloadRef: string,
 export function childReadPreExecutionBreakerEventSequence(contractPayloadRef: string, breakerPayloadRef: string): readonly RunEventExpectation[] {
   return [
     { event_type: "agent.child.started", payload_ref: contractPayloadRef },
+    { event_type: "circuit.opened", payload_ref: breakerPayloadRef }
+  ];
+}
+
+export function childReadPostSupervisorBreakerEventSequence(
+  contractPayloadRef: string,
+  breakerPayloadRef: string,
+  supervisorEventTypes: readonly string[]
+): readonly RunEventExpectation[] {
+  const validPrefix = CHILD_READ_POST_SUPERVISOR_BREAKER_PREFIXES.some((prefix) => stringArraysEqual(prefix, supervisorEventTypes));
+  if (!validPrefix) {
+    throw new Error(`Invalid child read supervisor breaker lifecycle prefix: ${supervisorEventTypes.join(" -> ")}`);
+  }
+  return [
+    { event_type: "agent.child.started", payload_ref: contractPayloadRef },
+    ...supervisorEventTypes,
     { event_type: "circuit.opened", payload_ref: breakerPayloadRef }
   ];
 }
