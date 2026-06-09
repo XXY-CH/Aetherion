@@ -1,0 +1,68 @@
+name: Bug Report
+description: Report a reproducible defect in the local runtime, contracts, docs, or tests.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please use synthetic or redacted data only.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: List the smallest steps or command sequence that reproduces the issue.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Contracts / schemas / examples
+        - Ether TUI
+        - Harness core
+        - Rust Local Supervisor
+        - Event Ledger / replay / audit
+        - Memory / capability / sandbox prototypes
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Include logs, stack traces, failing assertions, event ids, or redacted artifacts if useful.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety Check
+      options:
+        - label: I did not include raw secrets, credentials, private user data, or sensitive traces.
+          required: true
+        - label: I used redacted or synthetic examples where possible.
+          required: true

@@ -1,6 +1,7 @@
 {
   "name": "aetherion-kernel",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "node --test packages/*/test/*.test.ts",

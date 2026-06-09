@@ -1,0 +1,56 @@
+name: Contract Or Schema Change
+description: Propose a schema, example, event, artifact, or lifecycle contract change.
+title: "Contract: "
+labels:
+  - contracts
+body:
+  - type: textarea
+    id: intent
+    attributes:
+      label: Intent
+      description: What product or safety need does this contract change serve?
+    validations:
+      required: true
+  - type: textarea
+    id: touched
+    attributes:
+      label: Contracts Touched
+      description: List schemas, examples, event types, artifact refs, registries, or tests that would change.
+      placeholder: |
+        - schemas/...
+        - examples/contracts/...
+        - packages/.../test/...
+    validations:
+      required: true
+  - type: dropdown
+    id: authority
+    attributes:
+      label: Authority Boundary
+      description: Does this change affect a trusted or semi-trusted boundary?
+      options:
+        - No authority boundary change
+        - Local Supervisor
+        - Tool Policy Proxy
+        - Event Ledger / replay
+        - Scoped lease / consent
+        - Memory / capability governance
+        - Quarantine / taint handling
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility And Migration
+      description: Describe whether existing examples, fixtures, ledger events, or hash versions remain compatible.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Contract-First Checklist
+      options:
+        - label: The schema change has a matching valid example.
+        - label: Runtime validation will be added or updated.
+        - label: Tests will cover malformed and missing data.
+        - label: Documentation will be updated if product semantics change.
+        - label: No raw secrets, prompt text, model output, or private payloads are introduced.

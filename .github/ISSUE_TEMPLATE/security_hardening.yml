@@ -1,0 +1,44 @@
+name: Security Hardening
+description: Request non-sensitive hardening work. Use SECURITY.md for private vulnerability reports.
+title: "Security hardening: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not disclose an active vulnerability here. Follow SECURITY.md for private reports.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Hardening Goal
+      description: What invariant, trust boundary, or failure mode should be strengthened?
+    validations:
+      required: true
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: Boundary
+      options:
+        - Local Supervisor
+        - Tool Policy Proxy
+        - Event Ledger / replay
+        - Scoped leases / consent
+        - Secret or sensitive payload handling
+        - Taint / quarantine
+        - Capability / sandbox / store gates
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence Or Motivation
+      description: Link docs, tests, audit findings, or redacted examples.
+  - type: checkboxes
+    id: public_safe
+    attributes:
+      label: Public Safety
+      options:
+        - label: This issue does not contain exploit details, raw secrets, credentials, private traces, or sensitive data.
+          required: true

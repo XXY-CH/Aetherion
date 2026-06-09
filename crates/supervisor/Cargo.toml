@@ -3,7 +3,7 @@ name = "aetherion-supervisor"
 version = "0.1.0"
 edition = "2021"
 description = "Rust authority-boundary POC for Aetherion Local Supervisor"
-license = "UNLICENSED"
+license = "MIT"
 
 [lib]
 path = "src/lib.rs"

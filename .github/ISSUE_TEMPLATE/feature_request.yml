@@ -1,0 +1,48 @@
+name: Feature Request
+description: Propose a scoped feature that fits the current roadmap.
+title: "Feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or runtime problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Roadmap Fit
+      options:
+        - V1 TUI kernel loop
+        - Contract / schema scaffolding
+        - Rust Supervisor authority POC
+        - Memory OS prototype
+        - Capability governance prototype
+        - Post-V1 surface or connector idea
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries And Non-Goals
+      description: Name anything this should not do, especially around authority, secrets, connectors, browser automation, IM, GUI, or cloud workers.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: What tests, replay evidence, schema validation, or manual checks would prove it works?
+    validations:
+      required: true
