@@ -2192,6 +2192,127 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
     return event.id;
   });
 
+  const ledgerBeforeProposal = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const proposalOutput = "generated/cap-local-read-proposal.json";
+  const proposal = await execFileAsync(process.execPath, [
+    cliPath,
+    "capsule",
+    "propose",
+    "cap_local_read",
+    "--version",
+    "0.1.0",
+    "--input",
+    "playbooks/local-read.md",
+    "--path",
+    proposalOutput,
+    "--content",
+    "Read workspace documentation through governed contracts.",
+    "--replay-run",
+    runIds[0],
+    "--replay-run",
+    runIds[1],
+    "--workspace",
+    workspace
+  ]);
+  const proposalRecord = JSON.parse(proposal.stdout) as { status: string; manifest_path: string; mutates_ledger: boolean; mutates_registries: boolean; executes_playbook: boolean; proposal: { provenance: { source_tasks: string[]; source_events: string[] } } };
+  assert.equal(proposalRecord.status, "proposed");
+  assert.equal(proposalRecord.manifest_path, proposalOutput);
+  assert.equal(proposalRecord.mutates_ledger, false);
+  assert.equal(proposalRecord.mutates_registries, false);
+  assert.equal(proposalRecord.executes_playbook, false);
+  assert.deepEqual(proposalRecord.proposal.provenance.source_tasks, runIds);
+  assert.ok(proposalRecord.proposal.provenance.source_events.length >= sourceEvents.length);
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeProposal);
+  await assert.rejects(access(join(workspace, ".aetherion", "registries", "capsule-drafts.json")), /ENOENT/);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "capsule",
+      "propose",
+      "cap_local_read",
+      "--version",
+      "0.1.0",
+      "--input",
+      "playbooks/local-read.md",
+      "--path",
+      "generated/invalid.json",
+      "--content",
+      "Too little provenance.",
+      "--replay-run",
+      runIds[0],
+      "--workspace",
+      workspace
+    ]),
+    /at least two --replay-run/
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "capsule",
+      "propose",
+      "cap_local_read",
+      "--version",
+      "0.1.0",
+      "--input",
+      "playbooks/local-read.md",
+      "--path",
+      ".aetherion/capsule-proposal.json",
+      "--content",
+      "Runtime-state write attempt.",
+      "--replay-run",
+      runIds[0],
+      "--replay-run",
+      runIds[1],
+      "--workspace",
+      workspace
+    ]),
+    /cannot be written into Aetherion runtime state/
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "capsule",
+      "propose",
+      "cap_local_read",
+      "--version",
+      "0.1.0",
+      "--input",
+      "playbooks/local-read.md",
+      "--path",
+      "../capsule-proposal.json",
+      "--content",
+      "Workspace escape attempt.",
+      "--replay-run",
+      runIds[0],
+      "--replay-run",
+      runIds[1],
+      "--workspace",
+      workspace
+    ]),
+    /must stay inside the workspace/
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "capsule",
+      "propose",
+      "cap_local_read",
+      "--version",
+      "0.1.0",
+      "--path",
+      "generated/missing-input.json",
+      "--content",
+      "Missing playbook path.",
+      "--replay-run",
+      runIds[0],
+      "--replay-run",
+      runIds[1],
+      "--workspace",
+      workspace
+    ]),
+    /requires --input/
+  );
+
   const writeManifest = async (version: string) => {
     const manifestPath = join(workspace, `capsule-${version}.json`);
     await writeFile(manifestPath, JSON.stringify({
@@ -2215,7 +2336,7 @@ test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approva
     return manifestPath;
   };
 
-  const firstManifest = await writeManifest("0.1.0");
+  const firstManifest = join(workspace, proposalOutput);
   await execFileAsync(process.execPath, [cliPath, "capsule", "draft", "--path", firstManifest, "--workspace", workspace]);
   const tested = await execFileAsync(process.execPath, [
     cliPath,

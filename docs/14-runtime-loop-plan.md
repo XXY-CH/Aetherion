@@ -145,3 +145,28 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Choose between trace-backed Capability Draft lifecycle hardening, deeper Memory lifecycle hardening, or a narrow durable queue/runtime slice, based on a fresh docs/code review.
+
+## Completed Increment: Capsule Proposal From Passing Traces
+
+Target: add a proposal-only `ether capsule propose` surface that derives a document-only Capsule draft manifest from at least two passing trace replay previews.
+
+Why this slice:
+
+- It advances the trace-backed Capability Draft lifecycle called out in `docs/13-schema-runtime-governance.md` without turning repeated behavior into an active Capsule automatically.
+- It keeps the proposal before the existing draft/test/publish lifecycle, so repeated traces can suggest a reviewable manifest while `capsule draft` still owns Ledger-backed lifecycle recording.
+- It gives operators a narrow bridge from real run evidence to governed Capsule review without executing the playbook, granting permissions, or mutating Capsule registries.
+
+Acceptance:
+
+- `capsule propose` requires two distinct successful replay records derived from existing Ledger events.
+- The command writes only a workspace-local manifest outside `.aetherion`, and it appends no Ledger events, writes no registries, persists no replay artifacts, and executes no playbook.
+- The generated manifest remains `document_only`, requires `filesystem.read`, forbids `filesystem.write`, cites source runs/events, and can then pass through the existing `capsule draft -> test -> publish` gates.
+- Path escape attempts, runtime-state output paths, missing playbook input, missing repeated provenance, and failed/partial replay records fail closed before any proposal file is written.
+
+Remaining boundary:
+
+- Proposal generation still uses deterministic defaults for document-only Capsules. It does not infer arbitrary tool contracts, risk levels, permission expansions, or executable Capsule behavior from traces.
+
+Next likely increment after this one:
+
+- Choose between deeper Capsule proposal typing, trace-backed Memory lifecycle hardening, or a narrow durable queue/runtime slice after another docs/code review.

@@ -75,6 +75,14 @@ export type CapsuleDraftInput = Pick<
   legacy_source?: string | null;
 };
 
+export type CapsuleDraftProposalInput = {
+  id: string;
+  version: string;
+  description: string;
+  playbook: string;
+  replayRecords: ReplayRecord[];
+};
+
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([".md", ".txt", ".json", ".yaml", ".yml"]);
 const FORBIDDEN_PATTERNS: Array<[string, RegExp]> = [
   ["shell_execution", /\b(exec|spawn|child_process|subprocess|os\.system)\b/i],
@@ -105,6 +113,44 @@ export function createDraftCapsule(input: CapsuleDraftInput, previous?: Capsule)
     legacy_source: input.legacy_source ?? null,
     permission_diff: permissionDiff(previous, input.permission_requirements.required_tools)
   };
+}
+
+export function proposeDocumentCapsuleDraft(input: CapsuleDraftProposalInput): CapsuleDraftInput {
+  if (input.replayRecords.length < 2) {
+    throw new Error("Capability Capsule proposal requires at least two replay records");
+  }
+  if (new Set(input.replayRecords.map((record) => record.run_id)).size < 2) {
+    throw new Error("Capability Capsule proposal requires two distinct historical runs");
+  }
+  const failedReplay = input.replayRecords.find((record) => record.result.status !== "passed");
+  if (failedReplay) {
+    throw new Error(`Replay record ${failedReplay.id} did not pass`);
+  }
+  const sourceEvents = [...new Set(input.replayRecords.flatMap((record) => record.source_events))];
+  if (sourceEvents.length === 0) {
+    throw new Error("Capability Capsule proposal requires replay records with source events");
+  }
+  const proposal: CapsuleDraftInput = {
+    id: input.id,
+    version: input.version,
+    description: input.description,
+    playbook: input.playbook,
+    execution_mode: "document_only",
+    permission_requirements: {
+      required_tools: ["filesystem.read"],
+      forbidden_tools: ["filesystem.write"]
+    },
+    tool_contracts: ["tool-request.schema.json", "policy-decision.schema.json"],
+    risk_level: "L1",
+    provenance: {
+      source_events: sourceEvents,
+      source_tasks: [...new Set(input.replayRecords.map((record) => record.run_id))]
+    },
+    legacy_source: null,
+    evals: ["trace_replay"]
+  };
+  createDraftCapsule(proposal);
+  return proposal;
 }
 
 export async function runDocumentSandboxTrial(workspaceRoot: string, capsule: Capsule): Promise<CapsuleSandboxTrial> {

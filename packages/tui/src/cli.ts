@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
-import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
+import { attachCapsuleTestEvidence, createDraftCapsule, isCapsule, isPublishedCapsuleWithEvidence, proposeDocumentCapsuleDraft, publishCapsule, requireCapsule, rollbackCapsule, runDocumentSandboxTrial, type Capsule, type CapsuleDraftInput } from "../../capability-os/src/index.ts";
 import { dryRunImport } from "../../migration/src/index.ts";
 import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createResumeRunId, evaluateWakeup, findHibernation, findWakeupTrigger, hibernateRun, isHibernationRecord, isWakeupTrigger, queueWakeup, type HibernationRecord, type WakeupTrigger } from "../../hibernation/src/index.ts";
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
@@ -21,6 +21,7 @@ type CliOptions = {
   target?: string;
   workspace: string;
   input: string;
+  inputProvided: boolean;
   output: string;
   approveWrite: boolean;
   summary?: string;
@@ -114,6 +115,7 @@ function parseArgs(args: string[]): CliOptions {
     target: positional[1],
     workspace: process.cwd(),
     input: "README.md",
+    inputProvided: false,
     output: ".aetherion/SUMMARY.md",
     approveWrite: false,
     dryRun: false,
@@ -137,6 +139,7 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--input":
         options.input = requireValue(arg, next);
+        options.inputProvided = true;
         index += 1;
         break;
       case "--output":
@@ -1289,6 +1292,44 @@ async function runCapsule(options: CliOptions): Promise<void> {
     printJson(requireCapsule([...capsules, ...drafts], capsuleId));
     return;
   }
+  if (options.topic === "propose") {
+    const capsuleId = requirePositional(options.target ?? options.capsule, "capsule propose requires a capsule id");
+    if (!options.version) {
+      throw new Error("capsule propose requires --version <semver>");
+    }
+    if (!options.content) {
+      throw new Error("capsule propose requires --content <description>");
+    }
+    if (!options.path) {
+      throw new Error("capsule propose requires --path <manifest-output.json>");
+    }
+    if (!options.inputProvided) {
+      throw new Error("capsule propose requires --input <playbook.md>");
+    }
+    if (options.replayRuns.length < 2) {
+      throw new Error("capsule propose requires at least two --replay-run <run_id> values");
+    }
+    const workspace = await openWorkspace(workspaceRoot);
+    const replayRecords = await Promise.all(options.replayRuns.map((runId) => createTraceReplayRecord(workspace, runId)));
+    const proposal = proposeDocumentCapsuleDraft({
+      id: capsuleId,
+      version: options.version,
+      description: options.content,
+      playbook: options.input,
+      replayRecords
+    });
+    const manifestPath = writeCapsuleProposalManifest(workspaceRoot, options.path, proposal);
+    printJson({
+      id: `capsule_proposal_${sanitizePathSegment(proposal.id)}_${sanitizePathSegment(proposal.version)}`,
+      status: "proposed",
+      manifest_path: manifestPath,
+      mutates_ledger: false,
+      mutates_registries: false,
+      executes_playbook: false,
+      proposal
+    });
+    return;
+  }
   if (options.topic === "draft") {
     if (!options.path) {
       throw new Error("capsule draft requires --path <manifest.json>");
@@ -1407,6 +1448,21 @@ function capsuleDraftInput(value: unknown): CapsuleDraftInput {
     legacy_source: typeof manifest.legacy_source === "string" ? manifest.legacy_source : null,
     evals: requireManifestStringArray(manifest, "evals")
   };
+}
+
+function writeCapsuleProposalManifest(workspaceRoot: string, outputPath: string, proposal: CapsuleDraftInput): string {
+  const root = resolve(workspaceRoot);
+  const target = resolve(root, outputPath);
+  const relativePath = relative(root, target);
+  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error("Capsule proposal manifest path must stay inside the workspace");
+  }
+  if (relativePath === ".aetherion" || relativePath.startsWith(`.aetherion/`)) {
+    throw new Error("Capsule proposal manifest cannot be written into Aetherion runtime state");
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify(proposal, null, 2)}\n`);
+  return relativePath;
 }
 
 async function requireCapsuleProvenance(workspaceRoot: string, capsule: Capsule): Promise<void> {
@@ -3077,6 +3133,7 @@ Usage:
   npm run ether -- branch <checkpoint_id>
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>
   npm run ether -- approve-rehearsal <rehearsal_id> --workspace <path>
+  npm run ether -- capsule propose <capsule_id> --version <semver> --input <playbook.md> --path <manifest-output.json> --content <description> --replay-run <run_id> --replay-run <run_id> --workspace <path>
   npm run ether -- capsule draft --path <manifest.json> --workspace <path>
   npm run ether -- capsule list
   npm run ether -- capsule inspect <capsule_id>

@@ -8,6 +8,7 @@ import {
   attachCapsuleTestEvidence,
   createDraftCapsule,
   publishCapsule,
+  proposeDocumentCapsuleDraft,
   recordCapsuleScore,
   rollbackCapsule,
   runDocumentSandboxTrial
@@ -68,6 +69,47 @@ test("Capsules require real replay and approval evidence before local publish", 
   assert.equal(published.lifecycle, "published");
   assert.equal(published.publication_scope, "local_unsigned");
   assert.equal(recordCapsuleScore(published, "policy_denial").scoring_summary.policy_denial, 1);
+});
+
+test("Capsule draft proposals are derived from repeated passing trace replays", () => {
+  const proposal = proposeDocumentCapsuleDraft({
+    id: "cap_refactor",
+    version: "0.1.0",
+    description: "Review a workspace-local refactor plan.",
+    playbook: "playbooks/refactor.md",
+    replayRecords: [replay("run_one", "evt_one"), replay("run_two", "evt_two")]
+  });
+  assert.deepEqual(proposal.provenance.source_tasks, ["run_one", "run_two"]);
+  assert.deepEqual(proposal.provenance.source_events, ["evt_one", "evt_two"]);
+  assert.equal(proposal.execution_mode, "document_only");
+  assert.deepEqual(proposal.permission_requirements.required_tools, ["filesystem.read"]);
+  assert.deepEqual(proposal.permission_requirements.forbidden_tools, ["filesystem.write"]);
+  assert.deepEqual(proposal.evals, ["trace_replay"]);
+  assert.equal(createDraftCapsule(proposal).lifecycle, "draft");
+
+  assert.throws(
+    () => proposeDocumentCapsuleDraft({
+      id: "cap_refactor",
+      version: "0.1.0",
+      description: "Too little provenance.",
+      playbook: "playbooks/refactor.md",
+      replayRecords: [replay("run_one", "evt_one")]
+    }),
+    /at least two replay records/
+  );
+  assert.throws(
+    () => proposeDocumentCapsuleDraft({
+      id: "cap_refactor",
+      version: "0.1.0",
+      description: "Failed provenance.",
+      playbook: "playbooks/refactor.md",
+      replayRecords: [
+        replay("run_one", "evt_one"),
+        { ...replay("run_two", "evt_two"), result: { status: "failed", summary: "Trace failed." } }
+      ]
+    }),
+    /did not pass/
+  );
 });
 
 test("Capsule replay requires distinct provenance runs and sandbox rejects executable playbooks", async () => {
