@@ -2,6 +2,8 @@
 
 V1 terminal surface for the local kernel loop.
 
+Design note: a future full-screen interactive TUI may use Charmbracelet Bubbles as a component-template reference for lists, tables, text inputs, text areas, viewports, help, spinners, progress, and file pickers. The current package remains a TypeScript CLI and does not add a Go/Bubble Tea runtime dependency until that implementation phase is explicit.
+
 Current scope:
 
 - Run a workspace-scoped local read.

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Aetherion kernel mark</title>
+  <desc id="desc">A luminous local kernel, ledger orbit, and policy gates for the Aetherion Agent Harness Kernel codename.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="50%" r="58%">
+      <stop offset="0%" stop-color="#0f5f92"/>
+      <stop offset="38%" stop-color="#062a4c"/>
+      <stop offset="100%" stop-color="#010514"/>
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="24%" stop-color="#9cf9ff"/>
+      <stop offset="62%" stop-color="#16c8f7"/>
+      <stop offset="100%" stop-color="#1164ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cyanStroke" x1="138" y1="512" x2="886" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#13d8ff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#98fbff"/>
+      <stop offset="100%" stop-color="#5c73ff" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="gateStroke" x1="512" y1="182" x2="512" y2="842" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#24bfff" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="#ddffff"/>
+      <stop offset="100%" stop-color="#24e6ff" stop-opacity="0.25"/>
+    </linearGradient>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feColorMatrix in="blur" result="colored" type="matrix" values="0 0 0 0 0.02 0 0 0 0 0.78 0 0 0 0 1 0 0 0 0.95 0"/>
+      <feMerge>
+        <feMergeNode in="colored"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="26" result="blur"/>
+      <feColorMatrix in="blur" result="colored" type="matrix" values="0 0 0 0 0 0 0 0 0 0.6 0 0 0 0 1 0 0 0 0.65 0"/>
+      <feMerge>
+        <feMergeNode in="colored"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="168" fill="url(#background)"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="512" cy="512" r="286" stroke="#0b6dff" stroke-opacity="0.24" stroke-width="2"/>
+    <circle cx="512" cy="512" r="238" stroke="#2df0ff" stroke-opacity="0.25" stroke-width="1.5" stroke-dasharray="8 20"/>
+    <circle cx="512" cy="512" r="142" stroke="#abffff" stroke-opacity="0.38" stroke-width="2"/>
+    <path d="M512 166v692" stroke="url(#gateStroke)" stroke-width="2" stroke-opacity="0.6"/>
+    <path d="M166 512h692" stroke="#23d5ff" stroke-width="1.5" stroke-opacity="0.26"/>
+
+    <g filter="url(#glow)">
+      <path d="M512 222c58 116 140 198 290 290-150 92-232 174-290 290-58-116-140-198-290-290 150-92 232-174 290-290Z" stroke="url(#cyanStroke)" stroke-width="8"/>
+      <path d="M512 324c38 76 92 130 188 188-96 58-150 112-188 188-38-76-92-130-188-188 96-58 150-112 188-188Z" stroke="#87fbff" stroke-width="4" stroke-opacity="0.8"/>
+      <path d="M292 514c72-164 368-164 440 0" stroke="#28dfff" stroke-width="5" stroke-opacity="0.62"/>
+      <path d="M292 510c72 164 368 164 440 0" stroke="#5a77ff" stroke-width="5" stroke-opacity="0.55"/>
+    </g>
+
+    <g stroke="#16dfff" stroke-width="3" stroke-opacity="0.72">
+      <circle cx="512" cy="222" r="7" fill="#9effff"/>
+      <circle cx="512" cy="802" r="7" fill="#23ecff"/>
+      <circle cx="222" cy="512" r="6" fill="#28dfff"/>
+      <circle cx="802" cy="512" r="6" fill="#28dfff"/>
+      <circle cx="512" cy="512" r="54" fill="none"/>
+    </g>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <circle cx="512" cy="512" r="96" fill="url(#core)"/>
+    <circle cx="512" cy="512" r="26" fill="#ffffff"/>
+  </g>
+
+  <g fill="#87fbff" opacity="0.75">
+    <circle cx="384" cy="384" r="4"/>
+    <circle cx="640" cy="384" r="4"/>
+    <circle cx="384" cy="640" r="4"/>
+    <circle cx="640" cy="640" r="4"/>
+    <circle cx="512" cy="298" r="3"/>
+    <circle cx="512" cy="726" r="3"/>
+  </g>
+</svg>

@@ -10,7 +10,7 @@ It should not be treated as the final public name yet. Supplied research indicat
 
 ## Project Icon
 
-The canonical project icon is [`assets/aetherion-icon.png`](../assets/aetherion-icon.png). It is a 1254 by 1254 PNG and should be used without recoloring, cropping, overlays, or embedded text.
+The canonical project icon is [`assets/aetherion-icon.png`](../assets/aetherion-icon.png). It is a 1254 by 1254 PNG and should be used without recoloring, cropping, overlays, or embedded text. The maintainable source is [`assets/aetherion-icon.svg`](../assets/aetherion-icon.svg); render the PNG from that source when the display asset needs to be regenerated.
 
 The icon identifies the current Aetherion codename project. It does not remove the naming-clearance requirement or establish a final public trademark.
 

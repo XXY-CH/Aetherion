@@ -27,6 +27,9 @@ temp/
 .cache/
 .tmp/
 
+# Local/generated promotional experiments and rendered media
+promo/
+
 # Node / frontend / desktop app
 node_modules/
 npm-debug.log*

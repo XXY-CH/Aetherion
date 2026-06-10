@@ -53,6 +53,7 @@ This constraint prevents surface-area sprawl before the authority boundary is re
 | Contract SDK | TypeScript first, Rust later | Fast iteration, later authority-side types |
 | Harness-core seed | TypeScript | Current contract seed and TUI path |
 | TUI v0 | TypeScript | Fastest integration with harness-core |
+| Interactive TUI reference | Charmbracelet Bubbles patterns, deferred | Useful component vocabulary for list/table/textinput/textarea/viewport/help/spinner/progress/filepicker; do not add a Go dependency until an interactive TUI implementation phase is explicit |
 | Agent Orchestrator prototype | TypeScript | LLM, connector, and schema iteration speed |
 | Local Supervisor | Rust | Root authority, native integration, process control |
 | Event Ledger | Rust core plus JSONL | Durable audit, versioned cross-author SHA-256 parent chain, supervisor-local append lock, sync-then-rename ledger writes, and startup recovery scan; signatures later |
