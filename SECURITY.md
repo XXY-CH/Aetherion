@@ -1,5 +1,7 @@
 # Security Policy
 
+[中文版本](SECURITY.zh-CN.md)
+
 Aetherion is an early local-first runtime prototype. Security reports are welcome, especially when they concern authority boundaries, policy bypass, event integrity, scoped leases, secret handling, tainted input, or unintended side effects.
 
 ## Supported Versions

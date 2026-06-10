@@ -1,5 +1,7 @@
 # Positioning and Naming Risk
 
+[中文版本](07-positioning-and-naming.zh-CN.md)
+
 ## Naming Status
 
 Aetherion is a codename, not a cleared public name.

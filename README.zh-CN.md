@@ -1,0 +1,111 @@
+# Aetherion
+
+[English](README.md)
+
+> **我们正在寻找志同道合的开发者和维护者一起构建 Aetherion。** 如果你关心 local-first agent runtime、可审计权限边界、受治理的工具使用和更安全的自主系统，欢迎参与。
+
+Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent 执行、记忆、权限、能力、脚手架、主动行为和用户连接工作流提供可审计运行时。
+
+它的产品目标不是“更强的聊天机器人”，也不是替代操作系统。Aetherion 目标是成为用户、设备、数据、工具和自主 agent 之间的受治理控制平面。
+
+公开命名尚未最终确定。“Aetherion” 可能在 GitHub、包名、商标和平台命名上存在冲突，因此在完成命名清查前应继续作为代号使用。
+
+## 产品论点
+
+现代 agent 的瓶颈不只在模型智能，而在 harness 质量：权限边界、事件保真度、记忆溯源、工具治理、能力演化和真实执行闭环。Aetherion 把这些当作 kernel 级运行时问题处理。
+
+目标承诺：
+
+> 让 agent 在同一个人类治理、可审计边界内安全操作计算机、工具、记忆、消息和自演化能力。
+
+当前实现刻意更窄：先证明 TUI 加 Rust 监督的本地 kernel loop，再加入带 trace 的本地合同切片；不做真实浏览器自动化、IM 投递、connector 接管、vault 访问、云 worker 或包代码执行。
+
+项目图标源文件在 `assets/aetherion-icon.svg`，README 使用的 PNG 是渲染资产。
+
+## 第一原则
+
+- Local Supervisor、Policy Engine、Secret Vault 和 Event Ledger 是根权限边界。
+- TUI、GUI、浏览器扩展、移动端和 IM 都只是客户端表面，不能直接授予权限。
+- V1 只做 TUI。GUI、移动端、IM、浏览器扩展、浏览器自动化和真实 connector 都延后。
+- Event Plane 是事实层。消息、审批、工具调用、记忆候选、能力变更和主动机会都进入 append-only ledger。
+- OAuth、MCP 和 connector 暴露用户数据与工具，但永远不能绕过 Tool Policy Proxy。
+- Connector adapter 与 execution adapter 是 policy 后面的同级目标族，不是简单上下游。
+- Memory OS 不是向量检索，而是有来源、置信度、敏感度和删除控制的可审计记忆层。
+- Capability Capsule 是受治理的内部能力单元。Skill 是过程知识和导入格式，不是不受限插件。
+- Dreaming 产生可审查 patch，不产生外部动作。
+- Proactive behavior 是 Opportunity Lifecycle，不是 cron 式自我打断。
+- Markdown、YAML、JSONL 等人类可读文件是治理源头；SQLite、向量、图和搜索索引是可重建投影。
+
+## 初始文档
+
+- [产品简报](docs/00-product-brief.zh-CN.md) / [Product Brief](docs/00-product-brief.md)
+- [架构](docs/01-architecture.zh-CN.md) / [Architecture](docs/01-architecture.md)
+- [用户边界层](docs/02-user-boundary-layer.zh-CN.md) / [User Boundary Layer](docs/02-user-boundary-layer.md)
+- [Memory OS](docs/03-memory-os.zh-CN.md) / [Memory OS](docs/03-memory-os.md)
+- [Capability and Scaffold OS](docs/04-skill-and-scaffold-os.zh-CN.md) / [Capability and Scaffold OS](docs/04-skill-and-scaffold-os.md)
+- [审计与数据合同](docs/05-audit-and-data-contracts.zh-CN.md) / [Audit and Data Contracts](docs/05-audit-and-data-contracts.md)
+- [路线图](docs/06-roadmap.zh-CN.md) / [Roadmap](docs/06-roadmap.md)
+- [定位与命名风险](docs/07-positioning-and-naming.zh-CN.md) / [Positioning and Naming Risk](docs/07-positioning-and-naming.md)
+- [创新论点](docs/08-innovation-thesis.zh-CN.md) / [Innovation Thesis](docs/08-innovation-thesis.md)
+- [Computer Use 实现](docs/09-computer-use-implementation.zh-CN.md) / [Computer Use Implementation](docs/09-computer-use-implementation.md)
+- [技术策略](docs/10-technical-strategy.zh-CN.md) / [Technical Strategy](docs/10-technical-strategy.md)
+- [迁移与运行时经济性](docs/11-migration-and-runtime-economics.zh-CN.md) / [Migration and Runtime Economics](docs/11-migration-and-runtime-economics.md)
+- [阶段实现复核](docs/12-phase-implementation-review.zh-CN.md) / [Phase Implementation Review](docs/12-phase-implementation-review.md)
+- [Schema 运行时治理](docs/13-schema-runtime-governance.zh-CN.md) / [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
+- [运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md) / [Runtime Loop Plan](docs/14-runtime-loop-plan.md)
+
+## MVP 方向
+
+第一版只做 TUI，证明最小完整本地 kernel loop：
+
+1. TUI 命令表面和项目/工作区身份。
+2. schema 与 examples 的合同验证。
+3. Event Ledger append。
+4. 工具请求与 policy decision。
+5. scoped lease 颁发。
+6. 通过 policy 的本地文件读取与审批门控写入。
+7. observation、verification 和 trace replay 重建。
+
+明确不属于 V1：
+
+- GUI 桌面应用。
+- 移动端。
+- IM 投递。
+- 浏览器扩展或浏览器自动化。
+- MCP/OAuth/SaaS connector。
+- 云 worker。
+
+## 合同优先工作区
+
+- `schemas/`：Event、Tool Request、Policy Decision、Scoped Lease、Action Record、Observation Record、Verification Record、Consent Record、Permission Policy、Memory、Agent Runtime、Model Request/Response、Response Audit、Tool Request Proposal、Capability、Replay 等 JSON Schema。
+- `examples/contracts/`：每个 schema 的有效 JSON 示例。
+- `packages/harness-core/`：TypeScript 合同、replay、registry 和测试用 seed policy path。
+- `packages/tui/`：V1 终端表面 Ether。
+- `packages/computer-use/`：post-V1 的 policy-gated computer-use adapter 脚手架。
+- `packages/connector-sdk/`：post-V1 的隔离 connector 导入与 policy-gated tool call 脚手架。
+- `crates/supervisor/`：Rust Local Supervisor POC，负责工作区身份、hash-chained JSONL ledger、policy、scoped lease、lease-gated read 和 traced write prepare/commit。
+
+验证：
+
+```sh
+npm test
+cargo test
+```
+
+## 当前实现状态
+
+当前仓库已经超过纯文档阶段，包含可运行的本地终端原型。核心已包括合同验证、Rust supervisor POC、hash-chained Event Ledger、本地读写 policy/lease/approval 流、Memory/Capability/Sandbox/Hibernation/Surface 等 trace-backed 合同切片，以及 no-tools 模型调用的 hash-only 证据链。
+
+`prompt invoke-model` 支持以下 provider：
+
+- `stub`：默认离线确定性 provider。
+- `openai_responses`：OpenAI Responses API。
+- `openai_chat_completions`：OpenAI Chat Completions API。
+- `anthropic`：Anthropic Messages API。
+- `gemini`：Gemini `generateContent` API。
+
+provider 凭据只从环境变量内存读取。Aetherion 不运行浏览器 OAuth 流、不持久化 token、不创建 connector grant，也不把模型访问当作工具权限。
+
+## 许可证
+
+本项目采用 MIT License。英文 [LICENSE](LICENSE) 是规范文本；[中文译文](LICENSE.zh-CN.md) 仅供理解。

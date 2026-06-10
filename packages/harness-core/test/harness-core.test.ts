@@ -89,6 +89,34 @@ import {
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 
+type FetchCall = {
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+};
+
+async function withMockFetch(payload: unknown, run: (calls: FetchCall[]) => Promise<void>): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  const calls: FetchCall[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = Object.fromEntries(new Headers(init?.headers).entries());
+    calls.push({
+      url: String(input),
+      headers,
+      body: JSON.parse(String(init?.body ?? "{}"))
+    });
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof fetch;
+  try {
+    await run(calls);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 const schemaExamplePairs = [
   ["event.schema.json", "event.json"],
   ["tool-request.schema.json", "tool-request.json"],
@@ -629,10 +657,162 @@ test("stub model provider produces a deterministic auditable response without ne
 
 test("resolveModelProvider rejects unknown providers and selects anthropic by env", () => {
   assert.throws(() => resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "mystery" } }), /Unknown model provider/);
+  assert.equal(resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "openai" } }).provider_ref, "provider_openai_responses");
+  assert.equal(resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "openai_completion" } }).provider_ref, "provider_openai_chat_completions");
+  assert.equal(resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "google_gemini" } }).provider_ref, "provider_gemini");
   const anthropic = resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "anthropic", AETHERION_MODEL_REF: "claude-test" } });
   assert.equal(anthropic.provider_ref, "provider_anthropic");
   assert.equal(anthropic.model_ref, "claude-test");
   assert.equal(anthropic.network_capable, true);
+});
+
+test("live model providers map official API surfaces without persisting credentials or raw payloads", async () => {
+  const messages = [
+    { role: "system" as const, content: "System guardrail." },
+    { role: "developer" as const, content: "Developer guardrail." },
+    { role: "user" as const, content: "Answer from source events." }
+  ];
+
+  await withMockFetch({
+    status: "completed",
+    output_text: "OpenAI Responses output.",
+    usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 }
+  }, async (calls) => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        AETHERION_MODEL_REF: "gpt-test",
+        OPENAI_OAUTH_ACCESS_TOKEN: "openai-oauth-token"
+      }
+    });
+    const result = await provider.invoke({
+      provider_ref: provider.provider_ref,
+      model_ref: provider.model_ref,
+      output_mode: "answer",
+      messages,
+      max_output_tokens: 77
+    });
+    assert.equal(provider.provider_ref, "provider_openai_responses");
+    assert.equal(calls[0].url, "https://api.openai.com/v1/responses");
+    assert.equal(calls[0].headers.authorization, "Bearer openai-oauth-token");
+    assert.deepEqual(calls[0].body, {
+      model: "gpt-test",
+      input: "Answer from source events.",
+      max_output_tokens: 77,
+      store: false,
+      instructions: "System guardrail.\n\nDeveloper guardrail."
+    });
+    assert.equal(result.output_text, "OpenAI Responses output.");
+    assert.equal(result.usage.total_tokens, 16);
+  });
+
+  await withMockFetch({
+    choices: [{ finish_reason: "stop", message: { content: "OpenAI Chat output.", refusal: null } }],
+    usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 }
+  }, async (calls) => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_chat_completions",
+        AETHERION_MODEL_REF: "gpt-chat-test",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    const result = await provider.invoke({
+      provider_ref: provider.provider_ref,
+      model_ref: provider.model_ref,
+      output_mode: "answer",
+      messages,
+      max_output_tokens: 88
+    });
+    assert.equal(provider.provider_ref, "provider_openai_chat_completions");
+    assert.equal(calls[0].url, "https://api.openai.com/v1/chat/completions");
+    assert.equal(calls[0].headers.authorization, "Bearer openai-api-key");
+    assert.deepEqual(calls[0].body, {
+      model: "gpt-chat-test",
+      messages,
+      max_completion_tokens: 88,
+      stream: false
+    });
+    assert.equal(result.output_text, "OpenAI Chat output.");
+    assert.equal(result.finish_reason, "stop");
+    assert.equal(result.usage.input_tokens, 9);
+  });
+
+  await withMockFetch({
+    content: [{ type: "text", text: "Anthropic output." }],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 7, output_tokens: 3 }
+  }, async (calls) => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "anthropic",
+        AETHERION_MODEL_REF: "claude-test",
+        ANTHROPIC_API_KEY: "anthropic-api-key"
+      }
+    });
+    const result = await provider.invoke({
+      provider_ref: provider.provider_ref,
+      model_ref: provider.model_ref,
+      output_mode: "answer",
+      messages,
+      max_output_tokens: 99
+    });
+    assert.equal(provider.provider_ref, "provider_anthropic");
+    assert.equal(calls[0].url, "https://api.anthropic.com/v1/messages");
+    assert.equal(calls[0].headers.authorization, undefined);
+    assert.equal(calls[0].headers["x-api-key"], "anthropic-api-key");
+    assert.equal(calls[0].headers["anthropic-version"], "2023-06-01");
+    assert.deepEqual(calls[0].body, {
+      model: "claude-test",
+      max_tokens: 99,
+      system: "System guardrail.\n\nDeveloper guardrail.",
+      messages: [{ role: "user", content: "Answer from source events." }]
+    });
+    assert.equal(result.output_text, "Anthropic output.");
+    assert.equal(result.usage.total_tokens, 10);
+  });
+
+  await withMockFetch({
+    candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Gemini output." }] } }],
+    usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 6, totalTokenCount: 18 }
+  }, async (calls) => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "gemini",
+        AETHERION_MODEL_REF: "gemini-test",
+        GOOGLE_OAUTH_ACCESS_TOKEN: "gemini-oauth-token"
+      }
+    });
+    const result = await provider.invoke({
+      provider_ref: provider.provider_ref,
+      model_ref: provider.model_ref,
+      output_mode: "answer",
+      messages,
+      max_output_tokens: 111
+    });
+    assert.equal(provider.provider_ref, "provider_gemini");
+    assert.equal(calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent");
+    assert.equal(calls[0].headers.authorization, "Bearer gemini-oauth-token");
+    assert.deepEqual(calls[0].body, {
+      contents: [{ role: "user", parts: [{ text: "Answer from source events." }] }],
+      generationConfig: { maxOutputTokens: 111 },
+      systemInstruction: { parts: [{ text: "System guardrail.\n\nDeveloper guardrail." }] }
+    });
+    assert.equal(result.output_text, "Gemini output.");
+    assert.equal(result.usage.total_tokens, 18);
+  });
+
+  const missingOpenAI = resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "openai_responses" } });
+  await assert.rejects(
+    missingOpenAI.invoke({
+      provider_ref: missingOpenAI.provider_ref,
+      model_ref: missingOpenAI.model_ref,
+      output_mode: "answer",
+      messages,
+      max_output_tokens: 10
+    }),
+    /OPENAI_API_KEY, OPENAI_OAUTH_ACCESS_TOKEN/
+  );
 });
 
 test("agent model response artifact records hashes only and never claims audit passed", async () => {

@@ -3559,6 +3559,7 @@ Usage:
   npm run ether -- prompt prepare-model-request <invocation_id> --workspace <path>
   npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path>
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
+  npm run ether -- prompt propose-tool-request <response_audit_id> --path <workspace-file> --content <intent> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>

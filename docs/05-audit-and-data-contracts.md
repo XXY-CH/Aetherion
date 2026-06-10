@@ -1,5 +1,7 @@
 # Audit and Data Contracts
 
+[中文版本](05-audit-and-data-contracts.zh-CN.md)
+
 ## Audit Principles
 
 - Logs are human-readable and machine-parseable.

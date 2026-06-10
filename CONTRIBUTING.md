@@ -1,5 +1,7 @@
 # Contributing
 
+[中文版本](CONTRIBUTING.zh-CN.md)
+
 Thank you for helping build Aetherion. The project is a codename for a local-first Agent Harness Kernel. Contributions should strengthen the governed runtime instead of widening the product surface too early.
 
 ## Project Boundaries

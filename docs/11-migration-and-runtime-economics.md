@@ -1,5 +1,7 @@
 # Migration and Runtime Economics
 
+[中文版本](11-migration-and-runtime-economics.zh-CN.md)
+
 This document captures post-V1 discussion about OpenClaw/Hermes migration, advanced agent-system bets, and runtime cost controls. It does not change the V1 rule: the first runnable product remains TUI-only and focused on the local kernel loop.
 
 ## Scope Boundary

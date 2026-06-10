@@ -1,5 +1,7 @@
 # Technical Strategy
 
+[中文版本](10-technical-strategy.zh-CN.md)
+
 ## Decision
 
 Aetherion uses a contract-first, local-first hybrid architecture.

@@ -1,5 +1,7 @@
 # Memory OS
 
+[中文版本](03-memory-os.zh-CN.md)
+
 Aetherion memory is an auditable operating system for user understanding, not a loose embedding store.
 
 ## Goals

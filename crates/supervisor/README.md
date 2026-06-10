@@ -1,5 +1,7 @@
 # Aetherion Supervisor POC
 
+[中文版本](README.zh-CN.md)
+
 Rust proof-of-concept for the future Local Supervisor authority boundary.
 
 Current scope:

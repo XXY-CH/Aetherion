@@ -1,5 +1,7 @@
 # Aetherion Computer Use Scaffold
 
+[中文版本](README.zh-CN.md)
+
 Post-V1 scaffold for governed computer-use adapters.
 
 This package intentionally does not implement real browser automation or desktop control yet. It defines the safe control-plane shape future adapters must follow:

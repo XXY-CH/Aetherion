@@ -1,5 +1,7 @@
 # Capability and Scaffold OS
 
+[中文版本](04-skill-and-scaffold-os.zh-CN.md)
+
 ## Concepts
 
 | Concept | Meaning | Executable Code | Agent May Modify |

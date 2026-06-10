@@ -1,0 +1,33 @@
+# Ether CLI
+
+[English](README.md)
+
+本 package 是本地 kernel loop 的 V1 终端表面。
+
+设计说明：未来全屏交互式 TUI 可以参考 Charmbracelet Bubbles 的组件模板；当前 package 仍是 TypeScript CLI，不在明确实现阶段前加入 Go/Bubble Tea runtime 依赖。
+
+当前范围：
+
+- 运行 workspace-scoped local read。
+- 通过 `--approve-write` 请求/要求显式 write approval。
+- 通过 scoped policy 写默认 summary；`--summary` 提供用户显式控制的 summary text，`--output` 选择输出路径。
+- 默认通过 Rust supervisor POC 路由 `run`。TypeScript seed policy path 仅用于测试，并需要 `AETHERION_ALLOW_TYPESCRIPT_SEED=1`。
+- 提供 trace、replay、audit、memory、context、prompt、capsule、sandbox、hibernation、surface、store 等本地命令表面。
+- `prompt plan`、`prompt bind-runtime`、`prompt prepare-model-request`、`prompt invoke-model`、`prompt audit` 和 `prompt propose-tool-request` 组成 non-authorizing Agent Orchestrator evidence path。
+
+模型 provider：
+
+```bash
+AETHERION_MODEL_PROVIDER=openai_responses OPENAI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
+AETHERION_MODEL_PROVIDER=openai_chat_completions OPENAI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
+AETHERION_MODEL_PROVIDER=anthropic ANTHROPIC_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
+AETHERION_MODEL_PROVIDER=gemini GEMINI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
+```
+
+OpenAI/Gemini 可以使用外部获取的 bearer token env var；Ether 不发起 OAuth、不持久化 token、不把 provider access 当作 tool authority。Anthropic direct API 使用 `ANTHROPIC_API_KEY`。
+
+重要边界：
+
+- TUI 是 client surface，不是 root authority。
+- prompt/model/audit/proposal path 不请求工具、不发行 lease、不授权动作。
+- runtime output under `.aetherion/` 是本地状态，不应提交。

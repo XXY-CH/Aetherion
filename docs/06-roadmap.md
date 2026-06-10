@@ -1,5 +1,7 @@
 # Roadmap
 
+[中文版本](06-roadmap.zh-CN.md)
+
 ## Phase 0: Foundation Documents
 
 Goal: turn the concept into a buildable product frame.

@@ -1,5 +1,7 @@
 # Aetherion Connector SDK Scaffold
 
+[中文版本](README.zh-CN.md)
+
 Post-V1 scaffold for external adapters.
 
 This package intentionally does not implement real IM, MCP, OAuth, or SaaS connectors yet. It defines the registration boundary:

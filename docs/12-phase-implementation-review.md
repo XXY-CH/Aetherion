@@ -1,5 +1,7 @@
 # Phase Implementation Review
 
+[中文版本](12-phase-implementation-review.zh-CN.md)
+
 This file is the running phase-end review ledger. Each completed implementation pass must compare the plan against the architecture documents and point to concrete code evidence.
 
 The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, and store surfaces remain client surfaces and must not become trust roots.
@@ -10,7 +12,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 126 passing tests.
+- `npm test`: 129 passing tests.
 - `cargo test`: 39 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -997,6 +999,71 @@ Correction and remaining boundary:
 - Corrects the Phase 39 gap where the next step was only described as "model-output-to-tool-request bridge"; the implemented bridge is deliberately proposal-only and operator-restated.
 - A proposal cannot authorize actions, satisfy policy, issue a lease, prove model output correctness, or reuse raw model output as a target. Turning it into a real read still requires a fresh Tool Policy Proxy path.
 - Writes, external egress, connectors, browser actions, and side-effectful operations remain outside this proposal contract.
+
+## Phase 41 Review Notes
+
+This pass broadens the no-tools model provider boundary. It supports the requested OpenAI Responses, OpenAI completion-style chat, Anthropic, and Gemini API surfaces without changing the hash-only response artifact or creating OAuth connector authority.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: improves the local agent runtime instead of adding deferred GUI, IM, browser, connector, or cloud surfaces.
+- `docs/01-architecture.md`: model provider calls stay in the Agent Orchestrator; Tool Access & Action Policy Proxy remains the only action choke point.
+- `docs/02-user-boundary-layer.md`: provider credentials and model output cannot authorize reads, writes, egress, leases, or side effects.
+- `docs/06-roadmap.md`: keeps OAuth/MCP/SaaS connectors deferred while allowing the TUI model-evidence path to call selected providers.
+- `docs/10-technical-strategy.md`: TypeScript owns provider API iteration; Rust remains the authority boundary for policy, leases, and action evidence.
+- `docs/13-schema-runtime-governance.md`: response metadata still records hashes and non-authority flags only, regardless of provider.
+
+Implemented correspondence:
+
+- `resolveModelProvider` now accepts `openai_responses`, `openai_chat_completions`, `anthropic`, and `gemini` plus conservative aliases such as `openai`, `openai_completion`, and `google_gemini`.
+- Added OpenAI Responses support for `POST /v1/responses` with system/developer instructions, user input, `max_output_tokens`, `store=false`, and no tool declarations.
+- Added OpenAI Chat Completions support for `POST /v1/chat/completions` with the existing role-ordered message array and `max_completion_tokens`.
+- Kept Anthropic Messages support on the official direct API key path using `ANTHROPIC_API_KEY` and `x-api-key`.
+- Added Gemini `generateContent` support with `systemInstruction`, user content, `generationConfig.maxOutputTokens`, API-key auth, and externally supplied Google/Gemini bearer-token auth.
+- Updated TUI/help and README docs to list provider names and credential env vars while stating that Aetherion does not run OAuth flows or persist tokens. OpenAI and Gemini can consume externally supplied bearer tokens; Anthropic direct API remains API-key only.
+
+Verification evidence:
+
+- Harness tests mock `fetch` for all live providers and assert endpoint URLs, headers, request bodies, response mapping, provider aliases, and missing OpenAI credential failure without making network calls.
+- The provider tests confirm supported externally supplied bearer tokens can be consumed without being written into artifacts, and that Anthropic uses `x-api-key` instead of a bearer token.
+
+Correction and remaining boundary:
+
+- Corrects the previous single-live-provider drift from the target Agent Orchestrator shape by making provider API choice an adapter concern.
+- The OAuth part is deliberately limited: Aetherion accepts externally acquired bearer tokens only for provider paths that can use them, and does not implement three browser OAuth flows, account linking, token refresh, vault storage, or connector grants. Anthropic direct API OAuth is left out until there is an official API path to bind to.
+- No provider tools, streaming, multimodal payloads, raw response persistence, or provider tool-call-to-action bridge exists yet.
+
+## Phase 42 Review Notes
+
+This pass adds Simplified Chinese companion documentation and language-switch links across the main documentation set without changing the English files' role as canonical governance sources.
+
+Matched source docs:
+
+- `README.md` and `docs/00-product-brief.md`: makes the product thesis and V1 boundary accessible in Chinese while preserving the "codename, not replacement OS" framing.
+- `docs/01-architecture.md`: repeats that Local Supervisor and Tool Access & Action Policy Proxy remain the authority boundaries; translated docs do not introduce alternate architecture.
+- `docs/05-audit-and-data-contracts.md`: keeps human-readable documentation as reviewable governance material, while making clear that indexes/projections remain rebuildable and non-authoritative.
+- `docs/06-roadmap.md`: preserves TUI-first V1 scope and keeps GUI, IM, browser automation, MCP/OAuth connectors, and cloud workers deferred.
+- `docs/12-phase-implementation-review.md`: records this pass as a documentation/governance accessibility increment rather than a runtime behavior change.
+- `docs/13-schema-runtime-governance.md`: translated schema guidance repeats that schema, projection, fixture, client surface, model output, audit pass, and proposal artifacts are not authority.
+
+Implemented correspondence:
+
+- Added `.zh-CN.md` companion files for the root project docs, all `docs/00` through `docs/14` main design/review docs, package READMEs, and the Rust supervisor README.
+- Added top-of-file language-switch links from each English original to its Chinese companion and from each Chinese companion back to the English original.
+- Kept the MIT `LICENSE` English text as canonical while adding a clearly marked unofficial Chinese translation.
+- Localized provider documentation without promising in-product OAuth flows, token storage, connector grants, or model-output authority.
+
+Verification evidence:
+
+- Checked that every English original in the localized set has a Chinese link in its opening lines.
+- Checked that every `.zh-CN.md` companion has an English back-link in its opening lines.
+- `git diff --check` remains clean after the documentation additions.
+
+Correction and remaining boundary:
+
+- Corrects the accessibility gap for Chinese-speaking contributors without changing source-of-truth precedence.
+- The Chinese files are companion documentation, not independent governance forks. Future semantic changes should update the English canonical docs first or in parallel, then refresh the Chinese companions.
+- Issue and PR templates remain English-only in this pass; they can be localized later if the project wants bilingual contribution intake forms.
 
 ## Phase 3 Review Notes
 

@@ -1,5 +1,7 @@
 # Runtime Loop Plan
 
+[中文版本](14-runtime-loop-plan.zh-CN.md)
+
 This is the working loop for moving Aetherion from contract-backed slices toward a stronger local runtime without drifting into deferred product surfaces.
 
 ## Source Alignment
@@ -415,3 +417,40 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Turn a reviewed proposal into an explicit policy request through the existing supervisor file-read lifecycle, or harden response-audit/proposal parity once more producers exist.
+
+## Completed Increment: Multi-Provider No-Tools Model Boundary
+
+Target: expand the existing hash-only `prompt invoke-model` provider boundary so the same no-tools runtime evidence path can call OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, or Gemini `generateContent`.
+
+Why this slice:
+
+- The Agent Orchestrator must be provider-portable before tool execution is widened. Supporting multiple model APIs behind the same request/response/audit contracts avoids baking one provider into the runtime evidence model.
+- It keeps provider credentials out of durable state. API keys and supported externally acquired bearer tokens are read in memory only, while response artifacts still persist only hashes, provider/model refs, usage, and non-authority flags.
+- It satisfies the user request for OpenAI Responses, OpenAI completion-style chat, Anthropic, and Gemini interfaces without adding V1 OAuth connector runtime, vault grants, tool calls, or side effects.
+
+Acceptance:
+
+- `AETHERION_MODEL_PROVIDER=openai_responses` calls OpenAI `/v1/responses` with no tools, `store=false`, system/developer instructions, and user input.
+- `AETHERION_MODEL_PROVIDER=openai_chat_completions` calls OpenAI `/v1/chat/completions` with the existing system/developer/user message array and no tools.
+- `AETHERION_MODEL_PROVIDER=anthropic` continues to call Anthropic `/v1/messages` with `ANTHROPIC_API_KEY` and `x-api-key`, matching the official direct API path.
+- `AETHERION_MODEL_PROVIDER=gemini` calls Gemini `models/<model>:generateContent` with `systemInstruction`, user content, and no tools.
+- OpenAI and Gemini also accept externally supplied bearer-token env vars, but Aetherion does not run OAuth, persist credentials, create connector grants, or treat model access as authority. Anthropic OAuth is not implemented for this direct provider because the official Messages API uses API keys.
+- Provider tests mock `fetch`, assert endpoint, headers, body shape, credential source behavior, response mapping, and missing-credential failure without network access.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: advances the model-backed local runtime while avoiding GUI, IM, browser, connector, and cloud surfaces.
+- `docs/01-architecture.md`: keeps provider calls in the Agent Orchestrator, not in the Tool Access & Action Policy Proxy or Local Supervisor authority path.
+- `docs/02-user-boundary-layer.md`: model provider access is not permission to read, write, egress, or execute tools.
+- `docs/06-roadmap.md`: remains inside the TUI-first model-evidence loop; OAuth/SaaS connectors remain post-V1.
+- `docs/10-technical-strategy.md`: keeps TypeScript responsible for provider/API iteration and leaves policy/lease authority outside provider code.
+- `docs/13-schema-runtime-governance.md`: preserves the hash-only Agent Model Response artifact and no-tools boundary across providers.
+
+Remaining boundary:
+
+- This is not a real OAuth authorization flow, vault backend, connector grant, or provider account linking UX. It only consumes externally supplied bearer tokens when the provider path supports them.
+- It does not declare provider tools, stream responses, persist raw provider payloads, perform multimodal I/O, or translate provider tool calls into Aetherion `tool.requested` events.
+
+Next likely increment after this one:
+
+- Add provider capability metadata and explicit model defaults per deployment, or turn reviewed tool-request proposals into a fresh supervisor policy request.

@@ -1,5 +1,7 @@
 # Code of Conduct
 
+[中文版本](CODE_OF_CONDUCT.zh-CN.md)
+
 ## Our Pledge
 
 Aetherion is a local-first agent runtime project. We want the project to be rigorous, calm, and useful for people who care about trustworthy software. Contributors, maintainers, and users are expected to treat each other with respect and to keep technical disagreement focused on evidence, tradeoffs, and project goals.

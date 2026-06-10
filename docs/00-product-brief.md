@@ -1,5 +1,7 @@
 # Product Brief
 
+[中文版本](00-product-brief.zh-CN.md)
+
 ## Name
 
 Aetherion is the current codename.

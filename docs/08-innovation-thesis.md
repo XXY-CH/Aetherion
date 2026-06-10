@@ -1,5 +1,7 @@
 # Innovation Thesis
 
+[中文版本](08-innovation-thesis.zh-CN.md)
+
 The product is not most valuable because it is another agent that can use a computer. Computer use will become a baseline capability. Aetherion's highest-leverage bet is a governed harness kernel that makes agent action trustworthy, evolvable, inspectable, and portable.
 
 The four innovation bets below should guide architecture, product scope, and MVP sequencing.

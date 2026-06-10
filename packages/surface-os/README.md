@@ -1,5 +1,7 @@
 # Surface OS
 
+[中文版本](README.zh-CN.md)
+
 Phase 12 control-plane package for browser, IM, and Capsule Store surfaces.
 
 Current scope:

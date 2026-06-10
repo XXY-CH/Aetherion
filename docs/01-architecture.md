@@ -1,5 +1,7 @@
 # Architecture
 
+[中文版本](01-architecture.zh-CN.md)
+
 ## Orthogonal Planes
 
 ```text
