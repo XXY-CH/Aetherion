@@ -297,6 +297,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
 });
 
 test("TUI trace and replay fail closed on tampered run manifests", async () => {
@@ -1843,6 +1844,71 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(responseAuditPayloadFinding.schema_name, "agent-response-audit.schema.json");
   assert.equal(responseAuditPayloadFinding.schema_status, "valid");
   assert.deepEqual(responseAuditPayloadFinding.schema_errors, []);
+  const responseAuditEvidence = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "response-audits", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: {
+      mode: string;
+      mutates_ledger: boolean;
+      mutates_artifacts: boolean;
+      mutates_registries: boolean;
+      requests_supervisor_authority: boolean;
+      grants_runtime_authority: boolean;
+    };
+    summary: {
+      audit_events: number;
+      matched: number;
+      missing_evidence: number;
+      invalid_artifact: number;
+      invalid_run_manifest: number;
+      authority_violation: number;
+    };
+    findings: Array<{
+      audit_id: string;
+      status: string;
+      audit_event_id?: string;
+      audit_run_id?: string;
+      source_run_id?: string;
+      response_id?: string;
+      request_id?: string;
+      payload_ref?: string;
+      schema_name?: string;
+      schema_errors?: string[];
+      related_event_ids?: {
+        runtime_bound?: string;
+        model_requested?: string;
+        model_responded?: string;
+        response_audit_recorded?: string;
+      };
+    }>;
+  };
+  assert.equal(responseAuditEvidence.id, "agent_response_audit_evidence_audit");
+  assert.equal(responseAuditEvidence.scope.mode, "read_only_response_audit_evidence");
+  assert.equal(responseAuditEvidence.scope.mutates_ledger, false);
+  assert.equal(responseAuditEvidence.scope.mutates_artifacts, false);
+  assert.equal(responseAuditEvidence.scope.mutates_registries, false);
+  assert.equal(responseAuditEvidence.scope.requests_supervisor_authority, false);
+  assert.equal(responseAuditEvidence.scope.grants_runtime_authority, false);
+  assert.equal(responseAuditEvidence.summary.audit_events, 1);
+  assert.equal(responseAuditEvidence.summary.matched, 1);
+  assert.equal(responseAuditEvidence.summary.missing_evidence, 0);
+  assert.equal(responseAuditEvidence.summary.invalid_artifact, 0);
+  assert.equal(responseAuditEvidence.summary.invalid_run_manifest, 0);
+  assert.equal(responseAuditEvidence.summary.authority_violation, 0);
+  const responseAuditEvidenceFinding = responseAuditEvidence.findings.find((finding) => finding.audit_event_id === modelResponseRecord.response_audit_event_id);
+  assert.ok(responseAuditEvidenceFinding);
+  assert.equal(responseAuditEvidenceFinding.audit_id, modelResponseRecord.response_audit_id);
+  assert.equal(responseAuditEvidenceFinding.status, "matched");
+  assert.equal(responseAuditEvidenceFinding.audit_run_id, modelResponseRecord.response_audit_run_id);
+  assert.equal(responseAuditEvidenceFinding.source_run_id, runId);
+  assert.equal(responseAuditEvidenceFinding.response_id, modelResponseRecord.response_id);
+  assert.equal(responseAuditEvidenceFinding.request_id, modelRequestRecord.request_id);
+  assert.equal(responseAuditEvidenceFinding.payload_ref, modelResponseRecord.response_audit_artifact_ref);
+  assert.equal(responseAuditEvidenceFinding.schema_name, "agent-response-audit.schema.json");
+  assert.deepEqual(responseAuditEvidenceFinding.schema_errors, []);
+  assert.equal(responseAuditEvidenceFinding.related_event_ids?.runtime_bound, bindingRecord.binding_event_id);
+  assert.equal(responseAuditEvidenceFinding.related_event_ids?.model_requested, modelRequestRecord.request_event_id);
+  assert.equal(responseAuditEvidenceFinding.related_event_ids?.model_responded, modelResponseRecord.response_event_id);
+  assert.equal(responseAuditEvidenceFinding.related_event_ids?.response_audit_recorded, modelResponseRecord.response_audit_event_id);
 
   // Re-invoking the same request after a response exists fails closed.
   await assert.rejects(

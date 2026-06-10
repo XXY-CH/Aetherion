@@ -342,4 +342,38 @@ Remaining boundary:
 
 Next likely increment after this one:
 
-- Define a supervisor-gated tool-request proposal path from an audited model response, or harden response-audit rebuild/parity before widening runtime behavior.
+- Define a supervisor-gated tool-request proposal path from an audited model response, or add broader response-audit rebuild/parity once multiple response-audit producers exist.
+
+## Completed Increment: Response Audit Evidence Chain Audit
+
+Target: make persisted response-audit evidence checkable across Ledger events, artifacts, and run manifests before any model-output-to-tool-request bridge exists.
+
+Why this slice:
+
+- It hardens the boundary created by persisted response audits: having an audit artifact is not enough unless the referenced runtime binding, model request, model response, and single-event audit run all line up.
+- It keeps the response-audit layer read-only and evidence-focused, so it can catch missing or contaminated audit runs without repairing state or granting authority.
+
+Acceptance:
+
+- `audit response-audits` scans `agent.response.audit.recorded` events and validates each response-audit artifact against `agent-response-audit.schema.json`.
+- The audit verifies matching `agent.runtime.bound`, `agent.model.requested`, and `agent.model.responded` Ledger evidence for the artifact refs recorded by the response audit.
+- The audit verifies the response artifact hashes match the audit artifact's recorded response hashes.
+- The audit verifies the response-audit run manifest is completed and contains only the response-audit event.
+- Runs contaminated with authority-bearing events such as `tool.requested`, `tool.result`, `lease.issued`, or `action.recorded` are reported as `authority_violation`.
+- The audit is read-only: it does not call model providers, append events, repair artifacts, mutate registries, issue leases, or authorize actions.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: deepens the local auditable loop without adding broad surfaces.
+- `docs/01-architecture.md`: keeps the Event Ledger as fact layer while preserving the Tool Access & Action Policy Proxy as the action choke point.
+- `docs/05-audit-and-data-contracts.md`: treats artifacts and run manifests as auditable evidence, not source-of-truth authority.
+- `docs/13-schema-runtime-governance.md`: enforces the non-authorizing model-response and response-audit boundary before tool proposals are introduced.
+
+Remaining boundary:
+
+- This is an evidence-chain check, not semantic verification of model output.
+- There is still no model-output-to-tool-request bridge, no scoped lease from model output, no persisted raw response, and no daemon.
+
+Next likely increment after this one:
+
+- Define a supervisor-gated tool-request proposal path from an audited model response.

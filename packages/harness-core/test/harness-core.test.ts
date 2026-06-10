@@ -12,6 +12,7 @@ import {
   agentModelResponseArtifactRef,
   agentResponseAuditArtifactRef,
   agentRuntimeInvocationArtifactRef,
+  auditAgentResponseAuditEvidence,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
   approveWriteWithConsent,
@@ -333,6 +334,99 @@ test("agent response audit artifacts derive from hash-only response metadata", a
   assert.equal(responseAudit.authority_gates.audit_pass_is_runtime_verification, false);
   assert.match(responseAudit.audit_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(await readAgentResponseAuditArtifact(root, responseAudit.id), responseAudit);
+});
+
+test("agent response audit evidence audit matches complete non-authorizing response chains", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-response-audit-evidence-"));
+  const workspace = await createWorkspace(root, "ws_agent_response_audit_evidence");
+  const invocation = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")
+  );
+  const request = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8")
+  );
+  const response = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-model-response.json"), "utf8")
+  );
+  const responseAudit = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-response-audit.json"), "utf8")
+  );
+  const runtimeRef = await writeAgentRuntimeInvocationArtifact(repoRoot, workspace, invocation);
+  const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
+  const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspace, response);
+  const responseAuditRef = await writeAgentResponseAuditArtifact(repoRoot, workspace, responseAudit);
+  const auditRun = await createRunManifest(repoRoot, workspace, "run_response_audit_evidence", "Record response-audit evidence.");
+  const runtimeEvent = eventRecord({
+    id: "evt_agent_runtime_bound_for_audit_evidence",
+    workspace_id: workspace.id,
+    run_id: "run_runtime_binding_evidence",
+    event_type: "agent.runtime.bound",
+    actor: { type: "system", id: "test" },
+    summary: "Bound runtime invocation for response-audit evidence.",
+    payload_ref: runtimeRef
+  });
+  const requestEvent = eventRecord({
+    id: "evt_agent_model_requested_for_audit_evidence",
+    workspace_id: workspace.id,
+    run_id: "run_model_request_evidence",
+    event_type: "agent.model.requested",
+    actor: { type: "system", id: "test" },
+    summary: "Prepared model request for response-audit evidence.",
+    payload_ref: requestRef
+  });
+  const responseEvent = eventRecord({
+    id: "evt_agent_model_responded_for_audit_evidence",
+    workspace_id: workspace.id,
+    run_id: "run_model_response_evidence",
+    event_type: "agent.model.responded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded model response for response-audit evidence.",
+    payload_ref: responseRef
+  });
+  const responseAuditEvent = eventRecord({
+    id: "evt_agent_response_audit_for_audit_evidence",
+    workspace_id: workspace.id,
+    run_id: auditRun.id,
+    event_type: "agent.response.audit.recorded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded local response audit evidence.",
+    payload_ref: responseAuditRef
+  });
+  await appendEvent(repoRoot, workspace, runtimeEvent);
+  await appendEvent(repoRoot, workspace, requestEvent);
+  await appendEvent(repoRoot, workspace, responseEvent);
+  await appendEvent(repoRoot, workspace, responseAuditEvent);
+  await recordRunEvent(repoRoot, workspace, auditRun, responseAuditEvent.id);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, auditRun, "completed", [
+    { event_type: "agent.response.audit.recorded", payload_ref: responseAuditRef }
+  ]);
+
+  const evidence = await auditAgentResponseAuditEvidence(repoRoot, root, await readEvents(workspace));
+  assert.equal(evidence.scope.mutates_ledger, false);
+  assert.equal(evidence.scope.mutates_artifacts, false);
+  assert.equal(evidence.scope.grants_runtime_authority, false);
+  assert.equal(evidence.summary.audit_events, 1);
+  assert.equal(evidence.summary.matched, 1);
+  assert.equal(evidence.summary.missing_evidence, 0);
+  assert.equal(evidence.summary.authority_violation, 0);
+  assert.equal(evidence.findings[0].status, "matched");
+  assert.equal(evidence.findings[0].audit_id, responseAudit.id);
+  assert.equal(evidence.findings[0].source_run_id, response.run_id);
+  assert.equal(evidence.findings[0].response_id, response.id);
+  assert.equal(evidence.findings[0].request_id, request.id);
+  assert.equal(evidence.findings[0].related_event_ids?.runtime_bound, runtimeEvent.id);
+  assert.equal(evidence.findings[0].related_event_ids?.model_requested, requestEvent.id);
+  assert.equal(evidence.findings[0].related_event_ids?.model_responded, responseEvent.id);
+  assert.equal(evidence.findings[0].related_event_ids?.response_audit_recorded, responseAuditEvent.id);
+
+  const missing = await auditAgentResponseAuditEvidence(repoRoot, root, [responseAuditEvent]);
+  assert.equal(missing.summary.audit_events, 1);
+  assert.equal(missing.summary.matched, 0);
+  assert.equal(missing.summary.missing_evidence, 1);
+  assert.equal(missing.findings[0].status, "missing_evidence");
+  assert.match(missing.findings[0].reason ?? "", /missing agent\.model\.responded/);
+  assert.match(missing.findings[0].reason ?? "", /missing agent\.model\.requested/);
+  assert.match(missing.findings[0].reason ?? "", /missing agent\.runtime\.bound/);
 });
 
 test("agent model request artifacts derive from runtime invocation metadata without raw prompt persistence", async () => {

@@ -955,12 +955,14 @@ Implemented correspondence:
 - Added `AgentResponseAuditArtifact` helpers in `packages/harness-core/src/agent-runtime.ts`, plus payload-ref schema mapping for `agent.response.audit.recorded`.
 - Extended `prompt invoke-model` so the response audit becomes an independent single-event governance run after `agent.model.responded`.
 - Kept the response artifact immutable and hash-only; the audit artifact references response hashes and stores audit checks, not raw model output or rendered prompt text.
+- Added `audit response-audits` as a read-only evidence-chain audit for `agent.response.audit.recorded` events. It verifies matching runtime binding, model request, model response, response-audit artifact, response hashes, and completed single-event audit run manifests while reporting missing evidence, invalid artifacts, invalid manifests, or authority contamination.
 
 Correction and remaining boundary:
 
 - Corrects the Phase 38 drift where response audit was observable only on stdout while the runtime plan expected reviewable evidence.
 - The audit still cannot authorize actions, cannot satisfy policy, cannot issue leases, and cannot be presented as runtime verification.
 - No model-output-to-tool-request bridge exists yet; that next step must still enter a dedicated supervisor path.
+- The response-audit evidence-chain audit is still a structural check, not semantic verification of model output or proof of task completion.
 
 ## Phase 3 Review Notes
 

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import type { AgentModelResponseArtifact, AgentResponseAuditArtifact } from "./agent-runtime.ts";
 import type { EventRecord } from "./ledger.ts";
 import type { ReplayRecord } from "./replay.ts";
 import { validateAgainstSchema } from "./schema.ts";
@@ -327,6 +328,58 @@ export type LedgerPayloadRefAudit = {
     schema_not_checked: number;
   };
   findings: LedgerPayloadRefFinding[];
+};
+
+export type AgentResponseAuditEvidenceStatus =
+  | "matched"
+  | "missing_evidence"
+  | "invalid_artifact"
+  | "invalid_run_manifest"
+  | "authority_violation";
+
+export type AgentResponseAuditEvidenceFinding = {
+  audit_id: string;
+  status: AgentResponseAuditEvidenceStatus;
+  reason?: string;
+  audit_event_id?: string;
+  audit_run_id?: string;
+  source_run_id?: string;
+  response_id?: string;
+  request_id?: string;
+  payload_ref?: string;
+  resolved_path?: string | null;
+  schema_name?: string;
+  schema_errors?: string[];
+  related_event_ids?: {
+    runtime_bound?: string;
+    model_requested?: string;
+    model_responded?: string;
+    response_audit_recorded?: string;
+  };
+};
+
+export type AgentResponseAuditEvidenceAudit = {
+  id: "agent_response_audit_evidence_audit";
+  generated_at: string;
+  workspace_root: string;
+  ledger_event_count: number;
+  scope: {
+    mode: "read_only_response_audit_evidence";
+    mutates_ledger: false;
+    mutates_artifacts: false;
+    mutates_registries: false;
+    requests_supervisor_authority: false;
+    grants_runtime_authority: false;
+  };
+  summary: {
+    audit_events: number;
+    matched: number;
+    missing_evidence: number;
+    invalid_artifact: number;
+    invalid_run_manifest: number;
+    authority_violation: number;
+  };
+  findings: AgentResponseAuditEvidenceFinding[];
 };
 
 export function registryPath(workspaceRoot: string, name: string): string {
@@ -1027,6 +1080,186 @@ export async function auditLedgerPayloadRefs(repoRoot: string, workspaceRoot: st
       schema_not_checked: findings.filter((finding) => finding.schema_status === "not_checked").length
     },
     findings
+  };
+}
+
+export async function auditAgentResponseAuditEvidence(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<AgentResponseAuditEvidenceAudit> {
+  const findings: AgentResponseAuditEvidenceFinding[] = [];
+  const requestEvents = new Map(events
+    .filter((event) => event.event_type === "agent.model.requested" && event.payload_ref)
+    .map((event) => [event.payload_ref as string, event]));
+  const responseEvents = new Map(events
+    .filter((event) => event.event_type === "agent.model.responded" && event.payload_ref)
+    .map((event) => [event.payload_ref as string, event]));
+  const runtimeEvents = new Map(events
+    .filter((event) => event.event_type === "agent.runtime.bound" && event.payload_ref)
+    .map((event) => [event.payload_ref as string, event]));
+  const eventsByRun = new Map<string, EventRecord[]>();
+  for (const event of events) {
+    const runEvents = eventsByRun.get(event.run_id) ?? [];
+    runEvents.push(event);
+    eventsByRun.set(event.run_id, runEvents);
+  }
+
+  for (const event of events.filter((entry) => entry.event_type === "agent.response.audit.recorded")) {
+    const baseFinding = {
+      audit_id: event.payload_ref ? basenameFromArtifactRef(event.payload_ref) : event.id,
+      audit_event_id: event.id,
+      audit_run_id: event.run_id,
+      payload_ref: event.payload_ref,
+      related_event_ids: {
+        response_audit_recorded: event.id
+      }
+    };
+    if (!event.payload_ref) {
+      findings.push({
+        ...baseFinding,
+        status: "invalid_artifact",
+        reason: "agent.response.audit.recorded event has no payload_ref"
+      });
+      continue;
+    }
+    const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+    if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+      findings.push({
+        ...baseFinding,
+        status: "invalid_artifact",
+        resolved_path: resolved.status === "unresolved" ? null : resolved.path,
+        reason: resolved.status === "unresolved" ? resolved.reason : "response-audit artifact is missing"
+      });
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(resolved.path, "utf8")) as unknown;
+    } catch {
+      findings.push({
+        ...baseFinding,
+        status: "invalid_artifact",
+        resolved_path: resolved.path,
+        reason: "response-audit artifact JSON could not be parsed"
+      });
+      continue;
+    }
+    const schemaValidation = await validateAgainstSchema(repoRoot, "agent-response-audit.schema.json", parsed);
+    if (!schemaValidation.valid || !isAgentResponseAuditRecord(parsed)) {
+      findings.push({
+        ...baseFinding,
+        audit_id: isRegistryItem(parsed) ? parsed.id : baseFinding.audit_id,
+        status: "invalid_artifact",
+        resolved_path: resolved.path,
+        schema_name: "agent-response-audit.schema.json",
+        schema_errors: schemaValidation.errors,
+        reason: "response-audit artifact is not schema-valid"
+      });
+      continue;
+    }
+
+    const responseEvent = responseEvents.get(parsed.response_artifact_ref);
+    const requestEvent = requestEvents.get(parsed.request_artifact_ref);
+    const runtimeEvent = runtimeEvents.get(parsed.runtime_invocation_artifact_ref);
+    const relatedEventIds = {
+      runtime_bound: runtimeEvent?.id,
+      model_requested: requestEvent?.id,
+      model_responded: responseEvent?.id,
+      response_audit_recorded: event.id
+    };
+
+    const missingEvidence = [
+      !responseEvent ? `missing agent.model.responded event for ${parsed.response_artifact_ref}` : "",
+      !requestEvent ? `missing agent.model.requested event for ${parsed.request_artifact_ref}` : "",
+      !runtimeEvent ? `missing agent.runtime.bound event for ${parsed.runtime_invocation_artifact_ref}` : ""
+    ].filter(Boolean);
+    if (missingEvidence.length > 0) {
+      findings.push({
+        ...baseFinding,
+        audit_id: parsed.id,
+        source_run_id: parsed.run_id,
+        response_id: parsed.response_id,
+        request_id: parsed.request_id,
+        status: "missing_evidence",
+        resolved_path: resolved.path,
+        schema_name: "agent-response-audit.schema.json",
+        schema_errors: [],
+        related_event_ids: relatedEventIds,
+        reason: missingEvidence.join("; ")
+      });
+      continue;
+    }
+
+    const responseArtifactCheck = await validateResponseArtifactForAudit(repoRoot, workspaceRoot, parsed);
+    if (responseArtifactCheck.status !== "valid") {
+      findings.push({
+        ...baseFinding,
+        audit_id: parsed.id,
+        source_run_id: parsed.run_id,
+        response_id: parsed.response_id,
+        request_id: parsed.request_id,
+        status: responseArtifactCheck.status,
+        resolved_path: responseArtifactCheck.resolved_path ?? resolved.path,
+        schema_name: responseArtifactCheck.schema_name,
+        schema_errors: responseArtifactCheck.schema_errors,
+        related_event_ids: relatedEventIds,
+        reason: responseArtifactCheck.reason
+      });
+      continue;
+    }
+
+    const runCheck = responseAuditRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot);
+    if (runCheck.status !== "valid") {
+      findings.push({
+        ...baseFinding,
+        audit_id: parsed.id,
+        source_run_id: parsed.run_id,
+        response_id: parsed.response_id,
+        request_id: parsed.request_id,
+        status: runCheck.status,
+        resolved_path: resolved.path,
+        schema_name: "agent-response-audit.schema.json",
+        schema_errors: [],
+        related_event_ids: relatedEventIds,
+        reason: runCheck.reason
+      });
+      continue;
+    }
+
+    findings.push({
+      ...baseFinding,
+      audit_id: parsed.id,
+      source_run_id: parsed.run_id,
+      response_id: parsed.response_id,
+      request_id: parsed.request_id,
+      status: "matched",
+      resolved_path: resolved.path,
+      schema_name: "agent-response-audit.schema.json",
+      schema_errors: [],
+      related_event_ids: relatedEventIds
+    });
+  }
+
+  return {
+    id: "agent_response_audit_evidence_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    ledger_event_count: events.length,
+    scope: {
+      mode: "read_only_response_audit_evidence",
+      mutates_ledger: false,
+      mutates_artifacts: false,
+      mutates_registries: false,
+      requests_supervisor_authority: false,
+      grants_runtime_authority: false
+    },
+    summary: {
+      audit_events: findings.length,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_evidence: findings.filter((finding) => finding.status === "missing_evidence").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_run_manifest: findings.filter((finding) => finding.status === "invalid_run_manifest").length,
+      authority_violation: findings.filter((finding) => finding.status === "authority_violation").length
+    },
+    findings: findings.sort((left, right) => `${left.status}:${left.audit_id}`.localeCompare(`${right.status}:${right.audit_id}`))
   };
 }
 
@@ -1957,6 +2190,234 @@ function resolveArtifactReference(workspaceRoot: string, itemId: string, path: s
 function conventionalArtifactPath(workspaceRoot: string, artifactRef: string): string | null {
   const resolved = resolveLocalArtifactReference(workspaceRoot, artifactRef);
   return resolved.status === "unresolved" ? null : resolved.path;
+}
+
+function basenameFromArtifactRef(artifactRef: string): string {
+  return artifactRef.slice("artifact://".length).split("/").filter(Boolean).at(-1) ?? artifactRef;
+}
+
+function isAgentResponseAuditRecord(value: unknown): value is AgentResponseAuditArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const response = value.response;
+  const scope = value.scope;
+  const authorityGates = value.authority_gates;
+  return typeof value.id === "string"
+    && typeof value.response_id === "string"
+    && typeof value.response_artifact_ref === "string"
+    && typeof value.request_id === "string"
+    && typeof value.request_artifact_ref === "string"
+    && typeof value.run_id === "string"
+    && typeof value.runtime_invocation_id === "string"
+    && typeof value.runtime_invocation_artifact_ref === "string"
+    && isRecord(response)
+    && typeof response.output_text_sha256 === "string"
+    && typeof response.response_payload_sha256 === "string"
+    && typeof response.response_sha256 === "string"
+    && isRecord(scope)
+    && isRecord(authorityGates);
+}
+
+function isAgentModelResponseRecord(value: unknown): value is AgentModelResponseArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const response = value.response;
+  const toolGateway = value.tool_gateway;
+  const authorityGates = value.authority_gates;
+  return typeof value.id === "string"
+    && typeof value.request_id === "string"
+    && typeof value.request_artifact_ref === "string"
+    && typeof value.run_id === "string"
+    && typeof value.runtime_invocation_id === "string"
+    && typeof value.runtime_invocation_artifact_ref === "string"
+    && isRecord(response)
+    && typeof response.output_text_sha256 === "string"
+    && typeof response.response_payload_sha256 === "string"
+    && typeof value.response_sha256 === "string"
+    && isRecord(toolGateway)
+    && isRecord(authorityGates);
+}
+
+async function validateResponseArtifactForAudit(
+  repoRoot: string,
+  workspaceRoot: string,
+  audit: AgentResponseAuditArtifact
+): Promise<
+  | { status: "valid"; resolved_path: string }
+  | {
+    status: "missing_evidence" | "invalid_artifact" | "authority_violation";
+    resolved_path: string | null;
+    schema_name: string;
+    schema_errors: string[];
+    reason: string;
+  }
+> {
+  const resolved = resolveLocalArtifactReference(workspaceRoot, audit.response_artifact_ref);
+  if (resolved.status === "unresolved") {
+    return {
+      status: "missing_evidence",
+      resolved_path: null,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: [],
+      reason: resolved.reason
+    };
+  }
+  if (!existsSync(resolved.path)) {
+    return {
+      status: "missing_evidence",
+      resolved_path: resolved.path,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: [],
+      reason: "model response artifact is missing"
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved.path, "utf8")) as unknown;
+  } catch {
+    return {
+      status: "invalid_artifact",
+      resolved_path: resolved.path,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: [],
+      reason: "model response artifact JSON could not be parsed"
+    };
+  }
+  const schemaValidation = await validateAgainstSchema(repoRoot, "agent-model-response.schema.json", parsed);
+  if (!schemaValidation.valid || !isAgentModelResponseRecord(parsed)) {
+    return {
+      status: "invalid_artifact",
+      resolved_path: resolved.path,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: schemaValidation.errors,
+      reason: "model response artifact is not schema-valid"
+    };
+  }
+
+  const mismatches = [
+    parsed.id !== audit.response_id ? "audit response_id does not match response artifact id" : "",
+    parsed.request_id !== audit.request_id ? "audit request_id does not match response artifact request_id" : "",
+    parsed.request_artifact_ref !== audit.request_artifact_ref ? "audit request_artifact_ref does not match response artifact request_artifact_ref" : "",
+    parsed.runtime_invocation_id !== audit.runtime_invocation_id ? "audit runtime_invocation_id does not match response artifact runtime_invocation_id" : "",
+    parsed.runtime_invocation_artifact_ref !== audit.runtime_invocation_artifact_ref ? "audit runtime_invocation_artifact_ref does not match response artifact runtime_invocation_artifact_ref" : "",
+    parsed.run_id !== audit.run_id ? "audit source run_id does not match response artifact run_id" : "",
+    parsed.response.output_text_sha256 !== audit.response.output_text_sha256 ? "audit output_text_sha256 does not match response artifact" : "",
+    parsed.response.response_payload_sha256 !== audit.response.response_payload_sha256 ? "audit response_payload_sha256 does not match response artifact" : "",
+    parsed.response_sha256 !== audit.response.response_sha256 ? "audit response_sha256 does not match response artifact" : ""
+  ].filter(Boolean);
+  if (mismatches.length > 0) {
+    return {
+      status: "missing_evidence",
+      resolved_path: resolved.path,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: [],
+      reason: mismatches.join("; ")
+    };
+  }
+
+  const authorityViolations = [
+    parsed.scope.tools_requested ? "response artifact claims tools_requested=true" : "",
+    parsed.scope.tool_execution_allowed ? "response artifact claims tool_execution_allowed=true" : "",
+    parsed.scope.runtime_authority_granted ? "response artifact claims runtime_authority_granted=true" : "",
+    parsed.tool_gateway.tool_request_events_appended ? "response artifact claims tool_request_events_appended=true" : "",
+    parsed.tool_gateway.execution_without_policy_allowed ? "response artifact claims execution_without_policy_allowed=true" : "",
+    parsed.authority_gates.model_output_can_authorize_actions ? "response artifact claims model_output_can_authorize_actions=true" : ""
+  ].filter(Boolean);
+  if (authorityViolations.length > 0) {
+    return {
+      status: "authority_violation",
+      resolved_path: resolved.path,
+      schema_name: "agent-model-response.schema.json",
+      schema_errors: [],
+      reason: authorityViolations.join("; ")
+    };
+  }
+
+  return { status: "valid", resolved_path: resolved.path };
+}
+
+function responseAuditRunEvidence(
+  event: EventRecord,
+  runEvents: EventRecord[],
+  workspaceRoot: string
+): { status: "valid" } | { status: "invalid_run_manifest" | "authority_violation"; reason: string } {
+  const eventTypes = runEvents.map((entry) => entry.event_type);
+  const authorityEvent = runEvents.find((entry) =>
+    entry.event_type === "tool.requested"
+    || entry.event_type === "lease.issued"
+    || entry.event_type === "action.recorded"
+    || entry.event_type === "tool.result"
+  );
+  if (authorityEvent) {
+    return {
+      status: "authority_violation",
+      reason: `response audit run includes authority-bearing event ${authorityEvent.event_type}`
+    };
+  }
+  if (eventTypes.length !== 1 || eventTypes[0] !== "agent.response.audit.recorded") {
+    return {
+      status: "invalid_run_manifest",
+      reason: `response audit run must contain only agent.response.audit.recorded, got ${eventTypes.join(" -> ") || "no events"}`
+    };
+  }
+
+  const manifestRead = readRunManifestForAudit(workspaceRoot, event.run_id);
+  if (manifestRead.status !== "valid") {
+    return {
+      status: "invalid_run_manifest",
+      reason: manifestRead.reason
+    };
+  }
+  if (manifestRead.manifest.status !== "completed") {
+    return {
+      status: "invalid_run_manifest",
+      reason: `response audit run manifest status is ${manifestRead.manifest.status}, expected completed`
+    };
+  }
+  if (!stringArraysEqual(manifestRead.manifest.event_ids, [event.id])) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `response audit run manifest event_ids must contain only ${event.id}`
+    };
+  }
+  return { status: "valid" };
+}
+
+function readRunManifestForAudit(
+  workspaceRoot: string,
+  runId: string
+): { status: "valid"; manifest: { status: string; event_ids: string[] } } | { status: "invalid"; reason: string } {
+  const path = join(workspaceRoot, ".aetherion", "runs", `${runId}.json`);
+  if (!existsSync(path)) {
+    return { status: "invalid", reason: "response audit run manifest is missing" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    return { status: "invalid", reason: "response audit run manifest JSON could not be parsed" };
+  }
+  if (!isRecord(parsed) || parsed.id !== runId || typeof parsed.status !== "string" || !Array.isArray(parsed.event_ids) || !parsed.event_ids.every((eventId) => typeof eventId === "string")) {
+    return { status: "invalid", reason: "response audit run manifest has invalid shape" };
+  }
+  return {
+    status: "valid",
+    manifest: {
+      status: parsed.status,
+      event_ids: parsed.event_ids
+    }
+  };
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function resolveLocalArtifactReference(workspaceRoot: string, artifactRef: string): { status: "resolvable"; path: string } | { status: "unresolved"; reason: string } {
