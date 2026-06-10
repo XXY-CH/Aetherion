@@ -10,7 +10,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 125 passing tests.
+- `npm test`: 126 passing tests.
 - `cargo test`: 39 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -920,21 +920,47 @@ Implemented correspondence:
 - `packages/harness-core/src/model-provider.ts` adds a narrow model provider boundary with a deterministic offline stub (`provider_local_stub`, no network) and a real Anthropic Messages provider (`provider_anthropic`). `resolveModelProvider` selects by `AETHERION_MODEL_PROVIDER` (default stub) and reads `ANTHROPIC_API_KEY` only at call time, never returning or persisting it.
 - `packages/harness-core/src/agent-runtime.ts` adds `createAgentModelResponseArtifact`, which builds a schema-valid `AgentModelResponseArtifact` recording hashes and usage only, with `model_invoked=true`, `provider_called=true`, `credential_resolved=false`, `raw_response_persisted=false`, `model_output_can_authorize_actions=false`, and `response_audit.passed=null`.
 - `prompt invoke-model <request_id> --content <task>` re-renders the prompt through the same provenance-gated Context Pack path used by `prompt plan`/`bind-runtime`/`prepare-model-request`, asserts the re-rendered prompt bundle id, preview hash, and per-message hashes exactly match the bound Agent Model Request, then invokes the provider in-memory. Prompt drift, a missing request artifact, missing `agent.model.requested` Ledger evidence, and an already-recorded response all fail closed.
-- The command persists only hashes, records `agent.model.responded` in an independent single-event run bound to `artifact://agent/model-response/<response_id>`, leaves the source run unextended, prints the raw output and a local response audit on stdout, and appends no tool request, lease, or authority event.
-- `audit payload-refs` resolves and schema-validates the response payload via the existing `agent.model.responded -> agent-model-response.schema.json` mapping.
+- The command persists only response hashes, records `agent.model.responded` in an independent single-event run bound to `artifact://agent/model-response/<response_id>`, leaves the source run unextended, prints the raw output on stdout, and appends no tool request, lease, or authority event.
+- The local response audit is now persisted separately as `artifact://agent/response-audit/<audit_id>` and recorded in an independent `agent.response.audit.recorded` run. It stores response/request/runtime refs, response hashes, block/citation/forbidden-claim checks, findings, and next steps, while recording `audit_can_authorize_actions=false` and `audit_pass_is_runtime_verification=false`.
+- `audit payload-refs` resolves and schema-validates both the response payload via `agent.model.responded -> agent-model-response.schema.json` and the response-audit payload via `agent.response.audit.recorded -> agent-response-audit.schema.json`.
 
 Verification evidence:
 
-- Harness tests cover the deterministic stub provider output and usage, `resolveModelProvider` env selection and unknown-provider rejection, and the response artifact recording hashes only with `response_audit.passed=null` and schema validation.
-- TUI integration drives the full `bind-runtime -> prepare-model-request -> invoke-model` chain with the stub provider, asserting hash-only persistence (no raw output or prompt text in the artifact), the independent single-event `agent.model.responded` run, an unextended source run, a passing local response audit, schema-valid payload-ref resolution, prompt-drift fail-closed, and duplicate-response fail-closed.
-- `npm test` (125 tests) and `cargo test` (39 tests, Rust unchanged) pass; clippy and fmt remain clean.
+- Harness tests cover the deterministic stub provider output and usage, `resolveModelProvider` env selection and unknown-provider rejection, the response artifact recording hashes only with `response_audit.passed=null`, response-audit artifact derivation from hash-only response metadata, schema validation, and payload-ref resolution for request/response/audit events.
+- TUI integration drives the full `bind-runtime -> prepare-model-request -> invoke-model` chain with the stub provider, asserting hash-only response persistence (no raw output or prompt text in the artifact), the independent single-event `agent.model.responded` run, an independent single-event `agent.response.audit.recorded` run, an unextended source run, a passing persisted local response audit, schema-valid payload-ref resolution, prompt-drift fail-closed, and duplicate-response fail-closed.
+- `npm test` (126 tests) and `cargo test` (39 tests, Rust unchanged) pass; clippy and fmt remain clean.
 
 Correction and remaining boundary:
 
 - This is a no-tools model invocation. Model output cannot authorize actions; turning an audited response into a `tool.requested` event still requires a dedicated supervisor path with policy and a scoped lease.
 - The default provider is the offline stub. A live Anthropic call requires explicit opt-in via `AETHERION_MODEL_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`.
-- The response audit is local output linting on stdout, not runtime verification and not a persisted artifact. The response artifact still records `may_present_as_verified_runtime_evidence=false`.
+- The response audit is local output linting and is now persisted as its own governance artifact, but it is still not runtime verification, not policy approval, and not an authority grant. The response artifact still records `may_present_as_verified_runtime_evidence=false`.
 - Raw model output is intentionally not persisted. A future increment needing durable output must define a separately governed, redaction-aware artifact rather than widening this contract.
+
+## Phase 39 Review Notes
+
+This pass persists the response-audit evidence that Phase 38 left on stdout. It is a runtime-evidence correction, not a new product surface.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: the project should deepen the auditable local runtime rather than add GUI, IM, browser, connector, or cloud surfaces.
+- `docs/01-architecture.md`: Agent Orchestrator evidence remains separate from the Tool Access & Action Policy Proxy authority path.
+- `docs/02-user-boundary-layer.md`: model-derived content and audit output cannot authorize sensitive reads, writes, egress, or side effects.
+- `docs/05-audit-and-data-contracts.md`: durable evidence should be human-readable, payload-ref backed, and auditable without making projections the source of truth.
+- `docs/13-schema-runtime-governance.md`: P1 runtime paths should close executable evidence gaps before widening schema/product surfaces.
+
+Implemented correspondence:
+
+- Added `agent-response-audit.schema.json` and an example contract for local response-audit records.
+- Added `AgentResponseAuditArtifact` helpers in `packages/harness-core/src/agent-runtime.ts`, plus payload-ref schema mapping for `agent.response.audit.recorded`.
+- Extended `prompt invoke-model` so the response audit becomes an independent single-event governance run after `agent.model.responded`.
+- Kept the response artifact immutable and hash-only; the audit artifact references response hashes and stores audit checks, not raw model output or rendered prompt text.
+
+Correction and remaining boundary:
+
+- Corrects the Phase 38 drift where response audit was observable only on stdout while the runtime plan expected reviewable evidence.
+- The audit still cannot authorize actions, cannot satisfy policy, cannot issue leases, and cannot be presented as runtime verification.
+- No model-output-to-tool-request bridge exists yet; that next step must still enter a dedicated supervisor path.
 
 ## Phase 3 Review Notes
 

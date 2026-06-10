@@ -295,7 +295,7 @@ Acceptance:
 - The response is recorded in an independent single-event `agent.model.responded` run. The source run is not extended.
 - The raw model output and rendered prompt text never appear in the persisted artifact; the operator sees them only on stdout.
 - `audit payload-refs` resolves and schema-validates the new response event payload.
-- A local response audit runs in-memory against the same prompt plan and is reported on stdout; it appends no events and grants no authority.
+- A local response audit runs against the same prompt plan and is reported on stdout; it remains non-authorizing and is not runtime verification.
 
 Remaining boundary:
 
@@ -306,4 +306,40 @@ Remaining boundary:
 
 Next likely increment after this one:
 
-- Define a supervisor-gated tool-request path that can turn an audited model response into a `tool.requested` event (still requiring policy and a scoped lease), or add response-audit persistence as a separate reviewed artifact, after another docs/code review.
+- Add response-audit persistence as a separate reviewed artifact before any model-output-to-tool-request bridge.
+
+## Completed Increment: Persisted Response Audit Evidence
+
+Target: make the local response audit from `prompt invoke-model` durable as non-authorizing Ledger evidence, without mutating the hash-only Agent Model Response artifact or treating audit pass as runtime verification.
+
+Why this slice:
+
+- It corrects the previous boundary where the model response artifact was durable but the response-audit gate existed only on stdout.
+- It advances `docs/13-schema-runtime-governance.md` by making response-side runtime evidence auditable through the same payload-ref mechanism as requests and responses.
+- It avoids a drift risk from `docs/01-architecture.md` and `docs/02-user-boundary-layer.md`: audited model output may inform planning, but the Tool Access & Action Policy Proxy remains the only action choke point.
+
+Acceptance:
+
+- `prompt invoke-model <request_id> --content <task>` writes `artifact://agent/response-audit/<audit_id>` after recording `agent.model.responded`.
+- The audit artifact records response/request/runtime refs, response hashes, required/present/missing blocks, citation checks, forbidden-claim findings, and next steps.
+- The audit artifact records `audit_invoked_model=false`, `audit_requested_tools=false`, `audit_read_raw_payload_artifacts=false`, `raw_response_persisted=false`, `raw_prompt_persisted=false`, `audit_can_authorize_actions=false`, and `audit_pass_is_runtime_verification=false`.
+- The audit is recorded in an independent single-event `agent.response.audit.recorded` run. The source run and response run are not extended.
+- `audit payload-refs` resolves and schema-validates `agent.response.audit.recorded` payload refs.
+- The raw model output and rendered prompt text never appear in the response-audit artifact.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: improves the auditable runtime loop instead of adding a new user surface.
+- `docs/01-architecture.md`: keeps the Agent Orchestrator evidence separate from policy/tool authority.
+- `docs/02-user-boundary-layer.md`: confirms model-derived content and audit output cannot authorize sensitive actions.
+- `docs/05-audit-and-data-contracts.md`: records a human-readable artifact ref and keeps indexes/audits rebuildable rather than authoritative.
+- `docs/13-schema-runtime-governance.md`: closes a runtime evidence gap instead of expanding speculative surfaces.
+
+Remaining boundary:
+
+- The audit remains output linting, not semantic verification, policy approval, or task completion proof.
+- There is still no model-output-to-tool-request bridge, no scoped lease from model output, no persisted raw response, and no daemon.
+
+Next likely increment after this one:
+
+- Define a supervisor-gated tool-request proposal path from an audited model response, or harden response-audit rebuild/parity before widening runtime behavior.

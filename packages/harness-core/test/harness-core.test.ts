@@ -10,6 +10,7 @@ import {
   auditHibernationRegistryRebuild,
   agentModelRequestArtifactRef,
   agentModelResponseArtifactRef,
+  agentResponseAuditArtifactRef,
   agentRuntimeInvocationArtifactRef,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
@@ -32,6 +33,7 @@ import {
   createFileWriteRequest,
   createAgentModelRequestArtifact,
   createAgentModelResponseArtifact,
+  createAgentResponseAuditArtifact,
   createRunManifest,
   createWriteConsentRecord,
   createTraceReplayRecord,
@@ -45,6 +47,7 @@ import {
   readEvents,
   readAgentModelRequestArtifact,
   readAgentModelResponseArtifact,
+  readAgentResponseAuditArtifact,
   readAgentRuntimeInvocationArtifact,
   REPLAY_RECORD_RUN_EVENT_TYPES,
   CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES,
@@ -71,6 +74,7 @@ import {
   writeConsentRecordArtifact,
   writeAgentModelRequestArtifact,
   writeAgentModelResponseArtifact,
+  writeAgentResponseAuditArtifact,
   writeAgentRuntimeInvocationArtifact,
   writeLocalFileThroughPolicy,
   workspaceIdForRoot,
@@ -135,6 +139,7 @@ const schemaExamplePairs = [
   ["agent-runtime-invocation.schema.json", "agent-runtime-invocation.json"],
   ["agent-model-request.schema.json", "agent-model-request.json"],
   ["agent-model-response.schema.json", "agent-model-response.json"],
+  ["agent-response-audit.schema.json", "agent-response-audit.json"],
   ["agent-score.schema.json", "agent-score.json"],
   ["content-assessment.schema.json", "content-assessment.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"],
@@ -172,7 +177,7 @@ test("agent runtime invocation artifacts round-trip through local workspace stor
   assert.equal(await readAgentRuntimeInvocationArtifact(root, "agent_runtime_invocation_missing"), null);
 });
 
-test("agent model request and response artifacts round-trip and audit through local payload refs", async () => {
+test("agent model request, response, and response-audit artifacts round-trip through local payload refs", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-agent-model-artifacts-"));
   const workspace = await createWorkspace(root, "ws_agent_model_artifacts");
   const request = JSON.parse(
@@ -181,17 +186,25 @@ test("agent model request and response artifacts round-trip and audit through lo
   const response = JSON.parse(
     await readFile(join(repoRoot, "examples", "contracts", "agent-model-response.json"), "utf8")
   );
+  const responseAudit = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-response-audit.json"), "utf8")
+  );
 
   const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
   const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspace, response);
+  const responseAuditRef = await writeAgentResponseAuditArtifact(repoRoot, workspace, responseAudit);
   assert.equal(requestRef, agentModelRequestArtifactRef(request.id));
   assert.equal(responseRef, agentModelResponseArtifactRef(response.id));
+  assert.equal(responseAuditRef, agentResponseAuditArtifactRef(responseAudit.id));
   assert.equal(requestRef, "artifact://agent/model-request/agent_model_request_run_example_preview");
   assert.equal(responseRef, "artifact://agent/model-response/agent_model_response_run_example_preview");
+  assert.equal(responseAuditRef, "artifact://agent/response-audit/agent_response_audit_run_example_preview");
   assert.deepEqual(await readAgentModelRequestArtifact(root, request.id), request);
   assert.deepEqual(await readAgentModelResponseArtifact(root, response.id), response);
+  assert.deepEqual(await readAgentResponseAuditArtifact(root, responseAudit.id), responseAudit);
   assert.equal(await readAgentModelRequestArtifact(root, "agent_model_request_missing"), null);
   assert.equal(await readAgentModelResponseArtifact(root, "agent_model_response_missing"), null);
+  assert.equal(await readAgentResponseAuditArtifact(root, "agent_response_audit_missing"), null);
 
   const requestEvent = eventRecord({
     id: "evt_agent_model_requested",
@@ -211,24 +224,45 @@ test("agent model request and response artifacts round-trip and audit through lo
     summary: "Recorded model response metadata.",
     payload_ref: responseRef
   });
+  const responseAuditEvent = eventRecord({
+    id: "evt_agent_response_audit_recorded",
+    workspace_id: workspace.id,
+    run_id: "run_agent_model_artifacts",
+    event_type: "agent.response.audit.recorded",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded local response audit metadata.",
+    payload_ref: responseAuditRef
+  });
   await appendEvent(repoRoot, workspace, requestEvent);
   await appendEvent(repoRoot, workspace, responseEvent);
+  await appendEvent(repoRoot, workspace, responseAuditEvent);
 
-  const audit = await auditLedgerPayloadRefs(repoRoot, root, [requestEvent, responseEvent]);
+  const audit = await auditLedgerPayloadRefs(repoRoot, root, [requestEvent, responseEvent, responseAuditEvent]);
   const requestFinding = audit.findings.find((finding) => finding.event_id === requestEvent.id);
   const responseFinding = audit.findings.find((finding) => finding.event_id === responseEvent.id);
+  const responseAuditFinding = audit.findings.find((finding) => finding.event_id === responseAuditEvent.id);
   assert.equal(requestFinding?.schema_name, "agent-model-request.schema.json");
   assert.equal(requestFinding?.schema_status, "valid");
   assert.deepEqual(requestFinding?.schema_errors, []);
   assert.equal(responseFinding?.schema_name, "agent-model-response.schema.json");
   assert.equal(responseFinding?.schema_status, "valid");
   assert.deepEqual(responseFinding?.schema_errors, []);
+  assert.equal(responseAuditFinding?.schema_name, "agent-response-audit.schema.json");
+  assert.equal(responseAuditFinding?.schema_status, "valid");
+  assert.deepEqual(responseAuditFinding?.schema_errors, []);
 
   const requestText = await readFile(join(root, ".aetherion", "artifacts", "agent", "model-request", `${request.id}.json`), "utf8");
   const responseText = await readFile(join(root, ".aetherion", "artifacts", "agent", "model-response", `${response.id}.json`), "utf8");
+  const responseAuditText = await readFile(join(root, ".aetherion", "artifacts", "agent", "response-audit", `${responseAudit.id}.json`), "utf8");
   assert.doesNotMatch(requestText, /System Boundary/);
   assert.doesNotMatch(requestText, /Draft a local implementation plan/);
   assert.doesNotMatch(responseText, /raw model answer/i);
+  assert.doesNotMatch(responseAuditText, /raw model answer/i);
+  assert.equal(responseAudit.scope.raw_response_persisted, false);
+  assert.equal(responseAudit.scope.raw_prompt_persisted, false);
+  assert.equal(responseAudit.scope.runtime_authority_granted, false);
+  assert.equal(responseAudit.authority_gates.audit_can_authorize_actions, false);
+  assert.equal(responseAudit.authority_gates.audit_pass_is_runtime_verification, false);
   assert.equal(request.scope.raw_prompt_persisted, false);
   assert.equal(request.scope.raw_context_persisted, false);
   assert.equal(request.scope.secrets_resolved, false);
@@ -240,6 +274,65 @@ test("agent model request and response artifacts round-trip and audit through lo
   assert.equal(response.scope.runtime_authority_granted, false);
   assert.equal(response.authority_gates.model_output_can_authorize_actions, false);
   assert.equal(response.response_audit.may_present_as_verified_runtime_evidence, false);
+});
+
+test("agent response audit artifacts derive from hash-only response metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-response-audit-derived-"));
+  const workspace = await createWorkspace(root, "ws_agent_response_audit_derived");
+  const request = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8")
+  );
+  const response = createAgentModelResponseArtifact({
+    request,
+    responseId: "agent_model_response_run_example_derived",
+    provider_ref: "provider_local_stub",
+    model_ref: "model_stub",
+    output_text_sha256: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    response_payload_sha256: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    finish_reason: "stop",
+    refusal_present: false,
+    tool_calls_present: false,
+    usage: {
+      input_tokens: 10,
+      output_tokens: 5,
+      total_tokens: 15,
+      usage_source: "locally_estimated"
+    }
+  });
+  const responseAudit = createAgentResponseAuditArtifact({
+    response,
+    auditId: "agent_response_audit_run_example_derived",
+    status: "pass",
+    required_block_ids: ["answer"],
+    present_block_ids: ["answer"],
+    missing_block_ids: [],
+    required_citation_ids: ["evt_source"],
+    cited_source_event_ids: ["evt_source"],
+    missing_citation_ids: [],
+    unknown_source_event_ids: [],
+    forbidden_claims_detected: [],
+    findings: [],
+    next_steps: ["Response satisfies the local prompt audit contract; this is still not runtime verification."]
+  });
+  const responseAuditRef = await writeAgentResponseAuditArtifact(repoRoot, workspace, responseAudit);
+
+  assert.equal(responseAuditRef, "artifact://agent/response-audit/agent_response_audit_run_example_derived");
+  assert.equal(responseAudit.response_id, response.id);
+  assert.equal(responseAudit.response_artifact_ref, agentModelResponseArtifactRef(response.id));
+  assert.equal(responseAudit.request_id, request.id);
+  assert.equal(responseAudit.request_artifact_ref, agentModelRequestArtifactRef(request.id));
+  assert.equal(responseAudit.response.output_text_sha256, response.response.output_text_sha256);
+  assert.equal(responseAudit.response.response_payload_sha256, response.response.response_payload_sha256);
+  assert.equal(responseAudit.response.response_sha256, response.response_sha256);
+  assert.equal(responseAudit.response.raw_output_persisted, false);
+  assert.equal(responseAudit.scope.audit_invoked_model, false);
+  assert.equal(responseAudit.scope.audit_requested_tools, false);
+  assert.equal(responseAudit.scope.audit_read_raw_payload_artifacts, false);
+  assert.equal(responseAudit.scope.runtime_authority_granted, false);
+  assert.equal(responseAudit.authority_gates.audit_can_authorize_actions, false);
+  assert.equal(responseAudit.authority_gates.audit_pass_is_runtime_verification, false);
+  assert.match(responseAudit.audit_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(await readAgentResponseAuditArtifact(root, responseAudit.id), responseAudit);
 });
 
 test("agent model request artifacts derive from runtime invocation metadata without raw prompt persistence", async () => {

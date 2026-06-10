@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -1188,10 +1188,41 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
     { event_type: "agent.model.responded", payload_ref: responseRef }
   ]);
 
-  // The response audit is local output linting; it does not append events or
-  // grant authority. It runs here so the operator sees whether the model
-  // output satisfies the prompt response contract.
+  // The response audit is local output linting. It is recorded as its own
+  // governance event so the response-audit gate has traceable evidence, but it
+  // still cannot authorize actions or claim runtime verification.
   const audit = auditPromptResponse({ plan, response: result.output_text });
+  const auditId = responseAuditIdForResponse(response.id);
+  const auditArtifact = createAgentResponseAuditArtifact({
+    response,
+    auditId,
+    status: audit.status,
+    required_block_ids: audit.required_block_ids,
+    present_block_ids: audit.present_block_ids,
+    missing_block_ids: audit.missing_block_ids,
+    required_citation_ids: audit.required_citation_ids,
+    cited_source_event_ids: audit.cited_source_event_ids,
+    missing_citation_ids: audit.missing_citation_ids,
+    unknown_source_event_ids: audit.unknown_source_event_ids,
+    forbidden_claims_detected: audit.forbidden_claims_detected,
+    findings: audit.findings,
+    next_steps: audit.next_steps
+  });
+  const auditRef = await writeAgentResponseAuditArtifact(repoRoot, workspaceForEvidence, auditArtifact);
+  const auditRunId = `run_response_audit_${sanitizePathSegment(request.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const auditSummary = `Recorded local response audit ${auditArtifact.id} for ${response.id}; audit output is non-authorizing and is not runtime verification.`;
+  const auditManifest = await createRunManifest(repoRoot, workspaceForEvidence, auditRunId, auditSummary);
+  const auditEventId = await appendManagedRunEvent(
+    workspaceRoot,
+    workspaceForEvidence,
+    auditManifest,
+    "agent.response.audit.recorded",
+    auditSummary,
+    auditRef
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspaceForEvidence, auditManifest, "completed", [
+    { event_type: "agent.response.audit.recorded", payload_ref: auditRef }
+  ]);
 
   printRawJson({
     response_id: response.id,
@@ -1204,6 +1235,11 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
     expected_response_artifact_ref: agentModelResponseArtifactRef(response.id),
     response_run_id: responseRunId,
     response_event_id: responseEventId,
+    response_audit_id: auditArtifact.id,
+    response_audit_artifact_ref: auditRef,
+    expected_response_audit_artifact_ref: agentResponseAuditArtifactRef(auditArtifact.id),
+    response_audit_run_id: auditRunId,
+    response_audit_event_id: auditEventId,
     provider_ref: provider.provider_ref,
     model_ref: provider.model_ref,
     network_capable: provider.network_capable,
@@ -1224,7 +1260,11 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
     response_audit_required: true,
     response_audit_status: audit.status,
     response_audit_missing_blocks: audit.missing_block_ids,
+    response_audit_missing_citations: audit.missing_citation_ids,
+    response_audit_unknown_source_events: audit.unknown_source_event_ids,
     response_audit_forbidden_claims: audit.forbidden_claims_detected,
+    response_audit_can_authorize_actions: false,
+    response_audit_is_runtime_verification: false,
     output_text: result.output_text
   });
 }
@@ -1249,6 +1289,10 @@ type AgentModelRequestArtifactShape = NonNullable<Awaited<ReturnType<typeof read
 
 function modelResponseIdForRequest(requestId: string): string {
   return `agent_model_response_${requestId.replace(/^agent_model_request_/, "")}`;
+}
+
+function responseAuditIdForResponse(responseId: string): string {
+  return `agent_response_audit_${responseId.replace(/^agent_model_response_/, "")}`;
 }
 
 function stableResponsePayload(result: { output_text: string; finish_reason: string; refusal_present: boolean; tool_calls_present: boolean; usage: unknown }): string {

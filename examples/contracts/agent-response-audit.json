@@ -1,0 +1,47 @@
+{
+  "id": "agent_response_audit_run_example_preview",
+  "response_id": "agent_model_response_run_example_preview",
+  "response_artifact_ref": "artifact://agent/model-response/agent_model_response_run_example_preview",
+  "request_id": "agent_model_request_run_example_preview",
+  "request_artifact_ref": "artifact://agent/model-request/agent_model_request_run_example_preview",
+  "run_id": "run_example",
+  "runtime_invocation_id": "agent_runtime_invocation_run_example",
+  "runtime_invocation_artifact_ref": "artifact://agent/runtime/agent_runtime_invocation_run_example",
+  "schema_version": "aetherion-agent-response-audit-v1",
+  "status": "pass",
+  "scope": {
+    "audit_invoked_model": false,
+    "audit_requested_tools": false,
+    "audit_read_raw_payload_artifacts": false,
+    "raw_response_persisted": false,
+    "raw_prompt_persisted": false,
+    "runtime_authority_granted": false
+  },
+  "response": {
+    "output_text_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "response_payload_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "response_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "raw_output_persisted": false
+  },
+  "checks": {
+    "required_block_ids": ["answer", "evidence_summary", "verification_evidence"],
+    "present_block_ids": ["answer", "evidence_summary", "verification_evidence"],
+    "missing_block_ids": [],
+    "required_citation_ids": ["evt_example_source"],
+    "cited_source_event_ids": ["evt_example_source"],
+    "missing_citation_ids": [],
+    "unknown_source_event_ids": [],
+    "forbidden_claims_detected": [],
+    "findings": [],
+    "next_steps": ["Response satisfies the local prompt audit contract; this is still not runtime verification."]
+  },
+  "authority_gates": {
+    "local_supervisor_required": true,
+    "audit_can_authorize_actions": false,
+    "model_output_can_authorize_actions": false,
+    "audit_pass_is_runtime_verification": false,
+    "tool_execution_requires_scoped_lease": true,
+    "side_effects_require_policy_or_approval": true
+  },
+  "audit_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

@@ -255,6 +255,58 @@ export type AgentModelResponseArtifact = {
   response_sha256: string;
 };
 
+export type AgentResponseAuditArtifact = {
+  id: string;
+  response_id: string;
+  response_artifact_ref: string;
+  request_id: string;
+  request_artifact_ref: string;
+  run_id: string;
+  runtime_invocation_id: string;
+  runtime_invocation_artifact_ref: string;
+  schema_version: "aetherion-agent-response-audit-v1";
+  status: "pass" | "needs_revision";
+  scope: {
+    audit_invoked_model: false;
+    audit_requested_tools: false;
+    audit_read_raw_payload_artifacts: false;
+    raw_response_persisted: false;
+    raw_prompt_persisted: false;
+    runtime_authority_granted: false;
+  };
+  response: {
+    output_text_sha256: string;
+    response_payload_sha256: string;
+    response_sha256: string;
+    raw_output_persisted: false;
+  };
+  checks: {
+    required_block_ids: string[];
+    present_block_ids: string[];
+    missing_block_ids: string[];
+    required_citation_ids: string[];
+    cited_source_event_ids: string[];
+    missing_citation_ids: string[];
+    unknown_source_event_ids: string[];
+    forbidden_claims_detected: string[];
+    findings: Array<{
+      id: string;
+      severity: "error" | "warning";
+      message: string;
+    }>;
+    next_steps: string[];
+  };
+  authority_gates: {
+    local_supervisor_required: true;
+    audit_can_authorize_actions: false;
+    model_output_can_authorize_actions: false;
+    audit_pass_is_runtime_verification: false;
+    tool_execution_requires_scoped_lease: true;
+    side_effects_require_policy_or_approval: true;
+  };
+  audit_sha256: string;
+};
+
 export function agentRuntimeInvocationArtifactRef(invocationId: string): string {
   return `artifact://agent/runtime/${invocationId}`;
 }
@@ -265,6 +317,10 @@ export function agentModelRequestArtifactRef(requestId: string): string {
 
 export function agentModelResponseArtifactRef(responseId: string): string {
   return `artifact://agent/model-response/${responseId}`;
+}
+
+export function agentResponseAuditArtifactRef(auditId: string): string {
+  return `artifact://agent/response-audit/${auditId}`;
 }
 
 export function createAgentModelRequestArtifact(
@@ -535,6 +591,106 @@ export async function readAgentModelResponseArtifact(
   try {
     const raw = await readFile(join(workspaceRoot, ".aetherion", "artifacts", "agent", "model-response", `${responseId}.json`), "utf8");
     return JSON.parse(raw) as AgentModelResponseArtifact;
+  } catch {
+    return null;
+  }
+}
+
+export type AgentResponseAuditInput = {
+  response: AgentModelResponseArtifact;
+  auditId: string;
+  status: AgentResponseAuditArtifact["status"];
+  required_block_ids: string[];
+  present_block_ids: string[];
+  missing_block_ids: string[];
+  required_citation_ids: string[];
+  cited_source_event_ids: string[];
+  missing_citation_ids: string[];
+  unknown_source_event_ids: string[];
+  forbidden_claims_detected: string[];
+  findings: AgentResponseAuditArtifact["checks"]["findings"];
+  next_steps: string[];
+};
+
+export function createAgentResponseAuditArtifact(input: AgentResponseAuditInput): AgentResponseAuditArtifact {
+  const withoutHash: Omit<AgentResponseAuditArtifact, "audit_sha256"> = {
+    id: input.auditId,
+    response_id: input.response.id,
+    response_artifact_ref: agentModelResponseArtifactRef(input.response.id),
+    request_id: input.response.request_id,
+    request_artifact_ref: input.response.request_artifact_ref,
+    run_id: input.response.run_id,
+    runtime_invocation_id: input.response.runtime_invocation_id,
+    runtime_invocation_artifact_ref: input.response.runtime_invocation_artifact_ref,
+    schema_version: "aetherion-agent-response-audit-v1",
+    status: input.status,
+    scope: {
+      audit_invoked_model: false,
+      audit_requested_tools: false,
+      audit_read_raw_payload_artifacts: false,
+      raw_response_persisted: false,
+      raw_prompt_persisted: false,
+      runtime_authority_granted: false
+    },
+    response: {
+      output_text_sha256: input.response.response.output_text_sha256,
+      response_payload_sha256: input.response.response.response_payload_sha256,
+      response_sha256: input.response.response_sha256,
+      raw_output_persisted: false
+    },
+    checks: {
+      required_block_ids: [...input.required_block_ids],
+      present_block_ids: [...input.present_block_ids],
+      missing_block_ids: [...input.missing_block_ids],
+      required_citation_ids: [...input.required_citation_ids],
+      cited_source_event_ids: [...input.cited_source_event_ids],
+      missing_citation_ids: [...input.missing_citation_ids],
+      unknown_source_event_ids: [...input.unknown_source_event_ids],
+      forbidden_claims_detected: [...input.forbidden_claims_detected],
+      findings: input.findings.map((finding) => ({
+        id: finding.id,
+        severity: finding.severity,
+        message: finding.message
+      })),
+      next_steps: [...input.next_steps]
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      audit_can_authorize_actions: false,
+      model_output_can_authorize_actions: false,
+      audit_pass_is_runtime_verification: false,
+      tool_execution_requires_scoped_lease: true,
+      side_effects_require_policy_or_approval: true
+    }
+  };
+  return {
+    ...withoutHash,
+    audit_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
+export async function writeAgentResponseAuditArtifact(
+  repoRoot: string,
+  workspace: Workspace,
+  audit: AgentResponseAuditArtifact
+): Promise<string> {
+  const result = await validateAgainstSchema(repoRoot, "agent-response-audit.schema.json", audit);
+  if (!result.valid) {
+    throw new Error(`agent-response-audit.schema.json validation failed: ${result.errors.join("; ")}`);
+  }
+  const dir = join(workspace.root, ".aetherion", "artifacts", "agent", "response-audit");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${audit.id}.json`), `${JSON.stringify(audit, null, 2)}\n`);
+  return agentResponseAuditArtifactRef(audit.id);
+}
+
+export async function readAgentResponseAuditArtifact(
+  workspaceRoot: string,
+  auditId: string
+): Promise<AgentResponseAuditArtifact | null> {
+  try {
+    const raw = await readFile(join(workspaceRoot, ".aetherion", "artifacts", "agent", "response-audit", `${auditId}.json`), "utf8");
+    return JSON.parse(raw) as AgentResponseAuditArtifact;
   } catch {
     return null;
   }

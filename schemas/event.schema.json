@@ -52,6 +52,7 @@
         "agent.runtime.bound",
         "agent.model.requested",
         "agent.model.responded",
+        "agent.response.audit.recorded",
         "agent.child.started",
         "agent.child.policy_denied",
         "agent.child.completed",

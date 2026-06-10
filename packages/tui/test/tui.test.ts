@@ -1614,6 +1614,11 @@ test("TUI exposes local-only phase command surfaces", async () => {
     expected_response_artifact_ref: string;
     response_run_id: string;
     response_event_id: string;
+    response_audit_id: string;
+    response_audit_artifact_ref: string;
+    expected_response_audit_artifact_ref: string;
+    response_audit_run_id: string;
+    response_audit_event_id: string;
     provider_ref: string;
     model_ref: string;
     network_capable: boolean;
@@ -1634,7 +1639,11 @@ test("TUI exposes local-only phase command surfaces", async () => {
     response_audit_required: boolean;
     response_audit_status: string;
     response_audit_missing_blocks: string[];
+    response_audit_missing_citations: string[];
+    response_audit_unknown_source_events: string[];
     response_audit_forbidden_claims: string[];
+    response_audit_can_authorize_actions: boolean;
+    response_audit_is_runtime_verification: boolean;
     output_text: string;
   };
   assert.equal(modelResponseRecord.request_id, modelRequestRecord.request_id);
@@ -1645,6 +1654,11 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(modelResponseRecord.expected_response_artifact_ref, modelResponseRecord.response_artifact_ref);
   assert.match(modelResponseRecord.response_run_id, /^run_model_response_/);
   assert.match(modelResponseRecord.response_event_id, /^evt_/);
+  assert.equal(modelResponseRecord.response_audit_id, modelResponseRecord.response_id.replace(/^agent_model_response_/, "agent_response_audit_"));
+  assert.equal(modelResponseRecord.response_audit_artifact_ref, `artifact://agent/response-audit/${modelResponseRecord.response_audit_id}`);
+  assert.equal(modelResponseRecord.expected_response_audit_artifact_ref, modelResponseRecord.response_audit_artifact_ref);
+  assert.match(modelResponseRecord.response_audit_run_id, /^run_response_audit_/);
+  assert.match(modelResponseRecord.response_audit_event_id, /^evt_/);
   assert.equal(modelResponseRecord.provider_ref, "provider_local_stub");
   assert.equal(modelResponseRecord.network_capable, false);
   assert.equal(modelResponseRecord.finish_reason, "stop");
@@ -1665,7 +1679,11 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(modelResponseRecord.response_audit_required, true);
   assert.equal(modelResponseRecord.response_audit_status, "pass");
   assert.deepEqual(modelResponseRecord.response_audit_missing_blocks, []);
+  assert.deepEqual(modelResponseRecord.response_audit_missing_citations, []);
+  assert.deepEqual(modelResponseRecord.response_audit_unknown_source_events, []);
   assert.deepEqual(modelResponseRecord.response_audit_forbidden_claims, []);
+  assert.equal(modelResponseRecord.response_audit_can_authorize_actions, false);
+  assert.equal(modelResponseRecord.response_audit_is_runtime_verification, false);
   assert.match(modelResponseRecord.output_text, /## Evidence Summary/);
 
   // The persisted response artifact records hashes only: no raw model output,
@@ -1700,6 +1718,72 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.doesNotMatch(modelResponseArtifactText, /Draft a local implementation plan/);
   assert.doesNotMatch(modelResponseArtifactText, /System Boundary/);
 
+  const responseAuditArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "response-audit", `${modelResponseRecord.response_audit_id}.json`);
+  const responseAuditArtifactText = await readFile(responseAuditArtifactPath, "utf8");
+  const responseAuditArtifact = JSON.parse(responseAuditArtifactText) as {
+    id: string;
+    response_id: string;
+    response_artifact_ref: string;
+    request_id: string;
+    request_artifact_ref: string;
+    run_id: string;
+    status: string;
+    scope: {
+      audit_invoked_model: boolean;
+      audit_requested_tools: boolean;
+      audit_read_raw_payload_artifacts: boolean;
+      raw_response_persisted: boolean;
+      raw_prompt_persisted: boolean;
+      runtime_authority_granted: boolean;
+    };
+    response: {
+      output_text_sha256: string;
+      response_payload_sha256: string;
+      response_sha256: string;
+      raw_output_persisted: boolean;
+    };
+    checks: {
+      missing_block_ids: string[];
+      missing_citation_ids: string[];
+      unknown_source_event_ids: string[];
+      forbidden_claims_detected: string[];
+      findings: Array<{ id: string; severity: string; message: string }>;
+    };
+    authority_gates: {
+      audit_can_authorize_actions: boolean;
+      model_output_can_authorize_actions: boolean;
+      audit_pass_is_runtime_verification: boolean;
+    };
+  };
+  assert.equal(responseAuditArtifact.id, modelResponseRecord.response_audit_id);
+  assert.equal(responseAuditArtifact.response_id, modelResponseRecord.response_id);
+  assert.equal(responseAuditArtifact.response_artifact_ref, modelResponseRecord.response_artifact_ref);
+  assert.equal(responseAuditArtifact.request_id, modelRequestRecord.request_id);
+  assert.equal(responseAuditArtifact.request_artifact_ref, modelRequestRecord.request_artifact_ref);
+  assert.equal(responseAuditArtifact.run_id, runId);
+  assert.equal(responseAuditArtifact.status, "pass");
+  assert.equal(responseAuditArtifact.response.output_text_sha256, modelResponseRecord.output_text_sha256);
+  assert.equal(responseAuditArtifact.response.response_payload_sha256, modelResponseRecord.response_payload_sha256);
+  assert.equal(responseAuditArtifact.response.response_sha256, modelResponseArtifact.response_sha256);
+  assert.equal(responseAuditArtifact.response.raw_output_persisted, false);
+  assert.equal(responseAuditArtifact.scope.audit_invoked_model, false);
+  assert.equal(responseAuditArtifact.scope.audit_requested_tools, false);
+  assert.equal(responseAuditArtifact.scope.audit_read_raw_payload_artifacts, false);
+  assert.equal(responseAuditArtifact.scope.raw_response_persisted, false);
+  assert.equal(responseAuditArtifact.scope.raw_prompt_persisted, false);
+  assert.equal(responseAuditArtifact.scope.runtime_authority_granted, false);
+  assert.deepEqual(responseAuditArtifact.checks.missing_block_ids, []);
+  assert.deepEqual(responseAuditArtifact.checks.missing_citation_ids, []);
+  assert.deepEqual(responseAuditArtifact.checks.unknown_source_event_ids, []);
+  assert.deepEqual(responseAuditArtifact.checks.forbidden_claims_detected, []);
+  assert.deepEqual(responseAuditArtifact.checks.findings, []);
+  assert.equal(responseAuditArtifact.authority_gates.audit_can_authorize_actions, false);
+  assert.equal(responseAuditArtifact.authority_gates.model_output_can_authorize_actions, false);
+  assert.equal(responseAuditArtifact.authority_gates.audit_pass_is_runtime_verification, false);
+  assert.doesNotMatch(responseAuditArtifactText, /## Evidence Summary/);
+  assert.doesNotMatch(responseAuditArtifactText, /Draft a local implementation plan/);
+  assert.doesNotMatch(responseAuditArtifactText, /System Boundary/);
+
   // The response run is an independent single-event governance run.
   const ledgerAfterInvokeModel = await readLedgerEvents(workspace);
   const modelResponseEvent = ledgerAfterInvokeModel.find((event) => event.id === modelResponseRecord.response_event_id);
@@ -1720,10 +1804,30 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.deepEqual(modelResponseRunEvents.map((event) => event.event_type), ["agent.model.responded"]);
   assert.equal(modelResponseRunEvents.some((event) => event.event_type === "tool.requested"), false);
   assert.equal(modelResponseRunEvents.some((event) => event.event_type === "lease.issued"), false);
-  // The source run is not extended after model response.
+  const responseAuditEvent = ledgerAfterInvokeModel.find((event) => event.id === modelResponseRecord.response_audit_event_id);
+  assert.ok(responseAuditEvent);
+  assert.equal(responseAuditEvent.run_id, modelResponseRecord.response_audit_run_id);
+  assert.equal(responseAuditEvent.event_type, "agent.response.audit.recorded");
+  assert.equal(responseAuditEvent.payload_ref, modelResponseRecord.response_audit_artifact_ref);
+  assert.equal(responseAuditEvent.actor.type, "system");
+  assert.equal(responseAuditEvent.actor.id, "local_supervisor");
+  assert.match(responseAuditEvent.summary, /non-authorizing and is not runtime verification/);
+  const responseAuditManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${modelResponseRecord.response_audit_run_id}.json`), "utf8")) as {
+    id: string;
+    status: string;
+    event_ids: string[];
+  };
+  assert.equal(responseAuditManifest.status, "completed");
+  assert.deepEqual(responseAuditManifest.event_ids, [modelResponseRecord.response_audit_event_id]);
+  const responseAuditRunEvents = ledgerAfterInvokeModel.filter((event) => event.run_id === modelResponseRecord.response_audit_run_id);
+  assert.deepEqual(responseAuditRunEvents.map((event) => event.event_type), ["agent.response.audit.recorded"]);
+  assert.equal(responseAuditRunEvents.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(responseAuditRunEvents.some((event) => event.event_type === "lease.issued"), false);
+  // The source run is not extended after model response or response audit.
   assert.equal(ledgerAfterInvokeModel.filter((event) => event.run_id === runId).some((event) => event.event_type === "agent.model.responded"), false);
+  assert.equal(ledgerAfterInvokeModel.filter((event) => event.run_id === runId).some((event) => event.event_type === "agent.response.audit.recorded"), false);
 
-  // The response payload ref resolves and schema-validates.
+  // The response and response-audit payload refs resolve and schema-validate.
   const responsePayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
     findings: Array<{ event_id: string; event_type: string; payload_ref: string; schema_name?: string; schema_status: string; schema_errors: string[] }>;
   };
@@ -1733,6 +1837,12 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(responsePayloadFinding.schema_name, "agent-model-response.schema.json");
   assert.equal(responsePayloadFinding.schema_status, "valid");
   assert.deepEqual(responsePayloadFinding.schema_errors, []);
+  const responseAuditPayloadFinding = responsePayloadAudit.findings.find((finding) => finding.event_id === modelResponseRecord.response_audit_event_id);
+  assert.ok(responseAuditPayloadFinding);
+  assert.equal(responseAuditPayloadFinding.event_type, "agent.response.audit.recorded");
+  assert.equal(responseAuditPayloadFinding.schema_name, "agent-response-audit.schema.json");
+  assert.equal(responseAuditPayloadFinding.schema_status, "valid");
+  assert.deepEqual(responseAuditPayloadFinding.schema_errors, []);
 
   // Re-invoking the same request after a response exists fails closed.
   await assert.rejects(

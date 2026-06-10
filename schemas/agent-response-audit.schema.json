@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-response-audit.schema.json",
+  "title": "AgentResponseAudit",
+  "type": "object",
+  "required": [
+    "id",
+    "response_id",
+    "response_artifact_ref",
+    "request_id",
+    "request_artifact_ref",
+    "run_id",
+    "runtime_invocation_id",
+    "runtime_invocation_artifact_ref",
+    "schema_version",
+    "status",
+    "scope",
+    "response",
+    "checks",
+    "authority_gates",
+    "audit_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^agent_response_audit_[A-Za-z0-9_-]+$" },
+    "response_id": { "type": "string", "pattern": "^agent_model_response_[A-Za-z0-9_-]+$" },
+    "response_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/model-response/agent_model_response_[A-Za-z0-9_-]+$"
+    },
+    "request_id": { "type": "string", "pattern": "^agent_model_request_[A-Za-z0-9_-]+$" },
+    "request_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/model-request/agent_model_request_[A-Za-z0-9_-]+$"
+    },
+    "run_id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_id": { "type": "string", "pattern": "^agent_runtime_invocation_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/runtime/agent_runtime_invocation_[A-Za-z0-9_-]+$"
+    },
+    "schema_version": { "type": "string", "enum": ["aetherion-agent-response-audit-v1"] },
+    "status": { "type": "string", "enum": ["pass", "needs_revision"] },
+    "scope": {
+      "type": "object",
+      "required": [
+        "audit_invoked_model",
+        "audit_requested_tools",
+        "audit_read_raw_payload_artifacts",
+        "raw_response_persisted",
+        "raw_prompt_persisted",
+        "runtime_authority_granted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "audit_invoked_model": { "type": "boolean", "enum": [false] },
+        "audit_requested_tools": { "type": "boolean", "enum": [false] },
+        "audit_read_raw_payload_artifacts": { "type": "boolean", "enum": [false] },
+        "raw_response_persisted": { "type": "boolean", "enum": [false] },
+        "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
+        "runtime_authority_granted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "output_text_sha256",
+        "response_payload_sha256",
+        "response_sha256",
+        "raw_output_persisted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "output_text_sha256": { "$ref": "#/$defs/sha256" },
+        "response_payload_sha256": { "$ref": "#/$defs/sha256" },
+        "response_sha256": { "$ref": "#/$defs/sha256" },
+        "raw_output_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "required_block_ids",
+        "present_block_ids",
+        "missing_block_ids",
+        "required_citation_ids",
+        "cited_source_event_ids",
+        "missing_citation_ids",
+        "unknown_source_event_ids",
+        "forbidden_claims_detected",
+        "findings",
+        "next_steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_block_ids": { "$ref": "#/$defs/stringArray" },
+        "present_block_ids": { "$ref": "#/$defs/stringArray" },
+        "missing_block_ids": { "$ref": "#/$defs/stringArray" },
+        "required_citation_ids": { "$ref": "#/$defs/stringArray" },
+        "cited_source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "missing_citation_ids": { "$ref": "#/$defs/stringArray" },
+        "unknown_source_event_ids": { "$ref": "#/$defs/stringArray" },
+        "forbidden_claims_detected": { "$ref": "#/$defs/stringArray" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "severity", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "severity": { "type": "string", "enum": ["error", "warning"] },
+              "message": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "next_steps": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "authority_gates": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required",
+        "audit_can_authorize_actions",
+        "model_output_can_authorize_actions",
+        "audit_pass_is_runtime_verification",
+        "tool_execution_requires_scoped_lease",
+        "side_effects_require_policy_or_approval"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required": { "type": "boolean", "enum": [true] },
+        "audit_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "model_output_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "audit_pass_is_runtime_verification": { "type": "boolean", "enum": [false] },
+        "tool_execution_requires_scoped_lease": { "type": "boolean", "enum": [true] },
+        "side_effects_require_policy_or_approval": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "audit_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  }
+}
