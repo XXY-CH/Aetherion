@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -984,11 +984,15 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request") {
-    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, and prepare-model-request <invocation_id>");
+  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request" && options.topic !== "invoke-model") {
+    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, prepare-model-request <invocation_id>, and invoke-model <request_id> --content <task>");
   }
   if (options.topic === "prepare-model-request") {
     await runPromptPrepareModelRequest(options);
+    return;
+  }
+  if (options.topic === "invoke-model") {
+    await runPromptInvokeModel(options);
     return;
   }
   if (!options.content) {
@@ -1101,6 +1105,164 @@ async function runPromptPrepareModelRequest(options: CliOptions): Promise<void> 
     raw_context_persisted: false,
     response_artifact_created: false
   });
+}
+
+async function runPromptInvokeModel(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const requestId = requirePositional(options.target ?? options.input, "prompt invoke-model requires an Agent Model Request id");
+  if (!requestId.startsWith("agent_model_request_")) {
+    throw new Error("prompt invoke-model requires an Agent Model Request id");
+  }
+  if (!options.content) {
+    throw new Error("prompt invoke-model requires --content <task> to re-derive and verify the bound prompt");
+  }
+  const request = await readAgentModelRequestArtifact(workspaceRoot, requestId);
+  if (!request) {
+    throw new Error(`Agent Model Request artifact ${requestId} not found`);
+  }
+  const requestRef = agentModelRequestArtifactRef(request.id);
+  const workspaceForEvidence = await openWorkspace(workspaceRoot);
+  const ledger = await readEvents(workspaceForEvidence);
+  const requestEvent = ledger.find((event) =>
+    event.event_type === "agent.model.requested" && event.payload_ref === requestRef
+  );
+  if (!requestEvent) {
+    throw new Error(`Agent Model Request ${requestId} has no agent.model.requested Ledger evidence`);
+  }
+  if (ledger.some((event) => event.event_type === "agent.model.responded" && event.payload_ref === agentModelResponseArtifactRef(modelResponseIdForRequest(request.id)))) {
+    throw new Error(`Agent Model Request ${requestId} already has a recorded response`);
+  }
+
+  // Re-derive the prompt from the same provenance-gated path and prove it
+  // matches the bound request hashes before any provider call. Drift fails
+  // closed so a model can never be invoked on a prompt that differs from what
+  // was audited and bound.
+  const { plan } = await assemblePromptPlanForRun(workspaceRoot, request.run_id, options.content);
+  assertPromptMatchesBoundRequest(plan, request);
+
+  const provider = resolveModelProvider();
+  const messages: ModelMessage[] = plan.messages.map((message) => ({ role: message.role, content: message.content }));
+  const result = await provider.invoke({
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_mode: request.request.output_mode,
+    messages,
+    max_output_tokens: 1024,
+    response_contract: {
+      required_blocks: plan.response_format.required_blocks.map((block) => ({ id: block.id, title: block.title })),
+      required_citation_ids: plan.response_audit_contract.required_citation_ids
+    }
+  });
+
+  // Persist hashes only. Raw output text and the provider payload stay in
+  // memory; the artifact records that a model ran, never its content.
+  const outputTextSha = sha256Hex(result.output_text);
+  const responsePayloadSha = sha256Hex(stableResponsePayload(result));
+  const responseId = modelResponseIdForRequest(request.id);
+  const response = createAgentModelResponseArtifact({
+    request,
+    responseId,
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_text_sha256: outputTextSha,
+    response_payload_sha256: responsePayloadSha,
+    finish_reason: result.finish_reason,
+    refusal_present: result.refusal_present,
+    tool_calls_present: result.tool_calls_present,
+    usage: result.usage
+  });
+  const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspaceForEvidence, response);
+
+  const responseRunId = `run_model_response_${sanitizePathSegment(request.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Recorded model response ${response.id} for ${request.id}; output is hash-only evidence, requires response audit, and cannot authorize actions.`;
+  const manifest = await createRunManifest(repoRoot, workspaceForEvidence, responseRunId, summary);
+  const responseEventId = await appendManagedRunEvent(
+    workspaceRoot,
+    workspaceForEvidence,
+    manifest,
+    "agent.model.responded",
+    summary,
+    responseRef
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspaceForEvidence, manifest, "completed", [
+    { event_type: "agent.model.responded", payload_ref: responseRef }
+  ]);
+
+  // The response audit is local output linting; it does not append events or
+  // grant authority. It runs here so the operator sees whether the model
+  // output satisfies the prompt response contract.
+  const audit = auditPromptResponse({ plan, response: result.output_text });
+
+  printRawJson({
+    response_id: response.id,
+    request_id: request.id,
+    source_run_id: request.run_id,
+    invocation_id: request.runtime_invocation_id,
+    request_artifact_ref: requestRef,
+    request_event_id: requestEvent.id,
+    response_artifact_ref: responseRef,
+    expected_response_artifact_ref: agentModelResponseArtifactRef(response.id),
+    response_run_id: responseRunId,
+    response_event_id: responseEventId,
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    network_capable: provider.network_capable,
+    finish_reason: response.response.finish_reason,
+    refusal_present: response.response.refusal_present,
+    tool_calls_present: response.tool_gateway.tool_calls_present,
+    output_text_sha256: response.response.output_text_sha256,
+    response_payload_sha256: response.response.response_payload_sha256,
+    usage: response.usage,
+    model_invoked: true,
+    provider_called: true,
+    credential_resolved: false,
+    raw_response_persisted: false,
+    raw_prompt_persisted: false,
+    tools_requested: false,
+    tool_request_events_appended: false,
+    runtime_authority_granted: false,
+    response_audit_required: true,
+    response_audit_status: audit.status,
+    response_audit_missing_blocks: audit.missing_block_ids,
+    response_audit_forbidden_claims: audit.forbidden_claims_detected,
+    output_text: result.output_text
+  });
+}
+
+function assertPromptMatchesBoundRequest(plan: PromptPlan, request: AgentModelRequestArtifactShape): void {
+  const planBundle = plan.prompt_bundle;
+  if (planBundle.id !== request.request.prompt_bundle_id) {
+    throw new Error(`Re-derived prompt bundle ${planBundle.id} does not match bound request ${request.request.prompt_bundle_id}`);
+  }
+  if (planBundle.preview_sha256 !== request.request.prompt_preview_sha256) {
+    throw new Error("Re-derived prompt preview hash does not match the bound model request; refusing to invoke the model on a drifted prompt");
+  }
+  const planMessageHashes = planBundle.message_hashes.map((message) => `${message.role}:${message.content_sha256}`);
+  const requestMessageHashes = request.prompt_hashes.map((message) => `${message.role}:${message.content_sha256}`);
+  if (planMessageHashes.length !== requestMessageHashes.length
+    || planMessageHashes.some((value, index) => value !== requestMessageHashes[index])) {
+    throw new Error("Re-derived prompt message hashes do not match the bound model request; refusing to invoke the model on a drifted prompt");
+  }
+}
+
+type AgentModelRequestArtifactShape = NonNullable<Awaited<ReturnType<typeof readAgentModelRequestArtifact>>>;
+
+function modelResponseIdForRequest(requestId: string): string {
+  return `agent_model_response_${requestId.replace(/^agent_model_request_/, "")}`;
+}
+
+function stableResponsePayload(result: { output_text: string; finish_reason: string; refusal_present: boolean; tool_calls_present: boolean; usage: unknown }): string {
+  return JSON.stringify({
+    finish_reason: result.finish_reason,
+    output_text: result.output_text,
+    refusal_present: result.refusal_present,
+    tool_calls_present: result.tool_calls_present,
+    usage: result.usage
+  });
+}
+
+function sha256Hex(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
 async function assemblePromptPlanForRun(workspaceRoot: string, runId: string, task: string): Promise<{
@@ -3240,6 +3402,7 @@ Usage:
   npm run ether -- prompt plan <run_id> --content <task> --workspace <path>
   npm run ether -- prompt bind-runtime <run_id> --content <task> --workspace <path>
   npm run ether -- prompt prepare-model-request <invocation_id> --workspace <path>
+  npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path>
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>

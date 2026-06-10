@@ -31,6 +31,7 @@ import {
   createFileReadRequest,
   createFileWriteRequest,
   createAgentModelRequestArtifact,
+  createAgentModelResponseArtifact,
   createRunManifest,
   createWriteConsentRecord,
   createTraceReplayRecord,
@@ -54,6 +55,8 @@ import {
   recordRunEvent,
   reconstructTrace,
   replayRecordRunEventSequence,
+  resolveModelProvider,
+  createStubProvider,
   securityScanBlockedEventSequence,
   validateAgainstSchema,
   verifyEventHashChain,
@@ -289,6 +292,125 @@ test("agent model request artifacts derive from runtime invocation metadata with
   assert.doesNotMatch(requestText, /"sections"/);
   assert.doesNotMatch(requestText, /System Boundary/);
   assert.doesNotMatch(requestText, /Draft a local implementation plan/);
+});
+
+test("stub model provider produces a deterministic auditable response without network access", async () => {
+  const provider = resolveModelProvider({ env: {} });
+  assert.equal(provider.provider_ref, "provider_local_stub");
+  assert.equal(provider.network_capable, false);
+  const result = await provider.invoke({
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_mode: "plan",
+    messages: [
+      { role: "system", content: "Authority stays with the Local Supervisor." },
+      { role: "developer", content: "Follow the response contract." },
+      { role: "user", content: "Draft a plan grounded in evt_source_1." }
+    ],
+    max_output_tokens: 512,
+    response_contract: {
+      required_blocks: [
+        { id: "evidence_summary", title: "Evidence Summary" },
+        { id: "plan", title: "Plan" }
+      ],
+      required_citation_ids: ["evt_source_1"]
+    }
+  });
+  assert.equal(result.finish_reason, "stop");
+  assert.equal(result.refusal_present, false);
+  assert.equal(result.tool_calls_present, false);
+  assert.equal(result.usage.usage_source, "locally_estimated");
+  assert.ok(result.usage.input_tokens > 0);
+  assert.ok(result.usage.output_tokens > 0);
+  assert.equal(result.usage.total_tokens, result.usage.input_tokens + result.usage.output_tokens);
+  assert.match(result.output_text, /## Evidence Summary/);
+  assert.match(result.output_text, /evt_source_1/);
+  assert.match(result.output_text, /## Plan/);
+
+  // The stub is deterministic for the same request.
+  const repeat = await provider.invoke({
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_mode: "plan",
+    messages: [
+      { role: "system", content: "Authority stays with the Local Supervisor." },
+      { role: "developer", content: "Follow the response contract." },
+      { role: "user", content: "Draft a plan grounded in evt_source_1." }
+    ],
+    max_output_tokens: 512,
+    response_contract: {
+      required_blocks: [
+        { id: "evidence_summary", title: "Evidence Summary" },
+        { id: "plan", title: "Plan" }
+      ],
+      required_citation_ids: ["evt_source_1"]
+    }
+  });
+  assert.equal(repeat.output_text, result.output_text);
+});
+
+test("resolveModelProvider rejects unknown providers and selects anthropic by env", () => {
+  assert.throws(() => resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "mystery" } }), /Unknown model provider/);
+  const anthropic = resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "anthropic", AETHERION_MODEL_REF: "claude-test" } });
+  assert.equal(anthropic.provider_ref, "provider_anthropic");
+  assert.equal(anthropic.model_ref, "claude-test");
+  assert.equal(anthropic.network_capable, true);
+});
+
+test("agent model response artifact records hashes only and never claims audit passed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-model-response-derived-"));
+  const workspace = await createWorkspace(root, "ws_agent_model_response_derived");
+  const invocation = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")
+  );
+  const request = createAgentModelRequestArtifact(invocation, "agent_model_request_run_example_for_response");
+  const stub = createStubProvider("stub-deterministic-v1");
+  const result = await stub.invoke({
+    provider_ref: stub.provider_ref,
+    model_ref: stub.model_ref,
+    output_mode: request.request.output_mode,
+    messages: [{ role: "user", content: "Plan the task." }],
+    max_output_tokens: 256
+  });
+  const response = createAgentModelResponseArtifact({
+    request,
+    responseId: "agent_model_response_run_example_for_response",
+    provider_ref: stub.provider_ref,
+    model_ref: stub.model_ref,
+    output_text_sha256: "sha256:" + "a".repeat(64),
+    response_payload_sha256: "sha256:" + "b".repeat(64),
+    finish_reason: result.finish_reason,
+    refusal_present: result.refusal_present,
+    tool_calls_present: result.tool_calls_present,
+    usage: result.usage
+  });
+
+  const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspace, response);
+  assert.equal(responseRef, agentModelResponseArtifactRef(response.id));
+  assert.equal(response.request_id, request.id);
+  assert.equal(response.request_artifact_ref, agentModelRequestArtifactRef(request.id));
+  assert.equal(response.run_id, request.run_id);
+  assert.equal(response.runtime_invocation_id, request.runtime_invocation_id);
+  assert.equal(response.scope.model_invoked, true);
+  assert.equal(response.scope.provider_called, true);
+  assert.equal(response.scope.raw_response_persisted, false);
+  assert.equal(response.scope.runtime_authority_granted, false);
+  assert.equal(response.provider.credential_resolved, false);
+  assert.equal(response.provider.credential_ref, null);
+  assert.equal(response.response.raw_response_payload_persisted, false);
+  assert.equal(response.response.output_artifact_ref, null);
+  assert.equal(response.authority_gates.model_output_can_authorize_actions, false);
+  assert.equal(response.response_audit.required, true);
+  assert.equal(response.response_audit.passed, null);
+  assert.equal(response.response_audit.audit_artifact_ref, null);
+  assert.equal(response.response_audit.may_present_as_verified_runtime_evidence, false);
+  assert.match(response.response_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(response.usage.usage_source, "locally_estimated");
+
+  // The persisted artifact must round-trip and validate against the schema.
+  const validation = await validateAgainstSchema(repoRoot, "agent-model-response.schema.json", response);
+  assert.equal(validation.valid, true, validation.errors.join("; "));
+  assert.deepEqual(await readAgentModelResponseArtifact(root, response.id), response);
 });
 
 test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {

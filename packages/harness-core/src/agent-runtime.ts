@@ -428,6 +428,91 @@ export async function readAgentModelRequestArtifact(
   }
 }
 
+export type AgentModelResponseInput = {
+  request: AgentModelRequestArtifact;
+  responseId: string;
+  provider_ref: string;
+  model_ref: string;
+  // Hashes are computed by the caller from in-memory text/payload. Raw text is
+  // never passed here so it cannot leak into a persisted artifact.
+  output_text_sha256: string;
+  response_payload_sha256: string;
+  finish_reason: AgentModelResponseArtifact["response"]["finish_reason"];
+  refusal_present: boolean;
+  tool_calls_present: boolean;
+  usage: AgentModelResponseArtifact["usage"];
+};
+
+// Builds the durable evidence that a model was actually invoked. Per
+// docs/13-schema-runtime-governance.md the artifact records hashes and usage
+// only: no raw prompt/response payload, no resolved credential, no claim that
+// the response audit passed, and no runtime authority.
+export function createAgentModelResponseArtifact(input: AgentModelResponseInput): AgentModelResponseArtifact {
+  const withoutHash: Omit<AgentModelResponseArtifact, "response_sha256"> = {
+    id: input.responseId,
+    request_id: input.request.id,
+    request_artifact_ref: agentModelRequestArtifactRef(input.request.id),
+    run_id: input.request.run_id,
+    runtime_invocation_id: input.request.runtime_invocation_id,
+    runtime_invocation_artifact_ref: agentRuntimeInvocationArtifactRef(input.request.runtime_invocation_id),
+    schema_version: "aetherion-agent-model-response-v1",
+    status: "response_recorded",
+    scope: {
+      model_invoked: true,
+      provider_called: true,
+      tools_requested: false,
+      tool_execution_allowed: false,
+      raw_response_persisted: false,
+      raw_prompt_persisted: false,
+      raw_payload_artifacts_read: false,
+      runtime_authority_granted: false
+    },
+    provider: {
+      provider_ref: input.provider_ref,
+      model_ref: input.model_ref,
+      credential_ref: null,
+      credential_resolved: false
+    },
+    response: {
+      finish_reason: input.finish_reason,
+      response_payload_sha256: input.response_payload_sha256,
+      output_text_sha256: input.output_text_sha256,
+      raw_response_payload_persisted: false,
+      output_artifact_ref: null,
+      refusal_present: input.refusal_present
+    },
+    usage: {
+      input_tokens: input.usage.input_tokens,
+      output_tokens: input.usage.output_tokens,
+      total_tokens: input.usage.total_tokens,
+      usage_source: input.usage.usage_source
+    },
+    tool_gateway: {
+      tool_calls_present: input.tool_calls_present,
+      proposed_tool_request_ids: [],
+      tool_request_events_appended: false,
+      execution_without_policy_allowed: false
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      model_output_can_authorize_actions: false,
+      tool_request_event_requires_supervisor_path: true,
+      tool_execution_requires_scoped_lease: true,
+      side_effects_require_policy_or_approval: true
+    },
+    response_audit: {
+      required: true,
+      audit_artifact_ref: null,
+      passed: null,
+      may_present_as_verified_runtime_evidence: false
+    }
+  };
+  return {
+    ...withoutHash,
+    response_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
 export async function writeAgentModelResponseArtifact(
   repoRoot: string,
   workspace: Workspace,

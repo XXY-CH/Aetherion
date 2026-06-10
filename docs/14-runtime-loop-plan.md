@@ -272,3 +272,38 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Add a real provider-call preparation gate plus response-audit handling, or harden trace-backed Memory lifecycle parity if runtime evidence gaps should stay ahead of provider wiring.
+
+## Completed Increment: First Real Model Invocation
+
+Target: make `prompt invoke-model <request_id> --content <task>` perform the first real Aetherion model call, recording hash-only `agent.model.responded` evidence and running a local response audit, without granting any runtime authority.
+
+Why this slice:
+
+- It closes the runtime-loop gap that every prior increment built toward: the agent loop was scaffolded all the way to `agent.model.requested` but had never invoked a model. This is the threshold that turns the governed scaffold into an agent that can actually plan with an LLM.
+- It keeps the provider boundary narrow and auditable: a deterministic offline stub provider keeps the loop testable, while a real Anthropic Messages provider is selectable through `AETHERION_MODEL_PROVIDER=anthropic` with an in-memory credential.
+- It preserves every authority invariant from `docs/13-schema-runtime-governance.md`: model output cannot authorize actions, no tool request or lease is emitted, and the response artifact records hashes only.
+
+Why a re-derive-and-verify gate:
+
+- The bound Agent Model Request artifact stores prompt hashes only, never raw prompt text. `invoke-model` re-renders the prompt from the same provenance-gated Context Pack path used by `prompt plan`, `bind-runtime`, and `prepare-model-request`, then asserts the re-rendered prompt bundle id, preview hash, and per-message hashes exactly match the bound request before any provider call. Prompt drift fails closed, so a model can never be invoked on a prompt that differs from the audited and bound one.
+
+Acceptance:
+
+- `prompt invoke-model <request_id> --content <task>` requires an existing Agent Model Request artifact plus matching `agent.model.requested` Ledger evidence, and refuses a request that already has a recorded response.
+- The model provider is resolved at call time. Credentials are read from the environment in-memory only; they are never returned, logged, or persisted, so the response artifact keeps `credential_ref=null` and `credential_resolved=false`.
+- The response artifact under `artifact://agent/model-response/<response_id>` records `model_invoked=true`, `provider_called=true`, the output-text and response-payload SHA-256 hashes, finish reason, refusal flag, tool-call flag, and usage. It records `raw_response_persisted=false`, `raw_prompt_persisted=false`, `model_output_can_authorize_actions=false`, `response_audit.required=true`, `response_audit.passed=null`, and `tool_request_events_appended=false`.
+- The response is recorded in an independent single-event `agent.model.responded` run. The source run is not extended.
+- The raw model output and rendered prompt text never appear in the persisted artifact; the operator sees them only on stdout.
+- `audit payload-refs` resolves and schema-validates the new response event payload.
+- A local response audit runs in-memory against the same prompt plan and is reported on stdout; it appends no events and grants no authority.
+
+Remaining boundary:
+
+- The default provider is the offline deterministic stub. A live Anthropic call requires `AETHERION_MODEL_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`.
+- The model is invoked in no-tools mode. There is still no tool-calling loop, no supervisor-gated tool request from model output, no scoped lease from a model decision, no daemon, and no IM/browser/connector path.
+- The response audit is local output linting, not runtime verification. A passing audit does not authorize actions, and the response artifact still records `may_present_as_verified_runtime_evidence=false`.
+- The response artifact does not persist the raw output. A future increment that needs durable model output must define a separately governed, redaction-aware output artifact rather than widening this contract.
+
+Next likely increment after this one:
+
+- Define a supervisor-gated tool-request path that can turn an audited model response into a `tool.requested` event (still requiring policy and a scoped lease), or add response-audit persistence as a separate reviewed artifact, after another docs/code review.

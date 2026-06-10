@@ -1,5 +1,6 @@
 export * from "./ledger.ts";
 export * from "./local-file.ts";
+export * from "./model-provider.ts";
 export * from "./policy.ts";
 export * from "./approval.ts";
 export * from "./agent-runtime.ts";

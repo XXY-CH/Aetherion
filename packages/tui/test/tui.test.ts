@@ -1573,6 +1573,181 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(requestPayloadFinding.schema_name, "agent-model-request.schema.json");
   assert.equal(requestPayloadFinding.schema_status, "valid");
   assert.deepEqual(requestPayloadFinding.schema_errors, []);
+
+  // invoke-model fails closed on prompt drift: a different task re-renders a
+  // prompt whose hashes no longer match the bound request. Checked before any
+  // successful response exists for this request.
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "invoke-model",
+      modelRequestRecord.request_id,
+      "--content",
+      "A completely different task that drifts from the bound prompt.",
+      "--workspace",
+      workspace
+    ], { env: { ...process.env, AETHERION_MODEL_PROVIDER: "stub" } }),
+    /does not match the bound model request|refusing to invoke the model on a drifted prompt/
+  );
+
+  // First real model invocation: re-derive the prompt, verify it matches the
+  // bound request, call the deterministic stub provider, and record hash-only
+  // response evidence. AETHERION_MODEL_PROVIDER defaults to the offline stub.
+  const invokeModel = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "invoke-model",
+    modelRequestRecord.request_id,
+    "--content",
+    "Draft a local implementation plan.",
+    "--workspace",
+    workspace
+  ], { env: { ...process.env, AETHERION_MODEL_PROVIDER: "stub" } });
+  const modelResponseRecord = JSON.parse(invokeModel.stdout) as {
+    response_id: string;
+    request_id: string;
+    source_run_id: string;
+    invocation_id: string;
+    request_artifact_ref: string;
+    response_artifact_ref: string;
+    expected_response_artifact_ref: string;
+    response_run_id: string;
+    response_event_id: string;
+    provider_ref: string;
+    model_ref: string;
+    network_capable: boolean;
+    finish_reason: string;
+    refusal_present: boolean;
+    tool_calls_present: boolean;
+    output_text_sha256: string;
+    response_payload_sha256: string;
+    usage: { input_tokens: number; output_tokens: number; total_tokens: number; usage_source: string };
+    model_invoked: boolean;
+    provider_called: boolean;
+    credential_resolved: boolean;
+    raw_response_persisted: boolean;
+    raw_prompt_persisted: boolean;
+    tools_requested: boolean;
+    tool_request_events_appended: boolean;
+    runtime_authority_granted: boolean;
+    response_audit_required: boolean;
+    response_audit_status: string;
+    response_audit_missing_blocks: string[];
+    response_audit_forbidden_claims: string[];
+    output_text: string;
+  };
+  assert.equal(modelResponseRecord.request_id, modelRequestRecord.request_id);
+  assert.equal(modelResponseRecord.source_run_id, runId);
+  assert.equal(modelResponseRecord.invocation_id, bindingRecord.invocation_id);
+  assert.equal(modelResponseRecord.request_artifact_ref, modelRequestRecord.request_artifact_ref);
+  assert.equal(modelResponseRecord.response_artifact_ref, `artifact://agent/model-response/${modelResponseRecord.response_id}`);
+  assert.equal(modelResponseRecord.expected_response_artifact_ref, modelResponseRecord.response_artifact_ref);
+  assert.match(modelResponseRecord.response_run_id, /^run_model_response_/);
+  assert.match(modelResponseRecord.response_event_id, /^evt_/);
+  assert.equal(modelResponseRecord.provider_ref, "provider_local_stub");
+  assert.equal(modelResponseRecord.network_capable, false);
+  assert.equal(modelResponseRecord.finish_reason, "stop");
+  assert.equal(modelResponseRecord.refusal_present, false);
+  assert.equal(modelResponseRecord.tool_calls_present, false);
+  assert.match(modelResponseRecord.output_text_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(modelResponseRecord.response_payload_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.ok(modelResponseRecord.usage.total_tokens > 0);
+  assert.equal(modelResponseRecord.usage.usage_source, "locally_estimated");
+  assert.equal(modelResponseRecord.model_invoked, true);
+  assert.equal(modelResponseRecord.provider_called, true);
+  assert.equal(modelResponseRecord.credential_resolved, false);
+  assert.equal(modelResponseRecord.raw_response_persisted, false);
+  assert.equal(modelResponseRecord.raw_prompt_persisted, false);
+  assert.equal(modelResponseRecord.tools_requested, false);
+  assert.equal(modelResponseRecord.tool_request_events_appended, false);
+  assert.equal(modelResponseRecord.runtime_authority_granted, false);
+  assert.equal(modelResponseRecord.response_audit_required, true);
+  assert.equal(modelResponseRecord.response_audit_status, "pass");
+  assert.deepEqual(modelResponseRecord.response_audit_missing_blocks, []);
+  assert.deepEqual(modelResponseRecord.response_audit_forbidden_claims, []);
+  assert.match(modelResponseRecord.output_text, /## Evidence Summary/);
+
+  // The persisted response artifact records hashes only: no raw model output,
+  // no resolved credential, audit not claimed passed.
+  const modelResponseArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "model-response", `${modelResponseRecord.response_id}.json`);
+  const modelResponseArtifactText = await readFile(modelResponseArtifactPath, "utf8");
+  const modelResponseArtifact = JSON.parse(modelResponseArtifactText) as {
+    id: string;
+    request_id: string;
+    run_id: string;
+    scope: { model_invoked: boolean; provider_called: boolean; raw_response_persisted: boolean; runtime_authority_granted: boolean };
+    provider: { provider_ref: string; model_ref: string; credential_ref: null; credential_resolved: boolean };
+    response: { finish_reason: string; output_text_sha256: string; raw_response_payload_persisted: boolean; output_artifact_ref: null };
+    response_audit: { required: boolean; passed: null; audit_artifact_ref: null; may_present_as_verified_runtime_evidence: boolean };
+  };
+  assert.equal(modelResponseArtifact.id, modelResponseRecord.response_id);
+  assert.equal(modelResponseArtifact.request_id, modelRequestRecord.request_id);
+  assert.equal(modelResponseArtifact.run_id, runId);
+  assert.equal(modelResponseArtifact.scope.model_invoked, true);
+  assert.equal(modelResponseArtifact.scope.provider_called, true);
+  assert.equal(modelResponseArtifact.scope.raw_response_persisted, false);
+  assert.equal(modelResponseArtifact.scope.runtime_authority_granted, false);
+  assert.equal(modelResponseArtifact.provider.credential_ref, null);
+  assert.equal(modelResponseArtifact.provider.credential_resolved, false);
+  assert.equal(modelResponseArtifact.response.raw_response_payload_persisted, false);
+  assert.equal(modelResponseArtifact.response.output_artifact_ref, null);
+  assert.equal(modelResponseArtifact.response_audit.passed, null);
+  assert.equal(modelResponseArtifact.response_audit.audit_artifact_ref, null);
+  assert.equal(modelResponseArtifact.response_audit.may_present_as_verified_runtime_evidence, false);
+  // The raw model output and rendered prompt text must not appear in the artifact.
+  assert.doesNotMatch(modelResponseArtifactText, /## Evidence Summary/);
+  assert.doesNotMatch(modelResponseArtifactText, /Draft a local implementation plan/);
+  assert.doesNotMatch(modelResponseArtifactText, /System Boundary/);
+
+  // The response run is an independent single-event governance run.
+  const ledgerAfterInvokeModel = await readLedgerEvents(workspace);
+  const modelResponseEvent = ledgerAfterInvokeModel.find((event) => event.id === modelResponseRecord.response_event_id);
+  assert.ok(modelResponseEvent);
+  assert.equal(modelResponseEvent.run_id, modelResponseRecord.response_run_id);
+  assert.equal(modelResponseEvent.event_type, "agent.model.responded");
+  assert.equal(modelResponseEvent.payload_ref, modelResponseRecord.response_artifact_ref);
+  assert.equal(modelResponseEvent.actor.type, "system");
+  assert.equal(modelResponseEvent.actor.id, "local_supervisor");
+  const modelResponseManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${modelResponseRecord.response_run_id}.json`), "utf8")) as {
+    id: string;
+    status: string;
+    event_ids: string[];
+  };
+  assert.equal(modelResponseManifest.status, "completed");
+  assert.deepEqual(modelResponseManifest.event_ids, [modelResponseRecord.response_event_id]);
+  const modelResponseRunEvents = ledgerAfterInvokeModel.filter((event) => event.run_id === modelResponseRecord.response_run_id);
+  assert.deepEqual(modelResponseRunEvents.map((event) => event.event_type), ["agent.model.responded"]);
+  assert.equal(modelResponseRunEvents.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(modelResponseRunEvents.some((event) => event.event_type === "lease.issued"), false);
+  // The source run is not extended after model response.
+  assert.equal(ledgerAfterInvokeModel.filter((event) => event.run_id === runId).some((event) => event.event_type === "agent.model.responded"), false);
+
+  // The response payload ref resolves and schema-validates.
+  const responsePayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{ event_id: string; event_type: string; payload_ref: string; schema_name?: string; schema_status: string; schema_errors: string[] }>;
+  };
+  const responsePayloadFinding = responsePayloadAudit.findings.find((finding) => finding.event_id === modelResponseRecord.response_event_id);
+  assert.ok(responsePayloadFinding);
+  assert.equal(responsePayloadFinding.event_type, "agent.model.responded");
+  assert.equal(responsePayloadFinding.schema_name, "agent-model-response.schema.json");
+  assert.equal(responsePayloadFinding.schema_status, "valid");
+  assert.deepEqual(responsePayloadFinding.schema_errors, []);
+
+  // Re-invoking the same request after a response exists fails closed.
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "invoke-model",
+      modelRequestRecord.request_id,
+      "--content",
+      "Draft a local implementation plan.",
+      "--workspace",
+      workspace
+    ], { env: { ...process.env, AETHERION_MODEL_PROVIDER: "stub" } }),
+    /already has a recorded response/
+  );
   await assert.rejects(
     execFileAsync(process.execPath, [
       cliPath,
