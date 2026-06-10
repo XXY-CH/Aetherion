@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/agent-tool-request-proposal.schema.json",
+  "title": "AgentToolRequestProposal",
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "runtime_invocation_id",
+    "runtime_invocation_artifact_ref",
+    "request_id",
+    "request_artifact_ref",
+    "response_id",
+    "response_artifact_ref",
+    "response_audit_id",
+    "response_audit_artifact_ref",
+    "schema_version",
+    "status",
+    "scope",
+    "source_evidence",
+    "proposal",
+    "authority_gates",
+    "proposal_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^agent_tool_request_proposal_[A-Za-z0-9_-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_id": { "type": "string", "pattern": "^agent_runtime_invocation_[A-Za-z0-9_-]+$" },
+    "runtime_invocation_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/runtime/agent_runtime_invocation_[A-Za-z0-9_-]+$"
+    },
+    "request_id": { "type": "string", "pattern": "^agent_model_request_[A-Za-z0-9_-]+$" },
+    "request_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/model-request/agent_model_request_[A-Za-z0-9_-]+$"
+    },
+    "response_id": { "type": "string", "pattern": "^agent_model_response_[A-Za-z0-9_-]+$" },
+    "response_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/model-response/agent_model_response_[A-Za-z0-9_-]+$"
+    },
+    "response_audit_id": { "type": "string", "pattern": "^agent_response_audit_[A-Za-z0-9_-]+$" },
+    "response_audit_artifact_ref": {
+      "type": "string",
+      "pattern": "^artifact://agent/response-audit/agent_response_audit_[A-Za-z0-9_-]+$"
+    },
+    "schema_version": { "type": "string", "enum": ["aetherion-agent-tool-request-proposal-v1"] },
+    "status": { "type": "string", "enum": ["proposal_recorded"] },
+    "scope": {
+      "type": "object",
+      "required": [
+        "proposal_only",
+        "tool_requested",
+        "policy_decided",
+        "lease_issued",
+        "tool_executed",
+        "action_recorded",
+        "observation_recorded",
+        "verification_recorded",
+        "raw_response_persisted",
+        "raw_prompt_persisted",
+        "raw_payload_artifacts_read",
+        "runtime_authority_granted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "proposal_only": { "type": "boolean", "enum": [true] },
+        "tool_requested": { "type": "boolean", "enum": [false] },
+        "policy_decided": { "type": "boolean", "enum": [false] },
+        "lease_issued": { "type": "boolean", "enum": [false] },
+        "tool_executed": { "type": "boolean", "enum": [false] },
+        "action_recorded": { "type": "boolean", "enum": [false] },
+        "observation_recorded": { "type": "boolean", "enum": [false] },
+        "verification_recorded": { "type": "boolean", "enum": [false] },
+        "raw_response_persisted": { "type": "boolean", "enum": [false] },
+        "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
+        "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] },
+        "runtime_authority_granted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_evidence": {
+      "type": "object",
+      "required": [
+        "required_response_audit_status",
+        "response_audit_evidence_status",
+        "runtime_bound_event_id",
+        "model_requested_event_id",
+        "model_responded_event_id",
+        "response_audit_recorded_event_id",
+        "source_event_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_response_audit_status": { "type": "string", "enum": ["pass"] },
+        "response_audit_evidence_status": { "type": "string", "enum": ["matched"] },
+        "runtime_bound_event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+        "model_requested_event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+        "model_responded_event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+        "response_audit_recorded_event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+        "source_event_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+          "minItems": 4,
+          "uniqueItems": true
+        }
+      }
+    },
+    "proposal": {
+      "type": "object",
+      "required": ["kind", "requested_by", "intent", "operation", "risk_inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["tool_request_preview"] },
+        "requested_by": { "type": "string", "enum": ["operator_restatement"] },
+        "intent": { "type": "string", "minLength": 1 },
+        "operation": {
+          "type": "object",
+          "required": ["verb", "target"],
+          "additionalProperties": false,
+          "properties": {
+            "verb": { "type": "string", "enum": ["read"] },
+            "target": {
+              "type": "object",
+              "required": ["kind", "uri"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "enum": ["file"] },
+                "uri": { "type": "string", "pattern": "^workspace://[^\\s]+$" },
+                "label": { "type": "string" }
+              }
+            },
+            "expected_effect": { "type": "string" }
+          }
+        },
+        "risk_inputs": {
+          "type": "object",
+          "required": [
+            "action_type",
+            "target_resource",
+            "data_sensitivity",
+            "side_effect",
+            "reversibility",
+            "runtime_boundary",
+            "user_intent_strength",
+            "taint_chain",
+            "target_confidence",
+            "blast_radius",
+            "data_egress_destination"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action_type": { "type": "string", "enum": ["read"] },
+            "target_resource": { "type": "string", "enum": ["workspace_file"] },
+            "data_sensitivity": { "type": "string", "enum": ["private"] },
+            "side_effect": { "type": "string", "enum": ["none"] },
+            "reversibility": { "type": "string", "enum": ["high"] },
+            "audience": { "type": "string", "enum": ["local_user"] },
+            "credential_scope": { "type": "string", "enum": ["none"] },
+            "runtime_boundary": { "type": "string", "enum": ["local_workspace"] },
+            "user_intent_strength": { "type": "string", "enum": ["explicit"] },
+            "taint_chain": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["user", "llm_output"] },
+              "uniqueItems": true
+            },
+            "target_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "blast_radius": { "type": "string", "enum": ["single_file"] },
+            "data_egress_destination": { "type": "string", "enum": ["local_response"] }
+          }
+        }
+      }
+    },
+    "authority_gates": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required",
+        "proposal_can_authorize_actions",
+        "model_output_can_authorize_actions",
+        "response_audit_can_authorize_actions",
+        "requires_tool_policy_proxy",
+        "requires_fresh_policy_decision",
+        "requires_scoped_lease",
+        "side_effects_require_policy_or_approval"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required": { "type": "boolean", "enum": [true] },
+        "proposal_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "model_output_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "response_audit_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "requires_tool_policy_proxy": { "type": "boolean", "enum": [true] },
+        "requires_fresh_policy_decision": { "type": "boolean", "enum": [true] },
+        "requires_scoped_lease": { "type": "boolean", "enum": [true] },
+        "side_effects_require_policy_or_approval": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "proposal_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

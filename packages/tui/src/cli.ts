@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -991,8 +991,8 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request" && options.topic !== "invoke-model") {
-    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, prepare-model-request <invocation_id>, and invoke-model <request_id> --content <task>");
+  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request" && options.topic !== "invoke-model" && options.topic !== "propose-tool-request") {
+    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, prepare-model-request <invocation_id>, invoke-model <request_id> --content <task>, and propose-tool-request <response_audit_id> --path <workspace-file> --content <intent>");
   }
   if (options.topic === "prepare-model-request") {
     await runPromptPrepareModelRequest(options);
@@ -1000,6 +1000,10 @@ async function runPrompt(options: CliOptions): Promise<void> {
   }
   if (options.topic === "invoke-model") {
     await runPromptInvokeModel(options);
+    return;
+  }
+  if (options.topic === "propose-tool-request") {
+    await runPromptProposeToolRequest(options);
     return;
   }
   if (!options.content) {
@@ -1276,6 +1280,102 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
   });
 }
 
+async function runPromptProposeToolRequest(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const auditId = requirePositional(options.target ?? options.input, "prompt propose-tool-request requires an Agent Response Audit id");
+  if (!auditId.startsWith("agent_response_audit_")) {
+    throw new Error("prompt propose-tool-request requires an Agent Response Audit id");
+  }
+  if (!options.content) {
+    throw new Error("prompt propose-tool-request requires --content <operator-restated intent>");
+  }
+  const targetPath = requirePositional(options.path, "prompt propose-tool-request requires --path <workspace-file>");
+  const relativeTargetPath = assertWorkspaceReadPath(workspaceRoot, targetPath);
+  const auditArtifact = await readAgentResponseAuditArtifact(workspaceRoot, auditId);
+  if (!auditArtifact) {
+    throw new Error(`Agent Response Audit artifact ${auditId} not found`);
+  }
+  if (auditArtifact.status !== "pass") {
+    throw new Error(`Agent Response Audit ${auditId} status is ${auditArtifact.status}; refusing to record a tool request proposal`);
+  }
+
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledger = await readEvents(workspace);
+  const evidence = await auditAgentResponseAuditEvidence(repoRoot, workspaceRoot, ledger);
+  const finding = evidence.findings.find((entry) => entry.audit_id === auditArtifact.id);
+  if (!finding || finding.status !== "matched") {
+    throw new Error(`Agent Response Audit ${auditId} evidence is not matched; refusing to record a tool request proposal`);
+  }
+  const related = finding.related_event_ids;
+  if (!related?.runtime_bound || !related.model_requested || !related.model_responded || !related.response_audit_recorded) {
+    throw new Error(`Agent Response Audit ${auditId} matched evidence is missing required event ids`);
+  }
+
+  const proposalId = `agent_tool_request_proposal_${sanitizePathSegment(auditArtifact.run_id)}_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const proposal = createAgentToolRequestProposalArtifact({
+    responseAudit: auditArtifact,
+    proposalId,
+    intent: options.content,
+    target_uri: workspaceFileUri(relativeTargetPath),
+    target_label: relativeTargetPath,
+    expected_effect: "Preview a possible local file read; no tool request, policy decision, lease, or tool execution is emitted.",
+    source_evidence: {
+      runtime_bound_event_id: related.runtime_bound,
+      model_requested_event_id: related.model_requested,
+      model_responded_event_id: related.model_responded,
+      response_audit_recorded_event_id: related.response_audit_recorded
+    }
+  });
+  const proposalRef = await writeAgentToolRequestProposalArtifact(repoRoot, workspace, proposal);
+  const proposalRunId = `run_tool_request_proposal_${sanitizePathSegment(auditArtifact.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Recorded non-authorizing tool request proposal ${proposal.id} from passed response audit ${auditArtifact.id}; no tool request, policy, lease, or execution was created.`;
+  const manifest = await createRunManifest(repoRoot, workspace, proposalRunId, summary);
+  const proposalEventId = await appendManagedRunEvent(
+    workspaceRoot,
+    workspace,
+    manifest,
+    "agent.tool.request.proposed",
+    summary,
+    proposalRef
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "agent.tool.request.proposed", payload_ref: proposalRef }
+  ]);
+
+  printRawJson({
+    proposal_id: proposal.id,
+    source_run_id: proposal.run_id,
+    response_audit_id: proposal.response_audit_id,
+    response_audit_artifact_ref: proposal.response_audit_artifact_ref,
+    response_audit_status: auditArtifact.status,
+    response_audit_evidence_status: finding.status,
+    response_id: proposal.response_id,
+    request_id: proposal.request_id,
+    runtime_invocation_id: proposal.runtime_invocation_id,
+    proposal_artifact_ref: proposalRef,
+    expected_proposal_artifact_ref: agentToolRequestProposalArtifactRef(proposal.id),
+    proposal_run_id: proposalRunId,
+    proposal_event_id: proposalEventId,
+    operation_verb: proposal.proposal.operation.verb,
+    target_uri: proposal.proposal.operation.target.uri,
+    target_label: proposal.proposal.operation.target.label,
+    tool_requested: proposal.scope.tool_requested,
+    policy_decided: proposal.scope.policy_decided,
+    lease_issued: proposal.scope.lease_issued,
+    tool_executed: proposal.scope.tool_executed,
+    action_recorded: proposal.scope.action_recorded,
+    observation_recorded: proposal.scope.observation_recorded,
+    verification_recorded: proposal.scope.verification_recorded,
+    raw_response_persisted: proposal.scope.raw_response_persisted,
+    raw_prompt_persisted: proposal.scope.raw_prompt_persisted,
+    runtime_authority_granted: proposal.scope.runtime_authority_granted,
+    proposal_can_authorize_actions: proposal.authority_gates.proposal_can_authorize_actions,
+    requires_tool_policy_proxy: proposal.authority_gates.requires_tool_policy_proxy,
+    requires_fresh_policy_decision: proposal.authority_gates.requires_fresh_policy_decision,
+    requires_scoped_lease: proposal.authority_gates.requires_scoped_lease
+  });
+}
+
 function assertPromptMatchesBoundRequest(plan: PromptPlan, request: AgentModelRequestArtifactShape): void {
   const planBundle = plan.prompt_bundle;
   if (planBundle.id !== request.request.prompt_bundle_id) {
@@ -1314,6 +1414,10 @@ function stableResponsePayload(result: { output_text: string; finish_reason: str
 
 function sha256Hex(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function workspaceFileUri(relativePath: string): string {
+  return `workspace://${relativePath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 async function assemblePromptPlanForRun(workspaceRoot: string, runId: string, task: string): Promise<{

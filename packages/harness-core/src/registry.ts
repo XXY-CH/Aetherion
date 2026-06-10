@@ -2499,6 +2499,9 @@ function schemaNameForArtifactReference(artifactRef: string, eventType?: string)
   if (parts[0] === "agent" && parts.length === 3 && parts[1] === "response-audit" && eventType === "agent.response.audit.recorded") {
     return "agent-response-audit.schema.json";
   }
+  if (parts[0] === "agent" && parts.length === 3 && parts[1] === "tool-request-proposal" && eventType === "agent.tool.request.proposed") {
+    return "agent-tool-request-proposal.schema.json";
+  }
   if (parts[0] === "agent" && parts.length === 3 && parts[1] === "execute" && eventType === "agent.child.completed") {
     return "child-result.schema.json";
   }

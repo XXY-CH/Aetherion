@@ -377,3 +377,41 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Define a supervisor-gated tool-request proposal path from an audited model response.
+
+## Completed Increment: Proposal-Only Tool Request Bridge
+
+Target: add a narrow `prompt propose-tool-request <response_audit_id>` path that can record an operator-restated workspace file read proposal from a passed, matched response audit without creating a real tool request.
+
+Why this slice:
+
+- It closes the next evidence-chain gap after response-audit auditing: an audited model response can now lead to a reviewable proposal artifact without becoming action authority.
+- It preserves the Tool Access & Action Policy Proxy boundary from the original architecture. The proposal records intent and risk inputs, but a later read must still enter policy and receive a fresh scoped lease.
+- It keeps raw model output and prompt text out of durable state. The operator must restate path and intent, and the proposal stores only ids, refs, hashes, gates, and structured preview metadata.
+
+Acceptance:
+
+- `agent-tool-request-proposal.schema.json` and its example validate with the existing contract examples.
+- `prompt propose-tool-request <response_audit_id> --path <workspace-file> --content <intent>` requires a passed Agent Response Audit, matched response-audit evidence, and a workspace-contained target path.
+- The command writes `artifact://agent/tool-request-proposal/<proposal_id>` and records an independent single-event `agent.tool.request.proposed` run.
+- The proposal artifact and run record `tool_requested=false`, `policy_decided=false`, `lease_issued=false`, `tool_executed=false`, `raw_response_persisted=false`, and `runtime_authority_granted=false`.
+- `audit payload-refs` resolves and schema-validates `agent.tool.request.proposed` payload refs.
+- Path escapes and non-passing response audits fail before the Ledger changes.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: deepens the local auditable runtime loop without adding GUI, IM, browser, connector, or cloud surfaces.
+- `docs/01-architecture.md`: keeps Agent Orchestrator evidence separate from the Tool Access & Action Policy Proxy authority path.
+- `docs/02-user-boundary-layer.md`: confirms that model-derived content and tainted evidence cannot authorize reads or side effects.
+- `docs/05-audit-and-data-contracts.md`: records human-readable, payload-ref backed evidence while preserving the Ledger as the fact layer.
+- `docs/06-roadmap.md`: stays in the TUI-first kernel/orchestrator proof and does not enter post-V1 browser, IM, OAuth/MCP, or cloud scope.
+- `docs/10-technical-strategy.md`: keeps TypeScript on orchestrator/prototype duties and leaves action authority with the Rust supervisor policy path.
+- `docs/13-schema-runtime-governance.md`: adds a P1 runtime-evidence contract only because the implemented TUI path produces and audits it.
+
+Remaining boundary:
+
+- This is not a supervisor-gated execution bridge. It does not append `tool.requested`, call policy, issue a lease, execute a read, persist raw model output, or prove semantic correctness of the model response.
+- Only workspace-local file read proposals are represented. Writes, egress, connectors, browser actions, and external side effects require later dedicated action paths.
+
+Next likely increment after this one:
+
+- Turn a reviewed proposal into an explicit policy request through the existing supervisor file-read lifecycle, or harden response-audit/proposal parity once more producers exist.

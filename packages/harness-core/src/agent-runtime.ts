@@ -307,6 +307,84 @@ export type AgentResponseAuditArtifact = {
   audit_sha256: string;
 };
 
+export type AgentToolRequestProposalArtifact = {
+  id: string;
+  run_id: string;
+  runtime_invocation_id: string;
+  runtime_invocation_artifact_ref: string;
+  request_id: string;
+  request_artifact_ref: string;
+  response_id: string;
+  response_artifact_ref: string;
+  response_audit_id: string;
+  response_audit_artifact_ref: string;
+  schema_version: "aetherion-agent-tool-request-proposal-v1";
+  status: "proposal_recorded";
+  scope: {
+    proposal_only: true;
+    tool_requested: false;
+    policy_decided: false;
+    lease_issued: false;
+    tool_executed: false;
+    action_recorded: false;
+    observation_recorded: false;
+    verification_recorded: false;
+    raw_response_persisted: false;
+    raw_prompt_persisted: false;
+    raw_payload_artifacts_read: false;
+    runtime_authority_granted: false;
+  };
+  source_evidence: {
+    required_response_audit_status: "pass";
+    response_audit_evidence_status: "matched";
+    runtime_bound_event_id: string;
+    model_requested_event_id: string;
+    model_responded_event_id: string;
+    response_audit_recorded_event_id: string;
+    source_event_ids: string[];
+  };
+  proposal: {
+    kind: "tool_request_preview";
+    requested_by: "operator_restatement";
+    intent: string;
+    operation: {
+      verb: "read";
+      target: {
+        kind: "file";
+        uri: string;
+        label?: string;
+      };
+      expected_effect?: string;
+    };
+    risk_inputs: {
+      action_type: "read";
+      target_resource: "workspace_file";
+      data_sensitivity: "private";
+      side_effect: "none";
+      reversibility: "high";
+      audience: "local_user";
+      credential_scope: "none";
+      runtime_boundary: "local_workspace";
+      user_intent_strength: "explicit";
+      taint_chain: Array<"user" | "llm_output">;
+      target_confidence: number;
+      blast_radius: "single_file";
+      data_egress_destination: "local_response";
+    };
+  };
+  authority_gates: {
+    local_supervisor_required: true;
+    proposal_can_authorize_actions: false;
+    model_output_can_authorize_actions: false;
+    response_audit_can_authorize_actions: false;
+    requires_tool_policy_proxy: true;
+    requires_fresh_policy_decision: true;
+    requires_scoped_lease: true;
+    side_effects_require_policy_or_approval: true;
+  };
+  proposal_sha256: string;
+};
+
 export function agentRuntimeInvocationArtifactRef(invocationId: string): string {
   return `artifact://agent/runtime/${invocationId}`;
 }
@@ -321,6 +399,10 @@ export function agentModelResponseArtifactRef(responseId: string): string {
 
 export function agentResponseAuditArtifactRef(auditId: string): string {
   return `artifact://agent/response-audit/${auditId}`;
+}
+
+export function agentToolRequestProposalArtifactRef(proposalId: string): string {
+  return `artifact://agent/tool-request-proposal/${proposalId}`;
 }
 
 export function createAgentModelRequestArtifact(
@@ -696,8 +778,143 @@ export async function readAgentResponseAuditArtifact(
   }
 }
 
+export type AgentToolRequestProposalInput = {
+  responseAudit: AgentResponseAuditArtifact;
+  proposalId: string;
+  intent: string;
+  target_uri: string;
+  target_label?: string;
+  expected_effect?: string;
+  source_evidence: {
+    runtime_bound_event_id: string;
+    model_requested_event_id: string;
+    model_responded_event_id: string;
+    response_audit_recorded_event_id: string;
+  };
+};
+
+export function createAgentToolRequestProposalArtifact(input: AgentToolRequestProposalInput): AgentToolRequestProposalArtifact {
+  const sourceEventIds = uniqueStrings([
+    input.source_evidence.runtime_bound_event_id,
+    input.source_evidence.model_requested_event_id,
+    input.source_evidence.model_responded_event_id,
+    input.source_evidence.response_audit_recorded_event_id
+  ]);
+  const withoutHash: Omit<AgentToolRequestProposalArtifact, "proposal_sha256"> = {
+    id: input.proposalId,
+    run_id: input.responseAudit.run_id,
+    runtime_invocation_id: input.responseAudit.runtime_invocation_id,
+    runtime_invocation_artifact_ref: input.responseAudit.runtime_invocation_artifact_ref,
+    request_id: input.responseAudit.request_id,
+    request_artifact_ref: input.responseAudit.request_artifact_ref,
+    response_id: input.responseAudit.response_id,
+    response_artifact_ref: input.responseAudit.response_artifact_ref,
+    response_audit_id: input.responseAudit.id,
+    response_audit_artifact_ref: agentResponseAuditArtifactRef(input.responseAudit.id),
+    schema_version: "aetherion-agent-tool-request-proposal-v1",
+    status: "proposal_recorded",
+    scope: {
+      proposal_only: true,
+      tool_requested: false,
+      policy_decided: false,
+      lease_issued: false,
+      tool_executed: false,
+      action_recorded: false,
+      observation_recorded: false,
+      verification_recorded: false,
+      raw_response_persisted: false,
+      raw_prompt_persisted: false,
+      raw_payload_artifacts_read: false,
+      runtime_authority_granted: false
+    },
+    source_evidence: {
+      required_response_audit_status: "pass",
+      response_audit_evidence_status: "matched",
+      runtime_bound_event_id: input.source_evidence.runtime_bound_event_id,
+      model_requested_event_id: input.source_evidence.model_requested_event_id,
+      model_responded_event_id: input.source_evidence.model_responded_event_id,
+      response_audit_recorded_event_id: input.source_evidence.response_audit_recorded_event_id,
+      source_event_ids: sourceEventIds
+    },
+    proposal: {
+      kind: "tool_request_preview",
+      requested_by: "operator_restatement",
+      intent: input.intent,
+      operation: {
+        verb: "read",
+        target: {
+          kind: "file",
+          uri: input.target_uri,
+          ...(input.target_label ? { label: input.target_label } : {})
+        },
+        ...(input.expected_effect ? { expected_effect: input.expected_effect } : {})
+      },
+      risk_inputs: {
+        action_type: "read",
+        target_resource: "workspace_file",
+        data_sensitivity: "private",
+        side_effect: "none",
+        reversibility: "high",
+        audience: "local_user",
+        credential_scope: "none",
+        runtime_boundary: "local_workspace",
+        user_intent_strength: "explicit",
+        taint_chain: ["user", "llm_output"],
+        target_confidence: 1,
+        blast_radius: "single_file",
+        data_egress_destination: "local_response"
+      }
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      proposal_can_authorize_actions: false,
+      model_output_can_authorize_actions: false,
+      response_audit_can_authorize_actions: false,
+      requires_tool_policy_proxy: true,
+      requires_fresh_policy_decision: true,
+      requires_scoped_lease: true,
+      side_effects_require_policy_or_approval: true
+    }
+  };
+  return {
+    ...withoutHash,
+    proposal_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
+export async function writeAgentToolRequestProposalArtifact(
+  repoRoot: string,
+  workspace: Workspace,
+  proposal: AgentToolRequestProposalArtifact
+): Promise<string> {
+  const result = await validateAgainstSchema(repoRoot, "agent-tool-request-proposal.schema.json", proposal);
+  if (!result.valid) {
+    throw new Error(`agent-tool-request-proposal.schema.json validation failed: ${result.errors.join("; ")}`);
+  }
+  const dir = join(workspace.root, ".aetherion", "artifacts", "agent", "tool-request-proposal");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${proposal.id}.json`), `${JSON.stringify(proposal, null, 2)}\n`);
+  return agentToolRequestProposalArtifactRef(proposal.id);
+}
+
+export async function readAgentToolRequestProposalArtifact(
+  workspaceRoot: string,
+  proposalId: string
+): Promise<AgentToolRequestProposalArtifact | null> {
+  try {
+    const raw = await readFile(join(workspaceRoot, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${proposalId}.json`), "utf8");
+    return JSON.parse(raw) as AgentToolRequestProposalArtifact;
+  } catch {
+    return null;
+  }
+}
+
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].filter(Boolean);
 }
 
 function stableStringify(value: unknown): string {

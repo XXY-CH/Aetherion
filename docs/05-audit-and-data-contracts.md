@@ -141,6 +141,14 @@ result:
 
 Replay defaults to trace reconstruction or sandbox simulation. Live side-effect replay is disabled unless explicitly approved.
 
+## Agent Tool Request Proposal
+
+Audited model output may be converted into reviewable operator intent, but not into action authority. A tool-request proposal records that an operator restated a possible workspace-local read after a response audit passed and its Ledger evidence chain matched.
+
+The proposal artifact must cite the runtime binding, model request, model response, and response-audit events. It must also record that no `tool.requested`, policy decision, scoped lease, tool execution, action, observation, verification, raw prompt persistence, raw model output persistence, or runtime authority was created.
+
+A later real read must enter the normal Tool Policy Proxy path and receive a fresh policy decision plus scoped lease. The proposal is audit evidence and planning input only.
+
 ## Causal Reports And Projections
 
 Causal graph rows and SQLite indexes are rebuildable projections over Event Ledger facts. A projected edge must cite source events and label its inference basis. Typed event order may support a temporal dependency candidate, but it does not prove causation.

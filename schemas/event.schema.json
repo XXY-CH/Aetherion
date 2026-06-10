@@ -53,6 +53,7 @@
         "agent.model.requested",
         "agent.model.responded",
         "agent.response.audit.recorded",
+        "agent.tool.request.proposed",
         "agent.child.started",
         "agent.child.policy_denied",
         "agent.child.completed",

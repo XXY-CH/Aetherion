@@ -1910,6 +1910,252 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(responseAuditEvidenceFinding.related_event_ids?.model_responded, modelResponseRecord.response_event_id);
   assert.equal(responseAuditEvidenceFinding.related_event_ids?.response_audit_recorded, modelResponseRecord.response_audit_event_id);
 
+  const ledgerBeforeFailedProposal = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "propose-tool-request",
+      modelResponseRecord.response_audit_id,
+      "--path",
+      "../outside.txt",
+      "--content",
+      "Read a file outside the workspace.",
+      "--workspace",
+      workspace
+    ]),
+    /Read target is outside workspace boundary/
+  );
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeFailedProposal);
+
+  const needsRevisionAuditId = "agent_response_audit_needs_revision_fixture";
+  await writeFile(join(workspace, ".aetherion", "artifacts", "agent", "response-audit", `${needsRevisionAuditId}.json`), `${JSON.stringify({
+    ...responseAuditArtifact,
+    id: needsRevisionAuditId,
+    status: "needs_revision"
+  }, null, 2)}\n`);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "propose-tool-request",
+      needsRevisionAuditId,
+      "--path",
+      "README.md",
+      "--content",
+      "Read README.md after a response audit that still needs revision.",
+      "--workspace",
+      workspace
+    ]),
+    /status is needs_revision; refusing to record a tool request proposal/
+  );
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeFailedProposal);
+
+  const proposeTool = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "propose-tool-request",
+    modelResponseRecord.response_audit_id,
+    "--path",
+    "README.md",
+    "--content",
+    "Read README.md after reviewing the passed response audit.",
+    "--workspace",
+    workspace
+  ]);
+  const proposalRecord = JSON.parse(proposeTool.stdout) as {
+    proposal_id: string;
+    source_run_id: string;
+    response_audit_id: string;
+    response_audit_artifact_ref: string;
+    response_audit_status: string;
+    response_audit_evidence_status: string;
+    response_id: string;
+    request_id: string;
+    runtime_invocation_id: string;
+    proposal_artifact_ref: string;
+    expected_proposal_artifact_ref: string;
+    proposal_run_id: string;
+    proposal_event_id: string;
+    operation_verb: string;
+    target_uri: string;
+    target_label: string;
+    tool_requested: boolean;
+    policy_decided: boolean;
+    lease_issued: boolean;
+    tool_executed: boolean;
+    action_recorded: boolean;
+    observation_recorded: boolean;
+    verification_recorded: boolean;
+    raw_response_persisted: boolean;
+    raw_prompt_persisted: boolean;
+    runtime_authority_granted: boolean;
+    proposal_can_authorize_actions: boolean;
+    requires_tool_policy_proxy: boolean;
+    requires_fresh_policy_decision: boolean;
+    requires_scoped_lease: boolean;
+  };
+  assert.match(proposalRecord.proposal_id, new RegExp(`^agent_tool_request_proposal_${escapeRegExp(runId)}_[a-f0-9]{16}$`));
+  assert.equal(proposalRecord.source_run_id, runId);
+  assert.equal(proposalRecord.response_audit_id, modelResponseRecord.response_audit_id);
+  assert.equal(proposalRecord.response_audit_artifact_ref, modelResponseRecord.response_audit_artifact_ref);
+  assert.equal(proposalRecord.response_audit_status, "pass");
+  assert.equal(proposalRecord.response_audit_evidence_status, "matched");
+  assert.equal(proposalRecord.response_id, modelResponseRecord.response_id);
+  assert.equal(proposalRecord.request_id, modelRequestRecord.request_id);
+  assert.equal(proposalRecord.runtime_invocation_id, bindingRecord.invocation_id);
+  assert.equal(proposalRecord.proposal_artifact_ref, `artifact://agent/tool-request-proposal/${proposalRecord.proposal_id}`);
+  assert.equal(proposalRecord.expected_proposal_artifact_ref, proposalRecord.proposal_artifact_ref);
+  assert.match(proposalRecord.proposal_run_id, /^run_tool_request_proposal_/);
+  assert.match(proposalRecord.proposal_event_id, /^evt_/);
+  assert.equal(proposalRecord.operation_verb, "read");
+  assert.equal(proposalRecord.target_uri, "workspace://README.md");
+  assert.equal(proposalRecord.target_label, "README.md");
+  assert.equal(proposalRecord.tool_requested, false);
+  assert.equal(proposalRecord.policy_decided, false);
+  assert.equal(proposalRecord.lease_issued, false);
+  assert.equal(proposalRecord.tool_executed, false);
+  assert.equal(proposalRecord.action_recorded, false);
+  assert.equal(proposalRecord.observation_recorded, false);
+  assert.equal(proposalRecord.verification_recorded, false);
+  assert.equal(proposalRecord.raw_response_persisted, false);
+  assert.equal(proposalRecord.raw_prompt_persisted, false);
+  assert.equal(proposalRecord.runtime_authority_granted, false);
+  assert.equal(proposalRecord.proposal_can_authorize_actions, false);
+  assert.equal(proposalRecord.requires_tool_policy_proxy, true);
+  assert.equal(proposalRecord.requires_fresh_policy_decision, true);
+  assert.equal(proposalRecord.requires_scoped_lease, true);
+
+  const proposalArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${proposalRecord.proposal_id}.json`);
+  const proposalArtifactText = await readFile(proposalArtifactPath, "utf8");
+  const proposalArtifact = JSON.parse(proposalArtifactText) as {
+    id: string;
+    run_id: string;
+    response_audit_id: string;
+    response_audit_artifact_ref: string;
+    source_evidence: {
+      required_response_audit_status: string;
+      response_audit_evidence_status: string;
+      runtime_bound_event_id: string;
+      model_requested_event_id: string;
+      model_responded_event_id: string;
+      response_audit_recorded_event_id: string;
+      source_event_ids: string[];
+    };
+    proposal: {
+      requested_by: string;
+      intent: string;
+      operation: { verb: string; target: { kind: string; uri: string; label: string } };
+      risk_inputs: { side_effect: string; runtime_boundary: string; taint_chain: string[]; data_egress_destination: string };
+    };
+    scope: {
+      proposal_only: boolean;
+      tool_requested: boolean;
+      policy_decided: boolean;
+      lease_issued: boolean;
+      tool_executed: boolean;
+      runtime_authority_granted: boolean;
+    };
+    authority_gates: {
+      proposal_can_authorize_actions: boolean;
+      model_output_can_authorize_actions: boolean;
+      response_audit_can_authorize_actions: boolean;
+      requires_tool_policy_proxy: boolean;
+      requires_fresh_policy_decision: boolean;
+      requires_scoped_lease: boolean;
+    };
+  };
+  assert.equal(proposalArtifact.id, proposalRecord.proposal_id);
+  assert.equal(proposalArtifact.run_id, runId);
+  assert.equal(proposalArtifact.response_audit_id, modelResponseRecord.response_audit_id);
+  assert.equal(proposalArtifact.response_audit_artifact_ref, modelResponseRecord.response_audit_artifact_ref);
+  assert.equal(proposalArtifact.source_evidence.required_response_audit_status, "pass");
+  assert.equal(proposalArtifact.source_evidence.response_audit_evidence_status, "matched");
+  assert.equal(proposalArtifact.source_evidence.runtime_bound_event_id, bindingRecord.binding_event_id);
+  assert.equal(proposalArtifact.source_evidence.model_requested_event_id, modelRequestRecord.request_event_id);
+  assert.equal(proposalArtifact.source_evidence.model_responded_event_id, modelResponseRecord.response_event_id);
+  assert.equal(proposalArtifact.source_evidence.response_audit_recorded_event_id, modelResponseRecord.response_audit_event_id);
+  assert.deepEqual(proposalArtifact.source_evidence.source_event_ids, [
+    bindingRecord.binding_event_id,
+    modelRequestRecord.request_event_id,
+    modelResponseRecord.response_event_id,
+    modelResponseRecord.response_audit_event_id
+  ]);
+  assert.equal(proposalArtifact.proposal.requested_by, "operator_restatement");
+  assert.equal(proposalArtifact.proposal.intent, "Read README.md after reviewing the passed response audit.");
+  assert.equal(proposalArtifact.proposal.operation.verb, "read");
+  assert.equal(proposalArtifact.proposal.operation.target.kind, "file");
+  assert.equal(proposalArtifact.proposal.operation.target.uri, "workspace://README.md");
+  assert.equal(proposalArtifact.proposal.operation.target.label, "README.md");
+  assert.equal(proposalArtifact.proposal.risk_inputs.side_effect, "none");
+  assert.equal(proposalArtifact.proposal.risk_inputs.runtime_boundary, "local_workspace");
+  assert.deepEqual(proposalArtifact.proposal.risk_inputs.taint_chain, ["user", "llm_output"]);
+  assert.equal(proposalArtifact.proposal.risk_inputs.data_egress_destination, "local_response");
+  assert.equal(proposalArtifact.scope.proposal_only, true);
+  assert.equal(proposalArtifact.scope.tool_requested, false);
+  assert.equal(proposalArtifact.scope.policy_decided, false);
+  assert.equal(proposalArtifact.scope.lease_issued, false);
+  assert.equal(proposalArtifact.scope.tool_executed, false);
+  assert.equal(proposalArtifact.scope.runtime_authority_granted, false);
+  assert.equal(proposalArtifact.authority_gates.proposal_can_authorize_actions, false);
+  assert.equal(proposalArtifact.authority_gates.model_output_can_authorize_actions, false);
+  assert.equal(proposalArtifact.authority_gates.response_audit_can_authorize_actions, false);
+  assert.equal(proposalArtifact.authority_gates.requires_tool_policy_proxy, true);
+  assert.equal(proposalArtifact.authority_gates.requires_fresh_policy_decision, true);
+  assert.equal(proposalArtifact.authority_gates.requires_scoped_lease, true);
+  assert.doesNotMatch(proposalArtifactText, /## Evidence Summary/);
+  assert.doesNotMatch(proposalArtifactText, /System Boundary/);
+
+  const ledgerAfterProposal = await readLedgerEvents(workspace);
+  const proposalEvent = ledgerAfterProposal.find((event) => event.id === proposalRecord.proposal_event_id);
+  assert.ok(proposalEvent);
+  assert.equal(proposalEvent.run_id, proposalRecord.proposal_run_id);
+  assert.equal(proposalEvent.event_type, "agent.tool.request.proposed");
+  assert.equal(proposalEvent.payload_ref, proposalRecord.proposal_artifact_ref);
+  assert.equal(proposalEvent.actor.type, "system");
+  assert.equal(proposalEvent.actor.id, "local_supervisor");
+  assert.match(proposalEvent.summary, /no tool request, policy, lease, or execution was created/);
+  const proposalManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${proposalRecord.proposal_run_id}.json`), "utf8")) as {
+    status: string;
+    event_ids: string[];
+  };
+  assert.equal(proposalManifest.status, "completed");
+  assert.deepEqual(proposalManifest.event_ids, [proposalRecord.proposal_event_id]);
+  const proposalRunEvents = ledgerAfterProposal.filter((event) => event.run_id === proposalRecord.proposal_run_id);
+  assert.deepEqual(proposalRunEvents.map((event) => event.event_type), ["agent.tool.request.proposed"]);
+  assert.deepEqual(proposalRunEvents.map((event) => event.payload_ref), [proposalRecord.proposal_artifact_ref]);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "risk.composed"), false);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "policy.decided"), false);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "lease.issued"), false);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "tool.result"), false);
+  assert.equal(proposalRunEvents.some((event) => event.event_type === "action.recorded"), false);
+  assert.equal(ledgerAfterProposal.filter((event) => event.run_id === runId).some((event) => event.event_type === "agent.tool.request.proposed"), false);
+
+  const proposalPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{ event_id: string; event_type: string; payload_ref: string; schema_name?: string; schema_status: string; schema_errors: string[] }>;
+  };
+  const proposalPayloadFinding = proposalPayloadAudit.findings.find((finding) => finding.event_id === proposalRecord.proposal_event_id);
+  assert.ok(proposalPayloadFinding);
+  assert.equal(proposalPayloadFinding.event_type, "agent.tool.request.proposed");
+  assert.equal(proposalPayloadFinding.schema_name, "agent-tool-request-proposal.schema.json");
+  assert.equal(proposalPayloadFinding.schema_status, "valid");
+  assert.deepEqual(proposalPayloadFinding.schema_errors, []);
+
+  const proposalBoundary = await execFileAsync(process.execPath, [
+    cliPath,
+    "boundary",
+    proposalRecord.proposal_run_id,
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(stdoutValue(proposalBoundary.stdout, "what_tool_requests"), "0");
+  assert.equal(stdoutValue(proposalBoundary.stdout, "what_policy_decisions"), "0");
+  assert.equal(stdoutValue(proposalBoundary.stdout, "what_leases"), "0");
+  assert.equal(stdoutValue(proposalBoundary.stdout, "what_actions"), "0");
+  assert.equal(stdoutValue(proposalBoundary.stdout, "boundary_material_actions"), "0");
+  assert.equal(stdoutValue(proposalBoundary.stdout, "boundary_action_matrix"), "not_recorded");
+
   // Re-invoking the same request after a response exists fails closed.
   await assert.rejects(
     execFileAsync(process.execPath, [

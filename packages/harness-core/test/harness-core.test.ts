@@ -12,6 +12,7 @@ import {
   agentModelResponseArtifactRef,
   agentResponseAuditArtifactRef,
   agentRuntimeInvocationArtifactRef,
+  agentToolRequestProposalArtifactRef,
   auditAgentResponseAuditEvidence,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
@@ -35,6 +36,7 @@ import {
   createAgentModelRequestArtifact,
   createAgentModelResponseArtifact,
   createAgentResponseAuditArtifact,
+  createAgentToolRequestProposalArtifact,
   createRunManifest,
   createWriteConsentRecord,
   createTraceReplayRecord,
@@ -50,6 +52,7 @@ import {
   readAgentModelResponseArtifact,
   readAgentResponseAuditArtifact,
   readAgentRuntimeInvocationArtifact,
+  readAgentToolRequestProposalArtifact,
   REPLAY_RECORD_RUN_EVENT_TYPES,
   CHILD_READ_PRE_EXECUTION_BREAKER_EVENT_TYPES,
   evaluateSeedPolicy,
@@ -77,6 +80,7 @@ import {
   writeAgentModelResponseArtifact,
   writeAgentResponseAuditArtifact,
   writeAgentRuntimeInvocationArtifact,
+  writeAgentToolRequestProposalArtifact,
   writeLocalFileThroughPolicy,
   workspaceIdForRoot,
   workspaceRegistryPath,
@@ -141,6 +145,7 @@ const schemaExamplePairs = [
   ["agent-model-request.schema.json", "agent-model-request.json"],
   ["agent-model-response.schema.json", "agent-model-response.json"],
   ["agent-response-audit.schema.json", "agent-response-audit.json"],
+  ["agent-tool-request-proposal.schema.json", "agent-tool-request-proposal.json"],
   ["agent-score.schema.json", "agent-score.json"],
   ["content-assessment.schema.json", "content-assessment.json"],
   ["poisoning-signal.schema.json", "poisoning-signal.json"],
@@ -334,6 +339,92 @@ test("agent response audit artifacts derive from hash-only response metadata", a
   assert.equal(responseAudit.authority_gates.audit_pass_is_runtime_verification, false);
   assert.match(responseAudit.audit_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(await readAgentResponseAuditArtifact(root, responseAudit.id), responseAudit);
+});
+
+test("agent tool request proposal artifacts derive from matched response-audit evidence without authority", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-tool-proposal-"));
+  const workspace = await createWorkspace(root, "ws_agent_tool_proposal");
+  const responseAudit = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-response-audit.json"), "utf8")
+  );
+  const proposal = createAgentToolRequestProposalArtifact({
+    responseAudit,
+    proposalId: "agent_tool_request_proposal_run_example_derived",
+    intent: "Read README.md after reviewing the passed response audit.",
+    target_uri: "workspace://README.md",
+    target_label: "README.md",
+    expected_effect: "Preview a possible local file read; no tool request is emitted.",
+    source_evidence: {
+      runtime_bound_event_id: "evt_agent_runtime_bound_example",
+      model_requested_event_id: "evt_agent_model_requested_example",
+      model_responded_event_id: "evt_agent_model_responded_example",
+      response_audit_recorded_event_id: "evt_agent_response_audit_example"
+    }
+  });
+  const proposalRef = await writeAgentToolRequestProposalArtifact(repoRoot, workspace, proposal);
+  assert.equal(proposalRef, agentToolRequestProposalArtifactRef(proposal.id));
+  assert.equal(proposalRef, "artifact://agent/tool-request-proposal/agent_tool_request_proposal_run_example_derived");
+  assert.equal(proposal.response_audit_id, responseAudit.id);
+  assert.equal(proposal.response_audit_artifact_ref, agentResponseAuditArtifactRef(responseAudit.id));
+  assert.equal(proposal.response_id, responseAudit.response_id);
+  assert.equal(proposal.request_id, responseAudit.request_id);
+  assert.equal(proposal.runtime_invocation_id, responseAudit.runtime_invocation_id);
+  assert.equal(proposal.scope.proposal_only, true);
+  assert.equal(proposal.scope.tool_requested, false);
+  assert.equal(proposal.scope.policy_decided, false);
+  assert.equal(proposal.scope.lease_issued, false);
+  assert.equal(proposal.scope.tool_executed, false);
+  assert.equal(proposal.scope.action_recorded, false);
+  assert.equal(proposal.scope.raw_response_persisted, false);
+  assert.equal(proposal.scope.raw_prompt_persisted, false);
+  assert.equal(proposal.scope.runtime_authority_granted, false);
+  assert.equal(proposal.source_evidence.required_response_audit_status, "pass");
+  assert.equal(proposal.source_evidence.response_audit_evidence_status, "matched");
+  assert.deepEqual(proposal.source_evidence.source_event_ids, [
+    "evt_agent_runtime_bound_example",
+    "evt_agent_model_requested_example",
+    "evt_agent_model_responded_example",
+    "evt_agent_response_audit_example"
+  ]);
+  assert.equal(proposal.proposal.kind, "tool_request_preview");
+  assert.equal(proposal.proposal.requested_by, "operator_restatement");
+  assert.equal(proposal.proposal.operation.verb, "read");
+  assert.equal(proposal.proposal.operation.target.kind, "file");
+  assert.equal(proposal.proposal.operation.target.uri, "workspace://README.md");
+  assert.equal(proposal.proposal.risk_inputs.side_effect, "none");
+  assert.equal(proposal.proposal.risk_inputs.runtime_boundary, "local_workspace");
+  assert.deepEqual(proposal.proposal.risk_inputs.taint_chain, ["user", "llm_output"]);
+  assert.equal(proposal.authority_gates.proposal_can_authorize_actions, false);
+  assert.equal(proposal.authority_gates.model_output_can_authorize_actions, false);
+  assert.equal(proposal.authority_gates.response_audit_can_authorize_actions, false);
+  assert.equal(proposal.authority_gates.requires_tool_policy_proxy, true);
+  assert.equal(proposal.authority_gates.requires_fresh_policy_decision, true);
+  assert.equal(proposal.authority_gates.requires_scoped_lease, true);
+  assert.match(proposal.proposal_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(await readAgentToolRequestProposalArtifact(root, proposal.id), proposal);
+  assert.equal(await readAgentToolRequestProposalArtifact(root, "agent_tool_request_proposal_missing"), null);
+
+  const proposalEvent = eventRecord({
+    id: "evt_agent_tool_request_proposed",
+    workspace_id: workspace.id,
+    run_id: "run_agent_tool_proposal",
+    event_type: "agent.tool.request.proposed",
+    actor: { type: "system", id: "test" },
+    summary: "Recorded non-authorizing tool request proposal.",
+    payload_ref: proposalRef
+  });
+  await appendEvent(repoRoot, workspace, proposalEvent);
+  const audit = await auditLedgerPayloadRefs(repoRoot, root, [proposalEvent]);
+  assert.equal(audit.summary.events_with_payload_ref, 1);
+  assert.equal(audit.summary.schema_valid, 1);
+  assert.equal(audit.findings[0].event_type, "agent.tool.request.proposed");
+  assert.equal(audit.findings[0].schema_name, "agent-tool-request-proposal.schema.json");
+  assert.equal(audit.findings[0].schema_status, "valid");
+  assert.deepEqual(audit.findings[0].schema_errors, []);
+
+  const proposalText = await readFile(join(root, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${proposal.id}.json`), "utf8");
+  assert.doesNotMatch(proposalText, /raw model answer/i);
+  assert.doesNotMatch(proposalText, /System Boundary/);
 });
 
 test("agent response audit evidence audit matches complete non-authorizing response chains", async () => {

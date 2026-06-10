@@ -964,6 +964,40 @@ Correction and remaining boundary:
 - No model-output-to-tool-request bridge exists yet; that next step must still enter a dedicated supervisor path.
 - The response-audit evidence-chain audit is still a structural check, not semantic verification of model output or proof of task completion.
 
+## Phase 40 Review Notes
+
+This pass adds the first proposal-only bridge from audited model evidence toward a possible tool request. It intentionally stops before policy, lease, or execution.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: strengthens the auditable local runtime loop while staying away from deferred GUI, IM, browser, connector, and cloud surfaces.
+- `docs/01-architecture.md`: preserves the split between Agent Orchestrator evidence and the Tool Access & Action Policy Proxy authority path.
+- `docs/02-user-boundary-layer.md`: model-derived content and response audits cannot authorize sensitive reads, writes, egress, or side effects.
+- `docs/05-audit-and-data-contracts.md`: durable proposal evidence is payload-ref backed and human-readable, but artifacts and projections are not authority.
+- `docs/06-roadmap.md`: remains a TUI-first local kernel/orchestrator increment rather than a post-V1 connector or computer-use surface.
+- `docs/10-technical-strategy.md`: keeps the bridge in TypeScript orchestration metadata; real action authority still belongs behind Rust supervisor policy and scoped leases.
+- `docs/13-schema-runtime-governance.md`: closes a P1 runtime-evidence gap with tests instead of expanding speculative schemas.
+- `docs/14-runtime-loop-plan.md`: follows the prior next step, defining a proposal path from audited model response evidence.
+
+Implemented correspondence:
+
+- Added `agent-tool-request-proposal.schema.json` plus an example contract. The proposal is limited to an operator-restated workspace file read preview.
+- Added `agent.tool.request.proposed` to the Event schema and mapped `artifact://agent/tool-request-proposal/<proposal_id>` payload refs into `audit payload-refs` schema validation.
+- Added harness helpers for proposal artifact ref creation, schema-validated write/read, and hash-bound proposal artifact creation from a passed response audit.
+- Added `prompt propose-tool-request <response_audit_id> --path <workspace-file> --content <intent>`. It requires a passed Agent Response Audit, matched response-audit evidence, and a target path inside the workspace.
+- The command records an independent single-event proposal run and keeps the source run, response run, and response-audit run unextended.
+
+Verification evidence:
+
+- Harness tests cover schema/example validation, proposal artifact derivation, explicit non-authority flags, read/write helpers, payload-ref schema validation, and absence of raw prompt/model text in the proposal artifact.
+- TUI integration drives the full response-audit-to-proposal path and asserts path-escape rejection, `needs_revision` rejection, matched evidence requirements, a single `agent.tool.request.proposed` event, proposal manifest completion, schema-valid `audit payload-refs`, and no `tool.requested`, `policy.decided`, `lease.issued`, `tool.result`, action, observation, or verification event in the proposal run.
+
+Correction and remaining boundary:
+
+- Corrects the Phase 39 gap where the next step was only described as "model-output-to-tool-request bridge"; the implemented bridge is deliberately proposal-only and operator-restated.
+- A proposal cannot authorize actions, satisfy policy, issue a lease, prove model output correctness, or reuse raw model output as a target. Turning it into a real read still requires a fresh Tool Policy Proxy path.
+- Writes, external egress, connectors, browser actions, and side-effectful operations remain outside this proposal contract.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:
