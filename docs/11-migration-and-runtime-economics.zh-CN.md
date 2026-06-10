@@ -64,6 +64,12 @@ Soul Fork 是隔离身份/上下文实验，不继承 authority。inheritance po
 
 外部内容和导入 package 需要 taint、honeypot trial、regression fixture 和 quarantine，防止污染内容授权动作。
 
+## Capsule Store 信任边界
+
+未来 Capsule Store 可以支持低信任 capability market，但安装必须由 package 外部的信任锚治理，例如本地 operator 登记的 publisher key。package 内自带 public key 或自报 sandbox/replay passed 不能证明 publisher authenticity 或 safety evidence。
+
+Store install 至少应要求 manifest validation、permission diff、本地 replay-record evidence、sandbox artifact hash verification、user approval、signed version 和 rollback metadata。Store 不是 plugin free-for-all；信任单元仍是经过 review 的 Capsule lifecycle。
+
 ## Innovation Application Tracks
 
 可探索 tracks 包括 event-driven hibernation、causal simulation、multi-agent economics、memory folding、capsule store、local HUD、serverless agent/fork/replay。它们都必须保持 Local Supervisor 与 Tool Policy Proxy 边界。

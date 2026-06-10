@@ -90,4 +90,4 @@ post-V1 可从最窄 browser observation、current-tab read、sandbox action 和
 
 ## 当前 Phase 12 Control-Plane Slice
 
-当前 surface/computer-use 包只定义 control-plane 合同和测试：current-tab browser observation、IM inbox/outbox metadata、store package verification 和隔离安装记录。它们不执行真实浏览器动作、IM 投递或 connector 调用。
+当前 surface/computer-use 包只定义 control-plane 合同和测试：current-tab browser observation、IM inbox/outbox metadata、store publisher trust enrollment、store package verification 和隔离安装记录。`ether store install` 必须先有本地 operator 登记的 publisher key，再解析本地 replay-record evidence 并校验 sandbox file hash；它们不执行真实浏览器动作、IM 投递、connector 调用或 package code。

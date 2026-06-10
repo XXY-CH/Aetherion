@@ -87,3 +87,64 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 增加 provider capability metadata 和 per-deployment model defaults。
 - 或把 review 后的 tool-request proposal 转成 fresh supervisor policy request，通过现有 file-read lifecycle 产生真实 `tool.requested -> policy -> lease -> result` 证据。
+
+## 已完成增量：仓库 CI 质量门禁
+
+目标：补上本地验证与仓库级自动验证之间的生产化缺口。
+
+为什么做这一片：
+
+- 严格对照 OpenClaw 后可以看到，生产级完整度不只是 runtime 能力；OpenClaw 在公开仓库和 docs 中展示 CI/release、guided onboarding、update/security docs 和 multi-platform workflow。
+- Aetherion 已有本地测试和 Rust 检查，但 push/PR 之前没有自动门禁。
+- CI 可以提高生产纪律，同时不扩大 V1 runtime scope，也不启用延后产品 surface。
+
+验收：
+
+- push 到 `main` 和 pull request 会运行 TypeScript contract/TUI tests、Rust supervisor tests、Rust clippy、Rust fmt、diff whitespace checks，以及 tracked runtime/build artifact guard。
+- README 和贡献文档提示贡献者运行同一组本地检查。
+- workflow 只读仓库，不解析 secret、不调用 model provider、不执行外部 connector、不写 runtime state。
+- supervisor process failure 在 CI 中可诊断，但不会打印 raw stdout payload。
+
+与原始文档对照：
+
+- `docs/00-product-brief.md`：强化本地可审计 runtime 的开发闭环，不添加 GUI/IM/browser/connector/cloud surface。
+- `docs/01-architecture.md`：CI 是验证基础设施，不是 runtime authority boundary。
+- `docs/06-roadmap.md`：先强化 Phase 1/2 kernel loop 质量，再扩展后续 surface。
+- `docs/10-technical-strategy.md`：同时运行 TypeScript 与 Rust gate，保留语言职责划分。
+- `docs/13-schema-runtime-governance.md`：自动执行现有 contract/runtime tests，而不是扩张 schema。
+
+剩余边界：
+
+- 这只是第一道 CI gate，不是 OpenClaw 级别 release infrastructure。install/onboarding automation、daemon lifecycle、packaging/release artifacts、security audit CLI、dependency-lock policy、platform matrices 和 public docs deployment 仍是后续生产化差距。
+- supervisor 进程失败诊断只暴露进程元数据，不能扩展成 raw stdout/file content logging。
+
+## 已完成增量：Store 信任锚与 Provider 失败边界
+
+目标：修复严格复查中最高风险的两个生产缺口：Store Package 自带 key 的 self-authentication，以及 live provider 调用无 timeout/错误边界。
+
+为什么做这一片：
+
+- Capsule Store 如果允许 package 自带 signing key 并声明任意 publisher id，就无法达到生产级信任边界。
+- replay/sandbox 只有解析到本地 record/artifact 才是 runtime evidence；package 内自报 boolean 不够。
+- live provider 调用不能无限挂住 CLI，也不能把 malformed upstream response 变成原始 parser/network 噪声。
+
+验收：
+
+- `store trust-publisher` 在安装前记录本地 operator 登记的 publisher key fingerprint。
+- `store install` 拒绝 unknown publisher、signing-key substitution、missing Replay Record、live-side-effect replay evidence、sandbox path/hash mismatch 和 Capsule integrity mismatch。
+- Capsule Install artifact 记录 `publisher_key_fingerprint`、`replay_record_ids` 和 `sandbox_content_sha256`。
+- provider 调用支持 `AETHERION_MODEL_TIMEOUT_MS`，timeout 时 abort，HTTP error 不泄漏 response body，malformed JSON 变成 provider-scoped error。
+
+与原始文档对照：
+
+- `docs/00-product-brief.md`：Capability Capsule 仍是 governed unit，不能自授信任或权限。
+- `docs/01-architecture.md`：Store 和 provider surface 仍是 client/orchestrator path，不是 trust root。
+- `docs/04-skill-and-scaffold-os.md`：import/generated package 在 evidence gates 前仍隔离。
+- `docs/09-computer-use-implementation.md`：package 和 external content 仍是 tainted input，不是 authorization。
+- `docs/11-migration-and-runtime-economics.md`：Capsule Store 仍是低信任、受治理机制，不是 plugin free-for-all。
+- `docs/13-schema-runtime-governance.md`：fixture 和 projection 不是 runtime evidence。
+
+剩余边界：
+
+- Store trust 仍是 local-only。没有 public marketplace、publisher identity network、transparency log、revocation feed、release evidence repository 或 package-code execution。
+- provider hardening 仍是 no-tools/hash-only；没有 OAuth flow、token refresh、vault storage、streaming、多模态 payload 或 provider tool execution。

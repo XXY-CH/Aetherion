@@ -66,6 +66,7 @@
         "browser.observation.ingested",
         "im.inbox.received",
         "im.outbox.queued",
+        "store.publisher.trusted",
         "capsule.store.installed",
         "run.completed"
       ]

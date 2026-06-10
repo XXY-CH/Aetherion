@@ -2,6 +2,8 @@
 
 [中文版本](06-roadmap.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 ## Phase 0: Foundation Documents
 
 Goal: turn the concept into a buildable product frame.

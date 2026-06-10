@@ -2,6 +2,8 @@
 
 [中文版本](13-schema-runtime-governance.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 Aetherion has enough product imagination captured in contracts. New work should now bias toward closing runtime loops rather than expanding schema surface area.
 
 ## Principle
@@ -58,6 +60,7 @@ Gate for P1 changes:
 - Show the command or module path that produces the contract from real Ledger evidence, or from registry evidence whose Ledger event references pass the read-only registry provenance audit.
 - Add a negative test for missing source events, inherited authority, raw secrets, or live side-effect replay where relevant.
 - Keep advanced behavior report-only or sandbox-only unless Rust supervisor authority exists.
+- Store installation must bind package signatures to a trust anchor outside the package, resolve replay claims to local Replay Record evidence, and verify sandbox artifact hashes. Package-embedded public keys, self-reported replay status, or fixture-only sandbox metadata are not enough runtime evidence.
 - Do not treat a registry entry as rebuildable merely because it exists. `audit registries` checks reference strength only. `audit replay-records`, `audit memory-records`, `audit capsule-records`, `audit hibernation-records`, and `audit sandbox-records` are scoped read-only rebuild/parity previews for Replay Records, Memory Candidate/Card/Tombstone projections, Capsule lifecycle projections, Digital Hibernation sleep/wake projections, and Sandbox Rehearsal checkpoint/branch/rehearsal/approval projections. `audit payload-refs` checks whether Ledger `payload_ref` artifacts resolve locally and schema-validates known P0 artifacts, Memory lifecycle snapshots, Dream fold snapshots, persona anchor/reset snapshots, Soul Fork snapshots, agent runtime invocation metadata, agent model request/response/audit/proposal metadata, child agent contract/result/budget/circuit snapshots, Security scan/ack/trial/fixture snapshots, Surface browser/IM snapshots, Store install snapshots, and Capsule draft/test/publish/rollback snapshots, but it does not repair artifacts, rebuild registries, or make artifacts authoritative. Deterministic registry rebuild/parity for remaining registry families remains future work.
 - If a registry-driven P1 path can reach a live side effect, registry provenance is not enough. The command must immediately revalidate the source Ledger events, required artifact or file evidence, and target binding before requesting Rust supervisor authority. For sandbox promotion, checkpoint, branch, and rehearsal registry rows cannot authorize `approve-rehearsal` by themselves.
 

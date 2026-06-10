@@ -2,6 +2,8 @@
 
 [English](10-technical-strategy.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## 决策
 
 Aetherion 使用 contract-first、local-first 的混合架构。

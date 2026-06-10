@@ -1,5 +1,7 @@
 # Aetherion
 
+[![CI](https://github.com/XXY-CH/Aetherion/actions/workflows/ci.yml/badge.svg)](https://github.com/XXY-CH/Aetherion/actions/workflows/ci.yml)
+
 [English](README.md)
 
 > **我们正在寻找志同道合的开发者和维护者一起构建 Aetherion。** 如果你关心 local-first agent runtime、可审计权限边界、受治理的工具使用和更安全的自主系统，欢迎参与。
@@ -90,7 +92,12 @@ Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent �
 ```sh
 npm test
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+git diff --check
 ```
+
+pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查。
 
 ## 当前实现状态
 
@@ -105,6 +112,8 @@ cargo test
 - `gemini`：Gemini `generateContent` API。
 
 provider 凭据只从环境变量内存读取。Aetherion 不运行浏览器 OAuth 流、不持久化 token、不创建 connector grant，也不把模型访问当作工具权限。
+
+`store trust-publisher` 现在会把本地 operator 审核过的 publisher public key 登记到 `store-publishers` projection；`store install` 必须用该本地信任锚验证签名，并解析本地 `replay-records` 与 sandbox file hash 后才安装 Capsule declaration。Store package code 仍不会执行。
 
 ## 许可证
 

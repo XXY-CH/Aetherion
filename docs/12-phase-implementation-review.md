@@ -12,7 +12,7 @@ Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kern
 
 Verification from the latest pass:
 
-- `npm test`: 129 passing tests.
+- `npm test`: 131 passing tests.
 - `cargo test`: 39 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -34,7 +34,7 @@ Verification from the latest pass:
 | 9. Memory Folding, Persona Anchors, Soul Fork | Control drift through source-backed fold patches, reversible persona branches, and authority-free inheritance. | `packages/soul/src/index.ts`; expanded fold/anchor/fork/inheritance contracts plus persona branch/state/reset contracts; Ether `dream`, `anchors`, `persona`, and `soul`; Rust artifact-linked governance events. | Tests cover minimum fold provenance, sensitive approval, source preservation, TTL-bound branches, business-memory retention, hash-bound checkpoint replay, sensitive-history approval, secret-memory exclusion, zero authority/budget/path scope, duplicate identity rejection, and full Ledger hash validation. | Governed local lifecycle implemented. Fork records are non-executable containers; personality simulation, legal inheritance, funded execution, and external export remain pending. |
 | 10. Zero-Trust Multi-Agent and Economics | Bound child agents with contracts, budgets, circuit breakers, capsule isolation, and evidence. | `packages/multiagent/src/index.ts`; expanded contract/budget/account/breaker/result/score contracts; Ether contract creation plus a narrow document-read executor; Rust `child.file.read` authority path; explicit run-manifest lifecycle guards for child success, policy denial, repeated-denial breaker, pre-supervisor permission/budget breakers, and observed post-supervisor breakers. | Multi-agent tests cover Capsule/path/risk/budget isolation and breaker behavior; Ether integration verifies independent child runs, Rust Ledger facts, risk and lease evidence, accounting, taint, repeated-denial hard stop, pre-supervisor permission/budget breaker lifecycles, post-supervisor runtime-accounting breaker projection, and routing-weight reduction. Rust RPC tests cover allowed child reads and denied child reads with risk evidence and no lease. | Governed local document-read slice implemented. Pre-supervisor child breakers now have exact `agent.child.started -> circuit.opened` manifests, and post-supervisor breakers project any observed supervisor child-read Ledger prefix before `circuit.opened`. General LLM orchestration, writes, network tools, escrow, queue/ask exhaustion behavior, and exact supervisor-process CPU accounting remain pending. |
 | 11. Anti-Poisoning and Honeypot | Treat untrusted content as tainted, prevent it from authorizing actions, detect escalation/exfiltration attempts, contain suspicious subjects, and create regression evidence. | `packages/security/src/index.ts`; assessment/signal/trial/fixture contracts; Ether `security scan/ack/trial/fixture`; Rust `security.taint.evaluate`. | Security tests cover hash-only detection, multi-rule signals, taint authorization rejection, decoy-only trials, raw-free fixtures, Rust deny/no-lease policy, and Ledger-backed Ether lifecycle. | Deterministic local defense slice implemented. Semantic classifiers, source adapters, unknown-code process sandboxes, attribution, and active countermeasures remain pending. |
-| 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/surface-os/src/index.ts`; browser/IM/store contracts/examples; `packages/computer-use/src/index.ts`; computer action/observation contracts/examples with requirements-gate and approval-key fields; Ether `surface browser-observe`, `surface im-inbox`, `surface im-outbox`, and `store install`; Rust `surface.outbox.evaluate`. | Surface OS tests cover hash-only browser/IM records, one-scoped outbox approval, no delivery, and Ed25519 package verification. Computer-use tests cover current-tab browser scope, structured-first channel selection, side-effect lease/approval requirements, requirements-only adapter gates, scoped approval keys, tainted egress denial, and non-authorizing observations. Contract tests reject user-config-enabled computer actions and duplicate approval keys. Ether integration proves browser taint denial, IM outbox policy, no raw content in output/Ledger, and signed Capsule declaration install. Rust tests cover outbox ask/deny policy. | Narrow control-plane slice implemented. Real GUI, browser extension, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, and remote Capsule Store remain pending. |
+| 12. Computer Harness, IM, GUI, Capsule Store | Add broader surfaces only after kernel authority is stable, without making surfaces trust roots. | `packages/surface-os/src/index.ts`; browser/IM/store contracts/examples; `packages/computer-use/src/index.ts`; computer action/observation contracts/examples with requirements-gate and approval-key fields; Ether `surface browser-observe`, `surface im-inbox`, `surface im-outbox`, `store trust-publisher`, and `store install`; Rust `surface.outbox.evaluate`. | Surface OS tests cover hash-only browser/IM records, one-scoped outbox approval, no delivery, publisher trust anchoring, Ed25519 package verification, local replay evidence resolution, and sandbox hash mismatch rejection. Computer-use tests cover current-tab browser scope, structured-first channel selection, side-effect lease/approval requirements, requirements-only adapter gates, scoped approval keys, tainted egress denial, and non-authorizing observations. Contract tests reject user-config-enabled computer actions and duplicate approval keys. Ether integration proves browser taint denial, IM outbox policy, no raw content in output/Ledger, local publisher enrollment, and trusted-publisher signed Capsule declaration install. Rust tests cover outbox ask/deny policy. | Narrow control-plane slice implemented. Real GUI, browser extension, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, remote Capsule Store, revocation feeds, and package execution remain pending. |
 
 ## Agent Orchestrator Prompt Assembly Preview
 
@@ -148,14 +148,14 @@ Implemented correspondence:
 - `ComputerAction` and `ComputerObservation` provide the next contract layer for real computer use: structured-first channels, current-tab browser scope, source-cited requirements gates, scoped leases for side effects, approval cards and exact approval keys for side-effectful adapters, hash/redaction observations, and no live replay.
 - `ImInboxItem` stores sender/message hashes, never raw text, and upgrades risk for group/public/unknown senders. Inbound IM has `can_authorize_actions=false`.
 - `ImOutboxItem` stores destination/body hashes, marks `delivery_attempted=false`, and carries one-scoped approval semantics. Rust `surface.outbox.evaluate` returns `ask`/L3 for DM or group and `deny`/L5 for public sends, always with no lease and `delivery_allowed=false`.
-- `StorePackage` uses Ed25519 over a canonical Capsule declaration. `store install` validates the package, verifies the signature, requires at least two passing replay tests, a passing sandbox trial, and permission-diff approval, then installs only the Capsule declaration and a Capsule Install record. `raw_code_executed=false`.
+- `StorePackage` uses Ed25519 over a canonical Capsule declaration. `store trust-publisher` records a local operator-enrolled publisher key fingerprint. `store install` validates the package against that local trust anchor, verifies the signature, resolves at least two passing replay tests from local Replay Record evidence, verifies the sandbox trial file hash, requires permission-diff approval, then installs only the Capsule declaration and a Capsule Install record. `raw_code_executed=false`.
 - Ether Ledger evidence is surface-specific: `browser.observation.ingested`, `im.inbox.received`, `im.outbox.queued`, and `capsule.store.installed`. Registries remain projections over artifacts and events.
 
 Correction and remaining boundary:
 
 - Phase 12 is not a full computer-use implementation yet. It does not click, type, read arbitrary tabs, capture screenshots, launch a browser extension, send IM/email, start a webhook, run a GUI, or execute package code.
 - The browser command currently accepts a governed observation fixture/input. Real DOM/CDP collection and screenshot fallback must be implemented behind the same Supervisor policy gates.
-- Store publication is still local. There is no remote market, transparency log, revocation feed, payment, or public trust network.
+- Store publication is still local. There is no remote market, transparency log, revocation feed, payment, public trust network, or automatic trust inheritance from package-embedded keys.
 - GUI work remains blocked on a concrete product-design target. The console must be a Local Supervisor client over these same event/registry surfaces, not a new authority path.
 
 ## Git-Like Event System Review
@@ -1064,6 +1064,80 @@ Correction and remaining boundary:
 - Corrects the accessibility gap for Chinese-speaking contributors without changing source-of-truth precedence.
 - The Chinese files are companion documentation, not independent governance forks. Future semantic changes should update the English canonical docs first or in parallel, then refresh the Chinese companions.
 - Issue and PR templates remain English-only in this pass; they can be localized later if the project wants bilingual contribution intake forms.
+
+## Phase 43 Review Notes
+
+This pass closes a production-readiness gap exposed by a strict OpenClaw comparison: the repository had local verification commands but no repository-level CI gate proving them on push or pull request.
+
+OpenClaw comparison evidence:
+
+- OpenClaw's README advertises CI, releases, install/onboarding, update, security, channel, app/node, and docs entry points from the project front page (`https://github.com/openclaw/openclaw`, fetched 2026-06-11).
+- OpenClaw's public CI workflow is a large routed matrix with preflight, platform lanes, docs-only routing, channel/plugin shards, build artifact lanes, and concurrency cancellation (`https://raw.githubusercontent.com/openclaw/openclaw/main/.github/workflows/ci.yml`, fetched 2026-06-11).
+- OpenClaw's getting-started/onboarding docs present installer, daemon setup, gateway health, dashboard, first message, locale, provider auth, workspace, channel, daemon, and skills setup (`https://docs.openclaw.ai/start/getting-started`, `https://docs.openclaw.ai/start/wizard`, fetched 2026-06-11).
+- OpenClaw's security docs include explicit trust-model scope, `openclaw security audit`, incident response, secret scanning, dependency lock, and file-operation hardening guidance (`https://docs.openclaw.ai/gateway/security`, fetched 2026-06-11).
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: CI hardens the local-first auditable runtime path without adding deferred GUI, IM, browser, connector, or cloud worker execution.
+- `docs/01-architecture.md`: repository CI is a verification surface, not an authority boundary; Local Supervisor and Tool Policy Proxy semantics are unchanged.
+- `docs/05-audit-and-data-contracts.md`: keeps verification evidence reproducible through commands and reviewable workflow configuration.
+- `docs/06-roadmap.md`: advances Phase 1/2 production discipline around the TUI/Rust kernel loop before broader surfaces.
+- `docs/10-technical-strategy.md`: runs both TypeScript and Rust gates, preserving the TypeScript/Rust ownership split.
+- `docs/13-schema-runtime-governance.md`: proves existing P0/P1 tests in automation instead of expanding schema surface area.
+
+Implemented correspondence:
+
+- Added `.github/workflows/ci.yml` with push/PR gates for `npm test`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --check`, `git diff --check`, and a tracked `.aetherion`/`target` artifact guard.
+- Added a CI badge to the English and Chinese READMEs.
+- Updated English and Chinese contributing docs to tell contributors which local checks mirror CI.
+- Hardened `callSupervisorRpc` process-failure diagnostics so a non-zero supervisor exit reports exit code, command, stdout line count, and empty/non-empty stderr state without echoing raw stdout payloads.
+
+Verification evidence:
+
+- Parsed the workflow YAML locally with Ruby's YAML loader.
+- Re-ran the full local gate: `npm test` (130 passing), `cargo test` (39 Rust tests passing), `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --check`, `git diff --check`, and `git ls-files .aetherion target`.
+- Added a regression test proving process failures no longer produce an empty `supervisor rpc failed:` message and do not leak raw stdout content into the thrown error.
+
+Correction and remaining boundary:
+
+- Corrects a repository-readiness drift: tests existed, but production review could not rely on automatic PR/push enforcement.
+- Corrects an observed debugging gap where an intermittent supervisor process failure produced an empty stderr-only message, making CI failures hard to diagnose.
+- This is still intentionally smaller than OpenClaw's CI/release system. Remaining production gaps include install/onboarding automation, daemon lifecycle commands, release packaging, channel/connector runtime, security audit command parity, dependency-lock/release reproducibility policy, platform matrices, and public docs deployment.
+- CI does not grant runtime authority, execute external integrations, or make post-V1 surfaces active.
+
+## Phase 44 Review Notes
+
+This pass responds to the strict production-readiness review from two bounded subagents. The highest-risk findings were that Store Package signatures were self-authenticating because packages carried their own public key, Store install accepted self-reported replay/sandbox status, and live provider adapters had weak timeout and malformed-response boundaries.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: Capability Capsules are governed units of ability; generated or imported packages must not bypass tests, policy, or approval.
+- `docs/01-architecture.md`: client surfaces and stores cannot become trust roots; Local Supervisor and Event Ledger remain the authority/fact layers.
+- `docs/04-skill-and-scaffold-os.md`: generated package code and imported skills remain quarantined until policy, tests, sandbox, approval, and rollback gates pass.
+- `docs/09-computer-use-implementation.md`: external content, packages, and surface observations are tainted/client-side inputs, not authorization.
+- `docs/11-migration-and-runtime-economics.md`: future Capsule Store trust must be low-trust and governed, not a plugin free-for-all.
+- `docs/13-schema-runtime-governance.md`: fixture data, projection rows, and schema validity are not runtime evidence.
+
+Implemented correspondence:
+
+- Added `StoreTrustedPublisher` records and `store trust-publisher`, so install signatures must bind to a locally enrolled publisher key fingerprint outside the package.
+- `createCapsuleInstallRecord` now rejects unknown publishers, package signing keys that do not match the enrolled key, missing or mismatched Replay Records, live-side-effect replay evidence, sandbox path/hash mismatches, and Capsule integrity mismatches.
+- `store install` now resolves replay claims from the local `replay-records` registry and reads the declared sandbox file to verify its SHA-256 before writing install projections.
+- Capsule Install records now include `publisher_key_fingerprint`, `replay_record_ids`, and `sandbox_content_sha256`, making the install artifact evidence-bearing rather than boolean-only.
+- Provider calls now use `AETHERION_MODEL_TIMEOUT_MS` with `AbortController`, fail with stable provider-scoped timeout/HTTP/malformed-JSON errors, and still avoid echoing raw provider response bodies.
+- README, package docs, original source docs, schema governance, and Chinese companions were updated to link implementation tracking and describe trust-anchored Store install.
+
+Verification evidence:
+
+- Targeted related test run: `node --test packages/surface-os/test/surface-os.test.ts packages/harness-core/test/harness-core.test.ts packages/tui/test/tui.test.ts` passed 80 tests.
+- New/updated tests reject unregistered Store publishers, package key substitution, missing replay evidence, sandbox hash mismatch, malformed provider JSON, HTTP error body leakage, and provider timeout.
+- Full local gate passed after the changes: `npm test` (131 passing), `cargo test` (39 Rust tests passing), `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --check`, workflow YAML parsing, `git diff --check`, `git ls-files .aetherion target`, and a local Markdown link existence check.
+
+Correction and remaining boundary:
+
+- Corrects a real security drift from the Capsule Store idea: self-signed packages no longer prove publisher authenticity, and package-declared replay/sandbox status no longer substitutes for local evidence.
+- Corrects provider operational risk without adding streaming, tool calls, connector grants, browser OAuth, token refresh, or vault storage.
+- Store trust remains local-only. There is still no remote Capsule marketplace, transparency log, revocation feed, public publisher identity system, release evidence repository, or package-code execution path.
 
 ## Phase 3 Review Notes
 

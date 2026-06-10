@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { test } from "node:test";
 import {
   createBrowserObservation,
   createCapsuleInstallRecord,
+  createTrustedStorePublisherRecord,
   createImInboxItem,
   createImOutboxItem,
   storeSignaturePayload,
@@ -113,6 +114,11 @@ test("IM outbox queues only one scoped approval and never attempts delivery", ()
 
 test("store package install verifies Ed25519 signature and approval-gates permission expansion", () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const trustedPublisher = createTrustedStorePublisherRecord({
+    id: "pub_local",
+    public_key_pem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+    enrolled_at: "2026-06-07T12:00:00.000Z"
+  });
   const pkg: StorePackage = {
     id: "pkg_signed_read",
     publisher_id: "pub_local",
@@ -126,20 +132,70 @@ test("store package install verifies Ed25519 signature and approval-gates permis
   };
   pkg.signature.value_base64 = sign(null, Buffer.from(storeSignaturePayload(pkg)), privateKey).toString("base64");
 
-  assert.throws(() => createCapsuleInstallRecord(pkg, { approvePermissions: false }), /requires --approve-permissions/);
+  assert.throws(() => createCapsuleInstallRecord(pkg, {
+    approvePermissions: false,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /requires --approve-permissions/);
+  assert.throws(() => createCapsuleInstallRecord(pkg, {
+    approvePermissions: true,
+    trustedPublishers: [],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /not enrolled in the local trust registry/);
   const record = createCapsuleInstallRecord(pkg, {
     approvePermissions: true,
-    approvalCardId: "approval_store_signed_read"
+    approvalCardId: "approval_store_signed_read",
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
   });
   assert.equal(record.signature_verified, true);
   assert.equal(record.raw_code_executed, false);
   assert.equal(record.installed_registry, "capsules");
+  assert.deepEqual(record.replay_record_ids, ["replay_a", "replay_b"]);
+  assert.equal(record.sandbox_content_sha256, sandboxHash());
 
   const tampered: StorePackage = {
     ...pkg,
     capsule: { ...pkg.capsule, description: "tampered after signature" }
   };
-  assert.throws(() => createCapsuleInstallRecord(tampered, { approvePermissions: true }), /signature verification failed/);
+  assert.throws(() => createCapsuleInstallRecord(tampered, {
+    approvePermissions: true,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /signature verification failed/);
+  assert.throws(() => createCapsuleInstallRecord(pkg, {
+    approvePermissions: true,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence().slice(0, 1),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /Replay Record replay_b not found/);
+  assert.throws(() => createCapsuleInstallRecord(pkg, {
+    approvePermissions: true,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: `sha256:${"0".repeat(64)}`
+  }), /Sandbox trial hash mismatch/);
+
+  const { publicKey: roguePublicKey, privateKey: roguePrivateKey } = generateKeyPairSync("ed25519");
+  const rogue: StorePackage = {
+    ...pkg,
+    signature: {
+      algorithm: "ed25519",
+      public_key_pem: roguePublicKey.export({ type: "spki", format: "pem" }).toString(),
+      value_base64: ""
+    }
+  };
+  rogue.signature.value_base64 = sign(null, Buffer.from(storeSignaturePayload(rogue)), roguePrivateKey).toString("base64");
+  assert.throws(() => createCapsuleInstallRecord(rogue, {
+    approvePermissions: true,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /signing key is not trusted/);
 });
 
 function publishedCapsule(): Record<string, unknown> {
@@ -179,8 +235,8 @@ function publishedCapsule(): Record<string, unknown> {
     ],
     sandbox_trial: {
       status: "passed",
-      sandbox_path: ".aetherion/sandbox/cap_signed_read",
-      content_sha256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      sandbox_path: ".aetherion/capsules/trials/cap_signed_read/1.0.0/playbook.md",
+      content_sha256: sandboxHash(),
       forbidden_pattern_matches: []
     },
     approval: {
@@ -190,7 +246,7 @@ function publishedCapsule(): Record<string, unknown> {
     },
     integrity: {
       algorithm: "sha256",
-      digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      digest: publishedCapsuleIntegrityDigest()
     },
     publication_scope: "local_unsigned",
     rollback: {
@@ -209,4 +265,62 @@ function publishedCapsule(): Record<string, unknown> {
       policy_denial: 0
     }
   };
+}
+
+function replayEvidence() {
+  return [
+    {
+      id: "replay_a",
+      run_id: "run_a",
+      source_events: ["evt_a"],
+      live_side_effects: { allowed: false },
+      result: { status: "passed" as const }
+    },
+    {
+      id: "replay_b",
+      run_id: "run_b",
+      source_events: ["evt_b"],
+      live_side_effects: { allowed: false },
+      result: { status: "passed" as const }
+    }
+  ];
+}
+
+function sandboxHash(): string {
+  return `sha256:${"a".repeat(64)}`;
+}
+
+function publishedCapsuleIntegrityDigest(): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify({
+    id: "cap_signed_read",
+    version: "1.0.0",
+    permission_requirements: {
+      required_tools: ["filesystem.read"],
+      forbidden_tools: ["filesystem.write", "network.raw"]
+    },
+    provenance: {
+      source_events: ["evt_a", "evt_b"],
+      source_tasks: ["run_a", "run_b"]
+    },
+    replay_tests: [
+      {
+        run_id: "run_a",
+        replay_record_id: "replay_a",
+        status: "passed",
+        source_events: ["evt_a"]
+      },
+      {
+        run_id: "run_b",
+        replay_record_id: "replay_b",
+        status: "passed",
+        source_events: ["evt_b"]
+      }
+    ],
+    sandbox_trial: {
+      status: "passed",
+      sandbox_path: ".aetherion/capsules/trials/cap_signed_read/1.0.0/playbook.md",
+      content_sha256: sandboxHash(),
+      forbidden_pattern_matches: []
+    }
+  })).digest("hex")}`;
 }

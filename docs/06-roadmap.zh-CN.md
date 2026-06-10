@@ -2,6 +2,8 @@
 
 [English](06-roadmap.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## Phase 0: Foundation Documents
 
 目标：把概念变成可构建的产品框架。

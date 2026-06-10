@@ -2,6 +2,8 @@
 
 [English](00-product-brief.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## 名称
 
 Aetherion 是当前项目代号。

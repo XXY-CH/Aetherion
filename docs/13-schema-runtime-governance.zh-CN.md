@@ -2,6 +2,8 @@
 
 [English](13-schema-runtime-governance.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 Aetherion 已经捕获了足够多的产品想象。新工作现在应偏向关闭 runtime loops，而不是继续扩大 schema surface。
 
 ## 原则
@@ -39,6 +41,7 @@ P1 gate：
 - 指出 command 或 module path 如何从真实 Ledger evidence 生产合同。
 - 对 missing source events、inherited authority、raw secrets 或 live side-effect replay 加负向测试。
 - 高级行为保持 report-only 或 sandbox-only，直到 Rust supervisor authority 存在。
+- Store install 必须把 package signature 绑定到 package 外部的 trust anchor，解析本地 Replay Record evidence，并校验 sandbox artifact hash。package 内自带 public key、自报 replay status 或 fixture-only sandbox metadata 都不够。
 - registry row 存在不等于可重建。read-only audits 只能报告，不修复、不授权。
 - 如果 registry-driven path 可触达 live side effect，命令必须重新验证 source Ledger event、artifact/file evidence 和 target binding，然后才请求 Rust supervisor authority。
 

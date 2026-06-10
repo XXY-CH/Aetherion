@@ -11,7 +11,7 @@ import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createRe
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
-import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
+import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
 import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
@@ -3006,8 +3006,33 @@ async function runSurface(options: CliOptions): Promise<void> {
 }
 
 async function runStore(options: CliOptions): Promise<void> {
+  if (options.topic === "trust-publisher") {
+    if (!options.path) {
+      throw new Error("store trust-publisher requires --path <publisher-key.json>");
+    }
+    const workspaceRoot = resolve(options.workspace);
+    await openWorkspace(workspaceRoot);
+    const input = JSON.parse(readFileSync(resolve(workspaceRoot, options.path), "utf8")) as { id?: string; public_key_pem?: string };
+    if (typeof input.id !== "string" || typeof input.public_key_pem !== "string") {
+      throw new Error("Store publisher trust input must include id and public_key_pem");
+    }
+    const publisher = createTrustedStorePublisherRecord({
+      id: input.id,
+      public_key_pem: input.public_key_pem
+    });
+    writeStoreArtifact(workspaceRoot, "publisher", publisher);
+    upsertRegistryItem(workspaceRoot, "store-publishers", publisher);
+    await recordGovernanceEvent(
+      workspaceRoot,
+      "store.publisher.trusted",
+      `Trusted Store publisher ${publisher.id} with local operator-enrolled key fingerprint ${publisher.fingerprint_sha256}.`,
+      artifactRef("store", "publisher", publisher.id)
+    );
+    printJson(publisher);
+    return;
+  }
   if (options.topic !== "install") {
-    throw new Error("store supports install --path <signed-package.json> [--approve-permissions]");
+    throw new Error("store supports trust-publisher --path <publisher-key.json> and install --path <signed-package.json> [--approve-permissions]");
   }
   if (!options.path) {
     throw new Error("store install requires --path <signed-package.json>");
@@ -3018,31 +3043,67 @@ async function runStore(options: CliOptions): Promise<void> {
   await requireValidContract("store-package.schema.json", pkg);
   const capsule = pkg.capsule as Capsule;
   let approvalCardId: string | null = null;
+  let approvalCard: (Record<string, unknown> & { id: string }) | null = null;
   if (capsule.permission_diff?.requires_approval) {
     if (!options.approvePermissions) {
       throw new Error("Store package permission expansion requires --approve-permissions");
     }
-    const approvalCard = capsuleApprovalCard(capsule);
+    approvalCard = capsuleApprovalCard(capsule);
     await requireValidContract("approval-card.schema.json", approvalCard);
-    upsertRegistryItem(workspaceRoot, "approval-cards", approvalCard);
     approvalCardId = approvalCard.id;
   }
+  const trustedPublishers = readRegistry(workspaceRoot, "store-publishers").filter(isStoreTrustedPublisher);
+  const replayRecords = readRegistry(workspaceRoot, "replay-records").filter(isStoreReplayEvidenceRecord);
+  const sandboxTrialContentSha256 = readSandboxTrialContentHash(workspaceRoot, capsule);
   const install = createCapsuleInstallRecord(pkg, {
     approvePermissions: options.approvePermissions,
-    approvalCardId
+    approvalCardId,
+    trustedPublishers,
+    replayRecords,
+    sandboxTrialContentSha256
   });
   await requireValidContract("capsule-install.schema.json", install);
   await requireValidContract("capability-capsule.schema.json", capsule);
+  writeStoreArtifact(workspaceRoot, "install", install);
+  if (approvalCard) {
+    upsertRegistryItem(workspaceRoot, "approval-cards", approvalCard);
+  }
   upsertRegistryItem(workspaceRoot, "capsules", capsule);
   upsertRegistryItem(workspaceRoot, "capsule-installs", install);
   archiveCapsuleVersion(workspaceRoot, capsule);
   await recordGovernanceEvent(
     workspaceRoot,
     "capsule.store.installed",
-    `Installed signed Capsule package ${pkg.id} into the local registry after signature, replay, sandbox, and permission-diff checks; no package code executed.`,
+    `Installed signed Capsule package ${pkg.id} into the local registry after trusted publisher, replay, sandbox, and permission-diff checks; no package code executed.`,
     artifactRef("store", "install", install.id)
   );
   printJson(install);
+}
+
+function readSandboxTrialContentHash(workspaceRoot: string, capsule: Capsule): string {
+  const sandboxPath = capsule.sandbox_trial?.sandbox_path;
+  if (typeof sandboxPath !== "string" || sandboxPath.length === 0) {
+    throw new Error("Store package Capsule requires sandbox trial path evidence");
+  }
+  const root = resolve(workspaceRoot);
+  const target = resolve(root, sandboxPath);
+  const relativePath = relative(root, target);
+  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error("Store package sandbox trial path must stay inside the workspace");
+  }
+  const expectedPrefix = join(".aetherion", "capsules", "trials", capsule.id, capsule.version);
+  if (relativePath !== expectedPrefix && !relativePath.startsWith(`${expectedPrefix}/`)) {
+    throw new Error(`Store package sandbox trial path is not bound to Capsule ${capsule.id}@${capsule.version}`);
+  }
+  return `sha256:${createHash("sha256").update(readFileSync(target)).digest("hex")}`;
+}
+
+function writeStoreArtifact(workspaceRoot: string, topic: "publisher" | "install", value: { id: string }): string {
+  const dir = join(workspaceRoot, ".aetherion", "artifacts", "store", topic);
+  const safeId = sanitizePathSegment(value.id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${safeId}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  return artifactRef("store", topic, safeId);
 }
 
 function persistSurfaceRecord(
@@ -3593,6 +3654,7 @@ Usage:
   npm run ether -- surface browser-observe --path <observation-input.json> --source-event <event_id>
   npm run ether -- surface im-inbox --path <inbox-input.json>
   npm run ether -- surface im-outbox --path <outbox-input.json>
+  npm run ether -- store trust-publisher --path <publisher-key.json>
   npm run ether -- store install --path <signed-package.json> [--approve-permissions]
 
   Read-only audits:
@@ -3619,7 +3681,7 @@ Commands:
   agent                  Phase 10 governed document-read child run and evidence
   security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
   surface                Phase 12 contract surface: hash-only browser/IM ingress and queued outbox
-  store                  Phase 12 contract surface: signed Capsule declaration install, no code execution
+  store                  Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution
   audit                  Read-only registry provenance, replay/memory parity, and Ledger payload-ref audits
   help                   Show this help
 

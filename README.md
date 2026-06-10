@@ -8,6 +8,10 @@
 
 <h1 align="center">Aetherion</h1>
 
+<p align="center">
+  <a href="https://github.com/XXY-CH/Aetherion/actions/workflows/ci.yml"><img src="https://github.com/XXY-CH/Aetherion/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
 Aetherion is the current project codename for a local-first Agent Harness Kernel: an auditable runtime for agent execution, memory, permissions, capabilities, scaffolds, proactive behavior, and user-connected workflows.
 
 The product goal is not a stronger chatbot and not a replacement operating system. Aetherion should become the governed control plane between a user, their devices, their data, their tools, and autonomous agents.
@@ -136,7 +140,12 @@ Run verification:
 ```sh
 npm test
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+git diff --check
 ```
+
+The same checks run in GitHub Actions CI for pull requests and pushes to `main`.
 
 ## Current Implementation Status
 
@@ -144,7 +153,7 @@ The active product slice remains the V1 kernel loop. Later-phase modules in this
 
 - Phase 1 has a runnable Ether terminal kernel loop with path-derived workspace identity, fail-closed workspace registry loading, run manifest, append-only event ledger, `run.started` Boundary Facts payloads, risk composition, approval card, scoped leases, workspace-bound file read plus traced approved write, approved-write Consent Record artifacts, output-safe default summary writing, verification, trace replay, replay persistence through independent `replay.recorded` runs, V1 run/trace/replay output that surfaces manifest event ids plus artifact refs, and a read-only User Boundary summary over recorded evidence.
 - Phase 2 has a Rust supervisor authority-boundary POC used by Ether by default, including supervisor-side path-derived workspace identity checks, lease expiry/wrong-path rejection, `aetherion-event-v1` cross-author hash verification, minimal stdio JSON-RPC, traced read plus write prepare/commit RPCs that emit the file-action lifecycle events inside Rust, supervisor-authored approved-write consent artifacts plus consent/observation/verification events, consent `payload_ref` attachment, and a TypeScript client. The TypeScript authority path is test-only and requires `AETHERION_ALLOW_TYPESCRIPT_SEED=1`.
-- Experimental Phases 3-12 have source-backed local contract slices for Memory OS, migration dry-run, sandbox branching/rehearsal, document-only Capability Capsules with supervisor-appended lifecycle events, causal report projections, queue-only Digital Hibernation, governed Memory Folding, persona branches, authority-free Soul Fork records, one narrow governed child-read executor, hash-only anti-poisoning assessment with Rust-enforced taint denial, and Phase 12 surface/store gates for browser observations, IM inbox/outbox queues, signed Capsule Store installation, and computer-use action/observation contracts. Missing source events, registries, checkpoints, budgets, or capabilities cause failure instead of synthetic fallback data.
+- Experimental Phases 3-12 have source-backed local contract slices for Memory OS, migration dry-run, sandbox branching/rehearsal, document-only Capability Capsules with supervisor-appended lifecycle events, causal report projections, queue-only Digital Hibernation, governed Memory Folding, persona branches, authority-free Soul Fork records, one narrow governed child-read executor, hash-only anti-poisoning assessment with Rust-enforced taint denial, and Phase 12 surface/store gates for browser observations, IM inbox/outbox queues, trusted-publisher signed Capsule Store installation, and computer-use action/observation contracts. Missing source events, registries, checkpoints, budgets, or capabilities cause failure instead of synthetic fallback data.
 
 These later-phase modules deliberately do not execute external side effects, take over real IM/webhooks, install imported skills, drive browsers/desktops, capture screenshots, or inherit secrets/permissions. They exist to lock contracts and safety invariants before broader runtime expansion. Treat them as trace-backed prototypes until their critical state transitions are supervisor-owned and their projections have deterministic rebuild/parity coverage.
 
@@ -207,7 +216,8 @@ Several commands use those registries as lifecycle state:
 - `surface browser-observe` ingests a caller-supplied current-tab observation as hash-only, redacted, public-web-tainted evidence. It requires an existing source event and a Rust deny/no-lease taint policy before appending `browser.observation.ingested`.
 - `surface im-inbox` stores hash-only inbound IM metadata. Owner/paired DMs can queue as low risk, mentioned group messages are upgraded, and unknown/public senders are pairing-required or observe-only. Inbound IM cannot authorize actions.
 - `surface im-outbox` validates a source run, asks the Rust supervisor for outbox policy, queues DM/group sends for one scoped approval, and blocks public sends. It never attempts delivery and stores only destination/body hashes.
-- `store install` validates a signed Store Package, verifies Ed25519 over the canonical Capsule payload, requires replay tests, sandbox trial, and permission-diff approval, then installs only the Capsule declaration into the local registry. It executes no package code.
+- `store trust-publisher` enrolls a local operator-approved publisher key into the `store-publishers` projection, records the key fingerprint, and appends a governance event. This is a local trust anchor, not a remote market, transparency log, or revocation network.
+- `store install` validates a signed Store Package against the locally enrolled publisher key, verifies Ed25519 over the canonical Capsule payload, resolves the claimed replay tests from local `replay-records` evidence, verifies the sandbox trial file hash, requires permission-diff approval, then installs only the Capsule declaration into the local registry. It executes no package code.
 - `dream run/accept/reject` creates source-backed Memory Fold patches from at least two active Memory Cards; folds retain every source reference and do not replace active memory. Sensitive folds require `--approve-sensitive`.
 - `anchors propose/accept/reject/list` maintains TTL-bound persona anchors and named branches. Sensitive anchors require explicit approval. `persona reset` applies an existing branch while retaining business-memory references and changing no tool authority.
 - `soul fork` reconstructs a checkpoint replay, creates a new embedded identity/policy/budget/workspace scope, inherits only permitted memory/history references, and denies vault grants, OAuth grants, active leases, file paths, and live side effects. The new budget starts at zero.
@@ -251,6 +261,7 @@ npm run ether -- security fixture <signal_id> --workspace .
 npm run ether -- surface browser-observe --path <observation-input.json> --source-event <event_id> --workspace .
 npm run ether -- surface im-inbox --path <inbox-input.json> --workspace .
 npm run ether -- surface im-outbox --path <outbox-input.json> --workspace .
+npm run ether -- store trust-publisher --path <publisher-key.json> --workspace .
 npm run ether -- store install --path <signed-package.json> --approve-permissions --workspace .
 npm run ether -- audit registries --workspace .
 npm run ether -- audit replay-records --workspace .

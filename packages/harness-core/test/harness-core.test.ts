@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -112,6 +112,16 @@ async function withMockFetch(payload: unknown, run: (calls: FetchCall[]) => Prom
   }) as typeof fetch;
   try {
     await run(calls);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function withCustomFetch(mockFetch: typeof fetch, run: () => Promise<void>): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch;
+  try {
+    await run();
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -815,6 +825,71 @@ test("live model providers map official API surfaces without persisting credenti
   );
 });
 
+test("live model providers fail closed on timeout, HTTP errors, and malformed JSON", async () => {
+  const messages = [{ role: "user" as const, content: "Answer from evidence." }];
+  const request = {
+    provider_ref: "provider_openai_responses",
+    model_ref: "gpt-test",
+    output_mode: "answer" as const,
+    messages,
+    max_output_tokens: 10
+  };
+
+  await withCustomFetch((async () => new Response("{not json", {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /openai_responses provider returned malformed JSON/
+    );
+  });
+
+  await withCustomFetch((async () => new Response(JSON.stringify({ error: { message: "provider secret body" } }), {
+    status: 500,
+    headers: { "content-type": "application/json" }
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      (error) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /openai_responses provider returned HTTP 500/);
+        assert.doesNotMatch(error.message, /provider secret body/);
+        return true;
+      }
+    );
+  });
+
+  await withCustomFetch((async (_input, init) => new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    signal?.addEventListener("abort", () => reject(new Error("aborted by signal")));
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key",
+        AETHERION_MODEL_TIMEOUT_MS: "5"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /openai_responses provider network call failed: timed out after 5ms/
+    );
+  });
+});
+
 test("agent model response artifact records hashes only and never claims audit passed", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-agent-model-response-derived-"));
   const workspace = await createWorkspace(root, "ws_agent_model_response_derived");
@@ -1016,6 +1091,40 @@ test("supervisor RPC client rejects multiple response lines", async () => {
       ""
     ].join("\n")),
     /returned multiple response lines/
+  );
+});
+
+test("supervisor RPC client reports process failures without raw stdout leakage", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "aetherion-supervisor-failure-"));
+  await mkdir(join(root, "target", "debug"), { recursive: true });
+  await mkdir(join(root, "crates", "supervisor", "src"), { recursive: true });
+  await writeFile(join(root, "crates", "supervisor", "Cargo.toml"), "[package]\nname = \"fake\"\n");
+  await writeFile(join(root, "crates", "supervisor", "src", "lib.rs"), "");
+  await writeFile(join(root, "crates", "supervisor", "src", "main.rs"), "");
+  const supervisor = join(root, "target", "debug", "aetherion-supervisor");
+  await writeFile(supervisor, "#!/bin/sh\necho '{\"result\":\"private file contents\"}'\nexit 1\n");
+  await chmod(supervisor, 0o755);
+
+  await assert.rejects(
+    callSupervisorRpc(root, {
+      id: "rpc_expected",
+      method: "workspace.init",
+      workspace_root: root,
+      workspace_id: "ws_fake_failure",
+      run_id: "run_fake_failure"
+    }),
+    (error) => {
+      const message = String((error as Error).message);
+      assert.match(message, /supervisor rpc workspace\.init failed/);
+      assert.match(message, /exit_code=1/);
+      assert.match(message, /stdout_lines=1/);
+      assert.match(message, /stderr=<empty>/);
+      assert.doesNotMatch(message, /private file contents/);
+      return true;
+    }
   );
 });
 
@@ -3891,11 +4000,14 @@ function capsuleInstall(id: string) {
     capsule_id: "cap_payload",
     capsule_version: "1.0.0",
     publisher_id: "pub_payload",
+    publisher_key_fingerprint: `sha256:${"5".repeat(64)}`,
     package_digest: surfaceContentHash,
     signature_verified: true,
     permission_diff_reviewed: true,
     replay_tests_passed: true,
+    replay_record_ids: ["replay_a", "replay_b"],
     sandbox_trial_passed: true,
+    sandbox_content_sha256: `sha256:${"a".repeat(64)}`,
     approval_card_id: null,
     rollback_target: null,
     installed_registry: "capsules",

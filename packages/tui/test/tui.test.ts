@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -291,8 +291,9 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /Trace-backed local runtime:/);
   assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
+  assert.match(help.stdout, /npm run ether -- store trust-publisher --path <publisher-key\.json>/);
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
-  assert.match(help.stdout, /store\s+Phase 12 contract surface: signed Capsule declaration install, no code execution/);
+  assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
@@ -2848,7 +2849,32 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   ]);
   const runId = run.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
+  const secondRun = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY-2.md",
+    "--approve-write"
+  ]);
+  const secondRunId = secondRun.stdout.match(/run_id=(run_[^\n]+)/)?.[1];
+  assert.ok(secondRunId);
   const sourceEvent = (await readEvents((await loadWorkspaceFromRegistry(workspace)).workspace))[0].id;
+  await execFileAsync(process.execPath, [cliPath, "replay", runId, "--workspace", workspace]);
+  await execFileAsync(process.execPath, [cliPath, "replay", secondRunId, "--workspace", workspace]);
+  const replayRecords = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "replay-records.json"), "utf8")) as Array<{
+    id: string;
+    run_id: string;
+    source_events: string[];
+  }>;
+  const storeReplayRecords = [runId, secondRunId].map((id) => {
+    const replayRecord = replayRecords.find((record) => record.run_id === id);
+    assert.ok(replayRecord);
+    return replayRecord;
+  });
 
   await writeFile(join(workspace, "browser-input.json"), JSON.stringify({
     origin: "https://example.com/account",
@@ -2966,19 +2992,53 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.deepEqual(publicOutboxManifest.event_ids, publicOutboxEvents.map((event) => event.id));
 
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const sandboxBody = "# Store install sandbox copy\n";
+  const sandboxHash = testSha256(sandboxBody);
+  const sandboxPath = ".aetherion/capsules/trials/cap_surface_signed/1.0.0/playbook.md";
+  await mkdir(join(workspace, ".aetherion", "capsules", "trials", "cap_surface_signed", "1.0.0"), { recursive: true });
+  await writeFile(join(workspace, sandboxPath), sandboxBody);
   const pkg: StorePackage = {
     id: "pkg_surface_signed",
     publisher_id: "pub_surface_local",
     issued_at: "2026-06-07T12:00:00.000Z",
-    capsule: publishedStoreCapsule(sourceEvent, runId),
+    capsule: publishedStoreCapsule(storeReplayRecords, sandboxPath, sandboxHash),
     signature: {
       algorithm: "ed25519",
-      public_key_pem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      public_key_pem: publicKeyPem,
       value_base64: ""
     }
   };
   pkg.signature.value_base64 = sign(null, Buffer.from(storeSignaturePayload(pkg)), privateKey).toString("base64");
   await writeFile(join(workspace, "signed-package.json"), JSON.stringify(pkg));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "store",
+      "install",
+      "--workspace",
+      workspace,
+      "--path",
+      "signed-package.json",
+      "--approve-permissions"
+    ]),
+    /not enrolled in the local trust registry/
+  );
+  await writeFile(join(workspace, "publisher-key.json"), JSON.stringify({
+    id: "pub_surface_local",
+    public_key_pem: publicKeyPem
+  }));
+  const trustedPublisher = await execFileAsync(process.execPath, [
+    cliPath,
+    "store",
+    "trust-publisher",
+    "--workspace",
+    workspace,
+    "--path",
+    "publisher-key.json"
+  ]);
+  assert.match(trustedPublisher.stdout, /"status": "trusted"/);
+  assert.match(trustedPublisher.stdout, /"source": "local_operator"/);
   const install = await execFileAsync(process.execPath, [
     cliPath,
     "store",
@@ -2990,6 +3050,9 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
     "--approve-permissions"
   ]);
   assert.match(install.stdout, /"signature_verified": true/);
+  assert.match(install.stdout, /"publisher_key_fingerprint": "sha256:/);
+  assert.match(install.stdout, /"replay_record_ids": \[/);
+  assert.match(install.stdout, /"sandbox_content_sha256": "sha256:/);
   assert.match(install.stdout, /"raw_code_executed": false/);
   const capsuleRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "capsules.json"), "utf8")) as Array<{ id: string; lifecycle: string }>;
   assert.ok(capsuleRegistry.some((entry) => entry.id === "cap_surface_signed" && entry.lifecycle === "published"));
@@ -3022,8 +3085,20 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   assert.equal(payloadFinding("capsule.store.installed")?.schema_status, "valid");
 });
 
-function publishedStoreCapsule(sourceEvent: string, runId: string): Record<string, unknown> {
-  return {
+function publishedStoreCapsule(
+  replayRecords: Array<{ id: string; run_id: string; source_events: string[] }>,
+  sandboxPath: string,
+  sandboxHash: string
+): Record<string, unknown> {
+  const replayTests = replayRecords.map((record) => ({
+    run_id: record.run_id,
+    replay_record_id: record.id,
+    status: "passed",
+    source_events: record.source_events
+  }));
+  const sourceEvents = [...new Set(replayRecords.flatMap((record) => record.source_events))];
+  const sourceTasks = replayRecords.map((record) => record.run_id);
+  const capsule = {
     id: "cap_surface_signed",
     version: "1.0.0",
     description: "Read workspace-scoped documentation through governed tool contracts.",
@@ -3043,24 +3118,11 @@ function publishedStoreCapsule(sourceEvent: string, runId: string): Record<strin
       removed_tools: [],
       requires_approval: true
     },
-    replay_tests: [
-      {
-        run_id: runId,
-        replay_record_id: `replay_${runId}_trace`,
-        status: "passed",
-        source_events: [sourceEvent]
-      },
-      {
-        run_id: `${runId}_secondary`,
-        replay_record_id: `replay_${runId}_secondary_trace`,
-        status: "passed",
-        source_events: [sourceEvent]
-      }
-    ],
+    replay_tests: replayTests,
     sandbox_trial: {
       status: "passed",
-      sandbox_path: ".aetherion/sandbox/cap_surface_signed",
-      content_sha256: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      sandbox_path: sandboxPath,
+      content_sha256: sandboxHash,
       forbidden_pattern_matches: []
     },
     approval: {
@@ -3068,17 +3130,14 @@ function publishedStoreCapsule(sourceEvent: string, runId: string): Record<strin
       status: "approved",
       approval_card_id: "approval_capsule_cap_surface_signed_1_0_0"
     },
-    integrity: {
-      algorithm: "sha256",
-      digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    },
+    integrity: null,
     publication_scope: "local_unsigned",
     rollback: {
       previous_version: null
     },
     provenance: {
-      source_events: [sourceEvent],
-      source_tasks: [runId, `${runId}_secondary`]
+      source_events: sourceEvents,
+      source_tasks: sourceTasks
     },
     legacy_source: null,
     evals: ["store_signature", "sandbox"],
@@ -3089,6 +3148,28 @@ function publishedStoreCapsule(sourceEvent: string, runId: string): Record<strin
       policy_denial: 0
     }
   };
+  return {
+    ...capsule,
+    integrity: {
+      algorithm: "sha256",
+      digest: testCapsuleIntegrityDigest(capsule)
+    }
+  };
+}
+
+function testSha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function testCapsuleIntegrityDigest(capsule: Record<string, unknown>): string {
+  return testSha256(JSON.stringify({
+    id: capsule.id,
+    version: capsule.version,
+    permission_requirements: capsule.permission_requirements,
+    provenance: capsule.provenance,
+    replay_tests: capsule.replay_tests,
+    sandbox_trial: capsule.sandbox_trial
+  }));
 }
 
 test("Ether Capsule lifecycle uses real ledger replay, sandbox evidence, approval, and rollback", async () => {

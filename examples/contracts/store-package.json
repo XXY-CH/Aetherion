@@ -38,7 +38,7 @@
     ],
     "sandbox_trial": {
       "status": "passed",
-      "sandbox_path": ".aetherion/sandbox/capsules/cap_store_file_read",
+      "sandbox_path": ".aetherion/capsules/trials/cap_store_file_read/1.0.0/playbook.md",
       "content_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
       "forbidden_pattern_matches": []
     },

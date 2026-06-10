@@ -75,7 +75,7 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     if (timeout) clearTimeout(timeout);
   }
   if (exitCode !== 0) {
-    throw new Error(`supervisor rpc ${timedOut ? "timed out" : "failed"}: ${stderr.trim()}`);
+    throw new Error(formatSupervisorProcessFailure(request, command, args, exitCode, timedOut, stderr, stdout));
   }
   const line = singleSupervisorResponseLine(request, stdout);
   const response = parseSupervisorResponseEnvelope(request, line);
@@ -83,6 +83,31 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     throw new Error(`supervisor rpc ${request.method} failed: ${response.error}`);
   }
   return response;
+}
+
+function formatSupervisorProcessFailure(
+  request: SupervisorRpcRequest,
+  command: string,
+  args: string[],
+  exitCode: number | null,
+  timedOut: boolean,
+  stderr: string,
+  stdout: string
+): string {
+  const stderrText = stderr.trim();
+  const stdoutLineCount = stdout.split("\n").filter((line) => line.trim().length > 0).length;
+  const status = timedOut ? "timed out" : "failed";
+  const details = [
+    `exit_code=${exitCode ?? "unknown"}`,
+    `command=${[command, ...args].join(" ")}`,
+    `stdout_lines=${stdoutLineCount}`
+  ];
+  if (stderrText) {
+    details.push(`stderr=${stderrText}`);
+  } else {
+    details.push("stderr=<empty>");
+  }
+  return `supervisor rpc ${request.method} ${status}: ${details.join("; ")}`;
 }
 
 async function callSupervisorSocketRpc(request: SupervisorRpcRequest, socketPath: string, timeoutMs = 5000, authToken?: string): Promise<SupervisorRpcResponse> {

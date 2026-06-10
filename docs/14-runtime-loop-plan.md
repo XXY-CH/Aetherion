@@ -454,3 +454,72 @@ Remaining boundary:
 Next likely increment after this one:
 
 - Add provider capability metadata and explicit model defaults per deployment, or turn reviewed tool-request proposals into a fresh supervisor policy request.
+
+## Completed Increment: Repository CI Quality Gate
+
+Target: close the immediate production-readiness gap between local verification and repository-enforced verification.
+
+Why this slice:
+
+- A strict OpenClaw comparison shows that production readiness is not just runtime capability; OpenClaw advertises CI/release status, guided onboarding, update/security docs, and a routed multi-platform workflow from the public repository and docs.
+- Aetherion already has strong local tests and Rust checks, but they were not enforced on push or pull request.
+- Adding CI improves production discipline without widening V1 runtime scope or adding deferred user surfaces.
+
+Acceptance:
+
+- Pushes to `main` and pull requests run TypeScript contract/TUI tests, Rust supervisor tests, Rust clippy, Rust fmt, diff whitespace checks, and tracked runtime/build artifact checks.
+- README and contributing docs point contributors at the same local checks.
+- The workflow is repository read-only and does not resolve secrets, call model providers, execute external connectors, or mutate runtime state.
+- Supervisor process failures are diagnosable in CI without printing raw stdout payloads.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: improves the auditable local runtime development loop without adding broad surfaces.
+- `docs/01-architecture.md`: CI is verification infrastructure, not a runtime authority boundary.
+- `docs/06-roadmap.md`: strengthens Phase 1/2 kernel-loop quality before GUI, IM, browser, MCP/OAuth, or cloud worker expansion.
+- `docs/10-technical-strategy.md`: preserves TypeScript/Rust ownership by running both test suites and Rust static gates.
+- `docs/13-schema-runtime-governance.md`: enforces existing contract/runtime tests rather than expanding schemas.
+
+Remaining boundary:
+
+- This is a first CI gate, not OpenClaw-level release infrastructure. Install/onboarding automation, daemon lifecycle, packaging/release artifacts, security audit CLI, dependency-lock policy, platform matrices, and public docs deployment remain future production gaps.
+- Supervisor process-failure diagnostics expose process metadata only; they must not grow into raw stdout/file-content logging.
+
+Next likely increment after this one:
+
+- Add a release/readiness checklist or a first `ether doctor`/`ether security audit` command that mirrors the documented invariants without enabling deferred surfaces.
+
+## Completed Increment: Store Trust Anchoring And Provider Failure Bounds
+
+Target: close the two highest-risk production gaps from the strict review: self-authenticating Store Package signatures and unbounded/opaque live provider failures.
+
+Why this slice:
+
+- A Capsule Store cannot be production-grade if a package can bring its own signing key and claim any publisher id.
+- Replay and sandbox results are runtime evidence only when they resolve to local records or artifacts; package-declared booleans are not enough.
+- Live provider calls must not hang the CLI indefinitely or surface malformed upstream failures as raw parser/network noise.
+
+Acceptance:
+
+- `store trust-publisher` records a local operator-enrolled publisher key fingerprint before install.
+- `store install` rejects unknown publishers, signing-key substitution, missing Replay Records, live-side-effect replay evidence, sandbox path/hash mismatch, and Capsule integrity mismatch.
+- Capsule Install artifacts record `publisher_key_fingerprint`, `replay_record_ids`, and `sandbox_content_sha256`.
+- Provider calls honor `AETHERION_MODEL_TIMEOUT_MS`, abort on timeout, wrap HTTP errors without response-body leakage, and wrap malformed JSON as provider-scoped errors.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: Capability Capsules remain governed and cannot self-grant trust or permissions.
+- `docs/01-architecture.md`: Store and provider surfaces remain clients/orchestrator paths, not trust roots.
+- `docs/04-skill-and-scaffold-os.md`: imported/generated packages remain quarantined until evidence gates pass.
+- `docs/09-computer-use-implementation.md`: packages and external content remain tainted inputs, not authorization.
+- `docs/11-migration-and-runtime-economics.md`: Capsule Store remains low-trust and governed rather than a plugin free-for-all.
+- `docs/13-schema-runtime-governance.md`: fixtures and projections are not runtime evidence.
+
+Remaining boundary:
+
+- Store trust remains local-only. There is no public marketplace, publisher identity network, transparency log, revocation feed, release evidence repository, or package-code execution.
+- Provider hardening remains no-tools and hash-only. It does not add OAuth flows, token refresh, vault storage, streaming, multimodal payloads, or provider tool execution.
+
+Next likely increment after this one:
+
+- Add release evidence/readiness artifacts comparable to OpenClaw's public release evidence, or add a read-only `ether doctor`/`ether security audit` command that checks documented invariants without enabling deferred surfaces.

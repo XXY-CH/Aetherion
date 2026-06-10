@@ -33,10 +33,14 @@ Aetherion 不是聊天机器人、替代操作系统、不受限插件宿主或�
 npm test
 cargo test
 npm run test:all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+git diff --check
 npm run ether -- run --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
 `.aetherion/` 下的运行时输出是本地状态，不应提交。
+pull request 和 push 到 `main` 会通过 GitHub Actions 运行 TypeScript 测试、Rust 测试、Rust lint/format、whitespace diff check，以及 runtime/build artifact tracked guard。
 
 ## 贡献流程
 

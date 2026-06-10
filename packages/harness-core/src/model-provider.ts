@@ -71,6 +71,7 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 const GEMINI_GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const ANTHROPIC_API_VERSION = "2023-06-01";
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 
 export function resolveModelProvider(options: ResolveModelProviderOptions = {}): ModelProvider {
   const env = options.env ?? process.env;
@@ -127,6 +128,7 @@ export function createStubProvider(modelRef: string): ModelProvider {
 // platform credential. OPENAI_OAUTH_ACCESS_TOKEN is accepted only as an
 // externally obtained bearer token; Aetherion does not run an OAuth flow here.
 export function createOpenAIResponsesProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
+  const timeoutMs = resolveProviderTimeoutMs(env);
   return {
     provider_ref: "provider_openai_responses",
     model_ref: modelRef,
@@ -147,7 +149,7 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
       const payload = await postJson<OpenAIResponsesResponse>(OPENAI_RESPONSES_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_responses");
+      }, body, "openai_responses", timeoutMs);
       return mapOpenAIResponsesResponse(payload);
     }
   };
@@ -157,6 +159,7 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
 // message-array surface available for models and deployments that still expect
 // chat completions instead of Responses.
 export function createOpenAIChatCompletionsProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
+  const timeoutMs = resolveProviderTimeoutMs(env);
   return {
     provider_ref: "provider_openai_chat_completions",
     model_ref: modelRef,
@@ -172,7 +175,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
       const payload = await postJson<OpenAIChatCompletionResponse>(OPENAI_CHAT_COMPLETIONS_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_chat_completions");
+      }, body, "openai_chat_completions", timeoutMs);
       return mapOpenAIChatCompletionResponse(payload);
     }
   };
@@ -182,6 +185,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
 // The key is read at call time and never stored on the provider object or
 // returned to the caller.
 export function createAnthropicProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
+  const timeoutMs = resolveProviderTimeoutMs(env);
   return {
     provider_ref: "provider_anthropic",
     model_ref: modelRef,
@@ -204,7 +208,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
         "anthropic-version": ANTHROPIC_API_VERSION,
         "x-api-key": apiKey.value
       };
-      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic");
+      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", timeoutMs);
       return mapAnthropicResponse(payload);
     }
   };
@@ -214,6 +218,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
 // path. GEMINI_OAUTH_ACCESS_TOKEN or GOOGLE_OAUTH_ACCESS_TOKEN may be supplied
 // when an external Google OAuth flow already produced a bearer token.
 export function createGeminiProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
+  const timeoutMs = resolveProviderTimeoutMs(env);
   return {
     provider_ref: "provider_gemini",
     model_ref: modelRef,
@@ -239,7 +244,8 @@ export function createGeminiProvider(modelRef: string, env: Record<string, strin
         `${GEMINI_GENERATE_CONTENT_BASE_URL}/${geminiModelPath(modelRef)}:generateContent`,
         headers,
         body,
-        "gemini"
+        "gemini",
+        timeoutMs
       );
       return mapGeminiResponse(payload);
     }
@@ -532,23 +538,61 @@ async function postJson<T>(
   url: string,
   headers: Record<string, string>,
   body: unknown,
-  providerName: string
+  providerName: string,
+  timeoutMs: number
 ): Promise<T> {
   let response: Response;
+  const controller = new AbortController();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error(`timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
+    response = await Promise.race([
+      fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }),
+      timeoutPromise
+    ]);
   } catch (error) {
-    throw new Error(`${providerName} provider network call failed: ${error instanceof Error ? error.message : String(error)}`);
+    const message = timedOut
+      ? `timed out after ${timeoutMs}ms`
+      : error instanceof Error ? error.message : String(error);
+    throw new Error(`${providerName} provider network call failed: ${message}`);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
   if (!response.ok) {
     // Do not echo the response body; it may contain request context.
     throw new Error(`${providerName} provider returned HTTP ${response.status}`);
   }
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error(`${providerName} provider returned malformed JSON`);
+  }
+}
+
+function resolveProviderTimeoutMs(env: Record<string, string | undefined>): number {
+  const raw = env.AETHERION_MODEL_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_PROVIDER_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error("AETHERION_MODEL_TIMEOUT_MS must be a positive number of milliseconds");
+  }
+  return Math.trunc(parsed);
 }
 
 function geminiModelPath(modelRef: string): string {

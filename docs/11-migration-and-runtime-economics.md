@@ -293,15 +293,16 @@ Persona evolution must remain inspectable and reversible.
 Aetherion can support a low-trust capability market if Capsule installation is governed by:
 
 - Manifest validation.
+- Local operator enrollment of publisher keys or another trust anchor outside the package.
 - Permission diff.
 - Source provenance.
-- Replay tests.
+- Replay tests resolved to local Replay Record evidence.
 - Static safety scan.
-- Sandbox trial.
+- Sandbox trial artifacts with hash verification.
 - User approval.
 - Signed version and rollback metadata.
 
-The store should not be treated as a plugin free-for-all. The unit of trust is the reviewed Capsule lifecycle.
+The store should not be treated as a plugin free-for-all. The unit of trust is the reviewed Capsule lifecycle, and a package's embedded public key or self-reported sandbox result is not enough to establish publisher authenticity or safety evidence.
 
 ### Local HUD And Observability Dashboard
 

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify contracts, runtime, and supervisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25.x
+
+      - name: Set up Rust tools
+        run: rustup component add clippy rustfmt
+
+      - name: Run TypeScript contract and TUI tests
+        run: npm test
+
+      - name: Run Rust supervisor tests
+        run: cargo test
+
+      - name: Lint Rust supervisor
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Check whitespace in repository diff
+        run: git diff --check
+
+      - name: Ensure runtime and build artifacts are not tracked
+        run: |
+          tracked="$(git ls-files .aetherion target)"
+          if [ -n "$tracked" ]; then
+            echo "Runtime/build artifacts are tracked:"
+            echo "$tracked"
+            exit 1
+          fi
