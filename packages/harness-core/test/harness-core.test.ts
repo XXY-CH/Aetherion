@@ -30,6 +30,7 @@ import {
   completeRunManifestWithEventSequence,
   createFileReadRequest,
   createFileWriteRequest,
+  createAgentModelRequestArtifact,
   createRunManifest,
   createWriteConsentRecord,
   createTraceReplayRecord,
@@ -236,6 +237,58 @@ test("agent model request and response artifacts round-trip and audit through lo
   assert.equal(response.scope.runtime_authority_granted, false);
   assert.equal(response.authority_gates.model_output_can_authorize_actions, false);
   assert.equal(response.response_audit.may_present_as_verified_runtime_evidence, false);
+});
+
+test("agent model request artifacts derive from runtime invocation metadata without raw prompt persistence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-model-request-derived-"));
+  const workspace = await createWorkspace(root, "ws_agent_model_request_derived");
+  const invocation = JSON.parse(
+    await readFile(join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json"), "utf8")
+  );
+  const request = createAgentModelRequestArtifact(
+    invocation,
+    "agent_model_request_run_example_derived"
+  );
+  const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
+
+  assert.equal(requestRef, "artifact://agent/model-request/agent_model_request_run_example_derived");
+  assert.equal(request.run_id, invocation.run_id);
+  assert.equal(request.runtime_invocation_id, invocation.id);
+  assert.equal(request.runtime_invocation_artifact_ref, agentRuntimeInvocationArtifactRef(invocation.id));
+  assert.equal(request.prompt_plan_id, invocation.prompt_plan_id);
+  assert.equal(request.scope.model_invoked, false);
+  assert.equal(request.scope.provider_called, false);
+  assert.equal(request.scope.raw_prompt_persisted, false);
+  assert.equal(request.scope.raw_context_persisted, false);
+  assert.equal(request.provider.provider_configured, false);
+  assert.equal(request.provider.provider_ref, null);
+  assert.equal(request.provider.model_ref, null);
+  assert.equal(request.provider.network_call_attempted, false);
+  assert.equal(request.request.mode, "no_tools_model_preview");
+  assert.equal(request.request.output_mode, invocation.entry.output_mode);
+  assert.deepEqual(request.request.message_order, invocation.prompt.message_order);
+  assert.equal(request.request.prompt_bundle_id, invocation.prompt.bundle_id);
+  assert.equal(request.request.prompt_preview_sha256, invocation.prompt.preview_sha256);
+  assert.match(request.request.request_payload_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(request.request_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.notEqual(request.request.request_payload_sha256, request.request_sha256);
+  assert.deepEqual(request.prompt_hashes, invocation.prompt.message_hashes);
+  assert.deepEqual(request.context.source_event_ids, invocation.context.source_event_ids);
+  assert.deepEqual(request.context.selected_memory_ids, invocation.context.selected_memory_ids);
+  assert.deepEqual(request.tool_gateway.declared_tools, []);
+  assert.equal(request.tool_gateway.tool_choice, "none");
+  assert.equal(request.tool_gateway.tool_request_events_appended, false);
+  assert.equal(request.tool_gateway.execution_without_policy_allowed, false);
+  assert.equal(request.authority_gates.model_request_can_authorize_actions, false);
+  assert.deepEqual(request.response_expectations.required_block_ids, invocation.response_audit.required_block_ids);
+  assert.deepEqual(request.response_expectations.required_citation_ids, invocation.response_audit.required_citation_ids);
+
+  const requestText = await readFile(join(root, ".aetherion", "artifacts", "agent", "model-request", `${request.id}.json`), "utf8");
+  assert.doesNotMatch(requestText, /"preview"/);
+  assert.doesNotMatch(requestText, /"messages"/);
+  assert.doesNotMatch(requestText, /"sections"/);
+  assert.doesNotMatch(requestText, /System Boundary/);
+  assert.doesNotMatch(requestText, /Draft a local implementation plan/);
 });
 
 test("contract validation rejects inherited Soul Fork authority and duplicate fold sources", async () => {

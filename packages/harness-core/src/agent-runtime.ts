@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Workspace } from "./ledger.ts";
@@ -266,6 +267,113 @@ export function agentModelResponseArtifactRef(responseId: string): string {
   return `artifact://agent/model-response/${responseId}`;
 }
 
+export function createAgentModelRequestArtifact(
+  invocation: AgentRuntimeInvocationArtifact,
+  requestId: string
+): AgentModelRequestArtifact {
+  const payloadFingerprint = {
+    mode: "no_tools_model_preview",
+    output_mode: invocation.entry.output_mode,
+    message_order: invocation.prompt.message_order,
+    prompt_bundle_id: invocation.prompt.bundle_id,
+    prompt_preview_sha256: invocation.prompt.preview_sha256,
+    prompt_hashes: invocation.prompt.message_hashes,
+    context: {
+      source_event_ids: invocation.context.source_event_ids,
+      selected_memory_ids: invocation.context.selected_memory_ids,
+      excluded_memory_ids: invocation.context.excluded_memory_ids,
+      memory_source_event_ids: invocation.context.memory_source_event_ids,
+      capability_card_ids: invocation.context.capability_card_ids,
+      active_permission_ids: invocation.context.active_permission_ids,
+      artifact_refs: invocation.context.artifact_refs
+    },
+    tools: {
+      declared_tools: [],
+      tool_choice: "none"
+    }
+  };
+  const withoutHash: Omit<AgentModelRequestArtifact, "request_sha256"> = {
+    id: requestId,
+    run_id: invocation.run_id,
+    runtime_invocation_id: invocation.id,
+    runtime_invocation_artifact_ref: agentRuntimeInvocationArtifactRef(invocation.id),
+    prompt_plan_id: invocation.prompt_plan_id,
+    schema_version: "aetherion-agent-model-request-v1",
+    status: "request_prepared",
+    scope: {
+      model_invoked: false,
+      provider_called: false,
+      tools_requested: false,
+      raw_prompt_persisted: false,
+      raw_context_persisted: false,
+      raw_payload_artifacts_read: false,
+      secrets_resolved: false,
+      runtime_authority_granted: false
+    },
+    provider: {
+      provider_configured: false,
+      provider_ref: null,
+      model_ref: null,
+      credential_ref: null,
+      credential_resolved: false,
+      network_call_attempted: false
+    },
+    request: {
+      mode: "no_tools_model_preview",
+      output_mode: invocation.entry.output_mode,
+      message_order: [...invocation.prompt.message_order],
+      prompt_bundle_id: invocation.prompt.bundle_id,
+      prompt_preview_sha256: invocation.prompt.preview_sha256,
+      request_payload_sha256: sha256(stableStringify(payloadFingerprint)),
+      raw_request_payload_persisted: false
+    },
+    prompt_hashes: invocation.prompt.message_hashes.map((message) => ({
+      role: message.role,
+      content_sha256: message.content_sha256,
+      section_ids: [...message.section_ids],
+      source_event_ids: [...message.source_event_ids]
+    })),
+    context: {
+      source_event_ids: [...invocation.context.source_event_ids],
+      selected_memory_ids: [...invocation.context.selected_memory_ids],
+      excluded_memory_ids: [...invocation.context.excluded_memory_ids],
+      memory_source_event_ids: [...invocation.context.memory_source_event_ids],
+      capability_card_ids: [...invocation.context.capability_card_ids],
+      active_permission_ids: [...invocation.context.active_permission_ids],
+      artifact_refs: [...invocation.context.artifact_refs],
+      raw_payload_artifacts_read: false
+    },
+    tool_gateway: {
+      declared_tools: [],
+      tool_choice: "none",
+      may_propose_tool_requests: invocation.tool_gateway.may_propose_tool_requests,
+      tool_request_events_appended: false,
+      execution_without_policy_allowed: false
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      prompt_can_authorize_actions: false,
+      context_can_authorize_actions: false,
+      memory_can_authorize_actions: false,
+      capability_cards_can_grant_permissions: false,
+      model_request_can_authorize_actions: false,
+      tool_execution_requires_scoped_lease: true,
+      side_effects_require_policy_or_approval: true
+    },
+    response_expectations: {
+      response_artifact_required: true,
+      response_audit_required: true,
+      required_block_ids: [...invocation.response_audit.required_block_ids],
+      required_citation_ids: [...invocation.response_audit.required_citation_ids],
+      forbidden_claim_checks: [...invocation.response_audit.forbidden_claim_checks]
+    }
+  };
+  return {
+    ...withoutHash,
+    request_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
 export async function writeAgentRuntimeInvocationArtifact(
   repoRoot: string,
   workspace: Workspace,
@@ -345,4 +453,23 @@ export async function readAgentModelResponseArtifact(
   } catch {
     return null;
   }
+}
+
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortJsonValue(record[key])]));
+  }
+  return value;
 }

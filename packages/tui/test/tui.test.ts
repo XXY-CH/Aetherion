@@ -1415,6 +1415,175 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(bindingPayloadFinding.schema_name, "agent-runtime-invocation.schema.json");
   assert.equal(bindingPayloadFinding.schema_status, "valid");
   assert.deepEqual(bindingPayloadFinding.schema_errors, []);
+  const prepareModelRequest = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "prepare-model-request",
+    bindingRecord.invocation_id,
+    "--workspace",
+    workspace
+  ]);
+  const modelRequestRecord = JSON.parse(prepareModelRequest.stdout) as {
+    request_id: string;
+    source_run_id: string;
+    invocation_id: string;
+    runtime_invocation_artifact_ref: string;
+    runtime_binding_event_id: string;
+    request_artifact_ref: string;
+    expected_request_artifact_ref: string;
+    request_run_id: string;
+    request_event_id: string;
+    mode: string;
+    model_invoked: boolean;
+    provider_called: boolean;
+    network_call_attempted: boolean;
+    tools_requested: boolean;
+    tool_request_events_appended: boolean;
+    runtime_authority_granted: boolean;
+    raw_prompt_persisted: boolean;
+    raw_context_persisted: boolean;
+    response_artifact_created: boolean;
+  };
+  assert.match(modelRequestRecord.request_id, new RegExp(`^agent_model_request_${escapeRegExp(runId)}_[a-f0-9]{16}$`));
+  assert.equal(modelRequestRecord.source_run_id, runId);
+  assert.equal(modelRequestRecord.invocation_id, bindingRecord.invocation_id);
+  assert.equal(modelRequestRecord.runtime_invocation_artifact_ref, bindingRecord.artifact_ref);
+  assert.equal(modelRequestRecord.runtime_binding_event_id, bindingRecord.binding_event_id);
+  assert.equal(modelRequestRecord.request_artifact_ref, `artifact://agent/model-request/${modelRequestRecord.request_id}`);
+  assert.equal(modelRequestRecord.expected_request_artifact_ref, modelRequestRecord.request_artifact_ref);
+  assert.match(modelRequestRecord.request_run_id, /^run_model_request_/);
+  assert.match(modelRequestRecord.request_event_id, /^evt_/);
+  assert.equal(modelRequestRecord.mode, "no_tools_model_preview");
+  assert.equal(modelRequestRecord.model_invoked, false);
+  assert.equal(modelRequestRecord.provider_called, false);
+  assert.equal(modelRequestRecord.network_call_attempted, false);
+  assert.equal(modelRequestRecord.tools_requested, false);
+  assert.equal(modelRequestRecord.tool_request_events_appended, false);
+  assert.equal(modelRequestRecord.runtime_authority_granted, false);
+  assert.equal(modelRequestRecord.raw_prompt_persisted, false);
+  assert.equal(modelRequestRecord.raw_context_persisted, false);
+  assert.equal(modelRequestRecord.response_artifact_created, false);
+  const modelRequestArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "model-request", `${modelRequestRecord.request_id}.json`);
+  const modelRequestArtifactText = await readFile(modelRequestArtifactPath, "utf8");
+  const modelRequestArtifact = JSON.parse(modelRequestArtifactText) as {
+    id: string;
+    run_id: string;
+    runtime_invocation_id: string;
+    runtime_invocation_artifact_ref: string;
+    prompt_plan_id: string;
+    scope: {
+      model_invoked: boolean;
+      provider_called: boolean;
+      tools_requested: boolean;
+      raw_prompt_persisted: boolean;
+      raw_context_persisted: boolean;
+      secrets_resolved: boolean;
+      runtime_authority_granted: boolean;
+    };
+    provider: { provider_configured: boolean; provider_ref: string | null; model_ref: string | null; credential_ref: null; credential_resolved: boolean; network_call_attempted: boolean };
+    request: { mode: string; output_mode: string; message_order: string[]; prompt_bundle_id: string; prompt_preview_sha256: string; request_payload_sha256: string; raw_request_payload_persisted: boolean };
+    prompt_hashes: Array<{ role: string; content_sha256: string; source_event_ids: string[] }>;
+    context: { source_event_ids: string[]; selected_memory_ids: string[]; raw_payload_artifacts_read: boolean };
+    tool_gateway: { declared_tools: string[]; tool_choice: string; tool_request_events_appended: boolean; execution_without_policy_allowed: boolean };
+    authority_gates: { model_request_can_authorize_actions: boolean };
+    response_expectations: { response_artifact_required: boolean; response_audit_required: boolean; required_citation_ids: string[] };
+  };
+  assert.equal(modelRequestArtifact.id, modelRequestRecord.request_id);
+  assert.equal(modelRequestArtifact.run_id, runId);
+  assert.equal(modelRequestArtifact.runtime_invocation_id, bindingRecord.invocation_id);
+  assert.equal(modelRequestArtifact.runtime_invocation_artifact_ref, bindingRecord.artifact_ref);
+  assert.equal(modelRequestArtifact.prompt_plan_id, `prompt_${runId}`);
+  assert.equal(modelRequestArtifact.scope.model_invoked, false);
+  assert.equal(modelRequestArtifact.scope.provider_called, false);
+  assert.equal(modelRequestArtifact.scope.tools_requested, false);
+  assert.equal(modelRequestArtifact.scope.raw_prompt_persisted, false);
+  assert.equal(modelRequestArtifact.scope.raw_context_persisted, false);
+  assert.equal(modelRequestArtifact.scope.secrets_resolved, false);
+  assert.equal(modelRequestArtifact.scope.runtime_authority_granted, false);
+  assert.equal(modelRequestArtifact.provider.provider_configured, false);
+  assert.equal(modelRequestArtifact.provider.provider_ref, null);
+  assert.equal(modelRequestArtifact.provider.model_ref, null);
+  assert.equal(modelRequestArtifact.provider.credential_ref, null);
+  assert.equal(modelRequestArtifact.provider.credential_resolved, false);
+  assert.equal(modelRequestArtifact.provider.network_call_attempted, false);
+  assert.equal(modelRequestArtifact.request.mode, "no_tools_model_preview");
+  assert.equal(modelRequestArtifact.request.output_mode, "plan");
+  assert.deepEqual(modelRequestArtifact.request.message_order, ["system", "developer", "user"]);
+  assert.equal(modelRequestArtifact.request.prompt_bundle_id, `prompt_bundle_${runId}`);
+  assert.equal(modelRequestArtifact.request.prompt_preview_sha256, runtimeArtifact.prompt.preview_sha256);
+  assert.match(modelRequestArtifact.request.request_payload_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(modelRequestArtifact.request.raw_request_payload_persisted, false);
+  assert.deepEqual(modelRequestArtifact.prompt_hashes.map((message) => message.role), ["system", "developer", "user"]);
+  assert.deepEqual(modelRequestArtifact.prompt_hashes.map((message) => message.content_sha256), runtimeArtifact.prompt.message_hashes.map((message) => message.content_sha256));
+  assert.ok(modelRequestArtifact.context.source_event_ids.every((eventId) => ledgerBeforePromptPlan.includes(eventId)));
+  assert.ok(modelRequestArtifact.context.selected_memory_ids.includes(`mem_${runId}_episode`));
+  assert.equal(modelRequestArtifact.context.raw_payload_artifacts_read, false);
+  assert.deepEqual(modelRequestArtifact.tool_gateway.declared_tools, []);
+  assert.equal(modelRequestArtifact.tool_gateway.tool_choice, "none");
+  assert.equal(modelRequestArtifact.tool_gateway.tool_request_events_appended, false);
+  assert.equal(modelRequestArtifact.tool_gateway.execution_without_policy_allowed, false);
+  assert.equal(modelRequestArtifact.authority_gates.model_request_can_authorize_actions, false);
+  assert.equal(modelRequestArtifact.response_expectations.response_artifact_required, true);
+  assert.equal(modelRequestArtifact.response_expectations.response_audit_required, true);
+  assert.deepEqual(modelRequestArtifact.response_expectations.required_citation_ids, promptPlanRecord.response_audit_contract.required_citation_ids);
+  assert.doesNotMatch(modelRequestArtifactText, /"preview"/);
+  assert.doesNotMatch(modelRequestArtifactText, /"messages"/);
+  assert.doesNotMatch(modelRequestArtifactText, /"sections"/);
+  assert.doesNotMatch(modelRequestArtifactText, /Draft a local implementation plan/);
+  assert.doesNotMatch(modelRequestArtifactText, /Summary: Workspace file read completed/);
+  assert.doesNotMatch(modelRequestArtifactText, /System Boundary/);
+  const ledgerAfterModelRequest = await readLedgerEvents(workspace);
+  const modelRequestEvent = ledgerAfterModelRequest.find((event) => event.id === modelRequestRecord.request_event_id);
+  assert.ok(modelRequestEvent);
+  assert.equal(modelRequestEvent.run_id, modelRequestRecord.request_run_id);
+  assert.equal(modelRequestEvent.event_type, "agent.model.requested");
+  assert.equal(modelRequestEvent.payload_ref, modelRequestRecord.request_artifact_ref);
+  assert.equal(modelRequestEvent.actor.type, "system");
+  assert.equal(modelRequestEvent.actor.id, "local_supervisor");
+  assert.match(modelRequestEvent.summary, /no provider, network, tool, lease, or runtime authority was used/);
+  const modelRequestManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${modelRequestRecord.request_run_id}.json`), "utf8")) as {
+    id: string;
+    status: string;
+    event_ids: string[];
+  };
+  assert.equal(modelRequestManifest.id, modelRequestRecord.request_run_id);
+  assert.equal(modelRequestManifest.status, "completed");
+  assert.deepEqual(modelRequestManifest.event_ids, [modelRequestRecord.request_event_id]);
+  const modelRequestEvents = ledgerAfterModelRequest.filter((event) => event.run_id === modelRequestRecord.request_run_id);
+  assert.deepEqual(modelRequestEvents.map((event) => event.event_type), ["agent.model.requested"]);
+  assert.deepEqual(modelRequestEvents.map((event) => event.payload_ref), [modelRequestRecord.request_artifact_ref]);
+  assert.equal(modelRequestEvents.some((event) => event.event_type === "agent.model.responded"), false);
+  assert.equal(modelRequestEvents.some((event) => event.event_type === "tool.requested"), false);
+  assert.equal(modelRequestEvents.some((event) => event.event_type === "lease.issued"), false);
+  assert.equal(ledgerAfterModelRequest.filter((event) => event.run_id === runId).some((event) => event.event_type === "agent.model.requested"), false);
+  const requestPayloadAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "payload-refs", "--workspace", workspace])).stdout) as {
+    findings: Array<{
+      event_id: string;
+      event_type: string;
+      payload_ref: string;
+      schema_name?: string;
+      schema_status: string;
+      schema_errors: string[];
+    }>;
+  };
+  const requestPayloadFinding = requestPayloadAudit.findings.find((finding) => finding.event_id === modelRequestRecord.request_event_id);
+  assert.ok(requestPayloadFinding);
+  assert.equal(requestPayloadFinding.event_type, "agent.model.requested");
+  assert.equal(requestPayloadFinding.payload_ref, modelRequestRecord.request_artifact_ref);
+  assert.equal(requestPayloadFinding.schema_name, "agent-model-request.schema.json");
+  assert.equal(requestPayloadFinding.schema_status, "valid");
+  assert.deepEqual(requestPayloadFinding.schema_errors, []);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "prepare-model-request",
+      "agent_runtime_invocation_unbound",
+      "--workspace",
+      workspace
+    ]),
+    /Agent Runtime Invocation artifact agent_runtime_invocation_unbound not found/
+  );
   const secondBindRuntime = await execFileAsync(process.execPath, [
     cliPath,
     "prompt",

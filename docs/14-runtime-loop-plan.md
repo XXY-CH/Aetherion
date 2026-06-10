@@ -231,7 +231,7 @@ Why this slice:
 
 - It adds the next Agent runtime contract directly behind `agent.runtime.bound`, where the real loop will need auditable request and response evidence.
 - It keeps raw prompt text, raw context prose, raw provider payloads, raw model output, credentials, and tool execution out of durable metadata.
-- It lets `audit payload-refs` validate future `agent.model.requested` and `agent.model.responded` events before any provider loop exists.
+- It lets `audit payload-refs` validate `agent.model.requested` events and future `agent.model.responded` events before any provider loop exists.
 
 Acceptance:
 
@@ -242,8 +242,33 @@ Acceptance:
 
 Remaining boundary:
 
-- These artifacts are not produced by a TUI command yet and do not configure providers, resolve vault credentials, perform network calls, invoke models, append tool requests, issue leases, execute tools, pass response audit, or grant runtime authority.
+- These artifacts do not configure providers, resolve vault credentials, perform network calls, invoke models, append tool requests, issue leases, execute tools, pass response audit, or grant runtime authority.
 
 Next likely increment after this one:
 
-- Add a narrow no-tools model-preview command behind `prompt bind-runtime`, or harden trace-backed Memory lifecycle parity if runtime evidence gaps need to stay ahead of provider wiring.
+- Produce no-tools model-request metadata behind `prompt bind-runtime`, then choose between response-side evidence handling and trace-backed Memory lifecycle parity.
+
+## Completed Increment: Agent Model Request Preparation
+
+Target: make `prompt prepare-model-request <invocation_id>` create no-tools Agent Model Request metadata only after a runtime invocation has already been bound through `agent.runtime.bound`.
+
+Why this slice:
+
+- It advances the runtime evidence chain behind `prompt bind-runtime` without calling a provider, configuring credentials, invoking a model, or persisting raw prompt text.
+- It turns `agent.model.requested` from a future payload-ref audit shape into a TUI-produced supervisor-authored Ledger event.
+- It keeps the response side honest: the current response schema represents a real provider/model response, so this increment does not create `agent.model.responded` events or response artifacts.
+
+Acceptance:
+
+- `prompt prepare-model-request <invocation_id>` requires an existing Agent Runtime Invocation artifact plus matching `agent.runtime.bound` Ledger evidence.
+- The command writes a schema-valid request artifact under `artifact://agent/model-request/<request_id>` and records an independent single-event `agent.model.requested` run.
+- The request artifact records prompt/message hashes, context refs, response expectations, no-tools mode, and authority gates only; it records `provider_called=false`, `network_call_attempted=false`, `tools_requested=false`, and no raw prompt/context payload.
+- `audit payload-refs` resolves and schema-validates the new request event payload.
+
+Remaining boundary:
+
+- No provider is configured, no model is invoked, no credential is resolved, no network call is attempted, no tool request or lease is emitted, and no Agent Model Response artifact is created.
+
+Next likely increment after this one:
+
+- Add a real provider-call preparation gate plus response-audit handling, or harden trace-backed Memory lifecycle parity if runtime evidence gaps should stay ahead of provider wiring.

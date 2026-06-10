@@ -104,7 +104,7 @@ Verification evidence:
 
 Correction and remaining boundary:
 
-- This closes a concrete drift from the original Agent Orchestrator concept: prompt assembly now records the future runtime call structure, not just rendered prompt text. It still does not implement the true agent loop. There is no model provider configuration, model request artifact, model response artifact, typed model Ledger event, tool-calling loop, durable queue, daemon, vault, IM ingress, connector, or browser/computer-use runtime.
+- This closes a concrete drift from the original Agent Orchestrator concept: prompt assembly now records the future runtime call structure, not just rendered prompt text. The runtime binding and no-tools model-request metadata steps now persist schema-valid artifacts and supervisor-authored Ledger events, but they still do not implement the true agent loop. There is no model provider configuration, model response artifact, provider-backed model invocation, tool-calling loop, durable queue, daemon, vault, IM ingress, connector, or browser/computer-use runtime.
 
 ## Authority Event Append Guard Review
 

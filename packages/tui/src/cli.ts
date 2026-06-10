@@ -13,7 +13,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentRuntimeInvocationArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentRuntimeInvocationArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -984,8 +984,12 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime") {
-    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, and bind-runtime <run_id> --content <task>");
+  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request") {
+    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, and prepare-model-request <invocation_id>");
+  }
+  if (options.topic === "prepare-model-request") {
+    await runPromptPrepareModelRequest(options);
+    return;
   }
   if (!options.content) {
     throw new Error(`prompt ${options.topic} requires --content <task>`);
@@ -1036,6 +1040,67 @@ async function runPrompt(options: CliOptions): Promise<void> {
   const relativeResponsePath = assertWorkspaceReadPath(workspaceRoot, responsePath);
   const response = readFileSync(join(workspaceRoot, relativeResponsePath), "utf8");
   printRawJson(auditPromptResponse({ plan, response }));
+}
+
+async function runPromptPrepareModelRequest(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await openWorkspace(workspaceRoot);
+  const invocationId = requirePositional(options.target ?? options.input, "prompt prepare-model-request requires an Agent Runtime Invocation id");
+  if (!invocationId.startsWith("agent_runtime_invocation_")) {
+    throw new Error("prompt prepare-model-request requires an Agent Runtime Invocation id");
+  }
+  const invocation = await readAgentRuntimeInvocationArtifact(workspaceRoot, invocationId);
+  if (!invocation) {
+    throw new Error(`Agent Runtime Invocation artifact ${invocationId} not found`);
+  }
+  if (invocation.status !== "scaffold_ready" || !invocation.model_call.model_preview_ready) {
+    throw new Error(`Agent Runtime Invocation ${invocationId} is not ready for model-request preparation`);
+  }
+  const invocationRef = agentRuntimeInvocationArtifactRef(invocation.id);
+  const bindingEvent = (await readEvents(workspace)).find((event) =>
+    event.event_type === "agent.runtime.bound" && event.payload_ref === invocationRef
+  );
+  if (!bindingEvent) {
+    throw new Error(`Agent Runtime Invocation ${invocationId} has no agent.runtime.bound Ledger evidence`);
+  }
+  const requestId = `agent_model_request_${sanitizePathSegment(invocation.run_id)}_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const request = createAgentModelRequestArtifact(invocation, requestId);
+  const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
+  const requestRunId = `run_model_request_${sanitizePathSegment(invocation.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Prepared no-tools model request metadata for ${invocation.id}; no provider, network, tool, lease, or runtime authority was used.`;
+  const manifest = await createRunManifest(repoRoot, workspace, requestRunId, summary);
+  const requestEventId = await appendManagedRunEvent(
+    workspaceRoot,
+    workspace,
+    manifest,
+    "agent.model.requested",
+    summary,
+    requestRef
+  );
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "agent.model.requested", payload_ref: requestRef }
+  ]);
+  printRawJson({
+    request_id: request.id,
+    source_run_id: invocation.run_id,
+    invocation_id: invocation.id,
+    runtime_invocation_artifact_ref: invocationRef,
+    runtime_binding_event_id: bindingEvent.id,
+    request_artifact_ref: requestRef,
+    expected_request_artifact_ref: agentModelRequestArtifactRef(request.id),
+    request_run_id: requestRunId,
+    request_event_id: requestEventId,
+    mode: request.request.mode,
+    model_invoked: false,
+    provider_called: false,
+    network_call_attempted: false,
+    tools_requested: false,
+    tool_request_events_appended: false,
+    runtime_authority_granted: false,
+    raw_prompt_persisted: false,
+    raw_context_persisted: false,
+    response_artifact_created: false
+  });
 }
 
 async function assemblePromptPlanForRun(workspaceRoot: string, runId: string, task: string): Promise<{
@@ -3174,6 +3239,7 @@ Usage:
   npm run ether -- context explain <run_id> --workspace <path>
   npm run ether -- prompt plan <run_id> --content <task> --workspace <path>
   npm run ether -- prompt bind-runtime <run_id> --content <task> --workspace <path>
+  npm run ether -- prompt prepare-model-request <invocation_id> --workspace <path>
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>
