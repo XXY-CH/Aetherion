@@ -333,3 +333,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 - 这不是 installer、updater、package manager、daemon lifecycle manager、public docs deployment、release package、artifact signer、provider-auth wizard 或 connector account-linking flow。
 - 它报告缺失工具和下一步命令，但不安装或修复它们。
 - 剩余生产差距包括 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
+
+## 已完成增量：Source Document Governance Links
+
+目标：把原始源文档连到仓库治理与协作合同，让 maintainer 能从产品意图直接跳到贡献、行为准则、安全、许可、issue 和 PR 工作流要求，而不是依赖记忆。
+
+验收：
+
+- 根 README 和 README.zh-CN 暴露 Code of Conduct、Contributing、Security Policy、MIT License、issue templates 和 pull request template 链接。
+- 产品简报、审计与数据合同、路线图、技术策略、Schema 运行时治理在英文与中文源文档中都链接同一组治理表面和 README 命令/readiness 入口。
+- 链接是 repo-relative Markdown references，不引入 runtime behavior。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：仓库协作仍是治理表面，不是新的产品 client surface。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：贡献、安全、许可、模板文件是 human-readable workflow evidence，不是 runtime state 或 authority。
+- [路线图](06-roadmap.zh-CN.md)：foundation docs 现在指向产品表面扩张前的 review 与 contribution gates。
+- [技术策略](10-technical-strategy.zh-CN.md)：本轮停留在 documentation，不改变 language ownership 或 trust boundary。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：source links 不授予 policy decision、lease、provider access、connector grant 或 verification claim。
+
+剩余边界：
+
+- 这不是 private vulnerability-reporting backend、release automation、documentation deployment、issue triage automation 或 maintainer workflow bot。
+- 它不启用 GUI、browser automation、IM delivery、MCP/OAuth connectors、package-code execution、cloud workers 或 remote marketplace。

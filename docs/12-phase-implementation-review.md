@@ -1363,6 +1363,35 @@ Corrections and remaining boundary:
 - This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include real installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
 
+## Phase 52 Review Notes
+
+This pass closes a source-document discoverability gap: the governance files existed and operator snapshots checked for them, but the original product/source documents did not yet give maintainers a direct path from concept docs to contribution, conduct, security, licensing, issue, and pull-request workflow contracts.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): collaboration surfaces should support local-first governance and project clarity without becoming runtime authority.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): human-readable workflow documents and GitHub templates are reviewable governance artifacts, not opaque generated state.
+- [Roadmap](06-roadmap.md): Phase 0 foundation documents now point to the contribution and review gates needed before broader product surfaces expand.
+- [Technical Strategy](10-technical-strategy.md): this is a documentation/source-link increment only; it does not alter TypeScript/Rust authority ownership.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): governance docs and templates remain human contracts; they do not grant leases, policy approval, provider credentials, or runtime authority.
+
+Implemented correspondence:
+
+- Added a root README governance section linking Code of Conduct, Contributing, Security Policy, MIT License, issue templates, and the pull request template, with Chinese companions where they exist.
+- Added matching governance-link rows and README operator/readiness hub links to the original source documents and their Chinese versions: product brief, audit/data contracts, roadmap, technical strategy, and schema runtime governance.
+- Kept links as repo-relative Markdown references so they are visible in local clones and on GitHub.
+
+Verification evidence:
+
+- Markdown relative-link verification covers the new source-document links.
+- Operator snapshots still check governance-file presence and bilingual documentation posture.
+
+Corrections and remaining boundary:
+
+- Corrects a documentation navigation gap only; it does not add a new workflow engine, issue triage bot, private security intake backend, release automation, or runtime policy mechanism.
+- This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

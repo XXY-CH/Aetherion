@@ -4,6 +4,10 @@
 
 Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
 
+Repository governance links: [Code of Conduct](../CODE_OF_CONDUCT.md) / [Chinese](../CODE_OF_CONDUCT.zh-CN.md), [Contributing](../CONTRIBUTING.md) / [Chinese](../CONTRIBUTING.zh-CN.md), [Security Policy](../SECURITY.md) / [Chinese](../SECURITY.zh-CN.md), [MIT License](../LICENSE) / [Chinese explanatory translation](../LICENSE.zh-CN.md), [issue templates](../.github/ISSUE_TEMPLATE/bug_report.yml), and [pull request template](../.github/pull_request_template.md).
+
+Operator/readiness command hub: [README](../README.md#contract-first-workspace).
+
 Aetherion has enough product imagination captured in contracts. New work should now bias toward closing runtime loops rather than expanding schema surface area.
 
 ## Principle

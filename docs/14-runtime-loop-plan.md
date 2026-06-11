@@ -708,3 +708,26 @@ Remaining boundary:
 - This is not an installer, updater, package manager, daemon lifecycle manager, public docs deployment, release package, artifact signer, provider-auth wizard, or connector account-linking flow.
 - It reports missing tools and next steps; it does not install or repair them.
 - Remaining production gaps are installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
+
+## Completed Increment: Source Document Governance Links
+
+Target: connect the original source documents to the repository governance and collaboration contracts so maintainers can move from product intent to contribution, conduct, security, licensing, issue, and pull-request workflow requirements without relying on memory.
+
+Acceptance:
+
+- Root README and README.zh-CN expose Code of Conduct, Contributing, Security Policy, MIT License, issue templates, and pull request template links.
+- Product Brief, Audit and Data Contracts, Roadmap, Technical Strategy, and Schema Runtime Governance link the same governance surface plus the README operator/readiness command hub from both English and Chinese source documents.
+- Links are repo-relative Markdown references and do not introduce runtime behavior.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): repository collaboration remains a governance surface, not a new product client surface.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): contribution/security/license/template files are human-readable workflow evidence, not runtime state or authority.
+- [Roadmap](06-roadmap.md): foundation docs now point to review and contribution gates before product-surface expansion.
+- [Technical Strategy](10-technical-strategy.md): the increment stays in documentation and does not change language ownership or trust boundaries.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): source links do not grant policy decisions, leases, provider access, connector grants, or verification claims.
+
+Remaining boundary:
+
+- This is not a private vulnerability-reporting backend, release automation, documentation deployment, issue triage automation, or maintainer workflow bot.
+- It does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.

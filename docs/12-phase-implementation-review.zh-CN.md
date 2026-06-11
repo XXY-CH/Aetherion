@@ -356,6 +356,35 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括真实 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
 
+## Phase 52 复核：Source Document Governance Links
+
+本轮修正 source-document discoverability gap：治理文件已经存在，operator snapshot 也会检查它们，但原始产品/源文档还没有直接把构想文档连到贡献、行为准则、安全、许可、issue 和 PR 工作流合同。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：协作表面应服务 local-first governance 和项目清晰度，但不能变成 runtime authority。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：human-readable workflow docs 与 GitHub templates 是可 review 的 governance artifacts，不是 opaque generated state。
+- [路线图](06-roadmap.zh-CN.md)：Phase 0 foundation docs 现在指向更宽产品表面扩张前需要的贡献与 review gates。
+- [技术策略](10-technical-strategy.zh-CN.md)：本轮只是 documentation/source-link 增量，不改变 TypeScript/Rust authority ownership。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：治理 docs 与 templates 仍是 human contracts，不授予 lease、policy approval、provider credential 或 runtime authority。
+
+本轮修正：
+
+- README 根入口新增治理与协作章节，链接 Code of Conduct、Contributing、Security Policy、MIT License、issue templates 和 pull request template，并在存在中文伴读时链接中文版本。
+- 在原始源文档及中文版本中加入匹配的 governance-link 行和 README 命令/readiness 入口链接：产品简报、审计与数据合同、路线图、技术策略、Schema 运行时治理。
+- 链接保持 repo-relative Markdown references，因此本地 clone 和 GitHub 都能直接跳转。
+
+验证：
+
+- Markdown relative-link verification 覆盖新增 source-document links。
+- operator snapshots 仍检查 governance-file presence 与 bilingual documentation posture。
+
+修正与剩余边界：
+
+- 本轮只修正文档导航缺口；不新增 workflow engine、issue triage bot、private security intake backend、release automation 或 runtime policy mechanism。
+- 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
+
 ## 验证要求
 
 每轮结束应至少检查：

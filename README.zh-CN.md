@@ -56,6 +56,15 @@ Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent �
 - [Schema 运行时治理](docs/13-schema-runtime-governance.zh-CN.md) / [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
 - [运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md) / [Runtime Loop Plan](docs/14-runtime-loop-plan.md)
 
+## 治理与协作
+
+- [行为准则](CODE_OF_CONDUCT.zh-CN.md) / [Code of Conduct](CODE_OF_CONDUCT.md)
+- [贡献指南](CONTRIBUTING.zh-CN.md) / [Contributing](CONTRIBUTING.md)
+- [安全政策](SECURITY.zh-CN.md) / [Security Policy](SECURITY.md)
+- [MIT 许可证](LICENSE) / [中文说明](LICENSE.zh-CN.md)
+- Issue templates：[bug report](.github/ISSUE_TEMPLATE/bug_report.yml)、[contract change](.github/ISSUE_TEMPLATE/contract_change.yml)、[feature request](.github/ISSUE_TEMPLATE/feature_request.yml)、[security hardening](.github/ISSUE_TEMPLATE/security_hardening.yml)
+- [Pull request template](.github/pull_request_template.md)
+
 ## MVP 方向
 
 第一版只做 TUI，证明最小完整本地 kernel loop：

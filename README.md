@@ -100,6 +100,15 @@ Memory OS       Capability OS        Proactive Engine
 - [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
 - [Runtime Loop Plan](docs/14-runtime-loop-plan.md)
 
+## Governance And Collaboration
+
+- [Code of Conduct](CODE_OF_CONDUCT.md) / [Chinese](CODE_OF_CONDUCT.zh-CN.md)
+- [Contributing](CONTRIBUTING.md) / [Chinese](CONTRIBUTING.zh-CN.md)
+- [Security Policy](SECURITY.md) / [Chinese](SECURITY.zh-CN.md)
+- [MIT License](LICENSE) / [Chinese explanatory translation](LICENSE.zh-CN.md)
+- Issue templates: [bug report](.github/ISSUE_TEMPLATE/bug_report.yml), [contract change](.github/ISSUE_TEMPLATE/contract_change.yml), [feature request](.github/ISSUE_TEMPLATE/feature_request.yml), and [security hardening](.github/ISSUE_TEMPLATE/security_hardening.yml)
+- [Pull request template](.github/pull_request_template.md)
+
 ## MVP Direction
 
 The first build is TUI-only and should prove the smallest complete local kernel loop:
