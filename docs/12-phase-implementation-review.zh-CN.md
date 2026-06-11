@@ -725,6 +725,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Local rate-limit reservation 只是 ingress guard；Local Supervisor 和 Tool Access & Action Policy Proxy 仍负责 gate 所有 read、write、lease 和 side effect。
 - 剩余严格复查差距包括 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 63 复核：TUI Run Cached Idempotency Replay
+
+本轮继续推进 PGC-3，为 completed 且同 intent 的 TUI `run` envelope 增加 cached/replay-safe idempotency，但不添加 public ingress gateway 或 remote idempotency service。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：idempotency 属于 Local Supervisor handoff 前；action 仍必须经过 Tool Access & Action Policy Proxy authority。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 不能复用或创造 permission；cached replay 只是 evidence-only。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 ingress contract 必须拒绝 raw material、inherited authority 和 live side-effect replay claim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 要求任何新 action run 前具备 replay protection。
+
+本轮修正：
+
+- 新增 `schemas/local-ingress-idempotency-completion.schema.json` 和 `examples/contracts/local-ingress-idempotency-completion.json`。
+- completed TUI `run` 现在会在 run manifest completed 后写入 hash-only idempotency completion cache。
+- 同 key 加同 normalized intent 会返回 cached manifest/Ledger/artifact evidence，不创建新的 run manifest、不追加 Ledger event、不请求 policy、不发 lease、不重写 output file。
+- 同 key 加不同 normalized intent 仍会在新 action run 前 fail closed。
+- 新增 schema 测试，拒绝 raw key/intent persistence、mismatched replay scope、live side-effect replay、policy/lease reuse 和 replay authority claim。
+- 新增 TUI 回归测试，证明 cached replay 不改变 Ledger、run manifest、completion evidence 或 output content。
+- `ingress audit`、`doctor` 和 `release evidence` 现在区分已实现的 TUI same-intent cached replay，以及 durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、auth/session lifecycle 和延后 surfaces。
+
+偏差复核：
+
+- 修正 Phase 62 仍把 cached idempotent replay 完全列为未实现的偏差。
+- 保持架构边界：cached replay 重新校验旧 evidence，不复用 policy、lease 或 side-effect authority。
+- 未实现 durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、auth/session lifecycle、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress 或基于 ingress envelope 的 supervisor policy execution。
+
+修正与剩余边界：
+
+- Local idempotency completion 是 replay-safe evidence cache，不是 authorization source。
+- 剩余严格复查差距包括显式 supervisor lifecycle command contracts、provider error/credential-source productionization、durable/session ingress identity、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

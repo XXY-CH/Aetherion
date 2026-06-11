@@ -1732,6 +1732,38 @@ Corrections and remaining boundary:
 - Local rate-limit reservation is an ingress guard only; Local Supervisor and Tool Access & Action Policy Proxy still gate all reads, writes, leases, and side effects.
 - Remaining strict-review gaps include cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 63 Review Notes
+
+This pass continues PGC-3 by adding cached, replay-safe idempotency for completed same-intent TUI `run` envelopes, without adding a public ingress gateway or remote idempotency service.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): idempotency belongs before Local Supervisor handoff, while actions still require Tool Access & Action Policy Proxy authority.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces cannot reuse or mint permissions; cached replay is evidence-only.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 ingress contracts must reject raw material, inherited authority, and live side-effect replay claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 requires replay protection before any new action run.
+
+Implemented correspondence:
+
+- Added `schemas/local-ingress-idempotency-completion.schema.json` and `examples/contracts/local-ingress-idempotency-completion.json`.
+- Completed TUI `run` calls now write a hash-only idempotency completion cache after the run manifest completes.
+- Same key plus same normalized intent returns cached manifest/Ledger/artifact evidence without creating a new run manifest, appending Ledger events, requesting policy, issuing leases, or rewriting the output file.
+- Same key plus different normalized intent still fails closed before a new action run.
+- Added schema tests rejecting raw key/intent persistence, mismatched replay scope, live side-effect replay, policy/lease reuse, and replay authority claims.
+- Added TUI regression coverage proving cached replay leaves Ledger, run manifests, completion evidence, and output content unchanged.
+- `ingress audit`, `doctor`, and `release evidence` now distinguish implemented TUI same-intent cached replay from durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, auth/session lifecycle, and deferred surfaces.
+
+Drift review:
+
+- Corrects the Phase 62 drift that still listed cached idempotent replay as entirely unimplemented.
+- Keeps the architecture boundary intact: cached replay revalidates prior evidence and does not reuse policy, lease, or side-effect authority.
+- Does not implement durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, auth/session lifecycle, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, or supervisor policy execution from ingress envelopes.
+
+Corrections and remaining boundary:
+
+- Local idempotency completion is a replay-safe evidence cache, not a source of authorization.
+- Remaining strict-review gaps include explicit supervisor lifecycle command contracts, provider error/credential-source productionization, durable/session ingress identity, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

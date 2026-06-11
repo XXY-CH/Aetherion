@@ -600,3 +600,28 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production ingress gateway、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress、session manager、durable distributed limiter、cached idempotent result replay、policy lease 或 side-effect authorization path。
 - 下一高价值切片是 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts、provider error/credential-source productionization，或 remote CI/release hardening。
+
+## 已完成增量：TUI Run Cached Idempotency Replay
+
+目标：补上当前 TUI `run` surface 上 PGC-3 的窄 replay-protection 缺口，但不创建 production ingress gateway、remote idempotency service 或新的 authority path。
+
+验收：
+
+- `local-ingress-idempotency-completion.schema.json` 及其 example 进入 contract example validation suite。
+- 首次 completed `run` 会写入 hash-only idempotency completion cache，引用 reservation、source run id、completed manifest event ids、artifact refs、trace head，并固定 `live_side_effects_replayed=false`。
+- 同一个 `--idempotency-key` 加同一个 normalized intent 会返回 cached manifest/Ledger/artifact evidence，不创建新的 run manifest、不追加 Ledger event、不请求 policy、不发 lease、不重写 output file。
+- 同 key 但不同 normalized intent 仍会在任何新 action run 前 fail closed。
+- completion schema 拒绝 raw key/intent persistence、宽泛或 mismatched replay scope、live side-effect replay、policy/lease reuse 和 replay authority claim。
+- `ingress audit`、`doctor` 和 `release evidence` 会区分已实现的 TUI same-intent cached replay，以及仍未实现的 durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、auth/session lifecycle、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress 和 cloud worker ingress。
+
+匹配源文档与修正：
+
+- [架构](01-architecture.zh-CN.md)：idempotency 属于 Local Supervisor handoff 前的 ingress boundary，而 Tool Access & Action Policy Proxy 仍是唯一 action choke point。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 不能复用既有 authority；cached path 只是 evidence-only，不发 policy 或 lease。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 ingress metadata 只有在拒绝 raw material、inherited authority 和 live side-effect replay claim 时，才可以变成 runtime-backed evidence。
+- [生产缺口关闭计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 现在具备 TUI slice 的 replay-safe duplicate handling；durable/session/remote replay 仍是后续 gateway 问题。
+
+剩余边界：
+
+- 这不是 production ingress gateway、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress、durable idempotency store、session manager、distributed limiter、policy lease 或 side-effect authorization path。
+- 下一高价值切片是显式 supervisor lifecycle command contracts、provider error/credential-source productionization、durable/session ingress identity，或 remote CI/release hardening。

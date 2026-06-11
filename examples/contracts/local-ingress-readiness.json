@@ -64,7 +64,12 @@
     "duplicate_runtime_detector_scope": "tui_run_local_atomic_reservation_before_supervisor_handoff",
     "duplicate_key_can_reuse_authority": false,
     "replay_protection_required": true,
-    "replay_protection_implemented": false
+    "replay_protection_implemented": true,
+    "cached_replay_scope": "tui_same_key_same_normalized_intent_completed_manifest_only",
+    "cached_replay_requires_completed_manifest": true,
+    "cached_replay_reuses_policy_or_lease": false,
+    "cached_replay_performs_live_side_effects": false,
+    "durable_remote_replay_implemented": false
   },
   "policy_handoff": {
     "local_supervisor_required": true,
@@ -104,6 +109,7 @@
     "docs/15-production-gap-closure-plan.md",
     "schemas/local-ingress-rate-limit-reservation.schema.json",
     "schemas/local-ingress-idempotency-reservation.schema.json",
+    "schemas/local-ingress-idempotency-completion.schema.json",
     "packages/tui/src/cli.ts",
     "packages/harness-core/test/harness-core.test.ts"
   ]

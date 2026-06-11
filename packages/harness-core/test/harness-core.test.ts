@@ -151,6 +151,7 @@ const schemaExamplePairs = [
   ["local-ingress-readiness.schema.json", "local-ingress-readiness.json"],
   ["local-ingress-rate-limit-reservation.schema.json", "local-ingress-rate-limit-reservation.json"],
   ["local-ingress-idempotency-reservation.schema.json", "local-ingress-idempotency-reservation.json"],
+  ["local-ingress-idempotency-completion.schema.json", "local-ingress-idempotency-completion.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
   ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
@@ -285,7 +286,12 @@ test("local ingress readiness rejects remote surface, auth, idempotency, and aut
     (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_implemented = false; },
     (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_scope = "remote_gateway_after_policy"; },
     (draft: typeof valid) => { draft.idempotency.duplicate_key_can_reuse_authority = true; },
-    (draft: typeof valid) => { draft.idempotency.replay_protection_implemented = true; },
+    (draft: typeof valid) => { draft.idempotency.replay_protection_implemented = false; },
+    (draft: typeof valid) => { draft.idempotency.cached_replay_scope = "remote_gateway_any_matching_key"; },
+    (draft: typeof valid) => { draft.idempotency.cached_replay_requires_completed_manifest = false; },
+    (draft: typeof valid) => { draft.idempotency.cached_replay_reuses_policy_or_lease = true; },
+    (draft: typeof valid) => { draft.idempotency.cached_replay_performs_live_side_effects = true; },
+    (draft: typeof valid) => { draft.idempotency.durable_remote_replay_implemented = true; },
     (draft: typeof valid) => { draft.policy_handoff.ingress_envelope_can_issue_lease = true; },
     (draft: typeof valid) => { draft.policy_handoff.ingress_envelope_can_authorize_side_effects = true; },
     (draft: typeof valid) => { draft.remote_surface_boundary.remote_api_gateway_implemented = true; },
@@ -299,6 +305,34 @@ test("local ingress readiness rejects remote surface, auth, idempotency, and aut
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "local-ingress-readiness.schema.json", draft);
     assert.equal(result.valid, false, "local-ingress-readiness schema accepted remote ingress or authority drift");
+  }
+});
+
+test("local ingress idempotency completions reject raw material, authority, mismatch, and live replay claims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "local-ingress-idempotency-completion.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.idempotency_key = "raw-key"; },
+    (draft: typeof valid) => { draft.raw_intent = "summarize README"; },
+    (draft: typeof valid) => { draft.raw_key_persisted = true; },
+    (draft: typeof valid) => { draft.raw_intent_persisted = true; },
+    (draft: typeof valid) => { draft.can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.replay_authorizes_actions = true; },
+    (draft: typeof valid) => { draft.replay_requires_new_policy = true; },
+    (draft: typeof valid) => { draft.replay_requires_new_lease = true; },
+    (draft: typeof valid) => { draft.replay_performs_live_side_effects = true; },
+    (draft: typeof valid) => { draft.live_side_effects_replayed = true; },
+    (draft: typeof valid) => { draft.source_chain_valid = false; },
+    (draft: typeof valid) => { draft.source_manifest_status = "blocked"; },
+    (draft: typeof valid) => { draft.replay_scope = "same_key_any_intent"; },
+    (draft: typeof valid) => { draft.policy_handoff = "lease_issued_by_ingress"; },
+    (draft: typeof valid) => { draft.surface_id = "api"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "local-ingress-idempotency-completion.schema.json", draft);
+    assert.equal(result.valid, false, "local-ingress-idempotency-completion schema accepted raw material, authority, mismatch, or live replay drift");
   }
 });
 

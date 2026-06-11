@@ -994,3 +994,28 @@ Remaining boundary:
 
 - This is not a production ingress gateway, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, session manager, durable distributed limiter, cached idempotent result replay, policy lease, or side-effect authorization path.
 - The next high-value slices are cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, or remote CI/release hardening.
+
+## Completed Increment: TUI Run Cached Idempotency Replay
+
+Target: close the narrow PGC-3 replay-protection gap for the current TUI `run` surface without creating a production ingress gateway, remote idempotency service, or new authority path.
+
+Acceptance:
+
+- `local-ingress-idempotency-completion.schema.json` and its example validate with the contract example suite.
+- A completed first `run` writes a hash-only idempotency completion cache that cites the reservation, source run id, completed manifest event ids, artifact refs, trace head, and `live_side_effects_replayed=false`.
+- Reusing the same `--idempotency-key` with the same normalized intent returns cached manifest/Ledger/artifact evidence and does not create a new run manifest, append Ledger events, request policy, issue leases, or rewrite the output file.
+- Reusing the same key with a different normalized intent still fails closed before any new action run.
+- The completion schema rejects raw key/intent persistence, broad or mismatched replay scope, live side-effect replay, policy/lease reuse, and replay authority claims.
+- `ingress audit`, `doctor`, and `release evidence` distinguish implemented TUI same-intent cached replay from still-missing durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, auth/session lifecycle, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, and cloud worker ingress.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): idempotency belongs in the ingress boundary before Local Supervisor handoff, while Tool Access & Action Policy Proxy remains the only action choke point.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces cannot reuse prior authority; the cached path is evidence-only and issues no policy or lease.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 ingress metadata can be runtime-backed only when it rejects raw material, inherited authority, and live side-effect replay claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 now has replay-safe duplicate handling for the TUI slice, while durable/session/remote replay remains a later gateway problem.
+
+Remaining boundary:
+
+- This is not a production ingress gateway, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, durable idempotency store, session manager, distributed limiter, policy lease, or side-effect authorization path.
+- The next high-value slices are explicit supervisor lifecycle command contracts, provider error/credential-source productionization, durable/session ingress identity, or remote CI/release hardening.

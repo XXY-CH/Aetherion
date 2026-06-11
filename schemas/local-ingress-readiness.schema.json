@@ -169,7 +169,12 @@
         "duplicate_runtime_detector_scope",
         "duplicate_key_can_reuse_authority",
         "replay_protection_required",
-        "replay_protection_implemented"
+        "replay_protection_implemented",
+        "cached_replay_scope",
+        "cached_replay_requires_completed_manifest",
+        "cached_replay_reuses_policy_or_lease",
+        "cached_replay_performs_live_side_effects",
+        "durable_remote_replay_implemented"
       ],
       "additionalProperties": false,
       "properties": {
@@ -179,7 +184,12 @@
         "duplicate_runtime_detector_scope": { "type": "string", "enum": ["tui_run_local_atomic_reservation_before_supervisor_handoff"] },
         "duplicate_key_can_reuse_authority": { "type": "boolean", "enum": [false] },
         "replay_protection_required": { "type": "boolean", "enum": [true] },
-        "replay_protection_implemented": { "type": "boolean", "enum": [false] }
+        "replay_protection_implemented": { "type": "boolean", "enum": [true] },
+        "cached_replay_scope": { "type": "string", "enum": ["tui_same_key_same_normalized_intent_completed_manifest_only"] },
+        "cached_replay_requires_completed_manifest": { "type": "boolean", "enum": [true] },
+        "cached_replay_reuses_policy_or_lease": { "type": "boolean", "enum": [false] },
+        "cached_replay_performs_live_side_effects": { "type": "boolean", "enum": [false] },
+        "durable_remote_replay_implemented": { "type": "boolean", "enum": [false] }
       }
     },
     "policy_handoff": {
