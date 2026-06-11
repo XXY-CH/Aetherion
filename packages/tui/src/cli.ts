@@ -645,6 +645,7 @@ type OnboardingPreflightReport = {
     workspace_runtime_state: "not_initialized" | "initialized" | "invalid";
     next_steps_ready: boolean;
   };
+  v1_core_profile: V1CoreProfile;
   checks: DoctorCheck[];
   next_steps: string[];
   deferred_surfaces: string[];
@@ -743,6 +744,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
       workspace_runtime_state: workspaceLayer,
       next_steps_ready: status !== "blocked"
     },
+    v1_core_profile: buildV1CoreProfile(),
     checks,
     next_steps: [
       "npm ci --ignore-scripts",
@@ -876,6 +878,18 @@ type RemoteObservedEvidence = {
   warnings: string[];
 };
 
+type V1CoreProfile = {
+  status: "pass" | "fail";
+  release_critical_commands: string[];
+  readiness_commands: string[];
+  release_support_commands: string[];
+  post_v1_contract_labs: string[];
+  post_v1_surface_labs: string[];
+  excluded_from_v1_release_critical: string[];
+  evidence: string[];
+  source_documents: Array<{ path: string; role: string }>;
+};
+
 type ReleaseEvidenceReport = {
   id: "aetherion_release_evidence_report";
   generated_at: string;
@@ -934,6 +948,7 @@ type ReleaseEvidenceReport = {
       evidence: string[];
     };
   };
+  v1_core_profile: V1CoreProfile;
   remote_observed_evidence: RemoteObservedEvidence;
   local_reports: {
     doctor: Pick<DoctorReport, "status" | "check_status" | "summary">;
@@ -982,11 +997,12 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
+  const v1CoreProfile = buildV1CoreProfile();
   const remoteBlocksRelease = remoteEvidence.status === "invalid"
     || remoteEvidence.ci.status === "fail"
     || remoteEvidence.codeql.status === "fail"
     || remoteEvidence.commit_matches_head === false;
-  const blocked = doctor.status === "blocked" || securityAudit.status === "fail" || remoteBlocksRelease;
+  const blocked = doctor.status === "blocked" || securityAudit.status === "fail" || remoteBlocksRelease || v1CoreProfile.status === "fail";
   const status = blocked
     ? "blocked"
     : git.dirty || remoteEvidence.status !== "observed" || remoteEvidence.warnings.length > 0
@@ -1062,6 +1078,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
       }
     },
+    v1_core_profile: v1CoreProfile,
     remote_observed_evidence: remoteEvidence,
     local_reports: {
       doctor: {
@@ -1240,6 +1257,67 @@ function gitReleaseEvidence(): GitReleaseEvidence {
     tracked_change_count: changedFiles.filter((line) => !line.startsWith("??")).length,
     untracked_file_count: changedFiles.filter((line) => line.startsWith("??")).length,
     changed_files: changedFiles
+  };
+}
+
+function buildV1CoreProfile(): V1CoreProfile {
+  const releaseCriticalCommands = [
+    "run",
+    "replay",
+    "trace",
+    "boundary",
+    "supervisor status",
+    "supervisor preflight",
+    "onboarding check",
+    "doctor",
+    "release evidence"
+  ];
+  const releaseSupportCommands = ["security audit"];
+  const postV1ContractLabs = [
+    "import",
+    "memory",
+    "context",
+    "prompt",
+    "checkpoint",
+    "branch",
+    "rehearse",
+    "approve-rehearsal",
+    "capsule",
+    "why",
+    "counterfactual",
+    "sleep",
+    "wake",
+    "sleepers",
+    "dream",
+    "anchors",
+    "persona",
+    "soul",
+    "agent",
+    "audit"
+  ];
+  const postV1SurfaceLabs = ["surface", "store"];
+  const releaseCriticalSet = new Set(releaseCriticalCommands);
+  const excluded = [...postV1ContractLabs, ...postV1SurfaceLabs];
+  const overlap = excluded.filter((command) => releaseCriticalSet.has(command));
+  return {
+    status: overlap.length === 0 ? "pass" : "fail",
+    release_critical_commands: releaseCriticalCommands,
+    readiness_commands: ["onboarding check", "doctor", "security audit", "release evidence"],
+    release_support_commands: releaseSupportCommands,
+    post_v1_contract_labs: postV1ContractLabs,
+    post_v1_surface_labs: postV1SurfaceLabs,
+    excluded_from_v1_release_critical: excluded,
+    evidence: [
+      "help_section=V1 core",
+      "help_section=Post-V1 / experimental local contract labs (not V1 release-critical)",
+      "help_section=Post-V1 contract surfaces (no real delivery, automation, or package-code execution)",
+      `release_critical_overlap=${overlap.length === 0 ? "none" : overlap.join(",")}`
+    ],
+    source_documents: [
+      { path: "docs/00-product-brief.md", role: "V1 is TUI-first and deferred surfaces are out of scope" },
+      { path: "docs/06-roadmap.md", role: "Phase 1/2 kernel loop before broader surfaces" },
+      { path: "docs/15-production-gap-closure-plan.md", role: "production gap closure without V1 surface creep" }
+    ]
   };
 }
 
@@ -5480,7 +5558,7 @@ Usage:
   npm run ether -- doctor --workspace <path>
   npm run ether -- release evidence --workspace <path> [--remote-evidence <snapshot.json>]
 
-  Trace-backed local runtime:
+  Post-V1 / experimental local contract labs (not V1 release-critical):
   npm run ether -- import --from openclaw --path <dir> --dry-run
   npm run ether -- memory candidates --source-event <event> --content <text> --confidence <0..1>
   npm run ether -- memory candidates --from-run <run_id> --workspace <path>
@@ -5551,17 +5629,17 @@ Commands:
   doctor                 Read-only production readiness report for repo and workspace invariants
   release                Read-only local/configured plus optional operator-supplied remote release evidence; no packaging, signing, publishing, or live CI query
   import                 Phase 4 dry-run migration report
-  memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
-  checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
-  capsule                Governed document-only draft/test/local-publish/rollback lifecycle
-  why/counterfactual     Phase 7 causal memory report surfaces
-  sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
-  dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
-  agent                  Phase 10 governed document-read child run and evidence
-  security               Phase 11 taint denial plus read-only security audit, poisoning detection, decoy trial, and fixture
-  surface                Phase 12 contract surface: hash-only browser/IM ingress and queued outbox
-  store                  Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution
-  audit                  Read-only registry provenance, replay/memory parity, and Ledger payload-ref audits
+  memory/context/prompt  Post-V1 contract lab: source-backed Memory OS plus non-authorizing prompt plan/audit previews
+  checkpoint/branch/rehearse Post-V1 contract lab: Phase 5 sandbox and time-travel surfaces
+  capsule                Post-V1 contract lab: governed document-only draft/test/local-publish/rollback lifecycle
+  why/counterfactual     Post-V1 contract lab: Phase 7 causal memory report surfaces
+  sleep/wake/sleepers    Post-V1 contract lab: Phase 8 local trigger evaluation and queue-only resume
+  dream/anchors/persona/soul Post-V1 contract lab: governed folding, persona branches, and Soul Fork
+  agent                  Post-V1 contract lab: Phase 10 governed document-read child run and evidence
+  security               V1 readiness plus post-V1 lab: read-only security audit, poisoning detection, decoy trial, and fixture
+  surface                Post-V1 contract surface: hash-only browser/IM ingress and queued outbox
+  store                  Post-V1 contract surface: trusted-publisher signed Capsule declaration install, no code execution
+  audit                  Post-V1 support audit: registry provenance, replay/memory parity, and Ledger payload-ref audits
   help                   Show this help
 
 Options:

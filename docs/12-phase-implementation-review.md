@@ -1476,6 +1476,40 @@ Corrections and remaining boundary:
 - Release Manifest is a contract/example baseline, not a generated signed release artifact.
 - Remaining strict-review gaps include V1 Core Profile Gate, live remote CI/CodeQL reader, release packaging, artifact signing, public docs deployment, installer/updater automation, broader platform/release matrix artifacts, and deeper supervisor/vault/ingress lifecycle work.
 
+## Phase 55 Review Notes
+
+This pass follows the strict source-document drift review from the previous round. The repo already labeled later commands as post-V1 in prose, but `onboarding check` and `release evidence` did not expose a machine-readable V1 boundary, and help tests did not prove that the V1 core section excluded post-V1 labs.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): V1 is TUI-first and later GUI, IM, browser, connector, cloud, and package-code surfaces remain deferred.
+- [Roadmap](06-roadmap.md): the first runnable product is the local kernel loop plus readiness evidence, not the whole trace-backed lab surface.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): production-parity pressure must not cause V1 surface creep.
+
+Implemented correspondence:
+
+- Added `v1_core_profile` to `onboarding check` and `release evidence`.
+- The profile separates V1 release-critical product commands from release-supporting readiness commands and post-V1 contract/surface labs.
+- `security audit` is explicitly release-supporting evidence, not a V1 core product command.
+- `release evidence` blocks if a future edit causes V1 release-critical commands to overlap post-V1 labs.
+- Help text now labels the later command block as "Post-V1 / experimental local contract labs (not V1 release-critical)".
+- Help tests now slice the V1 core section and assert post-V1 command families are absent from that section.
+
+Verification evidence:
+
+- Focused test passed: `node --test --test-name-pattern "help separates|onboarding check reports fresh|release evidence reports" packages/tui/test/tui.test.ts`.
+- Full verification passed: `npm test` (143 passing), `cargo test --locked` (39 Rust tests passing), `cargo clippy --all-targets --all-features --locked -- -D warnings`, `cargo fmt --check`, `git diff --check`, `npm audit --audit-level=high --json` with 0 vulnerabilities, `doctor` ready, `security audit` pass, `release evidence` draft with `v1_core_profile.status=pass`, and forbidden tracked roots check clean.
+
+Drift review:
+
+- Corrects the documented drift where post-V1 contract/runtime labs were visible in the default CLI surface and could be mistaken for V1 release scope.
+- Does not reduce the importance of the deeper PGC-2/PGC-3 authority work: supervisor lifecycle, vault refs, and local ingress remain open.
+
+Corrections and remaining boundary:
+
+- This is not a new runtime ability, daemon, vault, ingress gateway, packaging system, signing path, or deployment path.
+- Remaining strict-review gaps include live remote CI/CodeQL reader, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and deeper supervisor/vault/ingress lifecycle work.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

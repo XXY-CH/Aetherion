@@ -411,3 +411,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 live GitHub API reader、release packager、artifact signer、installer/updater、public docs deployment 或 release evidence repository。
 - Remote evidence 只接受 workspace-local operator-supplied snapshot；live remote observation 仍是未来 PGC-1 子切片。
+
+## 已完成增量：V1 Core Profile Gate
+
+目标：把 V1 产品边界做成 onboarding 和 release evidence 中的 machine-readable profile，避免 post-V1 contract/runtime labs 被误认为 V1 release-critical surface。
+
+验收：
+
+- `onboarding check` 和 `release evidence` 输出 `v1_core_profile`。
+- profile 将 V1 release-critical commands、readiness support commands 和 post-V1 labs 分开列出。
+- `security audit` 保持 release-supporting evidence，而不是 V1 core 产品命令。
+- 如果 V1 release-critical commands 与 post-V1 lab commands 重叠，`release evidence` 会阻断。
+- `help` 测试按 section 切片 V1 core 段，并断言 post-V1 command families 不出现在其中。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：V1 继续 TUI-first，不吸收 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [路线图](06-roadmap.zh-CN.md)：Phase 1/2 kernel/readiness commands 与后续 trace-backed labs 分开。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮直接处理 production-parity 压力导致 V1 surface creep 的风险。
+
+剩余边界：
+
+- 这是 profile gate 和 release-readiness boundary，不是 supervisor lifecycle、vault、ingress、packaging、signing 或 deployment feature。
+- 下一高价值 runtime 切片仍是 supervisor lifecycle/vault refs/local ingress，除非先出现 release-evidence 或 CI blocker。

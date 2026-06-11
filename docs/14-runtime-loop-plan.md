@@ -805,3 +805,26 @@ Remaining boundary:
 
 - This is not a live GitHub API reader, release packager, artifact signer, installer/updater, public docs deployment, or release evidence repository.
 - Remote evidence is accepted only as a workspace-local operator-supplied snapshot; live remote observation remains a future PGC-1 sub-slice.
+
+## Completed Increment: V1 Core Profile Gate
+
+Target: make the V1 product boundary machine-readable in onboarding and release evidence, so post-V1 contract/runtime labs cannot be mistaken for V1 release-critical surface area.
+
+Acceptance:
+
+- `onboarding check` and `release evidence` include `v1_core_profile`.
+- The profile lists V1 release-critical commands separately from readiness support commands and post-V1 labs.
+- `security audit` remains release-supporting evidence, not a V1 core product command.
+- `release evidence` blocks if V1 release-critical commands overlap with post-V1 lab commands.
+- `help` section tests slice the V1 core section and assert post-V1 command families do not appear there.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): V1 remains TUI-first and does not absorb GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Roadmap](06-roadmap.md): Phase 1/2 kernel/readiness commands are separated from later trace-backed labs.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this directly addresses the documented risk that production-parity pressure could cause V1 surface creep.
+
+Remaining boundary:
+
+- This is a profile gate and release-readiness boundary, not a supervisor lifecycle, vault, ingress, packaging, signing, or deployment feature.
+- The next high-value runtime slice remains supervisor lifecycle/vault refs/local ingress, unless a release-evidence or CI blocker appears first.

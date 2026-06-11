@@ -292,16 +292,17 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- onboarding check --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- release evidence --workspace <path>/);
-  assert.match(help.stdout, /Trace-backed local runtime:/);
+  assert.match(help.stdout, /Post-V1 \/ experimental local contract labs \(not V1 release-critical\):/);
   assert.match(help.stdout, /npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> \[--print-output\]/);
   assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
   assert.match(help.stdout, /npm run ether -- store trust-publisher --path <publisher-key\.json>/);
-  assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
-  assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
+  assert.match(help.stdout, /memory\/context\/prompt\s+Post-V1 contract lab:/);
+  assert.match(help.stdout, /security\s+V1 readiness plus post-V1 lab:/);
+  assert.match(help.stdout, /surface\s+Post-V1 contract surface: hash-only browser\/IM ingress and queued outbox/);
+  assert.match(help.stdout, /store\s+Post-V1 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
   assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
-  assert.match(help.stdout, /security\s+Phase 11 taint denial plus read-only security audit/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
   assert.match(help.stdout, /Read-only audits:/);
@@ -309,6 +310,12 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
+  const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
+  assert.match(v1Help, /npm run ether -- run --workspace <path>/);
+  assert.match(v1Help, /npm run ether -- release evidence --workspace <path>/);
+  for (const excluded of ["memory", "prompt", "capsule", "agent", "surface", "store", "audit"]) {
+    assert.equal(v1Help.includes(`npm run ether -- ${excluded}`), false, `${excluded} must not appear in the V1 core help section`);
+  }
 });
 
 test("Ether onboarding check reports fresh-clone next steps without initializing a workspace", async () => {
@@ -347,6 +354,14 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
       workspace_runtime_state: string;
       next_steps_ready: boolean;
     };
+    v1_core_profile: {
+      status: string;
+      release_critical_commands: string[];
+      readiness_commands: string[];
+      release_support_commands: string[];
+      excluded_from_v1_release_critical: string[];
+      evidence: string[];
+    };
     checks: Array<{ id: string; status: string; evidence: string[] }>;
     next_steps: string[];
     deferred_surfaces: string[];
@@ -373,6 +388,15 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   assert.equal(report.readiness_layers.repo_ready, "ready");
   assert.equal(report.readiness_layers.workspace_runtime_state, "not_initialized");
   assert.equal(report.readiness_layers.next_steps_ready, true);
+  assert.equal(report.v1_core_profile.status, "pass");
+  assert.ok(report.v1_core_profile.release_critical_commands.includes("run"));
+  assert.ok(report.v1_core_profile.release_critical_commands.includes("release evidence"));
+  assert.ok(report.v1_core_profile.readiness_commands.includes("security audit"));
+  assert.ok(report.v1_core_profile.release_support_commands.includes("security audit"));
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("security audit"), false);
+  assert.ok(report.v1_core_profile.excluded_from_v1_release_critical.includes("prompt"));
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("prompt"), false);
+  assert.match(report.v1_core_profile.evidence.join("\n"), /not V1 release-critical/);
   assert.equal(report.checks.find((check) => check.id === "workspace_target")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_runtime_state")?.status, "not_applicable");
   assert.equal(report.checks.find((check) => check.id === "from_source_onboarding_docs")?.status, "pass");
@@ -587,6 +611,15 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
     };
+    v1_core_profile: {
+      status: string;
+      release_critical_commands: string[];
+      release_support_commands: string[];
+      post_v1_contract_labs: string[];
+      post_v1_surface_labs: string[];
+      excluded_from_v1_release_critical: string[];
+      evidence: string[];
+    };
     remote_observed_evidence: {
       status: string;
       source: string;
@@ -651,6 +684,15 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
+  assert.equal(report.v1_core_profile.status, "pass");
+  assert.ok(report.v1_core_profile.release_critical_commands.includes("run"));
+  assert.ok(report.v1_core_profile.release_support_commands.includes("security audit"));
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("security audit"), false);
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("surface"), false);
+  assert.ok(report.v1_core_profile.post_v1_contract_labs.includes("prompt"));
+  assert.ok(report.v1_core_profile.post_v1_surface_labs.includes("store"));
+  assert.ok(report.v1_core_profile.excluded_from_v1_release_critical.includes("agent"));
+  assert.match(report.v1_core_profile.evidence.join("\n"), /release_critical_overlap=none/);
   assert.equal(report.remote_observed_evidence.status, "not_checked");
   assert.equal(report.remote_observed_evidence.source, "not_provided");
   assert.equal(report.remote_observed_evidence.evidence_path, null);
@@ -5366,6 +5408,15 @@ function stdoutValue(stdout: string, key: string): string {
   const line = stdout.split("\n").find((entry) => entry.startsWith(`${key}=`));
   assert.ok(line, `missing stdout key ${key}`);
   return line.slice(key.length + 1);
+}
+
+function helpSection(stdout: string, start: string, end: string): string {
+  const startIndex = stdout.indexOf(start);
+  const endIndex = stdout.indexOf(end);
+  assert.notEqual(startIndex, -1, `missing help section ${start}`);
+  assert.notEqual(endIndex, -1, `missing help section ${end}`);
+  assert.ok(endIndex > startIndex, `${end} must appear after ${start}`);
+  return stdout.slice(startIndex, endIndex);
 }
 
 function escapeRegExp(value: string): string {

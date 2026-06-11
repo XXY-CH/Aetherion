@@ -469,6 +469,40 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Release Manifest 是 contract/example baseline，不是 generated signed release artifact。
 - 剩余严格复查差距包括 V1 Core Profile Gate、live remote CI/CodeQL reader、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 platform/release matrix artifacts，以及更深 supervisor/vault/ingress lifecycle work。
 
+## Phase 55 复核：V1 Core Profile Gate
+
+本轮跟进上一轮严格 source-document drift review。仓库已经在 prose 中标注后续命令是 post-V1，但 `onboarding check` 和 `release evidence` 还没有输出 machine-readable V1 boundary，help 测试也没有证明 V1 core section 排除了 post-V1 labs。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：V1 是 TUI-first，后续 GUI、IM、browser、connector、cloud 和 package-code surfaces 继续 deferred。
+- [路线图](06-roadmap.zh-CN.md)：第一版 runnable product 是 local kernel loop 加 readiness evidence，不是整个 trace-backed lab surface。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：production-parity 压力不能导致 V1 surface creep。
+
+本轮修正：
+
+- `onboarding check` 和 `release evidence` 新增 `v1_core_profile`。
+- profile 将 V1 release-critical product commands、release-supporting readiness commands 和 post-V1 contract/surface labs 分开。
+- `security audit` 明确是 release-supporting evidence，不是 V1 core 产品命令。
+- 如果未来改动导致 V1 release-critical commands 与 post-V1 labs 重叠，`release evidence` 会阻断。
+- help 文案将后续命令块标为 “Post-V1 / experimental local contract labs (not V1 release-critical)”。
+- help 测试现在按 section 切片 V1 core 段，并断言 post-V1 command families 不出现在其中。
+
+验证：
+
+- 目标测试通过：`node --test --test-name-pattern "help separates|onboarding check reports fresh|release evidence reports" packages/tui/test/tui.test.ts`。
+- 完整验证已通过：`npm test`（143 个测试通过）、`cargo test --locked`（39 个 Rust 测试通过）、`cargo clippy --all-targets --all-features --locked -- -D warnings`、`cargo fmt --check`、`git diff --check`、`npm audit --audit-level=high --json` 且 0 vulnerabilities、`doctor` ready、`security audit` pass、`release evidence` draft 且 `v1_core_profile.status=pass`，forbidden tracked roots check 干净。
+
+偏差复核：
+
+- 修正已记录偏差：post-V1 contract/runtime labs 出现在默认 CLI surface 中，可能被误认为 V1 release scope。
+- 这不降低 PGC-2/PGC-3 authority work 的优先级：supervisor lifecycle、vault refs 和 local ingress 仍是开放缺口。
+
+修正与剩余边界：
+
+- 这不是新的 runtime ability、daemon、vault、ingress gateway、packaging system、signing path 或 deployment path。
+- 剩余严格复查差距包括 live remote CI/CodeQL reader、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及更深 supervisor/vault/ingress lifecycle work。
+
 ## 验证要求
 
 每轮结束应至少检查：
