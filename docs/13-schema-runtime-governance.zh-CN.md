@@ -75,7 +75,9 @@ computer-use schemas 当前是 P2 contracts，带 P1 风格 validation tests。�
 
 `prompt plan`、`prompt audit`、`prompt bind-runtime`、`prompt prepare-model-request`、`prompt invoke-model` 和 `prompt propose-tool-request` 都是 P1 Agent Orchestrator evidence path，不是权限路径。它们可以产生 metadata artifact 和 governance event，但不能请求工具、发行 lease、读 raw payload、授权动作或声称 runtime verification。
 
-`prompt invoke-model` 当前支持 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`。live provider credential 只从 env 内存读取。Aetherion 不运行 browser OAuth flow、不创建 connector grant、不把 provider credential 当 tool authority。Anthropic direct Messages API 使用 `ANTHROPIC_API_KEY`，这里不实现 Anthropic OAuth。
+`prompt invoke-model` 当前支持 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`。live provider credential 只从 env 内存读取。Aetherion 不运行 browser OAuth flow、不创建 connector grant、不把 provider credential 当 tool authority。Anthropic direct Messages API 使用 `ANTHROPIC_API_KEY`，这里不实现 Anthropic OAuth。默认 stdout 只输出 hash/metadata；只有本地 operator 显式传 `--print-output` 时才回显 raw model output，且该 opt-in 不持久化 raw output、不授权动作。
+
+`ether security audit` 是只读 security findings report。它可以检查 tracked text file 中的高置信 secret material、`tools/forbidden-tracked-roots.txt` 中 forbidden root 是否被 tracking、现有 `.aetherion` artifacts 是否含 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI guard wiring，以及 `prompt invoke-model` 默认 stdout 边界。它不能初始化 `.aetherion`、追加 Ledger event、修改 registry、写 artifact、调用 provider、发 lease、repair state、quarantine Capsule、运行 package code，或启用 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 等延后表面。
 
 ## Node Baseline
 

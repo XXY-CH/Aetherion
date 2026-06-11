@@ -554,8 +554,33 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - `doctor` is a readiness report, not a repair tool, daemon lifecycle manager, release packager, security scanner, or installer.
-- A first-class `ether security audit`, broader CI artifact leakage guard, install/onboarding automation, release packaging, platform matrix, dependency reproducibility policy, and hash/metadata-only default model stdout remain future production gaps.
+- After the next increment, `security audit`, the broader CI artifact leakage guard, and hash/metadata-only default model stdout are no longer open gaps. Install/onboarding automation, release packaging, platform matrix, dependency reproducibility policy, and deeper release evidence remain future production gaps.
 
 Next likely increment after this one:
 
 - Add `ether security audit` as a read-only findings report over secret leakage, tracked runtime artifacts, authority contamination, package execution boundaries, and live-surface violations.
+
+## Completed Increment: Read-Only Security Audit And Hash-Only Model Stdout
+
+Target: make security posture inspectable from the TUI without enabling deferred product surfaces, and remove the default raw model stdout leak from `prompt invoke-model`.
+
+Acceptance:
+
+- `ether security audit --workspace <path>` emits a deterministic read-only report with `pass`, `warn`, or `fail`, scoped checks, and findings.
+- The audit checks tracked high-confidence secret material, tracked runtime/build roots from `tools/forbidden-tracked-roots.txt`, raw sensitive fields in existing runtime artifacts, workspace Ledger hash-chain validity, CI guard wiring, and the model stdout default.
+- The audit remains read-only: no workspace initialization, Ledger append, registry mutation, artifact write, provider call, lease issuance, state repair, Capsule quarantine, package execution, or live probe.
+- `prompt invoke-model` defaults to hash/metadata-only stdout; raw model output appears only with explicit `--print-output` and remains non-authorizing and unpersisted.
+- CI uses the same forbidden-root denylist as `security audit`, including `.aetherion`, build/test/report roots, `.omx`/`.omc`, and sensitive local roots such as `vault`, `memory-vault`, and `local-data`.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: strengthens auditable safety evidence without changing Aetherion into a chatbot or replacement OS.
+- `docs/01-architecture.md`: keeps Local Supervisor and Event Ledger as root/fact layers; the audit is inspection, not authority.
+- `docs/05-audit-and-data-contracts.md`: reinforces human-readable policy and Ledger evidence while keeping generated/runtime state out of git.
+- `docs/06-roadmap.md`: hardens the TUI-first V1 loop before GUI, IM, browser automation, MCP/OAuth connectors, or cloud workers.
+- `docs/13-schema-runtime-governance.md`: closes a runtime/security evidence gap without expanding schema or provider authority.
+
+Remaining boundary:
+
+- `security audit` is not a repair command, dependency scanner, release signer, package sandbox, live connector probe, OAuth flow, or secret vault.
+- Remaining production gaps are install/onboarding automation, release packaging, platform matrix, dependency/reproducibility policy, public docs deployment, and deeper dependency audit evidence.

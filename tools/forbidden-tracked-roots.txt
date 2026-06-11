@@ -1,0 +1,16 @@
+.aetherion
+target
+reports
+screenshots
+playwright-report
+test-results
+.omx
+.omc
+artifacts
+coverage
+logs
+tmp
+temp
+vault
+memory-vault
+local-data

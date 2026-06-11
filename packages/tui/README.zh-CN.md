@@ -14,6 +14,7 @@
 - 默认通过 Rust supervisor POC 路由 `run`。TypeScript seed policy path 仅用于测试，并需要 `AETHERION_ALLOW_TYPESCRIPT_SEED=1`。
 - 提供 trace、replay、doctor、audit、memory、context、prompt、capsule、sandbox、hibernation、surface、store 等本地命令表面。
 - `doctor` 输出只读生产就绪报告，检查 repo governance/docs/CI/schema baseline 以及 workspace identity、Ledger hash chain、run manifest 状态；它不初始化 workspace、不修复 state、不追加 Ledger、不写 artifact、不发 lease、不调用 provider。
+- `security audit` 输出只读安全报告，检查 tracked secret material、`tools/forbidden-tracked-roots.txt` 中的 runtime/build roots、现有 runtime artifacts 的 raw sensitive fields、workspace Ledger hash chain、CI guard wiring 和默认 model stdout 边界；它不修改 workspace state。
 - 所有 `audit *` 命令先验证 workspace Event Ledger hash chain；链被篡改时 fail closed，而不是基于坏 JSONL 输出 provenance/parity。
 - `prompt plan`、`prompt bind-runtime`、`prompt prepare-model-request`、`prompt invoke-model`、`prompt audit` 和 `prompt propose-tool-request` 组成 non-authorizing Agent Orchestrator evidence path。
 
@@ -24,9 +25,13 @@ AETHERION_MODEL_PROVIDER=openai_responses OPENAI_API_KEY=... npm run ether -- pr
 AETHERION_MODEL_PROVIDER=openai_chat_completions OPENAI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
 AETHERION_MODEL_PROVIDER=anthropic ANTHROPIC_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
 AETHERION_MODEL_PROVIDER=gemini GEMINI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
+npm run ether -- prompt invoke-model <request_id> --content <task> --workspace . --print-output
+npm run ether -- security audit --workspace .
 ```
 
 OpenAI/Gemini 可以使用外部获取的 bearer token env var；Ether 不发起 OAuth、不持久化 token、不把 provider access 当作 tool authority。Anthropic direct API 使用 `ANTHROPIC_API_KEY`。
+
+`prompt invoke-model` 默认 stdout 只输出 hash/metadata。`--print-output` 只把 raw model output 显式回显给本地 operator，不会把 raw output 持久化为 artifact、Ledger event 或 registry state。
 
 重要边界：
 

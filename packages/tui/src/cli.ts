@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -54,6 +55,7 @@ type CliOptions = {
   socketPath?: string;
   socketAuthToken?: string;
   checkWakeups: boolean;
+  printOutput: boolean;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -122,7 +124,8 @@ function parseArgs(args: string[]): CliOptions {
     replayRuns: [],
     approvePermissions: false,
     approveSensitive: false,
-    checkWakeups: false
+    checkWakeups: false,
+    printOutput: false
   };
 
   for (let index = 1; index < args.length; index += 1) {
@@ -284,6 +287,9 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--check-wakeups":
         options.checkWakeups = true;
+        break;
+      case "--print-output":
+        options.printOutput = true;
         break;
       default:
         if (!arg.startsWith("--")) {
@@ -672,7 +678,7 @@ function repoDoctorChecks(): DoctorCheck[] {
   ));
   checks.push(check(
     "ci_workflow_gate",
-    ciWorkflow && ["npm test", "cargo test", "cargo clippy --all-targets --all-features -- -D warnings", "cargo fmt --check", "git diff --check", "git ls-files .aetherion target"].every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
+    ciWorkflow && ["npm test", "cargo test", "cargo clippy --all-targets --all-features -- -D warnings", "cargo fmt --check", "git diff --check", "tools/forbidden-tracked-roots.txt"].every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
     ciWorkflow ? "info" : "error",
     "GitHub Actions workflow covers the current local quality gates.",
     [
@@ -1529,7 +1535,7 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
     { event_type: "agent.response.audit.recorded", payload_ref: auditRef }
   ]);
 
-  printRawJson({
+  const output = promptInvokeModelConsoleOutput({
     response_id: response.id,
     request_id: request.id,
     source_run_id: request.run_id,
@@ -1569,9 +1575,24 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
     response_audit_unknown_source_events: audit.unknown_source_event_ids,
     response_audit_forbidden_claims: audit.forbidden_claims_detected,
     response_audit_can_authorize_actions: false,
-    response_audit_is_runtime_verification: false,
-    output_text: result.output_text
-  });
+    response_audit_is_runtime_verification: false
+  }, result.output_text, options);
+  printRawJson(output);
+}
+
+function promptInvokeModelConsoleOutput(
+  metadata: Record<string, unknown>,
+  outputText: string,
+  options: Pick<CliOptions, "printOutput">
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {
+    ...metadata,
+    raw_output_printed: options.printOutput
+  };
+  if (options.printOutput) {
+    output.output_text = outputText;
+  }
+  return output;
 }
 
 async function runPromptProposeToolRequest(options: CliOptions): Promise<void> {
@@ -3044,6 +3065,14 @@ async function runAgent(options: CliOptions): Promise<void> {
 
 async function runSecurity(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
+  if (options.topic === "audit") {
+    const report = await buildSecurityAuditReport(workspaceRoot);
+    if (report.summary.critical > 0 || report.summary.high > 0) {
+      process.exitCode = 1;
+    }
+    printRawJson(report);
+    return;
+  }
   if (options.topic === "scan") {
     if (!options.sourceEvent || options.content === undefined) {
       throw new Error("security scan requires --source-event <event_id> and --content <text>");
@@ -3180,7 +3209,533 @@ async function runSecurity(options: CliOptions): Promise<void> {
     console.log(JSON.stringify(created.fixture, null, 2));
     return;
   }
-  throw new Error("security supports scan, ack <signal_id>, trial <signal_id>, and fixture <signal_id>");
+  throw new Error("security supports audit, scan, ack <signal_id>, trial <signal_id>, and fixture <signal_id>");
+}
+
+type SecurityAuditSeverity = "info" | "low" | "medium" | "high" | "critical";
+type SecurityAuditCheckStatus = "pass" | "warn" | "fail" | "not_applicable";
+
+type SecurityAuditFinding = {
+  id: string;
+  check_id: string;
+  severity: SecurityAuditSeverity;
+  title: string;
+  detail: string;
+  evidence: string[];
+  remediation: string;
+};
+
+type SecurityAuditCheck = {
+  id: string;
+  status: SecurityAuditCheckStatus;
+  severity: SecurityAuditSeverity;
+  summary: string;
+  evidence: string[];
+  finding_ids: string[];
+};
+
+type SecurityAuditReport = {
+  id: "aetherion_security_audit_report";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  status: "pass" | "warn" | "fail";
+  scope: {
+    read_only: true;
+    mutates_ledger: false;
+    mutates_registries: false;
+    writes_artifacts: false;
+    calls_model_provider: false;
+    issues_lease: false;
+    repairs_state: false;
+    deep_live_probe: false;
+  };
+  summary: {
+    checks: number;
+    findings: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
+  };
+  checks: SecurityAuditCheck[];
+  findings: SecurityAuditFinding[];
+};
+
+type SecurityAuditCheckResult = {
+  check: SecurityAuditCheck;
+  findings: SecurityAuditFinding[];
+};
+
+async function buildSecurityAuditReport(workspaceRoot: string): Promise<SecurityAuditReport> {
+  const workspaceLedger = await workspaceLedgerSecurityCheck(workspaceRoot);
+  const modelStdout = modelStdoutSecurityCheck();
+  const findings: SecurityAuditFinding[] = [
+    ...trackedRuntimeArtifactFindings(),
+    ...trackedSecretFindings(),
+    ...workspaceRuntimeArtifactFindings(workspaceRoot),
+    ...ciArtifactGuardFindings(),
+    ...workspaceLedger.findings,
+    ...modelStdout.findings
+  ];
+  const checks: SecurityAuditCheck[] = [
+    checkForFindings(
+      "repo.tracked_runtime_artifacts",
+      findings,
+      "No tracked runtime/build artifact roots were found.",
+      [`forbidden_roots=${forbiddenTrackedRoots().join(",")}`]
+    ),
+    checkForFindings(
+      "repo.high_confidence_secret_material",
+      findings,
+      "No high-confidence raw secret material was found in tracked repository text files.",
+      ["patterns=private_keys,api_keys,provider_tokens,github_tokens,aws_access_keys"]
+    ),
+    checkForFindings(
+      "runtime.raw_sensitive_artifacts",
+      findings,
+      existsSync(join(workspaceRoot, ".aetherion"))
+        ? "Workspace runtime artifacts do not contain raw prompt/model/provider payload fields or high-confidence secrets."
+        : "Workspace runtime state is not initialized; runtime artifact scan was skipped.",
+      [`runtime_dir=${join(workspaceRoot, ".aetherion")}`],
+      existsSync(join(workspaceRoot, ".aetherion")) ? "pass" : "not_applicable"
+    ),
+    workspaceLedger.check,
+    checkForFindings(
+      "ci.runtime_artifact_guard",
+      findings,
+      "CI artifact guard covers the documented runtime/build artifact roots.",
+      [`forbidden_roots=${forbiddenTrackedRoots().join(",")}`]
+    ),
+    modelStdout.check
+  ];
+  const summary = {
+    checks: checks.length,
+    findings: findings.length,
+    critical: findings.filter((finding) => finding.severity === "critical").length,
+    high: findings.filter((finding) => finding.severity === "high").length,
+    medium: findings.filter((finding) => finding.severity === "medium").length,
+    low: findings.filter((finding) => finding.severity === "low").length,
+    info: findings.filter((finding) => finding.severity === "info").length
+  };
+  const status = summary.critical > 0 || summary.high > 0
+    ? "fail"
+    : summary.medium > 0 || summary.low > 0
+      ? "warn"
+      : "pass";
+  return {
+    id: "aetherion_security_audit_report",
+    generated_at: new Date().toISOString(),
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    status,
+    scope: {
+      read_only: true,
+      mutates_ledger: false,
+      mutates_registries: false,
+      writes_artifacts: false,
+      calls_model_provider: false,
+      issues_lease: false,
+      repairs_state: false,
+      deep_live_probe: false
+    },
+    summary,
+    checks,
+    findings: findings.sort((left, right) => severityRank(right.severity) - severityRank(left.severity) || left.id.localeCompare(right.id))
+  };
+}
+
+function forbiddenTrackedRoots(): string[] {
+  const configured = readRepoText("tools/forbidden-tracked-roots.txt")
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+  return [
+    ".aetherion",
+    "target",
+    "reports",
+    "screenshots",
+    "playwright-report",
+    "test-results",
+    ".omx",
+    ".omc",
+    "artifacts",
+    "coverage",
+    "logs",
+    "tmp",
+    "temp",
+    "vault",
+    "memory-vault",
+    "local-data"
+  ];
+}
+
+function trackedRuntimeArtifactFindings(): SecurityAuditFinding[] {
+  const tracked = gitTrackedFiles();
+  const forbidden = forbiddenTrackedRoots();
+  return tracked
+    .filter((file) => forbidden.some((root) => file === root || file.startsWith(`${root}/`)))
+    .map((file) => securityFinding(
+      "repo.tracked_runtime_artifacts",
+      "high",
+      "Tracked runtime/build artifact",
+      `Tracked file ${file} lives under a runtime/build artifact root.`,
+      [`tracked_file=${file}`],
+      "Remove the tracked artifact and keep generated/runtime state ignored."
+    ));
+}
+
+function trackedSecretFindings(): SecurityAuditFinding[] {
+  const findings: SecurityAuditFinding[] = [];
+  for (const file of gitTrackedFiles()) {
+    const absolute = join(repoRoot, file);
+    if (!isScannableTextPath(file) || !existsSync(absolute)) {
+      continue;
+    }
+    let text: string;
+    try {
+      text = readFileSync(absolute, "utf8");
+    } catch {
+      continue;
+    }
+    for (const match of highConfidenceSecretMatches(text)) {
+      findings.push(securityFinding(
+        "repo.high_confidence_secret_material",
+        "critical",
+        "High-confidence secret material in tracked file",
+        `Tracked file ${file} contains ${match}.`,
+        [`tracked_file=${file}`, `pattern=${match}`],
+        "Remove the secret, rotate the credential, and replace examples with inert placeholders."
+      ));
+    }
+  }
+  return findings;
+}
+
+function workspaceRuntimeArtifactFindings(workspaceRoot: string): SecurityAuditFinding[] {
+  const artifactsDir = join(workspaceRoot, ".aetherion", "artifacts");
+  if (!existsSync(artifactsDir)) {
+    return [];
+  }
+  const findings: SecurityAuditFinding[] = [];
+  for (const file of jsonAndTextFiles(artifactsDir)) {
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const match of highConfidenceSecretMatches(text)) {
+      findings.push(securityFinding(
+        "runtime.raw_sensitive_artifacts",
+        "critical",
+        "High-confidence secret material in runtime artifact",
+        `Runtime artifact ${relative(workspaceRoot, file)} contains ${match}.`,
+        [`artifact=${relative(workspaceRoot, file)}`, `pattern=${match}`],
+        "Remove the raw secret artifact, rotate the credential, and preserve only redacted/hash evidence."
+      ));
+    }
+    const rawFields = rawSensitivePayloadFields(text);
+    for (const field of rawFields) {
+      findings.push(securityFinding(
+        "runtime.raw_sensitive_artifacts",
+        "medium",
+        "Raw prompt/model/provider payload field in runtime artifact",
+        `Runtime artifact ${relative(workspaceRoot, file)} contains raw field ${field}.`,
+        [`artifact=${relative(workspaceRoot, file)}`, `field=${field}`],
+        "Persist hashes, ids, refs, and audit metadata only; keep raw prompt/model/provider payloads out of artifacts."
+      ));
+    }
+  }
+  return findings;
+}
+
+function ciArtifactGuardFindings(): SecurityAuditFinding[] {
+  const workflow = readRepoText(".github/workflows/ci.yml") ?? "";
+  const denylistPath = "tools/forbidden-tracked-roots.txt";
+  const denylist = readRepoText(denylistPath) ?? "";
+  const missing = forbiddenTrackedRoots().filter((root) => !denylist.split(/\r?\n/).map((line) => line.trim()).includes(root));
+  const workflowUsesSharedDenylist = workflow.includes(denylistPath);
+  if (workflowUsesSharedDenylist && missing.length === 0) {
+    return [];
+  }
+  return missing.length === 0
+    ? [securityFinding(
+        "ci.runtime_artifact_guard",
+        "medium",
+        "CI artifact leakage guard does not use the shared denylist",
+        "The CI tracked-artifact guard is not wired to the shared forbidden root list.",
+        [`shared_denylist=${denylistPath}`],
+        "Read tracked runtime/build roots from tools/forbidden-tracked-roots.txt in CI."
+      )]
+    : [securityFinding(
+        "ci.runtime_artifact_guard",
+        "medium",
+        "CI artifact leakage guard is incomplete",
+        "The CI tracked-artifact guard does not cover every documented runtime/build artifact root.",
+        [`missing_roots=${missing.join(",")}`],
+        "Update .github/workflows/ci.yml or a checked helper script so tracked runtime/build roots fail CI."
+      )];
+}
+
+async function workspaceLedgerSecurityCheck(workspaceRoot: string): Promise<SecurityAuditCheckResult> {
+  const registryPath = join(workspaceRoot, ".aetherion", "workspace.json");
+  if (!existsSync(registryPath)) {
+    return {
+      check: {
+        id: "workspace.ledger_hash_chain",
+        status: "not_applicable",
+        severity: "info",
+        summary: "Workspace runtime state is not initialized; Ledger scan was skipped.",
+        evidence: [`workspace_registry=${registryPath}`],
+        finding_ids: []
+      },
+      findings: []
+    };
+  }
+  try {
+    const { workspace } = await loadWorkspaceFromRegistry(workspaceRoot);
+    const events = await readEvents(workspace);
+    const chain = verifyEventHashChain(events);
+    if (!chain.valid) {
+      const finding = securityFinding(
+        "workspace.ledger_hash_chain",
+        "high",
+        "Workspace Event Ledger hash chain is invalid",
+        `Workspace Ledger verification failed at ${chain.broken_at ?? "unknown"}.`,
+        [`broken_at=${chain.broken_at ?? "unknown"}`, `event_count=${events.length}`],
+        "Inspect the Ledger before trusting projections; do not repair by deleting events."
+      );
+      return {
+        check: {
+          id: "workspace.ledger_hash_chain",
+          status: "fail",
+          severity: "high",
+          summary: "Workspace Event Ledger hash chain is invalid.",
+          evidence: finding.evidence,
+          finding_ids: [finding.id]
+        },
+        findings: [finding]
+      };
+    }
+    return {
+      check: {
+        id: "workspace.ledger_hash_chain",
+        status: "pass",
+        severity: "info",
+        summary: "Workspace Event Ledger hash chain verifies.",
+        evidence: [`event_count=${events.length}`, "broken_at=none"],
+        finding_ids: []
+      },
+      findings: []
+    };
+  } catch (error) {
+    const finding = securityFinding(
+      "workspace.ledger_hash_chain",
+      "high",
+      "Workspace runtime state cannot be loaded",
+      "Workspace runtime state exists but could not be loaded read-only.",
+      [error instanceof Error ? error.message : String(error)],
+      "Inspect workspace registry identity and Ledger files before trusting projections."
+    );
+    return {
+      check: {
+        id: "workspace.ledger_hash_chain",
+        status: "fail",
+        severity: "high",
+        summary: "Workspace runtime state exists but could not be loaded read-only.",
+        evidence: finding.evidence,
+        finding_ids: [finding.id]
+      },
+      findings: [finding]
+    };
+  }
+}
+
+function modelStdoutSecurityCheck(): SecurityAuditCheckResult {
+  const defaultOutput = promptInvokeModelConsoleOutput(
+    { output_text_sha256: `sha256:${"0".repeat(64)}` },
+    "raw model output probe",
+    parseArgs(["prompt", "invoke-model", "agent_model_request_probe", "--content", "probe"])
+  );
+  const explicitOutput = promptInvokeModelConsoleOutput(
+    { output_text_sha256: `sha256:${"0".repeat(64)}` },
+    "raw model output probe",
+    parseArgs(["prompt", "invoke-model", "agent_model_request_probe", "--content", "probe", "--print-output"])
+  );
+  if (!("output_text" in defaultOutput) && defaultOutput.raw_output_printed === false && explicitOutput.output_text === "raw model output probe" && explicitOutput.raw_output_printed === true) {
+    return {
+      check: {
+        id: "prompt.invoke_model_stdout_default",
+        status: "pass",
+        severity: "info",
+        summary: "prompt invoke-model defaults to hash/metadata stdout; raw output requires --print-output.",
+        evidence: ["default_raw_output=false", "raw_output_flag=--print-output"],
+        finding_ids: []
+      },
+      findings: []
+    };
+  }
+  const finding = securityFinding(
+    "prompt.invoke_model_stdout_default",
+    "medium",
+    "Raw model output may print by default",
+    "prompt invoke-model did not prove hash/metadata-only default stdout.",
+    ["default_raw_output=unproven"],
+    "Keep raw model output behind an explicit --print-output operator flag."
+  );
+  return {
+    check: {
+      id: "prompt.invoke_model_stdout_default",
+      status: "warn",
+      severity: "medium",
+      summary: "prompt invoke-model may print raw model output by default.",
+      evidence: finding.evidence,
+      finding_ids: [finding.id]
+    },
+    findings: [finding]
+  };
+}
+
+function checkForFindings(
+  id: string,
+  findings: SecurityAuditFinding[],
+  passSummary: string,
+  passEvidence: string[],
+  emptyStatus: SecurityAuditCheckStatus = "pass"
+): SecurityAuditCheck {
+  const related = findings.filter((finding) => finding.check_id === id);
+  if (related.length === 0) {
+    return {
+      id,
+      status: emptyStatus,
+      severity: "info",
+      summary: passSummary,
+      evidence: passEvidence,
+      finding_ids: []
+    };
+  }
+  const worst = related.map((finding) => finding.severity).sort((left, right) => severityRank(right) - severityRank(left))[0] ?? "info";
+  return {
+    id,
+    status: severityRank(worst) >= severityRank("high") ? "fail" : "warn",
+    severity: worst,
+    summary: `${related.length} security finding(s) found for ${id}.`,
+    evidence: related.flatMap((finding) => finding.evidence).slice(0, 12),
+    finding_ids: related.map((finding) => finding.id)
+  };
+}
+
+function securityFinding(
+  checkId: string,
+  severity: SecurityAuditSeverity,
+  title: string,
+  detail: string,
+  evidence: string[],
+  remediation: string
+): SecurityAuditFinding {
+  const suffix = createHash("sha256").update(`${checkId}:${severity}:${title}:${evidence.join("|")}`).digest("hex").slice(0, 12);
+  return {
+    id: `sec_${checkId.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}_${suffix}`,
+    check_id: checkId,
+    severity,
+    title,
+    detail,
+    evidence,
+    remediation
+  };
+}
+
+function gitTrackedFiles(): string[] {
+  try {
+    return execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isScannableTextPath(file: string): boolean {
+  return !/\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|woff2?|ttf|otf)$/i.test(file);
+}
+
+function highConfidenceSecretMatches(text: string): string[] {
+  const patterns: Array<[string, RegExp]> = [
+    ["private_key", /-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----/],
+    ["openai_key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/],
+    ["anthropic_key", /\bsk-ant-[A-Za-z0-9_-]{20,}\b/],
+    ["google_api_key", /\bAIza[A-Za-z0-9_-]{20,}\b/],
+    ["github_token", /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/],
+    ["slack_token", /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/],
+    ["aws_access_key", /\bAKIA[0-9A-Z]{16}\b/]
+  ];
+  return patterns
+    .filter(([, pattern]) => pattern.test(text))
+    .map(([name]) => name);
+}
+
+function rawSensitivePayloadFields(text: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return [];
+  }
+  const rawKeys = new Set([
+    "output_text",
+    "raw_output",
+    "raw_model_output",
+    "raw_prompt",
+    "rendered_prompt",
+    "prompt_text",
+    "raw_provider_payload",
+    "provider_payload",
+    "raw_response"
+  ]);
+  const found = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (rawKeys.has(key) && child !== null && child !== false && child !== "") {
+        found.add(key);
+      }
+      visit(child);
+    }
+  };
+  visit(parsed);
+  return [...found].sort();
+}
+
+function jsonAndTextFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+      } else if (entry.isFile() && /\.(json|jsonl|md|txt)$/i.test(entry.name)) {
+        files.push(path);
+      }
+    }
+  };
+  walk(root);
+  return files;
+}
+
+function severityRank(severity: SecurityAuditSeverity): number {
+  return { info: 0, low: 1, medium: 2, high: 3, critical: 4 }[severity];
 }
 
 async function runSurface(options: CliOptions): Promise<void> {
@@ -3972,7 +4527,7 @@ Usage:
   npm run ether -- prompt plan <run_id> --content <task> --workspace <path>
   npm run ether -- prompt bind-runtime <run_id> --content <task> --workspace <path>
   npm run ether -- prompt prepare-model-request <invocation_id> --workspace <path>
-  npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path>
+  npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> [--print-output]
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- prompt propose-tool-request <response_audit_id> --path <workspace-file> --content <intent> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
@@ -4000,6 +4555,7 @@ Usage:
   npm run ether -- agent contract --parent-run <run_id> --child-agent <agent_id> --budget <budget_id> --capsule <capsule_id> --path <workspace-file> --content <task>
   npm run ether -- agent execute <contract_id> [--capsule <capsule_id>] [--path <workspace-file>]
   npm run ether -- security scan --source-event <event_id> --source-kind <kind> --content <text>
+  npm run ether -- security audit --workspace <path>
   npm run ether -- security ack <signal_id>
   npm run ether -- security trial <signal_id> [--capsule <capsule_id>]
   npm run ether -- security fixture <signal_id>
@@ -4034,7 +4590,7 @@ Commands:
   sleep/wake/sleepers    Phase 8 local trigger evaluation and queue-only resume
   dream/anchors/persona/soul Phase 9 governed folding, persona branches, and Soul Fork
   agent                  Phase 10 governed document-read child run and evidence
-  security               Phase 11 taint denial, poisoning detection, decoy trial, and fixture
+  security               Phase 11 taint denial plus read-only security audit, poisoning detection, decoy trial, and fixture
   surface                Phase 12 contract surface: hash-only browser/IM ingress and queued outbox
   store                  Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution
   audit                  Read-only registry provenance, replay/memory parity, and Ledger payload-ref audits
@@ -4050,6 +4606,7 @@ Options:
   --socket-path <path> Explicit foreground supervisor socket for supervisor status.
   --socket-auth-token <token> Caller-supplied token for an auth-gated supervisor socket.
   --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
+  --print-output     Explicitly include raw model output in prompt invoke-model stdout.
 `);
 }
 

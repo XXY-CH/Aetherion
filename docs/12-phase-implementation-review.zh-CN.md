@@ -165,6 +165,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不增加 GUI、browser automation、IM delivery、MCP/OAuth connector、daemon lifecycle start/stop/recover、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括 first-class `ether security audit`、更完整的 CI artifact leakage denylist、release/install/onboarding automation、platform/release matrix、dependency/reproducibility policy，以及把 `prompt invoke-model` 默认 stdout 从 raw model output 改为 hash/metadata-only。
 
+## Phase 46 复核：只读 Security Audit 与模型输出默认收敛
+
+本轮关闭严格复查指出的下一组 security-readiness gap：仓库缺少一等公民只读 security audit，CI artifact guard 仍是内联且不完整的 denylist，model invocation stdout 默认暴露 raw output。
+
+与原始文档对照：
+
+- `docs/00-product-brief.md`：安全必须能通过可审计 evidence 检查，而不是相信 agent output。
+- `docs/01-architecture.md`：Local Supervisor 仍是 root authority，Event Ledger 仍是 fact layer；新 audit 只 inspection，不授予或修复 authority。
+- `docs/05-audit-and-data-contracts.md`：generated runtime files、local vault-like roots 和 artifacts 默认不应进入 tracked governance sources，除非被有意提升。
+- `docs/06-roadmap.md`：继续先硬化 TUI-first V1 path，再启用 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package execution。
+- `docs/13-schema-runtime-governance.md`：model output、audit pass、projection row 和 CI check 都不是 runtime authority。
+- `docs/14-runtime-loop-plan.md`：本轮执行 planned read-only `ether security audit` increment，并把边界写回原始 runtime plan。
+
+本轮修正：
+
+- 新增 `ether security audit --workspace <path>` deterministic read-only JSON report，覆盖 tracked secret material、tracked runtime/build artifact roots、现有 `.aetherion` artifact raw sensitive fields、workspace Ledger hash-chain validity、CI guard wiring 和 model stdout default。
+- 新增 `tools/forbidden-tracked-roots.txt` 作为 CI 与 `security audit` 的共享 denylist，把 `vault`、`memory-vault`、`local-data` 纳入 runtime/build/test/report roots 同一检查面。
+- `prompt invoke-model` 默认 stdout 改为 hash/metadata-only。raw model output 只有显式 `--print-output` 才回显，仍不持久化，也不能授权 tool request 或 action。
+- `doctor` 已识别共享 CI denylist；command help、README、TUI README 和 docs 都把新 surface 链回 implementation tracking docs。
+
+验证：
+
+- 目标 TUI 测试：`node --test --test-name-pattern "TUI help|TUI doctor|Ether security audit|TUI exposes local-only phase command surfaces" packages/tui/test/tui.test.ts` 通过 6 个测试。
+- 新增/更新测试覆盖：未初始化 workspace 上运行 `security audit` 不创建 `.aetherion`；Ledger hash chain 被篡改时 security audit fail closed 并产出 report finding；shared denylist evidence 包含 sensitive local roots；默认 `prompt invoke-model` stdout 不含 `output_text`；`--print-output` 显式 opt-in 行为。
+
+修正与剩余边界：
+
+- 修正 OpenClaw-like security audit parity gap，但不新增 repair tool、dependency scanner、live connector probe、package sandbox、OAuth flow 或 secret vault。
+- 修正 local/operator stdout 默认 raw-output 泄漏风险，同时保留显式本地 operator debugging 入口。
+- 本轮仍不增加 GUI、browser automation、IM delivery、MCP/OAuth connector、daemon lifecycle start/stop/recover、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 install/onboarding automation、release packaging、platform/release matrix、dependency/reproducibility policy、public docs deployment 和更深入的 dependency audit evidence。
+
 ## 验证要求
 
 每轮结束应至少检查：

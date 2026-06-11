@@ -1172,6 +1172,38 @@ Corrections and remaining boundary:
 - This still does not add GUI, browser automation, IM delivery, MCP/OAuth connectors, daemon lifecycle start/stop/recover, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include a first-class `ether security audit`, broader CI artifact leakage denylist, release/install/onboarding automation, platform/release matrix, dependency/reproducibility policy, and changing `prompt invoke-model` default stdout behavior away from raw model output.
 
+## Phase 46 Review Notes
+
+This pass closes the next security-readiness slice identified by the strict review: the repo needed a first-class read-only security audit, the CI artifact guard still used an inline partial denylist, and model invocation stdout exposed raw output by default.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: safety must be inspectable through auditable evidence, not through trust in agent output.
+- `docs/01-architecture.md`: Local Supervisor remains root authority and Event Ledger remains the fact layer; the new audit inspects but does not grant or repair authority.
+- `docs/05-audit-and-data-contracts.md`: generated runtime files, local vault-like roots, and artifacts must remain outside tracked governance sources unless intentionally promoted.
+- `docs/06-roadmap.md`: this hardens the TUI-first V1 path before GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package execution.
+- `docs/13-schema-runtime-governance.md`: model output, audit pass, projection rows, and CI checks are not runtime authority.
+- `docs/14-runtime-loop-plan.md`: this follows the planned read-only `ether security audit` increment and records the boundary in the original runtime plan.
+
+Implemented correspondence:
+
+- Added `ether security audit --workspace <path>` as a deterministic read-only JSON report over tracked secret material, tracked runtime/build artifact roots, raw sensitive fields in existing `.aetherion` artifacts, workspace Ledger hash-chain validity, CI guard wiring, and the model stdout default.
+- Added `tools/forbidden-tracked-roots.txt` as the shared denylist for CI and `security audit`, extending coverage to `vault`, `memory-vault`, and `local-data` in addition to runtime/build/test/report roots.
+- Changed `prompt invoke-model` default stdout to hash/metadata-only. Raw model output is available only through explicit `--print-output`, remains unpersisted, and cannot authorize tool requests or actions.
+- Updated `doctor` to recognize the shared CI denylist, updated command help, and linked README/TUI/docs descriptions back to the implementation tracking docs.
+
+Verification evidence:
+
+- Targeted TUI run: `node --test --test-name-pattern "TUI help|TUI doctor|Ether security audit|TUI exposes local-only phase command surfaces" packages/tui/test/tui.test.ts` passed 6 tests.
+- New/updated tests cover `security audit` on an uninitialized workspace without creating `.aetherion`, fail-closed audit reporting on a tampered Ledger hash chain, shared denylist evidence including sensitive local roots, default `prompt invoke-model` stdout omitting `output_text`, and `--print-output` opt-in behavior.
+
+Corrections and remaining boundary:
+
+- Corrects the OpenClaw-like security audit parity gap without adding a repair tool, dependency scanner, live connector probe, package sandbox, OAuth flow, or secret vault.
+- Corrects a raw-output leakage risk in local/operator stdout defaults while preserving explicit local operator access for debugging.
+- This still does not add GUI, browser automation, IM delivery, MCP/OAuth connectors, daemon lifecycle start/stop/recover, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include install/onboarding automation, release packaging, platform/release matrix, dependency/reproducibility policy, public docs deployment, and deeper dependency audit evidence.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

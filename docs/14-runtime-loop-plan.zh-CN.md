@@ -179,8 +179,33 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - `doctor` 是 readiness report，不是 repair tool、daemon lifecycle manager、release packager、security scanner 或 installer。
-- first-class `ether security audit`、更完整的 CI artifact leakage guard、install/onboarding automation、release packaging、platform matrix、dependency reproducibility policy、默认 hash/metadata-only model stdout 仍是后续生产差距。
+- 下一增量后，`security audit`、更完整的 CI artifact leakage guard 和默认 hash/metadata-only model stdout 不再是开放差距。install/onboarding automation、release packaging、platform matrix、dependency reproducibility policy 和更深入的 release evidence 仍是后续生产差距。
 
 下一步候选：
 
 - 增加 `ether security audit`，作为只读 findings report 检查 secret leakage、tracked runtime artifacts、authority contamination、package execution boundaries 和 live-surface violations。
+
+## 已完成增量：只读 Security Audit 与 Hash-Only Model Stdout
+
+目标：让 TUI 能只读检查 security posture，同时不启用延后产品表面；并移除 `prompt invoke-model` 默认 raw model stdout 泄漏。
+
+验收：
+
+- `ether security audit --workspace <path>` 输出 deterministic read-only report，包含 `pass`/`warn`/`fail`、scoped checks 和 findings。
+- audit 检查 tracked 高置信 secret material、`tools/forbidden-tracked-roots.txt` 中 runtime/build roots 是否被 tracking、现有 runtime artifact raw sensitive fields、workspace Ledger hash chain、CI guard wiring 和 model stdout default。
+- audit 保持只读：不初始化 workspace、不追加 Ledger、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state、不 quarantine Capsule、不执行 package、不做 live probe。
+- `prompt invoke-model` 默认 stdout 只输出 hash/metadata；raw model output 只有显式 `--print-output` 才回显，并且仍不授权、不持久化。
+- CI 与 `security audit` 使用同一 forbidden-root denylist，覆盖 `.aetherion`、build/test/report roots、`.omx`/`.omc`，以及 `vault`、`memory-vault`、`local-data` 等 sensitive local roots。
+
+与原始文档对照和修正：
+
+- `docs/00-product-brief.md`：强化可审计安全证据，不把 Aetherion 改成 chatbot 或 replacement OS。
+- `docs/01-architecture.md`：Local Supervisor 与 Event Ledger 仍是 root/fact layer；audit 是 inspection，不是 authority。
+- `docs/05-audit-and-data-contracts.md`：强化 human-readable policy 和 Ledger evidence，同时保持 generated/runtime state 不进入 git。
+- `docs/06-roadmap.md`：先硬化 TUI-first V1 loop，再扩展 GUI、IM、browser automation、MCP/OAuth connector 或 cloud worker。
+- `docs/13-schema-runtime-governance.md`：关闭 runtime/security evidence gap，不扩大 schema 或 provider authority。
+
+剩余边界：
+
+- `security audit` 不是 repair command、dependency scanner、release signer、package sandbox、live connector probe、OAuth flow 或 secret vault。
+- 剩余生产差距包括 install/onboarding automation、release packaging、platform matrix、dependency/reproducibility policy、public docs deployment 和更深入的 dependency audit evidence。

@@ -291,11 +291,15 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
   assert.match(help.stdout, /Trace-backed local runtime:/);
+  assert.match(help.stdout, /npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> \[--print-output\]/);
   assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
   assert.match(help.stdout, /npm run ether -- store trust-publisher --path <publisher-key\.json>/);
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
   assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
+  assert.match(help.stdout, /security\s+Phase 11 taint denial plus read-only security audit/);
+  assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
+  assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
@@ -371,6 +375,110 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "workspace_run_manifests")?.status, "pass");
   assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
   assert.deepEqual(await readdir(runsPath), runsBefore);
+});
+
+test("Ether security audit reports read-only status without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-security-audit-empty-"));
+
+  const audit = await execFileAsync(process.execPath, [
+    cliPath,
+    "security",
+    "audit",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    status: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      mutates_registries: boolean;
+      writes_artifacts: boolean;
+      calls_model_provider: boolean;
+      issues_lease: boolean;
+      repairs_state: boolean;
+    };
+    summary: { findings: number; high: number; critical: number };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+    findings: unknown[];
+  };
+  assert.equal(report.id, "aetherion_security_audit_report");
+  assert.equal(report.status, "pass");
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.mutates_registries, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.calls_model_provider, false);
+  assert.equal(report.scope.issues_lease, false);
+  assert.equal(report.scope.repairs_state, false);
+  assert.equal(report.summary.findings, 0);
+  assert.equal(report.summary.high, 0);
+  assert.equal(report.summary.critical, 0);
+  assert.equal(report.findings.length, 0);
+  assert.equal(report.checks.find((check) => check.id === "workspace.ledger_hash_chain")?.status, "not_applicable");
+  assert.equal(report.checks.find((check) => check.id === "prompt.invoke_model_stdout_default")?.status, "pass");
+  const artifactGuardEvidence = report.checks.find((check) => check.id === "repo.tracked_runtime_artifacts")?.evidence.join("\n") ?? "";
+  assert.match(artifactGuardEvidence, /vault/);
+  assert.match(artifactGuardEvidence, /memory-vault/);
+  assert.match(artifactGuardEvidence, /local-data/);
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Ether security audit fails closed on an invalid Ledger hash chain", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-security-audit-chain-"));
+  await writeFile(join(workspace, "README.md"), "Security audit chain source\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerLines = (await readFile(ledgerPath, "utf8")).trim().split("\n");
+  const firstEvent = JSON.parse(ledgerLines[0]) as EventRecord;
+  firstEvent.summary = "tampered security audit source";
+  ledgerLines[0] = JSON.stringify(firstEvent);
+  await writeFile(ledgerPath, `${ledgerLines.join("\n")}\n`);
+  const ledgerBeforeAudit = await readFile(ledgerPath, "utf8");
+  const runsBeforeAudit = await readdir(runsPath);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "security",
+      "audit",
+      "--workspace",
+      workspace
+    ]),
+    (error: unknown) => {
+      const report = JSON.parse(commandStdout(error)) as {
+        status: string;
+        summary: { high: number };
+        checks: Array<{ id: string; status: string; finding_ids: string[]; evidence: string[] }>;
+        findings: Array<{ id: string; check_id: string; severity: string; detail: string }>;
+      };
+      assert.equal(report.status, "fail");
+      assert.ok(report.summary.high >= 1);
+      const chainCheck = report.checks.find((check) => check.id === "workspace.ledger_hash_chain");
+      assert.equal(chainCheck?.status, "fail");
+      assert.equal(chainCheck?.finding_ids.length, 1);
+      assert.match(chainCheck?.evidence.join("\n") ?? "", new RegExp(firstEvent.id));
+      const chainFinding = report.findings.find((finding) => finding.id === chainCheck?.finding_ids[0]);
+      assert.equal(chainFinding?.check_id, "workspace.ledger_hash_chain");
+      assert.equal(chainFinding?.severity, "high");
+      return true;
+    }
+  );
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBeforeAudit);
+  assert.deepEqual(await readdir(runsPath), runsBeforeAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 });
 
 test("TUI trace and replay fail closed on tampered run manifests", async () => {
@@ -1718,7 +1826,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
     response_audit_forbidden_claims: string[];
     response_audit_can_authorize_actions: boolean;
     response_audit_is_runtime_verification: boolean;
-    output_text: string;
+    raw_output_printed: boolean;
+    output_text?: string;
   };
   assert.equal(modelResponseRecord.request_id, modelRequestRecord.request_id);
   assert.equal(modelResponseRecord.source_run_id, runId);
@@ -1758,7 +1867,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.deepEqual(modelResponseRecord.response_audit_forbidden_claims, []);
   assert.equal(modelResponseRecord.response_audit_can_authorize_actions, false);
   assert.equal(modelResponseRecord.response_audit_is_runtime_verification, false);
-  assert.match(modelResponseRecord.output_text, /## Evidence Summary/);
+  assert.equal(modelResponseRecord.raw_output_printed, false);
+  assert.equal(Object.hasOwn(modelResponseRecord, "output_text"), false);
 
   // The persisted response artifact records hashes only: no raw model output,
   // no resolved credential, audit not claimed passed.
@@ -2285,6 +2395,40 @@ test("TUI exposes local-only phase command surfaces", async () => {
     && event.event_type === "agent.runtime.bound"
     && event.payload_ref === secondBindingRecord.artifact_ref
   ));
+  const secondPrepareModelRequest = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "prepare-model-request",
+    secondBindingRecord.invocation_id,
+    "--workspace",
+    workspace
+  ]);
+  const secondModelRequestRecord = JSON.parse(secondPrepareModelRequest.stdout) as { request_id: string };
+  const invokeModelWithOutput = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "invoke-model",
+    secondModelRequestRecord.request_id,
+    "--content",
+    "Draft a different local implementation plan.",
+    "--workspace",
+    workspace,
+    "--print-output"
+  ], { env: { ...process.env, AETHERION_MODEL_PROVIDER: "stub" } });
+  const modelResponseWithOutput = JSON.parse(invokeModelWithOutput.stdout) as {
+    request_id: string;
+    raw_output_printed: boolean;
+    output_text: string;
+    raw_response_persisted: boolean;
+    raw_prompt_persisted: boolean;
+    runtime_authority_granted: boolean;
+  };
+  assert.equal(modelResponseWithOutput.request_id, secondModelRequestRecord.request_id);
+  assert.equal(modelResponseWithOutput.raw_output_printed, true);
+  assert.match(modelResponseWithOutput.output_text, /## Evidence Summary/);
+  assert.equal(modelResponseWithOutput.raw_response_persisted, false);
+  assert.equal(modelResponseWithOutput.raw_prompt_persisted, false);
+  assert.equal(modelResponseWithOutput.runtime_authority_granted, false);
   const ledgerBeforePromptAudit = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   const responsePath = join(workspace, "prompt-response.md");
   await writeFile(responsePath, [
@@ -4791,4 +4935,10 @@ function commandStderr(error: unknown): string {
   assert.equal(typeof error, "object");
   assert.notEqual(error, null);
   return String((error as { stderr?: unknown }).stderr ?? error);
+}
+
+function commandStdout(error: unknown): string {
+  assert.equal(typeof error, "object");
+  assert.notEqual(error, null);
+  return String((error as { stdout?: unknown }).stdout ?? "");
 }
