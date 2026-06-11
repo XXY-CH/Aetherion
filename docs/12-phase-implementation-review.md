@@ -1510,6 +1510,36 @@ Corrections and remaining boundary:
 - This is not a new runtime ability, daemon, vault, ingress gateway, packaging system, signing path, or deployment path.
 - Remaining strict-review gaps include live remote CI/CodeQL reader, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and deeper supervisor/vault/ingress lifecycle work.
 
+## Phase 56 Review Notes
+
+This pass starts the vault portion of PGC-2 without implementing a vault backend. The goal is to make credential material referenceable and auditable as metadata only, so future policy/vault work has a contract while current reports cannot imply raw-secret storage, OAuth, token refresh, or connector grants exist.
+
+Matched source docs:
+
+- [Technical Strategy](10-technical-strategy.md): Rust should eventually own vault and authority boundaries; this pass keeps TypeScript limited to contract/readiness inspection.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): new schema surface must have a runtime tier and negative tests for raw secrets or inherited authority.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 calls for vault/secret reference MVP before real OAuth or connector use.
+- [Roadmap](06-roadmap.md): MCP/OAuth/SaaS connectors remain deferred from V1.
+
+Implemented correspondence:
+
+- Added `schemas/vault-reference.schema.json` and `examples/contracts/vault-reference.json` as a metadata-only contract.
+- Added the schema/example to the existing contract validation suite.
+- Added a negative schema test that rejects raw secret material, raw-secret availability to Aetherion, completed OAuth-flow claims, connector-grant claims, and extra raw-secret fields.
+- `doctor`, `onboarding check`, and `release evidence` now include `vault_reference_contract` readiness evidence.
+- README, package docs, and schema governance docs now describe Vault Reference as metadata-only readiness evidence, not a vault backend.
+
+Drift review:
+
+- Corrects a potential schema-governance drift by assigning `vault-reference` to the P1 readiness/credential-boundary metadata tier.
+- Corrects a production-readiness gap by making reports check for a reference-only credential contract before real OAuth/connector work starts.
+- No GUI, browser automation, IM delivery, MCP/OAuth connector, cloud worker, package execution, raw secret persistence, token refresh, or connector grant was added.
+
+Corrections and remaining boundary:
+
+- This is not a production vault, OS keychain integration, secret retrieval API, OAuth flow, token refresh path, connector grant lifecycle, policy lease, or runtime authority grant.
+- Remaining strict-review gaps include supervisor lifecycle/vault binding design, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, and broader projection parity coverage.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

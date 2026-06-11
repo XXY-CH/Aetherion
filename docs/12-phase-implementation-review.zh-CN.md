@@ -503,6 +503,36 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 这不是新的 runtime ability、daemon、vault、ingress gateway、packaging system、signing path 或 deployment path。
 - 剩余严格复查差距包括 live remote CI/CodeQL reader、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及更深 supervisor/vault/ingress lifecycle work。
 
+## Phase 56 复核：Metadata-Only Vault Reference Contract
+
+本轮启动 PGC-2 的 vault 部分，但不实现 vault backend。目标是让 credential material 先以 metadata-only 形式被引用和审计，给未来 policy/vault work 一个合同，同时避免当前报告误称已经有 raw-secret storage、OAuth、token refresh 或 connector grant。
+
+与原始文档对照：
+
+- [技术策略](10-technical-strategy.zh-CN.md)：vault 和 authority boundary 未来应由 Rust 拥有；本轮 TypeScript 只做 contract/readiness inspection。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：新增 schema surface 必须有 runtime tier，并对 raw secret 或 inherited authority 加负向测试。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 要求先做 vault/secret reference MVP，再进入真实 OAuth 或 connector 使用。
+- [路线图](06-roadmap.zh-CN.md)：MCP/OAuth/SaaS connector 仍然 deferred from V1。
+
+本轮修正：
+
+- 新增 `schemas/vault-reference.schema.json` 和 `examples/contracts/vault-reference.json`，作为 metadata-only contract。
+- 将 schema/example 加入现有 contract validation suite。
+- 新增负向 schema 测试，拒绝 raw secret material、raw secret 对 Aetherion 可用、OAuth flow 已完成、connector grant 已创建，以及额外 raw-secret 字段。
+- `doctor`、`onboarding check` 和 `release evidence` 现在输出 `vault_reference_contract` readiness evidence。
+- README、package docs 和 schema governance docs 都说明 Vault Reference 是 metadata-only readiness evidence，不是 vault backend。
+
+偏差复核：
+
+- 修正潜在 schema-governance 偏差：`vault-reference` 被分到 P1 readiness/credential-boundary metadata tier。
+- 修正 production-readiness gap：真实 OAuth/connector work 开始前，报告会检查 reference-only credential contract。
+- 没有新增 GUI、browser automation、IM delivery、MCP/OAuth connector、cloud worker、package execution、raw secret persistence、token refresh 或 connector grant。
+
+修正与剩余边界：
+
+- 这不是 production vault、OS keychain integration、secret retrieval API、OAuth flow、token refresh path、connector grant lifecycle、policy lease 或 runtime authority grant。
+- 剩余严格复查差距包括 supervisor lifecycle/vault binding design、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation 和更广 projection parity coverage。
+
 ## 验证要求
 
 每轮结束应至少检查：

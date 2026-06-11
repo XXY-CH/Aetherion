@@ -38,12 +38,12 @@ P0 gate：
 
 P1 支持已经实现但刻意窄化的本地 runtime slices。变更必须引用 source Ledger events 或通过 provenance audit 的 persisted registry evidence，不能合成缺失 evidence。
 
-包括 Memory OS/prompt assembly、Capability OS、Sandbox/branching、causal reports、hibernation、security/surface slices，以及 agent runtime/model request/model response/response audit/tool request proposal metadata。
+包括 Memory OS/prompt assembly、Capability OS、Sandbox/branching、causal reports、hibernation、security/surface slices、release manifest、vault reference，以及 agent runtime/model request/model response/response audit/tool request proposal metadata。release manifest 和 vault reference 可以被 `doctor`、`onboarding check`、`release evidence` 验证，但它们不打包 release、不签名 artifact、不持久化 raw secret、不实现 OAuth、不刷新 token、不创建 connector grant。
 
 P1 gate：
 
 - 指出 command 或 module path 如何从真实 Ledger evidence 生产合同。
-- 对 missing source events、inherited authority、raw secrets 或 live side-effect replay 加负向测试。
+- 对 missing source events、inherited authority、raw secrets 或 live side-effect replay 加负向测试。vault-reference 变更必须证明 raw secret material、OAuth flow 完成、connector grant 和可复用 credential authority 会被拒绝，而不是被表示成已实现 runtime behavior。
 - 高级行为保持 report-only 或 sandbox-only，直到 Rust supervisor authority 存在。
 - Store install 必须把 package signature 绑定到 package 外部的 trust anchor，解析本地 Replay Record evidence，并校验 sandbox artifact hash。package 内自带 public key、自报 replay status 或 fixture-only sandbox metadata 都不够。
 - registry row 存在不等于可重建。read-only audits 只能报告，不修复、不授权。

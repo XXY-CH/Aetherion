@@ -691,6 +691,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("bilingual_main_docs") ?? missingRepoCheck("bilingual_main_docs"),
     repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
     repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
+    repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
   ];
@@ -718,6 +719,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "bilingual_main_docs",
     "runtime_artifact_ignore_rules",
     "schema_example_manifest",
+    "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
   const workspaceLayer = onboardingWorkspaceRuntimeState(workspaceChecks);
@@ -947,6 +949,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    vault_reference_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
   };
   v1_core_profile: V1CoreProfile;
   remote_observed_evidence: RemoteObservedEvidence;
@@ -996,6 +1002,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const dependencyLockfiles = doctorChecks.get("dependency_lockfiles");
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
+  const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
   const remoteBlocksRelease = remoteEvidence.status === "invalid"
@@ -1076,6 +1083,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       bilingual_main_docs: {
         status: bilingualMainDocs?.status ?? "fail",
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
+      },
+      vault_reference_contract: {
+        status: vaultReferenceContract?.status ?? "fail",
+        evidence: vaultReferenceContract?.evidence ?? ["vault_reference_contract=missing"]
       }
     },
     v1_core_profile: v1CoreProfile,
@@ -1115,6 +1126,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
+      "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
       "public docs are not deployed",
       "installer and updater infrastructure are not implemented",
       "broader platform/release matrix artifacts are not produced",
@@ -1662,7 +1674,62 @@ function repoDoctorChecks(): DoctorCheck[] {
     ],
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
+  checks.push(vaultReferenceContractCheck());
   return checks;
+}
+
+function vaultReferenceContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/vault-reference.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/vault-reference.json");
+  const example = readRepoJson("examples/contracts/vault-reference.json") as {
+    reference?: { uri?: unknown };
+    fingerprint?: { value?: unknown };
+    redaction?: {
+      ledger_material?: unknown;
+      artifact_material?: unknown;
+      run_manifest_material?: unknown;
+    };
+    limits?: {
+      raw_secret_persisted?: unknown;
+      raw_secret_available_to_aetherion?: unknown;
+      oauth_flow_implemented?: unknown;
+      connector_grant_implemented?: unknown;
+    };
+  } | null;
+  const noRawMaterial = example?.limits?.raw_secret_persisted === false
+    && example.limits.raw_secret_available_to_aetherion === false
+    && example.limits.oauth_flow_implemented === false
+    && example.limits.connector_grant_implemented === false;
+  const referenceOnly = typeof example?.reference?.uri === "string"
+    && example.reference.uri.startsWith("vault://")
+    && typeof example.fingerprint?.value === "string"
+    && example.fingerprint.value.startsWith("sha256:")
+    && example.redaction?.ledger_material === "reference_and_fingerprint_only"
+    && example.redaction.artifact_material === "reference_and_fingerprint_only"
+    && example.redaction.run_manifest_material === "reference_and_fingerprint_only";
+  const ok = schemaPresent && examplePresent && noRawMaterial && referenceOnly;
+  return check(
+    "vault_reference_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Metadata-only vault reference contract is present and keeps raw secret material out of repo examples."
+      : "Vault reference contract is missing or does not prove metadata-only redaction boundaries.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `reference_uri=${typeof example?.reference?.uri === "string" && example.reference.uri.startsWith("vault://") ? "vault_ref" : "missing"}`,
+      `fingerprint=${typeof example?.fingerprint?.value === "string" && example.fingerprint.value.startsWith("sha256:") ? "sha256" : "missing"}`,
+      `raw_secret_persisted=${String(example?.limits?.raw_secret_persisted ?? "missing")}`,
+      `raw_secret_available_to_aetherion=${String(example?.limits?.raw_secret_available_to_aetherion ?? "missing")}`,
+      `oauth_flow_implemented=${String(example?.limits?.oauth_flow_implemented ?? "missing")}`,
+      `connector_grant_implemented=${String(example?.limits?.connector_grant_implemented ?? "missing")}`,
+      `ledger_material=${String(example?.redaction?.ledger_material ?? "missing")}`,
+      `artifact_material=${String(example?.redaction?.artifact_material ?? "missing")}`,
+      `run_manifest_material=${String(example?.redaction?.run_manifest_material ?? "missing")}`
+    ],
+    "Restore schemas/vault-reference.schema.json and examples/contracts/vault-reference.json with reference-only material, sha256 fingerprint evidence, and raw/OAuth/connector limits set to false."
+  );
 }
 
 function ciGateNeedles(): string[] {

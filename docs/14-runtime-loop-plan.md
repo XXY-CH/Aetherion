@@ -828,3 +828,25 @@ Remaining boundary:
 
 - This is a profile gate and release-readiness boundary, not a supervisor lifecycle, vault, ingress, packaging, signing, or deployment feature.
 - The next high-value runtime slice remains supervisor lifecycle/vault refs/local ingress, unless a release-evidence or CI blocker appears first.
+
+## Completed Increment: Metadata-Only Vault Reference Contract
+
+Target: start the PGC-2 vault path with a schema-valid reference contract and readiness checks that prove Aetherion can name credential material without storing or using raw secrets.
+
+Acceptance:
+
+- `vault-reference.schema.json` and its example validate with the existing contract example suite.
+- The schema rejects raw secret material, completed OAuth-flow claims, connector grants, and raw-secret availability to Aetherion.
+- `doctor`, `onboarding check`, and `release evidence` surface `vault_reference_contract` readiness evidence.
+- Release evidence keeps the remaining gap explicit: metadata-only vault references exist, but no production vault backend, token refresh, or connector grant lifecycle is implemented.
+
+Matched source docs and corrections:
+
+- [Technical Strategy](10-technical-strategy.md): vault belongs in the Rust authority boundary later; this slice only defines metadata that current TypeScript readiness reports can inspect.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): the new contract is assigned to the P1 readiness/credential-boundary metadata tier and has negative tests for raw secrets and OAuth/connector overclaiming.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this starts PGC-2 without enabling real OAuth connectors, token persistence, or connector grants.
+
+Remaining boundary:
+
+- This is not a production vault backend, OS keychain integration, token refresh system, OAuth authorization flow, connector grant lifecycle, secret retrieval API, policy lease, or runtime authority grant.
+- The next slice can either continue PGC-2 with supervisor lifecycle/vault reference binding design or return to PGC-1 live remote observation if release evidence becomes the higher risk.

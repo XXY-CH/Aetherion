@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/vault-reference.schema.json",
+  "title": "VaultReference",
+  "type": "object",
+  "required": [
+    "id",
+    "workspace_id",
+    "provider",
+    "secret_family",
+    "storage_backend",
+    "reference",
+    "fingerprint",
+    "redaction",
+    "policy_binding",
+    "lifecycle",
+    "limits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^vaultref_[A-Za-z0-9_-]+$" },
+    "workspace_id": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]+$" },
+    "provider": {
+      "type": "string",
+      "enum": ["operator_supplied", "local_os_keychain", "external_vault", "future_connector"]
+    },
+    "secret_family": {
+      "type": "string",
+      "enum": ["provider_api_key", "external_bearer_token", "connector_oauth_token", "signing_key", "local_socket_token"]
+    },
+    "storage_backend": {
+      "type": "string",
+      "enum": ["not_configured", "local_os_keychain", "external_operator", "future_vault_backend"]
+    },
+    "reference": {
+      "type": "object",
+      "required": ["uri", "scope", "material_kind"],
+      "additionalProperties": false,
+      "properties": {
+        "uri": { "type": "string", "pattern": "^vault://[A-Za-z0-9][A-Za-z0-9_./:-]*$" },
+        "scope": { "type": "string", "enum": ["workspace", "policy_decision", "connector_grant", "release_signing"] },
+        "material_kind": { "type": "string", "enum": ["opaque_secret_reference"] }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["sha256"] },
+        "value": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["display", "ledger_material", "artifact_material", "run_manifest_material"],
+      "additionalProperties": false,
+      "properties": {
+        "display": { "type": "string", "pattern": "^redacted:[A-Za-z0-9_.:-]+$" },
+        "ledger_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] },
+        "artifact_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] },
+        "run_manifest_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] }
+      }
+    },
+    "policy_binding": {
+      "type": "object",
+      "required": ["allowed_consumers", "requires_fresh_approval", "lease_required", "egress_allowed"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed_consumers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["policy_engine", "connector_adapter", "provider_adapter", "release_signer"] }
+        },
+        "requires_fresh_approval": { "type": "boolean" },
+        "lease_required": { "type": "boolean" },
+        "egress_allowed": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status", "created_at", "rotates_at", "revoked_at"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["declared", "active", "rotation_required", "revoked"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "rotates_at": { "type": "string", "format": "date-time" },
+        "revoked_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["raw_secret_persisted", "raw_secret_available_to_aetherion", "oauth_flow_implemented", "connector_grant_implemented"],
+      "additionalProperties": false,
+      "properties": {
+        "raw_secret_persisted": { "type": "boolean", "enum": [false] },
+        "raw_secret_available_to_aetherion": { "type": "boolean", "enum": [false] },
+        "oauth_flow_implemented": { "type": "boolean", "enum": [false] },
+        "connector_grant_implemented": { "type": "boolean", "enum": [false] }
+      }
+    }
+  }
+}

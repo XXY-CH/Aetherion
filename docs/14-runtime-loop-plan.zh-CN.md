@@ -434,3 +434,25 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这是 profile gate 和 release-readiness boundary，不是 supervisor lifecycle、vault、ingress、packaging、signing 或 deployment feature。
 - 下一高价值 runtime 切片仍是 supervisor lifecycle/vault refs/local ingress，除非先出现 release-evidence 或 CI blocker。
+
+## 已完成增量：Metadata-Only Vault Reference Contract
+
+目标：启动 PGC-2 vault path，用 schema-valid reference contract 和 readiness checks 证明 Aetherion 现在只能命名 credential material，不能存储或使用 raw secret。
+
+验收：
+
+- `vault-reference.schema.json` 及其 example 通过现有 contract example suite。
+- schema 拒绝 raw secret material、OAuth flow 已完成声明、connector grant 和 raw secret 对 Aetherion 可用的声明。
+- `doctor`、`onboarding check` 和 `release evidence` 输出 `vault_reference_contract` readiness evidence。
+- release evidence 继续明确剩余缺口：metadata-only vault reference 已存在，但没有 production vault backend、token refresh 或 connector grant lifecycle。
+
+与原始文档对照和修正：
+
+- [技术策略](10-technical-strategy.zh-CN.md)：vault 未来属于 Rust authority boundary；本轮只定义当前 TypeScript readiness reports 可检查的 metadata。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：新合同被分到 P1 readiness/credential-boundary metadata tier，并有 raw secret 与 OAuth/connector overclaiming 的负向测试。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮启动 PGC-2，但不启用真实 OAuth connector、token persistence 或 connector grant。
+
+剩余边界：
+
+- 这不是 production vault backend、OS keychain integration、token refresh system、OAuth authorization flow、connector grant lifecycle、secret retrieval API、policy lease 或 runtime authority grant。
+- 下一切片可以继续 PGC-2 supervisor lifecycle/vault reference binding design，或在 release evidence 风险更高时回到 PGC-1 live remote observation。

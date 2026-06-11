@@ -1,0 +1,40 @@
+{
+  "id": "vaultref_provider_api_key_demo",
+  "workspace_id": "ws_demo",
+  "provider": "operator_supplied",
+  "secret_family": "provider_api_key",
+  "storage_backend": "not_configured",
+  "reference": {
+    "uri": "vault://pending/operator/provider-api-key",
+    "scope": "policy_decision",
+    "material_kind": "opaque_secret_reference"
+  },
+  "fingerprint": {
+    "algorithm": "sha256",
+    "value": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "redaction": {
+    "display": "redacted:provider-api-key",
+    "ledger_material": "reference_and_fingerprint_only",
+    "artifact_material": "reference_and_fingerprint_only",
+    "run_manifest_material": "reference_and_fingerprint_only"
+  },
+  "policy_binding": {
+    "allowed_consumers": ["policy_engine"],
+    "requires_fresh_approval": true,
+    "lease_required": true,
+    "egress_allowed": false
+  },
+  "lifecycle": {
+    "status": "declared",
+    "created_at": "2026-06-11T12:00:00.000Z",
+    "rotates_at": "2026-09-11T12:00:00.000Z",
+    "revoked_at": null
+  },
+  "limits": {
+    "raw_secret_persisted": false,
+    "raw_secret_available_to_aetherion": false,
+    "oauth_flow_implemented": false,
+    "connector_grant_implemented": false
+  }
+}

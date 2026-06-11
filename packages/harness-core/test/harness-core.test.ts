@@ -148,6 +148,7 @@ const schemaExamplePairs = [
   ["proactive-opportunity.schema.json", "proactive-opportunity.json"],
   ["replay-record.schema.json", "replay-record.json"],
   ["migration-report.schema.json", "migration-report.json"],
+  ["vault-reference.schema.json", "vault-reference.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -204,6 +205,25 @@ test("contract examples validate against seed JSON schemas", async () => {
     const example = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", exampleName), "utf8"));
     const result = await validateAgainstSchema(repoRoot, schemaName, example);
     assert.equal(result.valid, true, `${exampleName} failed ${schemaName}: ${result.errors.join("; ")}`);
+  }
+});
+
+test("vault references reject raw secret and implemented OAuth or connector grant claims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "vault-reference.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.reference.material_kind = "raw_secret"; },
+    (draft: typeof valid) => { draft.limits.raw_secret_persisted = true; },
+    (draft: typeof valid) => { draft.limits.raw_secret_available_to_aetherion = true; },
+    (draft: typeof valid) => { draft.limits.oauth_flow_implemented = true; },
+    (draft: typeof valid) => { draft.limits.connector_grant_implemented = true; },
+    (draft: typeof valid) => { draft.raw_secret_value = "sk-do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "vault-reference.schema.json", draft);
+    assert.equal(result.valid, false, "vault-reference schema accepted authority or raw-secret drift");
   }
 });
 
