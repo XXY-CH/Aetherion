@@ -12,7 +12,9 @@
 - 通过 `--approve-write` 请求/要求显式 write approval。
 - 通过 scoped policy 写默认 summary；`--summary` 提供用户显式控制的 summary text，`--output` 选择输出路径。
 - 默认通过 Rust supervisor POC 路由 `run`。TypeScript seed policy path 仅用于测试，并需要 `AETHERION_ALLOW_TYPESCRIPT_SEED=1`。
-- 提供 trace、replay、audit、memory、context、prompt、capsule、sandbox、hibernation、surface、store 等本地命令表面。
+- 提供 trace、replay、doctor、audit、memory、context、prompt、capsule、sandbox、hibernation、surface、store 等本地命令表面。
+- `doctor` 输出只读生产就绪报告，检查 repo governance/docs/CI/schema baseline 以及 workspace identity、Ledger hash chain、run manifest 状态；它不初始化 workspace、不修复 state、不追加 Ledger、不写 artifact、不发 lease、不调用 provider。
+- 所有 `audit *` 命令先验证 workspace Event Ledger hash chain；链被篡改时 fail closed，而不是基于坏 JSONL 输出 provenance/parity。
 - `prompt plan`、`prompt bind-runtime`、`prompt prepare-model-request`、`prompt invoke-model`、`prompt audit` 和 `prompt propose-tool-request` 组成 non-authorizing Agent Orchestrator evidence path。
 
 模型 provider：
@@ -30,4 +32,5 @@ OpenAI/Gemini 可以使用外部获取的 bearer token env var；Ether 不发起
 
 - TUI 是 client surface，不是 root authority。
 - prompt/model/audit/proposal path 不请求工具、不发行 lease、不授权动作。
+- Store install 从 hash-chain-verified 的 `replay.recorded` Ledger events 和 Replay Record artifacts 解析 replay evidence；`replay-records` registry 只是 projection，不是安装权限来源。
 - runtime output under `.aetherion/` 是本地状态，不应提交。

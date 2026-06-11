@@ -2,6 +2,8 @@
 
 [中文版本](03-memory-os.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 Aetherion memory is an auditable operating system for user understanding, not a loose embedding store.
 
 ## Goals

@@ -99,6 +99,8 @@ git diff --check
 
 pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查。
 
+如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、CI/script/artifact guard 预期、schema/example baseline、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，也不会修复 runtime state。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)和[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)。
+
 ## 当前实现状态
 
 当前仓库已经超过纯文档阶段，包含可运行的本地终端原型。核心已包括合同验证、Rust supervisor POC、hash-chained Event Ledger、本地读写 policy/lease/approval 流、Memory/Capability/Sandbox/Hibernation/Surface 等 trace-backed 合同切片，以及 no-tools 模型调用的 hash-only 证据链。
@@ -113,7 +115,11 @@ pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检�
 
 provider 凭据只从环境变量内存读取。Aetherion 不运行浏览器 OAuth 流、不持久化 token、不创建 connector grant，也不把模型访问当作工具权限。
 
-`store trust-publisher` 现在会把本地 operator 审核过的 publisher public key 登记到 `store-publishers` projection；`store install` 必须用该本地信任锚验证签名，并解析本地 `replay-records` 与 sandbox file hash 后才安装 Capsule declaration。Store package code 仍不会执行。
+`doctor` 是只读 operator surface，输出 `ready`、`degraded` 或 `blocked`，并保留每个检查的 `pass`/`warn`/`fail`/`not_applicable` 细节。它不追加 Ledger、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state，也不会为未初始化 workspace 创建 `.aetherion`。
+
+所有 `audit *` 命令现在都会先验证 workspace Event Ledger hash chain。若链被篡改，audit 会 fail closed，并报告 broken event id，而不是基于被篡改 JSONL 输出看似正常的 provenance/parity。
+
+`store trust-publisher` 现在会把本地 operator 审核过的 publisher public key 登记到 `store-publishers` projection；`store install` 必须用该本地信任锚验证签名，并从 hash-chain-verified 的 `replay.recorded` Ledger events 及其 Replay Record artifacts 解析 replay evidence，再校验 sandbox file hash 后才安装 Capsule declaration。`replay-records` registry 仍是 projection，不是 Store install authority。Store package code 仍不会执行。
 
 ## 许可证
 

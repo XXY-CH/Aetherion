@@ -2,6 +2,8 @@
 
 [English](02-user-boundary-layer.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 User Boundary Layer 是 Aetherion 的主要安全与产品边界。它位于 Local Supervisor 之下，决定 agent 是否可以行动、在哪里行动、使用哪种用户权限，以及必须记录或审批什么。
 
 根权限边界是：

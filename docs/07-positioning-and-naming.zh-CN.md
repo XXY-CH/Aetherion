@@ -2,6 +2,8 @@
 
 [English](07-positioning-and-naming.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## 命名状态
 
 Aetherion 是代号，不是已清查的公开名称。

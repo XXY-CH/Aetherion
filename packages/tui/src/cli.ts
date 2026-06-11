@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
@@ -11,7 +11,7 @@ import { createDeadlineTrigger, createFileTrigger, createManualTrigger, createRe
 import { acceptMemoryFold, acceptPersonaAnchor, applyPersonaReset, createPersonaBranch, defaultInheritancePolicy, findPersonaAnchor, forkSoul, isMemoryFold, isPersonaAnchor, isPersonaBranch, isPersonaState, isSoulFork, proposeMemoryFold, proposePersonaAnchor, rejectMemoryFold, rejectPersonaAnchor } from "../../soul/src/index.ts";
 import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentContract, createBudgetAccount, findBudget, isAgentContract, isAgentScore, isBudgetAccount, isResourceBudget, openCircuitBreaker, recordLeaseUse, recordPolicyDenial, recordRuntimeUsage, reserveRead, updateAgentScore, type BudgetAccount, type ChildResult, type CircuitBreaker } from "../../multiagent/src/index.ts";
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
-import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage } from "../../surface-os/src/index.ts";
+import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage, type StoreReplayEvidenceRecord } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
 import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
@@ -384,6 +384,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "audit":
       await runAudit(options);
       return true;
+    case "doctor":
+      await runDoctor(options);
+      return true;
     case "supervisor":
       await runSupervisorCommand(options);
       return true;
@@ -517,52 +520,343 @@ function stringField(record: Record<string, unknown>, key: string): string {
 }
 
 async function runAudit(options: CliOptions): Promise<void> {
+  const topic = options.topic;
+  if (!topic || !["registries", "replay-records", "memory-records", "capsule-records", "hibernation-records", "sandbox-records", "payload-refs", "response-audits"].includes(topic)) {
+    throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, hibernation-records, sandbox-records, payload-refs, or response-audits");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const verified = await readVerifiedLedgerForReadOnlyCommand(workspaceRoot, `audit ${topic}`);
   if (options.topic === "registries") {
-    const workspaceRoot = resolve(options.workspace);
-    const workspace = await openWorkspace(workspaceRoot);
-    const audit = auditRegistryProvenance(workspaceRoot, await readEvents(workspace));
+    const audit = auditRegistryProvenance(workspaceRoot, verified.events);
     printRawJson(audit);
     return;
   }
   if (options.topic === "replay-records") {
-    printRawJson(auditReplayRecordRegistryRebuild(resolve(options.workspace)));
+    printRawJson(auditReplayRecordRegistryRebuild(workspaceRoot));
     return;
   }
   if (options.topic === "memory-records") {
-    const workspaceRoot = resolve(options.workspace);
-    const workspace = await openWorkspace(workspaceRoot);
-    printRawJson(auditMemoryRegistryRebuild(workspaceRoot, await readEvents(workspace)));
+    printRawJson(auditMemoryRegistryRebuild(workspaceRoot, verified.events));
     return;
   }
   if (options.topic === "capsule-records") {
-    const workspaceRoot = resolve(options.workspace);
-    const workspace = await openWorkspace(workspaceRoot);
-    printRawJson(auditCapsuleRegistryRebuild(workspaceRoot, await readEvents(workspace)));
+    printRawJson(auditCapsuleRegistryRebuild(workspaceRoot, verified.events));
     return;
   }
   if (options.topic === "hibernation-records") {
-    printRawJson(auditHibernationRegistryRebuild(resolve(options.workspace)));
+    printRawJson(auditHibernationRegistryRebuild(workspaceRoot));
     return;
   }
   if (options.topic === "sandbox-records") {
-    printRawJson(auditSandboxRegistryRebuild(resolve(options.workspace)));
+    printRawJson(auditSandboxRegistryRebuild(workspaceRoot));
     return;
   }
   if (options.topic === "payload-refs") {
-    const workspaceRoot = resolve(options.workspace);
-    const workspace = await openWorkspace(workspaceRoot);
-    const audit = await auditLedgerPayloadRefs(repoRoot, workspaceRoot, await readEvents(workspace));
+    const audit = await auditLedgerPayloadRefs(repoRoot, workspaceRoot, verified.events);
     printRawJson(audit);
     return;
   }
   if (options.topic === "response-audits") {
-    const workspaceRoot = resolve(options.workspace);
-    const workspace = await openWorkspace(workspaceRoot);
-    const audit = await auditAgentResponseAuditEvidence(repoRoot, workspaceRoot, await readEvents(workspace));
+    const audit = await auditAgentResponseAuditEvidence(repoRoot, workspaceRoot, verified.events);
     printRawJson(audit);
     return;
   }
-  throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, hibernation-records, sandbox-records, payload-refs, or response-audits");
+}
+
+type DoctorCheckStatus = "pass" | "warn" | "fail" | "not_applicable";
+
+type DoctorCheck = {
+  id: string;
+  status: DoctorCheckStatus;
+  severity: "info" | "warning" | "error";
+  summary: string;
+  evidence: string[];
+  remediation: string | null;
+};
+
+async function runDoctor(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const checks: DoctorCheck[] = [
+    ...repoDoctorChecks(),
+    ...(await workspaceDoctorChecks(workspaceRoot))
+  ];
+  const checkStatus = checks.some((check) => check.status === "fail")
+    ? "fail"
+    : checks.some((check) => check.status === "warn")
+      ? "warn"
+      : "pass";
+  const operatorStatus = checkStatus === "fail"
+    ? "blocked"
+    : checkStatus === "warn"
+      ? "degraded"
+      : "ready";
+  if (operatorStatus === "blocked") {
+    process.exitCode = 1;
+  }
+  printRawJson({
+    id: "aetherion_doctor_report",
+    generated_at: new Date().toISOString(),
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    status: operatorStatus,
+    check_status: checkStatus,
+    scope: {
+      read_only: true,
+      mutates_ledger: false,
+      mutates_registries: false,
+      writes_artifacts: false,
+      calls_model_provider: false,
+      issues_lease: false,
+      repairs_state: false
+    },
+    summary: {
+      pass: checks.filter((check) => check.status === "pass").length,
+      warn: checks.filter((check) => check.status === "warn").length,
+      fail: checks.filter((check) => check.status === "fail").length,
+      not_applicable: checks.filter((check) => check.status === "not_applicable").length
+    },
+    checks
+  });
+}
+
+async function readVerifiedLedgerForReadOnlyCommand(workspaceRoot: string, commandName: string): Promise<{
+  workspace: Awaited<ReturnType<typeof openWorkspace>>;
+  events: EventRecord[];
+}> {
+  const { workspace } = await loadWorkspaceFromRegistry(workspaceRoot);
+  const events = await readEvents(workspace);
+  const chain = verifyEventHashChain(events);
+  if (!chain.valid) {
+    throw new Error(`${commandName} requires a valid Event Ledger hash chain; broken_at=${chain.broken_at ?? "unknown"}`);
+  }
+  return { workspace, events };
+}
+
+function repoDoctorChecks(): DoctorCheck[] {
+  const packageJson = readRepoJson("package.json") as { license?: string; private?: boolean; engines?: { node?: string }; scripts?: Record<string, string> } | null;
+  const ciWorkflow = readRepoText(".github/workflows/ci.yml");
+  const gitignore = readRepoText(".gitignore");
+  const checks: DoctorCheck[] = [];
+
+  checks.push(check(
+    "node_runtime_version",
+    nodeMajorVersion() >= 25 ? "pass" : "fail",
+    nodeMajorVersion() >= 25 ? "info" : "error",
+    `Current Node.js runtime is ${process.versions.node}.`,
+    [`process.versions.node=${process.versions.node}`, "required=>=25"],
+    "Run Ether with Node.js 25 or newer."
+  ));
+  checks.push(check(
+    "package_metadata",
+    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=25" ? "pass" : "fail",
+    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=25" ? "info" : "error",
+    "Package metadata preserves the current private MIT Node 25 baseline.",
+    [
+      `license=${packageJson?.license ?? "missing"}`,
+      `private=${String(packageJson?.private ?? "missing")}`,
+      `node_engine=${packageJson?.engines?.node ?? "missing"}`
+    ],
+    "Keep package.json license=MIT, private=true, and engines.node=>=25 unless the release policy changes."
+  ));
+  checks.push(check(
+    "package_scripts",
+    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "pass" : "fail",
+    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "info" : "error",
+    "Core verification and Ether scripts are present.",
+    [
+      `test=${packageJson?.scripts?.test ?? "missing"}`,
+      `test_all=${packageJson?.scripts?.["test:all"] ?? "missing"}`,
+      `ether=${packageJson?.scripts?.ether ?? "missing"}`
+    ],
+    "Restore npm scripts for test, test:all, and ether."
+  ));
+  checks.push(check(
+    "ci_workflow_gate",
+    ciWorkflow && ["npm test", "cargo test", "cargo clippy --all-targets --all-features -- -D warnings", "cargo fmt --check", "git diff --check", "git ls-files .aetherion target"].every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
+    ciWorkflow ? "info" : "error",
+    "GitHub Actions workflow covers the current local quality gates.",
+    [
+      `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
+      "required=npm test,cargo test,cargo clippy,cargo fmt,git diff --check,artifact guard"
+    ],
+    "Update .github/workflows/ci.yml to mirror the documented local gate."
+  ));
+  checks.push(check(
+    "governance_files",
+    requiredGovernanceFiles().every((file) => existsRepoFile(file)) ? "pass" : "fail",
+    requiredGovernanceFiles().every((file) => existsRepoFile(file)) ? "info" : "error",
+    "Contribution, conduct, license, security, issue, and PR policy files are present.",
+    requiredGovernanceFiles().map((file) => `${file}=${existsRepoFile(file) ? "present" : "missing"}`),
+    "Restore the missing governance file or template."
+  ));
+  checks.push(check(
+    "bilingual_main_docs",
+    bilingualDocsOk() ? "pass" : "fail",
+    bilingualDocsOk() ? "info" : "error",
+    "Primary docs have English/Chinese companion links.",
+    bilingualDocsEvidence(),
+    "Add the missing companion file or reciprocal language link."
+  ));
+  checks.push(check(
+    "runtime_artifact_ignore_rules",
+    Boolean(gitignore?.includes(".aetherion/") && gitignore.includes("target/")) ? "pass" : "fail",
+    Boolean(gitignore?.includes(".aetherion/") && gitignore.includes("target/")) ? "info" : "error",
+    "Runtime and build artifact directories are ignored.",
+    [
+      `.aetherion_ignored=${String(Boolean(gitignore?.includes(".aetherion/")))}`,
+      `target_ignored=${String(Boolean(gitignore?.includes("target/")))}`
+    ],
+    "Restore .gitignore entries for .aetherion/ and target/."
+  ));
+  checks.push(check(
+    "schema_example_manifest",
+    schemaExampleFilesPresent() ? "pass" : "fail",
+    schemaExampleFilesPresent() ? "info" : "error",
+    "Schema and example directories contain the contract validation baseline.",
+    [
+      `schemas=${existsRepoFile("schemas") ? "present" : "missing"}`,
+      `examples/contracts=${existsRepoFile("examples/contracts") ? "present" : "missing"}`,
+      `event_schema=${existsRepoFile("schemas/event.schema.json") ? "present" : "missing"}`,
+      `event_example=${existsRepoFile("examples/contracts/event.json") ? "present" : "missing"}`
+    ],
+    "Restore schemas/ and examples/contracts/ before changing contracts."
+  ));
+  return checks;
+}
+
+async function workspaceDoctorChecks(workspaceRoot: string): Promise<DoctorCheck[]> {
+  const runtimeDir = join(workspaceRoot, ".aetherion");
+  const workspaceRegistry = join(runtimeDir, "workspace.json");
+  if (!existsSync(workspaceRegistry)) {
+    return [check(
+      "workspace_runtime_state",
+      "not_applicable",
+      "info",
+      "Workspace runtime state is not initialized; doctor did not create it.",
+      [`workspace_registry=${workspaceRegistry}`, "runtime_state=not_initialized"],
+      null
+    )];
+  }
+  try {
+    const { workspace } = await loadWorkspaceFromRegistry(workspaceRoot);
+    const events = await readEvents(workspace);
+    const chain = verifyEventHashChain(events);
+    const runDir = join(runtimeDir, "runs");
+    return [
+      check(
+        "workspace_registry_identity",
+        workspace.id === workspaceIdForRoot(workspaceRoot) ? "pass" : "fail",
+        workspace.id === workspaceIdForRoot(workspaceRoot) ? "info" : "error",
+        "Workspace registry identity matches the resolved workspace root.",
+        [`workspace_id=${workspace.id}`, `derived_workspace_id=${workspaceIdForRoot(workspaceRoot)}`],
+        "Recreate the workspace registry through the supervisor path; do not hand-edit identity fields."
+      ),
+      check(
+        "workspace_ledger_hash_chain",
+        chain.valid ? "pass" : "fail",
+        chain.valid ? "info" : "error",
+        "Workspace Event Ledger hash chain verifies without replaying side effects.",
+        [`event_count=${events.length}`, `broken_at=${chain.broken_at ?? "none"}`],
+        "Inspect the Ledger before trusting projections; do not repair by deleting events."
+      ),
+      check(
+        "workspace_run_manifests",
+        existsSync(runDir) ? "pass" : "warn",
+        existsSync(runDir) ? "info" : "warning",
+        "Run manifest directory is present when runtime state exists.",
+        [`runs_dir=${runDir}`, `present=${String(existsSync(runDir))}`],
+        "Run an Ether kernel command to create a manifest before relying on run projections."
+      )
+    ];
+  } catch (error) {
+    return [check(
+      "workspace_runtime_state",
+      "fail",
+      "error",
+      "Workspace runtime state exists but could not be loaded read-only.",
+      [error instanceof Error ? error.message : String(error)],
+      "Inspect .aetherion/workspace.json and Ledger path drift before running authority-bearing commands."
+    )];
+  }
+}
+
+function check(
+  id: string,
+  status: DoctorCheckStatus,
+  severity: DoctorCheck["severity"],
+  summary: string,
+  evidence: string[],
+  remediation: string | null
+): DoctorCheck {
+  return { id, status, severity, summary, evidence, remediation };
+}
+
+function nodeMajorVersion(): number {
+  return Number(process.versions.node.split(".")[0] ?? "0");
+}
+
+function readRepoText(relativePath: string): string | null {
+  const path = join(repoRoot, relativePath);
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+function readRepoJson(relativePath: string): unknown {
+  const text = readRepoText(relativePath);
+  if (!text) {
+    return null;
+  }
+  return JSON.parse(text) as unknown;
+}
+
+function existsRepoFile(relativePath: string): boolean {
+  return existsSync(join(repoRoot, relativePath));
+}
+
+function requiredGovernanceFiles(): string[] {
+  return [
+    "CODE_OF_CONDUCT.md",
+    "CODE_OF_CONDUCT.zh-CN.md",
+    "CONTRIBUTING.md",
+    "CONTRIBUTING.zh-CN.md",
+    "LICENSE",
+    "LICENSE.zh-CN.md",
+    "SECURITY.md",
+    "SECURITY.zh-CN.md",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/contract_change.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/ISSUE_TEMPLATE/security_hardening.yml",
+    ".github/pull_request_template.md"
+  ];
+}
+
+function bilingualDocsOk(): boolean {
+  return bilingualDocsEvidence().every((line) => line.endsWith("=ok"));
+}
+
+function bilingualDocsEvidence(): string[] {
+  const docsDir = join(repoRoot, "docs");
+  const docs = readdirSync(docsDir)
+    .filter((file) => file.endsWith(".md") && !file.endsWith(".zh-CN.md"))
+    .sort();
+  return docs.map((file) => {
+    const zh = file.replace(/\.md$/, ".zh-CN.md");
+    const enText = readRepoText(join("docs", file)) ?? "";
+    const zhText = readRepoText(join("docs", zh)) ?? "";
+    const ok = existsRepoFile(join("docs", zh))
+      && enText.includes(`[中文版本](${zh})`)
+      && zhText.includes(`[English](${file})`);
+    return `docs/${file}<->docs/${zh}=${ok ? "ok" : "missing_or_unlinked"}`;
+  });
+}
+
+function schemaExampleFilesPresent(): boolean {
+  return existsRepoFile("schemas")
+    && existsRepoFile("examples/contracts")
+    && existsRepoFile("schemas/event.schema.json")
+    && existsRepoFile("examples/contracts/event.json")
+    && existsRepoFile("schemas/capsule-install.schema.json")
+    && existsRepoFile("examples/contracts/capsule-install.json");
 }
 
 async function runBoundary(options: CliOptions): Promise<void> {
@@ -3053,7 +3347,7 @@ async function runStore(options: CliOptions): Promise<void> {
     approvalCardId = approvalCard.id;
   }
   const trustedPublishers = readRegistry(workspaceRoot, "store-publishers").filter(isStoreTrustedPublisher);
-  const replayRecords = readRegistry(workspaceRoot, "replay-records").filter(isStoreReplayEvidenceRecord);
+  const replayRecords = await readLedgerBackedStoreReplayEvidence(workspaceRoot, workspace);
   const sandboxTrialContentSha256 = readSandboxTrialContentHash(workspaceRoot, capsule);
   const install = createCapsuleInstallRecord(pkg, {
     approvePermissions: options.approvePermissions,
@@ -3078,6 +3372,65 @@ async function runStore(options: CliOptions): Promise<void> {
     artifactRef("store", "install", install.id)
   );
   printJson(install);
+}
+
+async function readLedgerBackedStoreReplayEvidence(
+  workspaceRoot: string,
+  workspace: Awaited<ReturnType<typeof openWorkspace>>
+): Promise<StoreReplayEvidenceRecord[]> {
+  const events = await readEvents(workspace);
+  const chain = verifyEventHashChain(events);
+  if (!chain.valid) {
+    throw new Error(`store install requires a valid Event Ledger hash chain; broken_at=${chain.broken_at ?? "unknown"}`);
+  }
+  const eventIds = new Set(events.map((event) => event.id));
+  const replayRecords: StoreReplayEvidenceRecord[] = [];
+  for (const event of events.filter((entry) => entry.event_type === "replay.recorded")) {
+    if (!event.payload_ref) {
+      throw new Error(`Replay evidence event ${event.id} has no payload_ref`);
+    }
+    const artifactPath = localArtifactPathFromRef(workspaceRoot, event.payload_ref);
+    if (!existsSync(artifactPath)) {
+      throw new Error(`Replay evidence artifact missing for ${event.id}: ${event.payload_ref}`);
+    }
+    const parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as unknown;
+    await requireValidContract("replay-record.schema.json", parsed);
+    if (!isStoreReplayEvidenceRecord(parsed)) {
+      throw new Error(`Replay evidence artifact ${event.payload_ref} is not usable Store replay evidence`);
+    }
+    const replayRecord = parsed as StoreReplayEvidenceRecord & { artifact_ref?: string };
+    const expectedArtifactRef = replayRecord.artifact_ref ?? `artifact://replay/${replayRecord.run_id}/trace`;
+    if (expectedArtifactRef !== event.payload_ref) {
+      throw new Error(`Replay Record ${replayRecord.id} artifact_ref does not match replay.recorded event ${event.id}`);
+    }
+    const missingSourceEvent = replayRecord.source_events.find((sourceEventId) => !eventIds.has(sourceEventId));
+    if (missingSourceEvent) {
+      throw new Error(`Replay Record ${replayRecord.id} cites missing source event ${missingSourceEvent}`);
+    }
+    replayRecords.push(replayRecord);
+  }
+  return replayRecords;
+}
+
+function localArtifactPathFromRef(workspaceRoot: string, ref: string): string {
+  if (!ref.startsWith("artifact://")) {
+    throw new Error(`Unsupported local artifact reference ${ref}`);
+  }
+  const parts = ref.slice("artifact://".length).split("/").filter(Boolean);
+  if (parts.length < 3) {
+    throw new Error(`Local artifact reference ${ref} is missing command/topic/id segments`);
+  }
+  if (parts.some((part) => part === "." || part === ".." || part.includes("\\"))) {
+    throw new Error(`Local artifact reference ${ref} contains an unsafe path segment`);
+  }
+  const artifactsRoot = resolve(workspaceRoot, ".aetherion", "artifacts");
+  const artifactPath = parts[0] === "replay" && parts.length === 3 && parts[2] === "trace"
+    ? resolve(artifactsRoot, "replay", parts[1], `replay_${parts[1]}_trace.json`)
+    : resolve(artifactsRoot, ...parts.slice(0, -1), `${parts.at(-1)}.json`);
+  if (artifactPath !== artifactsRoot && !artifactPath.startsWith(`${artifactsRoot}/`)) {
+    throw new Error(`Local artifact reference ${ref} resolves outside the workspace artifact root`);
+  }
+  return artifactPath;
 }
 
 function readSandboxTrialContentHash(workspaceRoot: string, capsule: Capsule): string {
@@ -3604,6 +3957,7 @@ Usage:
   npm run ether -- supervisor status --workspace <path>
   npm run ether -- supervisor preflight --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
+  npm run ether -- doctor --workspace <path>
 
   Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -3671,6 +4025,7 @@ Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
+  doctor                 Read-only production readiness report for repo and workspace invariants
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces

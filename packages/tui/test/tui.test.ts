@@ -289,16 +289,88 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
 
   assert.match(help.stdout, /V1 core:/);
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
   assert.match(help.stdout, /Trace-backed local runtime:/);
   assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
   assert.match(help.stdout, /npm run ether -- store trust-publisher --path <publisher-key\.json>/);
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
   assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
+  assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
+});
+
+test("TUI doctor reports read-only readiness without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-doctor-empty-"));
+
+  const doctor = await execFileAsync(process.execPath, [
+    cliPath,
+    "doctor",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(doctor.stdout) as {
+    id: string;
+    status: string;
+    check_status: string;
+    scope: { read_only: boolean; mutates_ledger: boolean; repairs_state: boolean };
+    summary: { not_applicable: number; fail: number };
+    checks: Array<{ id: string; status: string; summary: string }>;
+  };
+  assert.equal(report.id, "aetherion_doctor_report");
+  assert.equal(report.status, "ready");
+  assert.equal(report.check_status, "pass");
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.repairs_state, false);
+  assert.equal(report.summary.fail, 0);
+  assert.equal(report.summary.not_applicable, 1);
+  const workspaceCheck = report.checks.find((check) => check.id === "workspace_runtime_state");
+  assert.equal(workspaceCheck?.status, "not_applicable");
+  assert.match(workspaceCheck?.summary ?? "", /not initialized/);
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("TUI doctor verifies initialized workspace state without mutating runtime files", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-doctor-ready-"));
+  await writeFile(join(workspace, "README.md"), "Doctor ready fixture\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerBefore = await readFile(ledgerPath, "utf8");
+  const runsBefore = await readdir(runsPath);
+
+  const doctor = await execFileAsync(process.execPath, [
+    cliPath,
+    "doctor",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(doctor.stdout) as {
+    status: string;
+    check_status: string;
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+  };
+  assert.equal(report.status, "ready");
+  assert.equal(report.check_status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "workspace_registry_identity")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "workspace_ledger_hash_chain")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "workspace_run_manifests")?.status, "pass");
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
+  assert.deepEqual(await readdir(runsPath), runsBefore);
 });
 
 test("TUI trace and replay fail closed on tampered run manifests", async () => {
@@ -3039,6 +3111,47 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   ]);
   assert.match(trustedPublisher.stdout, /"status": "trusted"/);
   assert.match(trustedPublisher.stdout, /"source": "local_operator"/);
+  const fakeReplayRecords = storeReplayRecords.map((record, index) => ({
+    id: `replay_fake_registry_only_${index}`,
+    run_id: record.run_id,
+    source_events: record.source_events
+  }));
+  const fakePkg: StorePackage = {
+    ...pkg,
+    id: "pkg_surface_signed_registry_only",
+    capsule: publishedStoreCapsule(fakeReplayRecords, sandboxPath, sandboxHash),
+    signature: {
+      ...pkg.signature,
+      value_base64: ""
+    }
+  };
+  fakePkg.signature.value_base64 = sign(null, Buffer.from(storeSignaturePayload(fakePkg)), privateKey).toString("base64");
+  await writeFile(join(workspace, "signed-package-registry-only.json"), JSON.stringify(fakePkg));
+  const replayRegistryPath = join(workspace, ".aetherion", "registries", "replay-records.json");
+  const replayRegistry = JSON.parse(await readFile(replayRegistryPath, "utf8")) as unknown[];
+  await writeFile(replayRegistryPath, `${JSON.stringify([
+    ...replayRegistry,
+    ...fakeReplayRecords.map((record) => ({
+      ...record,
+      mode: "trace",
+      artifact_ref: `artifact://replay/${record.run_id}/trace`,
+      live_side_effects: { allowed: false, approval_id: null },
+      result: { status: "passed", summary: "registry-only fake replay evidence" }
+    }))
+  ], null, 2)}\n`);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "store",
+      "install",
+      "--workspace",
+      workspace,
+      "--path",
+      "signed-package-registry-only.json",
+      "--approve-permissions"
+    ]),
+    /not found in local Ledger-backed replay evidence/
+  );
   const install = await execFileAsync(process.execPath, [
     cliPath,
     "store",
@@ -4183,6 +4296,39 @@ test("Ether audit registries reports provenance without persisting audit project
   assert.equal(report.findings.find((finding) => finding.item_id === "missing_fixture")?.status, "missing");
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
   await assert.rejects(access(join(workspace, ".aetherion", "registries", "audit.json")), /ENOENT/);
+});
+
+test("Ether audit commands fail closed on an invalid Ledger hash chain", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-audit-chain-"));
+  await writeFile(join(workspace, "README.md"), "Audit chain source\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const ledgerLines = (await readFile(ledgerPath, "utf8")).trim().split("\n");
+  const firstEvent = JSON.parse(ledgerLines[0]) as EventRecord;
+  firstEvent.summary = "tampered audit source";
+  ledgerLines[0] = JSON.stringify(firstEvent);
+  await writeFile(ledgerPath, `${ledgerLines.join("\n")}\n`);
+
+  for (const topic of ["registries", "replay-records"]) {
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, "audit", topic, "--workspace", workspace]),
+      (error: unknown) => {
+        assert.match(commandStderr(error), new RegExp(`audit ${topic} requires a valid Event Ledger hash chain`));
+        assert.match(commandStderr(error), new RegExp(`broken_at=${firstEvent.id}`));
+        return true;
+      }
+    );
+  }
 });
 
 test("Ether audit replay-records previews artifact rebuild parity without mutating registry", async () => {

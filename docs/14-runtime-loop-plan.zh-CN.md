@@ -148,3 +148,39 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - Store trust 仍是 local-only。没有 public marketplace、publisher identity network、transparency log、revocation feed、release evidence repository 或 package-code execution。
 - provider hardening 仍是 no-tools/hash-only；没有 OAuth flow、token refresh、vault storage、streaming、多模态 payload 或 provider tool execution。
+
+## 已完成增量：只读 Doctor 与 Ledger-backed Evidence Gates
+
+目标：把当前 repo/workspace readiness 收束成单一只读 operator report，并清掉 audit 与 Store install 路径上残留的 projection-as-authority 偏差。
+
+为什么做这一片：
+
+- 严格 OpenClaw 对照指出 operator readiness 与 security-audit parity 是生产外壳差距，而 Aetherion 较深的 kernel evidence 已经分散存在于多个窄命令中。
+- 严格 code/security 复查发现 audit commands 可能在 Ledger 被篡改后仍输出 reassuring provenance；Store install 也仍可能把 `replay-records` projection row 当 replay evidence。
+- 修复这些点能提升生产纪律，同时不启用 GUI、IM delivery、browser automation、MCP/OAuth connector、daemon lifecycle management、remote marketplace、package-code execution 或 cloud worker。
+
+验收：
+
+- `ether doctor --workspace <path>` 输出 deterministic JSON report，包含 `ready`、`degraded` 或 `blocked` 状态和 per-check details。
+- `doctor` 检查 repo governance files、双语 docs links、CI/script/artifact-guard expectations、schema/example baselines、workspace identity、Ledger hash-chain validity 和 run-manifest presence。
+- `doctor` 保持只读：不追加 Ledger、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state，也不为未启动 workspace 初始化 `.aetherion`。
+- 每个 `audit *` topic 在 provenance/parity work 前先验证 Event Ledger hash chain，并在篡改时 fail closed。
+- `store install` 从 hash-chain-verified 的 `replay.recorded` Ledger events 和 Replay Record artifacts 解析 replay evidence，而不是从 `replay-records` registry projection 取证。
+
+与原始文档对照和修正：
+
+- `docs/00-product-brief.md`：重要动作仍通过 source evidence、decisions、approvals 和 replay artifacts 可重建。
+- `docs/01-architecture.md`：Event Ledger 仍是 fact layer；Store 和 projection 不是 trust root。
+- `docs/05-audit-and-data-contracts.md`：human-readable Ledger evidence 是 source truth；registry 是 rebuildable projection。
+- `docs/06-roadmap.md`：先强化 TUI/Rust loop 的生产纪律，再扩展 broader surfaces。
+- `docs/10-technical-strategy.md`：TypeScript 关闭 contract/TUI gap，不把 authority 从 Rust 移出。
+- `docs/13-schema-runtime-governance.md`：在 runtime command boundary 执行 “projection 不是 source truth”。
+
+剩余边界：
+
+- `doctor` 是 readiness report，不是 repair tool、daemon lifecycle manager、release packager、security scanner 或 installer。
+- first-class `ether security audit`、更完整的 CI artifact leakage guard、install/onboarding automation、release packaging、platform matrix、dependency reproducibility policy、默认 hash/metadata-only model stdout 仍是后续生产差距。
+
+下一步候选：
+
+- 增加 `ether security audit`，作为只读 findings report 检查 secret leakage、tracked runtime artifacts、authority contamination、package execution boundaries 和 live-surface violations。

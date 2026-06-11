@@ -487,7 +487,7 @@ Remaining boundary:
 
 Next likely increment after this one:
 
-- Add a release/readiness checklist or a first `ether doctor`/`ether security audit` command that mirrors the documented invariants without enabling deferred surfaces.
+- Add release evidence/readiness artifacts beyond `ether doctor`, or add a first `ether security audit` command that mirrors the documented invariants without enabling deferred surfaces.
 
 ## Completed Increment: Store Trust Anchoring And Provider Failure Bounds
 
@@ -522,4 +522,40 @@ Remaining boundary:
 
 Next likely increment after this one:
 
-- Add release evidence/readiness artifacts comparable to OpenClaw's public release evidence, or add a read-only `ether doctor`/`ether security audit` command that checks documented invariants without enabling deferred surfaces.
+- Add release evidence/readiness artifacts comparable to OpenClaw's public release evidence, or add a read-only `ether security audit` command that checks documented invariants without enabling deferred surfaces.
+
+## Completed Increment: Read-Only Doctor And Ledger-Backed Evidence Gates
+
+Target: turn current repo/workspace readiness into a single read-only operator report, and remove remaining projection-as-authority drift from audit and Store install paths.
+
+Why this slice:
+
+- The strict OpenClaw comparison identified operator readiness and security-audit parity as production shell gaps, while Aetherion's deeper kernel evidence already existed in narrower commands.
+- The strict code/security review found that audit commands could report reassuring provenance over a tampered Ledger, and Store install could still treat `replay-records` projection rows as replay evidence.
+- Fixing these gaps advances production discipline without enabling GUI, IM delivery, browser automation, MCP/OAuth connectors, daemon lifecycle management, remote marketplace behavior, package-code execution, or cloud workers.
+
+Acceptance:
+
+- `ether doctor --workspace <path>` emits a deterministic JSON report with `ready`, `degraded`, or `blocked` status and per-check details.
+- `doctor` checks repo governance files, bilingual documentation links, CI/script/artifact-guard expectations, schema/example baselines, workspace identity, Ledger hash-chain validity, and run-manifest presence.
+- `doctor` remains read-only: no Ledger append, registry mutation, artifact write, provider call, lease issuance, state repair, or `.aetherion` initialization for an unstarted workspace.
+- Every `audit *` topic verifies the Event Ledger hash chain before provenance or parity work and fails closed on tampering.
+- `store install` resolves replay evidence from hash-chain-verified `replay.recorded` Ledger events and Replay Record artifacts, not from the `replay-records` registry projection.
+
+Matched source docs and corrections:
+
+- `docs/00-product-brief.md`: important actions remain reconstructable through source evidence, decisions, approvals, and replay artifacts.
+- `docs/01-architecture.md`: Event Ledger stays the fact layer; stores and projections are not trust roots.
+- `docs/05-audit-and-data-contracts.md`: human-readable Ledger evidence is source truth; registries are rebuildable projections.
+- `docs/06-roadmap.md`: production discipline is tightened around the TUI/Rust loop before broader surfaces.
+- `docs/10-technical-strategy.md`: TypeScript closes contract/TUI gaps without moving authority out of Rust.
+- `docs/13-schema-runtime-governance.md`: enforces "projection is not source truth" at runtime command boundaries.
+
+Remaining boundary:
+
+- `doctor` is a readiness report, not a repair tool, daemon lifecycle manager, release packager, security scanner, or installer.
+- A first-class `ether security audit`, broader CI artifact leakage guard, install/onboarding automation, release packaging, platform matrix, dependency reproducibility policy, and hash/metadata-only default model stdout remain future production gaps.
+
+Next likely increment after this one:
+
+- Add `ether security audit` as a read-only findings report over secret leakage, tracked runtime artifacts, authority contamination, package execution boundaries, and live-surface violations.

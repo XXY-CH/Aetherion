@@ -2,6 +2,8 @@
 
 [中文版本](04-skill-and-scaffold-os.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 ## Concepts
 
 | Concept | Meaning | Executable Code | Agent May Modify |

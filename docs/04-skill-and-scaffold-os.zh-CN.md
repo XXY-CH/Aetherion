@@ -2,6 +2,8 @@
 
 [English](04-skill-and-scaffold-os.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## 概念
 
 | Concept | 含义 | 可执行代码 | Agent 可修改 |

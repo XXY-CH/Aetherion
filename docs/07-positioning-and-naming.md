@@ -2,6 +2,8 @@
 
 [中文版本](07-positioning-and-naming.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 ## Naming Status
 
 Aetherion is a codename, not a cleared public name.

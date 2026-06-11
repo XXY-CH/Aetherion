@@ -2,6 +2,8 @@
 
 [中文版本](05-audit-and-data-contracts.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 ## Audit Principles
 
 - Logs are human-readable and machine-parseable.

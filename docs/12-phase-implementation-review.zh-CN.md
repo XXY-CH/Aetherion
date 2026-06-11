@@ -107,7 +107,7 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 本轮修正：
 
 - 新增 `store trust-publisher`，把本地 operator 审核过的 publisher key 写入 `store-publishers` projection，并记录 key fingerprint。
-- `store install` 现在必须用本地 trust anchor 验签，解析本地 `replay-records`，校验 sandbox file hash，并检查 Capsule integrity digest。
+- `store install` 现在必须用本地 trust anchor 验签，解析本地 replay evidence，校验 sandbox file hash，并检查 Capsule integrity digest。
 - Capsule Install artifact 新增 `publisher_key_fingerprint`、`replay_record_ids` 和 `sandbox_content_sha256`。
 - provider 调用新增 `AETHERION_MODEL_TIMEOUT_MS`、`AbortController`、provider-scoped timeout/HTTP/malformed-JSON 错误，同时继续不回显 raw provider body。
 - README、package docs、原始 docs、schema governance 和中文伴读文档都同步了新的 trust/evidence 表述，并在关键原始 docs 中加了 implementation tracking links。
@@ -131,6 +131,39 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - Store trust 仍是 local-only。还没有 remote Capsule marketplace、transparency log、revocation feed、public publisher identity、release evidence repository 或 package-code execution。
 - provider hardening 仍是 no-tools/no-streaming/hash-only；没有 OAuth flow、token refresh、vault storage 或 connector grant。
+
+## Phase 45 复核：只读 Doctor 与 Ledger-backed Evidence Gates
+
+本轮继续按 OpenClaw 生产完整度和严格 bug/security 视角复查。Aetherion 已有较强的本地证据链，但缺少单入口只读 operator readiness surface；同时 audit 与 Store install 仍有投影状态被误当成可信证据的风险。
+
+与原始文档对照：
+
+- `docs/00-product-brief.md`：重要动作必须能通过 logs、source references、decisions、approvals 和 replay artifacts 重建；本轮让 readiness 与 Store install 依赖已记录证据，而不是 projection comfort。
+- `docs/01-architecture.md`：Local Supervisor 仍是 root authority，Event Ledger 仍是 fact layer；client surface、Store 和 projection 不能变成 trust root。
+- `docs/05-audit-and-data-contracts.md`：human-readable state 是 source of truth，SQLite、registry 和其他 index 是 rebuildable projection。
+- `docs/06-roadmap.md`：继续优先强化 TUI/Rust kernel loop 的生产纪律，而不是启用 GUI、IM、browser automation、MCP/OAuth connector 或 cloud worker。
+- `docs/10-technical-strategy.md`：TypeScript 仍负责 contract/TUI iteration，Rust 仍负责 authority boundary；本轮没有把 Python 或外部工具放进 authority path。
+- `docs/13-schema-runtime-governance.md`：直接落实 “projection 不是 source of truth” 和 “fixture 不是 runtime evidence”。
+
+本轮修正：
+
+- 新增 `ether doctor --workspace <path>` 只读生产就绪报告，检查 repo governance files、双语 docs links、CI/script/artifact-guard expectations、schema/example baselines、workspace identity、Event Ledger hash-chain validity 和 run-manifest presence。
+- `doctor` 输出 operator-level `ready`、`degraded` 或 `blocked`，并保留 per-check `pass`/`warn`/`fail`/`not_applicable` 细节。它不会初始化 `.aetherion`、追加 event、修改 registry、写 artifact、调用 provider、发 lease 或 repair state。
+- 所有 `audit *` topic 现在会先验证 workspace Event Ledger hash chain。Ledger 被篡改时会 fail closed 并报告 `broken_at=<event_id>`，不会继续对坏 JSONL 输出 `strong` 或 `matched`。
+- `store install` 不再把 `replay-records` registry row 当安装证据。它现在从 hash-chain-verified 的 `replay.recorded` Ledger events 和本地 Replay Record artifacts 解析 replay evidence，并检查 source events 后再进入 Capsule Install validation。
+- README、TUI README、中文伴读文档和 command help 已把新 operator surface 链回 implementation tracking docs。
+
+验证：
+
+- 目标 TUI 测试：`node --test packages/tui/test/tui.test.ts` 通过 32 个测试。
+- 新增测试覆盖：未初始化 workspace 上运行 `doctor` 不创建 `.aetherion`；已初始化 workspace 上运行 `doctor` 不修改 Ledger/run files；Ledger hash chain 被篡改时 audit fail closed；Store 拒绝 registry-only fake replay evidence。
+
+修正与剩余边界：
+
+- 修正 OpenClaw-like operator surface 差距：现在有单一 machine-readable readiness report 覆盖当前 repo/workspace invariants。
+- 修正 trust-boundary 偏差：audit 与 Store install 不再依赖未验证 JSONL/projection state。
+- 本轮仍不增加 GUI、browser automation、IM delivery、MCP/OAuth connector、daemon lifecycle start/stop/recover、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 first-class `ether security audit`、更完整的 CI artifact leakage denylist、release/install/onboarding automation、platform/release matrix、dependency/reproducibility policy，以及把 `prompt invoke-model` 默认 stdout 从 raw model output 改为 hash/metadata-only。
 
 ## 验证要求
 

@@ -1139,6 +1139,39 @@ Correction and remaining boundary:
 - Corrects provider operational risk without adding streaming, tool calls, connector grants, browser OAuth, token refresh, or vault storage.
 - Store trust remains local-only. There is still no remote Capsule marketplace, transparency log, revocation feed, public publisher identity system, release evidence repository, or package-code execution path.
 
+## Phase 45 Review Notes
+
+This pass responds to the next strict production-readiness review: Aetherion had strong local evidence chains, but no single read-only operator readiness surface, and two projection paths still risked reporting or accepting reassuring state without first proving the Event Ledger fact layer.
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: important actions must be reconstructable through logs, source references, decisions, approvals, and replay artifacts; this pass makes readiness and Store install depend on recorded evidence rather than projection comfort.
+- `docs/01-architecture.md`: Local Supervisor remains root authority and Event Ledger remains the fact layer; client surfaces, stores, and projections cannot become trust roots.
+- `docs/05-audit-and-data-contracts.md`: human-readable state is source of truth, while SQLite, registries, and other indexes are rebuildable projections.
+- `docs/06-roadmap.md`: advances the TUI/Rust kernel loop toward production discipline before GUI, IM, browser automation, MCP/OAuth connectors, or cloud workers.
+- `docs/10-technical-strategy.md`: keeps TypeScript on contract/TUI iteration and Rust on authority boundaries; this pass does not move Python or external tools into the authority path.
+- `docs/13-schema-runtime-governance.md`: directly enforces "a projection is not a source of truth" and "a fixture is not runtime evidence."
+
+Implemented correspondence:
+
+- Added `ether doctor --workspace <path>` as a read-only production-readiness report. It checks repo governance files, bilingual docs links, CI/script/artifact-guard expectations, schema/example baselines, workspace identity, Event Ledger hash-chain validity, and run-manifest presence.
+- `doctor` reports operator-level `ready`, `degraded`, or `blocked` plus per-check `pass`/`warn`/`fail`/`not_applicable` details. It does not initialize `.aetherion`, append events, mutate registries, write artifacts, call providers, issue leases, or repair state.
+- All `audit *` topics now verify the workspace Event Ledger hash chain before provenance/parity work. A tampered Ledger fails closed with `broken_at=<event_id>` instead of allowing `strong` or `matched` reports over corrupted JSONL.
+- `store install` no longer accepts `replay-records` registry rows as install evidence. It now resolves replay evidence from hash-chain-verified `replay.recorded` Ledger events and local Replay Record artifacts, then checks source events before passing evidence into Capsule Install validation.
+- README, TUI README, Chinese companions, and command help now link the new operator surface back to the implementation tracking docs.
+
+Verification evidence:
+
+- Targeted TUI run: `node --test packages/tui/test/tui.test.ts` passed 32 tests.
+- New tests cover `doctor` on an uninitialized workspace without creating `.aetherion`, `doctor` on an initialized workspace without mutating Ledger/run files, audit fail-closed behavior on a tampered Ledger hash chain, and Store rejection of registry-only fake replay evidence.
+
+Corrections and remaining boundary:
+
+- Corrects a production-readiness drift against OpenClaw-like operator surfaces: there is now a single machine-readable readiness report for current repo/workspace invariants.
+- Corrects a trust-boundary drift where read-only audits and Store install could lean on unverified JSONL/projection state.
+- This still does not add GUI, browser automation, IM delivery, MCP/OAuth connectors, daemon lifecycle start/stop/recover, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include a first-class `ether security audit`, broader CI artifact leakage denylist, release/install/onboarding automation, platform/release matrix, dependency/reproducibility policy, and changing `prompt invoke-model` default stdout behavior away from raw model output.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

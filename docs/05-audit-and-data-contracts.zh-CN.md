@@ -2,6 +2,8 @@
 
 [English](05-audit-and-data-contracts.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 ## 审计原则
 
 - 日志既要人类可读，也要机器可解析。

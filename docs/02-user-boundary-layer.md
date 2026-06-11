@@ -2,6 +2,8 @@
 
 [中文版本](02-user-boundary-layer.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 The User Boundary Layer is Aetherion's primary safety and product boundary. It sits under the Local Supervisor and decides whether an agent may act, where it may act, which user authority it may use, and what must be recorded or approved.
 
 The root authority boundary is:

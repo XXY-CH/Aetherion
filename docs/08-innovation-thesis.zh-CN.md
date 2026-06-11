@@ -2,6 +2,8 @@
 
 [English](08-innovation-thesis.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 Aetherion 最有价值之处不是“又一个能操作电脑的 agent”。Computer use 会成为基础能力。高杠杆赌注是一个受治理的 harness kernel，让 agent 行动可信、可演化、可检查、可迁移。
 
 下面四个创新赌注应指导架构、产品范围和 MVP 顺序。

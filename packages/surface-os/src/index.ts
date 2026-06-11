@@ -377,7 +377,7 @@ function requireReplayEvidence(
     }
     const evidence = replayRecords.find((record) => record.id === test.replay_record_id);
     if (!evidence) {
-      throw new Error(`Replay Record ${test.replay_record_id} not found in local evidence registry`);
+      throw new Error(`Replay Record ${test.replay_record_id} not found in local Ledger-backed replay evidence`);
     }
     if (evidence.run_id !== test.run_id) {
       throw new Error(`Replay Record ${test.replay_record_id} run_id does not match Store package claim`);

@@ -2,6 +2,8 @@
 
 [中文版本](08-innovation-thesis.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 The product is not most valuable because it is another agent that can use a computer. Computer use will become a baseline capability. Aetherion's highest-leverage bet is a governed harness kernel that makes agent action trustworthy, evolvable, inspectable, and portable.
 
 The four innovation bets below should guide architecture, product scope, and MVP sequencing.

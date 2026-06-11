@@ -2,6 +2,8 @@
 
 [English](09-computer-use-implementation.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 Computer Use 不是单个工具，而是覆盖浏览器、桌面、文件/仓库、代码和远程 worker 环境的受治理 action loop。实现必须保留 Aetherion kernel invariants：Local Supervisor 是 trust root，Event Ledger 是 fact layer，Tool Policy Proxy 门控敏感读取、数据外发和副作用动作。
 
 Computer Use 属于 post-V1。V1 只做 TUI，先证明本地 kernel loop，再引入浏览器扩展、浏览器自动化、IM 投递、云 worker 或真实 connector。

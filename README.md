@@ -147,6 +147,8 @@ git diff --check
 
 The same checks run in GitHub Actions CI for pull requests and pushes to `main`.
 
+For a read-only production-readiness snapshot, run `npm run ether -- doctor --workspace .`. The report checks repo governance files, bilingual documentation links, CI/script/artifact-guard expectations, schema/example baselines, workspace identity, Ledger hash-chain validity, and run-manifest presence without initializing unstarted workspaces or repairing runtime state. This increment is tracked in [Phase Implementation Review](docs/12-phase-implementation-review.md) and [Runtime Loop Plan](docs/14-runtime-loop-plan.md).
+
 ## Current Implementation Status
 
 The active product slice remains the V1 kernel loop. Later-phase modules in this repo are local contract/runtime labs: they exercise source-backed safety invariants, but they are not production integrations and they are not additional trust roots.
@@ -172,6 +174,10 @@ They also upsert typed local registries under:
 These files are still human-readable local runtime state, not a database daemon. They give later GUI, replay, and supervisor-backed flows concrete state to inspect without making projections the source of truth.
 
 The P0 `.aetherion/workspace.json` registry is also a projection, not an authority path. Kernel loaders derive the workspace id, runtime directory, and Ledger path from the resolved workspace root, require `ledger_path` in the schema, and reject registry identity/path drift before reading Ledger evidence or creating run manifests. The Rust supervisor RPC boundary also rejects caller-supplied workspace ids that do not match the resolved root before creating `.aetherion` runtime state.
+
+`doctor` is a read-only operator surface over repo and workspace invariants. It reports `ready`, `degraded`, or `blocked`, keeps per-check `pass`/`warn`/`fail`/`not_applicable` details, and does not append Ledger events, mutate registries, write artifacts, call providers, issue leases, repair state, or initialize `.aetherion` for a workspace that has not run Ether yet.
+
+All `audit *` commands now first verify the workspace Event Ledger hash chain. If the chain is invalid, the audit fails closed with the broken event id instead of reporting reassuring provenance or parity over tampered JSONL.
 
 `audit registries` performs a read-only provenance reference audit over `.aetherion/registries/*.json` against the JSONL Event Ledger. It classifies registry entries as `strong` when every referenced Ledger event id exists, `weak` when some references are missing, `missing` when no event provenance is present, and `invalid` when a registry entry is malformed. This is a visibility tool, not deterministic registry rebuild or parity proof; `strong` means event references resolve, not that the registry can already be regenerated from scratch.
 
@@ -217,7 +223,7 @@ Several commands use those registries as lifecycle state:
 - `surface im-inbox` stores hash-only inbound IM metadata. Owner/paired DMs can queue as low risk, mentioned group messages are upgraded, and unknown/public senders are pairing-required or observe-only. Inbound IM cannot authorize actions.
 - `surface im-outbox` validates a source run, asks the Rust supervisor for outbox policy, queues DM/group sends for one scoped approval, and blocks public sends. It never attempts delivery and stores only destination/body hashes.
 - `store trust-publisher` enrolls a local operator-approved publisher key into the `store-publishers` projection, records the key fingerprint, and appends a governance event. This is a local trust anchor, not a remote market, transparency log, or revocation network.
-- `store install` validates a signed Store Package against the locally enrolled publisher key, verifies Ed25519 over the canonical Capsule payload, resolves the claimed replay tests from local `replay-records` evidence, verifies the sandbox trial file hash, requires permission-diff approval, then installs only the Capsule declaration into the local registry. It executes no package code.
+- `store install` validates a signed Store Package against the locally enrolled publisher key, verifies Ed25519 over the canonical Capsule payload, resolves claimed replay tests from hash-chain-verified `replay.recorded` Ledger events and their Replay Record artifacts, verifies the sandbox trial file hash, requires permission-diff approval, then installs only the Capsule declaration into the local registry. The `replay-records` registry remains a projection and is not Store install authority. It executes no package code.
 - `dream run/accept/reject` creates source-backed Memory Fold patches from at least two active Memory Cards; folds retain every source reference and do not replace active memory. Sensitive folds require `--approve-sensitive`.
 - `anchors propose/accept/reject/list` maintains TTL-bound persona anchors and named branches. Sensitive anchors require explicit approval. `persona reset` applies an existing branch while retaining business-memory references and changing no tool authority.
 - `soul fork` reconstructs a checkpoint replay, creates a new embedded identity/policy/budget/workspace scope, inherits only permitted memory/history references, and denies vault grants, OAuth grants, active leases, file paths, and live side effects. The new budget starts at zero.
@@ -263,6 +269,7 @@ npm run ether -- surface im-inbox --path <inbox-input.json> --workspace .
 npm run ether -- surface im-outbox --path <outbox-input.json> --workspace .
 npm run ether -- store trust-publisher --path <publisher-key.json> --workspace .
 npm run ether -- store install --path <signed-package.json> --approve-permissions --workspace .
+npm run ether -- doctor --workspace .
 npm run ether -- audit registries --workspace .
 npm run ether -- audit replay-records --workspace .
 npm run ether -- audit memory-records --workspace .

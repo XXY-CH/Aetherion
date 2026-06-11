@@ -2,6 +2,8 @@
 
 [English](11-migration-and-runtime-economics.md)
 
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+
 本文记录 post-V1 关于 OpenClaw/Hermes migration、advanced agent-system bets 和 runtime cost controls 的讨论。它不改变 V1 规则：第一版 runnable product 仍是 TUI-only，并聚焦本地 kernel loop。
 
 ## 范围边界

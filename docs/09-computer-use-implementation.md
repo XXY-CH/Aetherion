@@ -2,6 +2,8 @@
 
 [中文版本](09-computer-use-implementation.zh-CN.md)
 
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+
 Computer Use is not a single tool. It is a governed action loop over browser, desktop, file/repo, code, and remote worker environments. Its implementation must preserve the Aetherion kernel invariants: Local Supervisor remains the trust root, Event Ledger remains the fact layer, and Tool Policy Proxy gates sensitive reads, data egress, and side-effectful actions.
 
 Computer Use is post-V1 scope. V1 is TUI-only and should prove the local kernel loop before browser extension, browser automation, IM delivery, cloud workers, or real connectors are introduced.
