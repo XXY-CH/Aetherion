@@ -1667,6 +1667,38 @@ Corrections and remaining boundary:
 - Local Ingress Readiness is a P1 readiness/audit contract, not a production ingress gateway or authority path.
 - Remaining strict-review gaps include runtime duplicate detection for local envelopes, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 61 Review Notes
+
+This pass continues PGC-3 by moving one idempotency requirement from contract-only into the TUI `run` runtime path, without adding an API listener or remote ingress surface.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): Ingress Gateways must provide idempotency before Local Supervisor handoff.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces can request action but cannot become the trust root.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): local ingress metadata must reject raw material persistence and inherited authority.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 requires duplicate idempotency keys to be detected before new action runs.
+
+Implemented correspondence:
+
+- Added `schemas/local-ingress-idempotency-reservation.schema.json` and `examples/contracts/local-ingress-idempotency-reservation.json`.
+- `run` now derives or accepts an idempotency key, stores only `sha256:` key and normalized-intent hashes, and writes a local reservation file with atomic `wx` semantics before calling the Rust supervisor or the TypeScript test seed.
+- Reusing the same `--idempotency-key` fails closed before any new run manifest, Ledger append, tool request, policy decision, lease, or file action.
+- `local-ingress-readiness` now records that the duplicate detector exists only for TUI run local atomic reservation before supervisor handoff.
+- Added schema tests rejecting raw idempotency key persistence, raw intent persistence, authority, and late duplicate detection drift.
+- Added TUI regression coverage proving duplicate key rejection leaves Ledger and run manifests unchanged.
+- `ingress audit`, `doctor`, and `release evidence` now distinguish this implemented TUI duplicate-key reservation from still-missing cached idempotent replay, rate limits, auth/session lifecycle, and remote ingress.
+
+Drift review:
+
+- Corrects the Phase 60 drift that still listed runtime duplicate detection as entirely unimplemented.
+- Keeps the broader architecture boundary intact: this is TUI run preflight state, not a public gateway, session issuer, rate limiter, policy authority, or lease issuer.
+- Does not implement cached replay of a prior idempotent result, replay protection for remote envelopes, a durable session/auth lifecycle, rate-limit enforcement, public HTTP/API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, or supervisor policy execution from ingress envelopes.
+
+Corrections and remaining boundary:
+
+- Local idempotency reservation is a duplicate-action guard, not a source of truth for authorization; Local Supervisor and Tool Access & Action Policy Proxy still gate reads/writes.
+- Remaining strict-review gaps include cached/replay-safe idempotency semantics, rate limiting, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

@@ -164,6 +164,7 @@
         "idempotency_key_required",
         "duplicate_detection_before_action_run_required",
         "duplicate_runtime_detector_implemented",
+        "duplicate_runtime_detector_scope",
         "duplicate_key_can_reuse_authority",
         "replay_protection_required",
         "replay_protection_implemented"
@@ -172,7 +173,8 @@
       "properties": {
         "idempotency_key_required": { "type": "boolean", "enum": [true] },
         "duplicate_detection_before_action_run_required": { "type": "boolean", "enum": [true] },
-        "duplicate_runtime_detector_implemented": { "type": "boolean", "enum": [false] },
+        "duplicate_runtime_detector_implemented": { "type": "boolean", "enum": [true] },
+        "duplicate_runtime_detector_scope": { "type": "string", "enum": ["tui_run_local_atomic_reservation_before_supervisor_handoff"] },
         "duplicate_key_can_reuse_authority": { "type": "boolean", "enum": [false] },
         "replay_protection_required": { "type": "boolean", "enum": [true] },
         "replay_protection_implemented": { "type": "boolean", "enum": [false] }

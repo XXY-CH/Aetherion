@@ -933,7 +933,7 @@ Acceptance:
 - The schema requires caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff metadata.
 - The schema rejects public API/browser/IM/mobile/cloud ingress overclaims, unauthenticated authority, duplicate-key authority reuse, raw external payload persistence, session issuance, rate-limit enforcement claims, and supervisor bypass.
 - `doctor`, `onboarding check`, `ingress audit`, and `release evidence` surface `local_ingress_readiness_contract` evidence.
-- `ingress audit` is read-only and reports the current gap: no runtime duplicate detector, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, or cloud worker ingress.
+- `ingress audit` is read-only and reports the current gap: TUI run duplicate-key reservation exists, but cached idempotent result replay, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress remain missing.
 
 Matched source docs and corrections:
 
@@ -944,5 +944,29 @@ Matched source docs and corrections:
 
 Remaining boundary:
 
-- This is not a production ingress gateway, public API listener, browser extension, IM delivery path, mobile pairing system, connector OAuth ingress, cloud worker, session manager, runtime duplicate detector, rate limiter, policy lease, or side-effect authorization path.
+- This is not a production ingress gateway, public API listener, browser extension, IM delivery path, mobile pairing system, connector OAuth ingress, cloud worker, session manager, cached idempotent replay system, rate limiter, policy lease, or side-effect authorization path.
 - The next high-value slices are either runtime idempotency/duplicate detection for local command envelopes, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.
+
+## Completed Increment: TUI Run Idempotency Reservation
+
+Target: make the PGC-3 duplicate-key requirement executable for the current TUI `run` surface before any Local Supervisor handoff or file action.
+
+Acceptance:
+
+- `local-ingress-idempotency-reservation.schema.json` and its example validate with the contract example suite.
+- `run` accepts `--idempotency-key <key>` and otherwise derives a generated local key; raw keys and raw intent text are not persisted.
+- The idempotency reservation records `idempotency_key_hash`, `normalized_intent_hash`, `surface_id=tui`, `auth_state=local_operator`, `rate_limit_state=not_enforced`, and `policy_handoff=pending_fresh_policy_and_scoped_lease`.
+- Reservation uses atomic create (`wx`) before supervisor handoff, so a repeated key fails closed before a new run manifest, Ledger event, tool request, policy decision, lease, or action is created.
+- `ingress audit`, `doctor`, and `release evidence` report the TUI duplicate-key reservation while keeping cached idempotent replay, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress open.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): idempotency is part of the ingress gateway boundary before Local Supervisor.
+- [User Boundary Layer](02-user-boundary-layer.md): the client surface requests action but does not grant authority.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): idempotency reservation is hash-only metadata and rejects raw material or authority claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): duplicate idempotency keys are now detected for TUI `run` before new action runs.
+
+Remaining boundary:
+
+- This is not a production ingress gateway, public API listener, remote replay-protection system, cached idempotent response replay, rate limiter, session manager, auth lifecycle, policy lease, or side-effect authorization path.
+- The next high-value slices are cached/replay-safe idempotency semantics, rate-limit state enforcement, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.

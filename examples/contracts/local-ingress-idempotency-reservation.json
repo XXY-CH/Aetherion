@@ -1,0 +1,20 @@
+{
+  "id": "local_ingress_idempotency_0123456789abcdef",
+  "schema_version": "aetherion-local-ingress-idempotency-reservation-v1",
+  "workspace_id": "ws_0123456789abcdef",
+  "run_id": "run_example_idempotency",
+  "reserved_at": "2026-06-12T00:00:00.000Z",
+  "surface_id": "tui",
+  "command": "run",
+  "key_source": "operator_supplied",
+  "idempotency_key_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "normalized_intent_hash": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "duplicate_detection_stage": "before_supervisor_handoff",
+  "duplicate_detector": "local_atomic_reservation_file",
+  "auth_state": "local_operator",
+  "rate_limit_state": "not_enforced",
+  "policy_handoff": "pending_fresh_policy_and_scoped_lease",
+  "raw_key_persisted": false,
+  "raw_intent_persisted": false,
+  "can_authorize_actions": false
+}

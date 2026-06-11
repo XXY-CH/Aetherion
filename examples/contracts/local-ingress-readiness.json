@@ -59,7 +59,8 @@
   "idempotency": {
     "idempotency_key_required": true,
     "duplicate_detection_before_action_run_required": true,
-    "duplicate_runtime_detector_implemented": false,
+    "duplicate_runtime_detector_implemented": true,
+    "duplicate_runtime_detector_scope": "tui_run_local_atomic_reservation_before_supervisor_handoff",
     "duplicate_key_can_reuse_authority": false,
     "replay_protection_required": true,
     "replay_protection_implemented": false
@@ -100,6 +101,7 @@
   "source_files": [
     "docs/01-architecture.md",
     "docs/15-production-gap-closure-plan.md",
+    "schemas/local-ingress-idempotency-reservation.schema.json",
     "packages/tui/src/cli.ts",
     "packages/harness-core/test/harness-core.test.ts"
   ]

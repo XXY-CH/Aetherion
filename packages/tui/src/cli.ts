@@ -55,6 +55,7 @@ type CliOptions = {
   socketPath?: string;
   socketAuthToken?: string;
   remoteEvidence?: string;
+  idempotencyKey?: string;
   checkWakeups: boolean;
   printOutput: boolean;
 };
@@ -86,10 +87,14 @@ async function main(): Promise<void> {
   if (options.supervisor === "socket" && !options.socketPath) {
     throw new Error("--supervisor socket requires --socket-path <socket>");
   }
+  const runId = `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  await preflightSocketSupervisorBinding(options, runId);
+  const ingressReservation = await reserveLocalIngressIdempotency(options, runId);
   const result = options.supervisor === "typescript-seed"
     ? await runLocalKernelLoop({
         repoRoot,
         workspaceRoot: options.workspace,
+        runId,
         inputPath: options.input,
         outputPath: options.output,
         approveWrite: options.approveWrite,
@@ -98,6 +103,7 @@ async function main(): Promise<void> {
     : await runSupervisorKernelLoop({
         repoRoot,
         workspaceRoot: options.workspace,
+        runId,
         inputPath: options.input,
         outputPath: options.output,
         approveWrite: options.approveWrite,
@@ -106,7 +112,7 @@ async function main(): Promise<void> {
         socketAuthToken: options.supervisor === "socket" ? options.socketAuthToken : undefined
       });
 
-  await printRunResult(result);
+  await printRunResult(result, ingressReservation);
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -290,6 +296,10 @@ function parseArgs(args: string[]): CliOptions {
         options.remoteEvidence = requireValue(arg, next);
         index += 1;
         break;
+      case "--idempotency-key":
+        options.idempotencyKey = requireValue(arg, next);
+        index += 1;
+        break;
       case "--check-wakeups":
         options.checkWakeups = true;
         break;
@@ -309,7 +319,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token", "--remote-evidence", "--idempotency-key"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -1173,7 +1183,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
-      "local ingress readiness is contract/audit-only; no duplicate runtime detector, rate-limit enforcement, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is implemented",
+      "local ingress readiness now has TUI run duplicate-key reservation before supervisor handoff, but cached idempotent replay, rate-limit enforcement, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
       "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
       "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
@@ -1736,10 +1746,13 @@ function repoDoctorChecks(): DoctorCheck[] {
 function localIngressReadinessContractCheck(): DoctorCheck {
   const schemaPresent = existsRepoFile("schemas/local-ingress-readiness.schema.json");
   const examplePresent = existsRepoFile("examples/contracts/local-ingress-readiness.json");
+  const idempotencyReservationSchemaPresent = existsRepoFile("schemas/local-ingress-idempotency-reservation.schema.json");
+  const idempotencyReservationExamplePresent = existsRepoFile("examples/contracts/local-ingress-idempotency-reservation.json");
   const architecture = readRepoText("docs/01-architecture.md") ?? "";
   const gapPlan = readRepoText("docs/15-production-gap-closure-plan.md") ?? "";
   const source = readRepoText("packages/tui/src/cli.ts") ?? "";
-  const tests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const contractTests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const tuiTests = readRepoText("packages/tui/test/tui.test.ts") ?? "";
   const example = readRepoJson("examples/contracts/local-ingress-readiness.json") as {
     supported_surfaces?: {
       tui_command_surface?: unknown;
@@ -1789,6 +1802,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
       idempotency_key_required?: unknown;
       duplicate_detection_before_action_run_required?: unknown;
       duplicate_runtime_detector_implemented?: unknown;
+      duplicate_runtime_detector_scope?: unknown;
       duplicate_key_can_reuse_authority?: unknown;
       replay_protection_required?: unknown;
       replay_protection_implemented?: unknown;
@@ -1881,10 +1895,19 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     && example.rate_limit.background_queue_implemented === false;
   const idempotencySafe = example?.idempotency?.idempotency_key_required === true
     && example.idempotency.duplicate_detection_before_action_run_required === true
-    && example.idempotency.duplicate_runtime_detector_implemented === false
+    && example.idempotency.duplicate_runtime_detector_implemented === true
+    && example.idempotency.duplicate_runtime_detector_scope === "tui_run_local_atomic_reservation_before_supervisor_handoff"
     && example.idempotency.duplicate_key_can_reuse_authority === false
     && example.idempotency.replay_protection_required === true
     && example.idempotency.replay_protection_implemented === false;
+  const runtimeDuplicateDetectorReady = idempotencyReservationSchemaPresent
+    && idempotencyReservationExamplePresent
+    && source.includes("reserveLocalIngressIdempotency")
+    && source.includes("local-ingress-idempotency-reservation.schema.json")
+    && source.includes("flag: \"wx\"")
+    && source.includes("Duplicate ingress idempotency key detected before action run")
+    && tuiTests.includes("Ether run rejects duplicate idempotency keys before supervisor handoff")
+    && contractTests.includes("local-ingress-idempotency-reservation.schema.json");
   const policyHandoffSafe = example?.policy_handoff?.local_supervisor_required === true
     && example.policy_handoff.tool_policy_proxy_required === true
     && example.policy_handoff.fresh_policy_required_for_actions === true
@@ -1915,16 +1938,20 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     && gapPlan.includes("Duplicate idempotency keys")
     && source.includes("function buildIngressAuditReport")
     && source.includes("local_ingress_readiness_contract");
-  const testsReady = tests.includes("local ingress readiness rejects remote surface, auth, idempotency, and authority overclaims")
-    && tests.includes("local-ingress-readiness.schema.json");
+  const testsReady = contractTests.includes("local ingress readiness rejects remote surface, auth, idempotency, and authority overclaims")
+    && contractTests.includes("local-ingress-readiness.schema.json")
+    && tuiTests.includes("Ether run rejects duplicate idempotency keys before supervisor handoff");
   const ok = schemaPresent
     && examplePresent
+    && idempotencyReservationSchemaPresent
+    && idempotencyReservationExamplePresent
     && surfacesSafe
     && envelopeSafe
     && normalizationSafe
     && authSafe
     && rateLimitSafe
     && idempotencySafe
+    && runtimeDuplicateDetectorReady
     && policyHandoffSafe
     && remoteSurfaceSafe
     && authoritySafe
@@ -1936,17 +1963,20 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     ok ? "pass" : "fail",
     ok ? "info" : "error",
     ok
-      ? "Local ingress readiness contract requires envelope, auth-state, rate-limit, idempotency, and policy handoff metadata without enabling remote surfaces or authority bypass."
+      ? "Local ingress readiness contract requires envelope, auth-state, rate-limit, idempotency, and policy handoff metadata with TUI run duplicate-key reservation before supervisor handoff, without enabling remote surfaces or authority bypass."
       : "Local ingress readiness contract is missing or overclaims remote ingress, authentication, idempotency, rate-limit, or authority behavior.",
     [
       `schema=${schemaPresent ? "present" : "missing"}`,
       `example=${examplePresent ? "present" : "missing"}`,
+      `idempotency_reservation_schema=${idempotencyReservationSchemaPresent ? "present" : "missing"}`,
+      `idempotency_reservation_example=${idempotencyReservationExamplePresent ? "present" : "missing"}`,
       `surfaces_safe=${String(surfacesSafe)}`,
       `envelope_safe=${String(envelopeSafe)}`,
       `normalization_safe=${String(normalizationSafe)}`,
       `auth_safe=${String(authSafe)}`,
       `rate_limit_safe=${String(rateLimitSafe)}`,
       `idempotency_safe=${String(idempotencySafe)}`,
+      `runtime_duplicate_detector_ready=${String(runtimeDuplicateDetectorReady)}`,
       `policy_handoff_safe=${String(policyHandoffSafe)}`,
       `remote_surface_safe=${String(remoteSurfaceSafe)}`,
       `authority_safe=${String(authoritySafe)}`,
@@ -1954,7 +1984,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
       `source_ready=${String(sourceReady)}`,
       `tests_ready=${String(testsReady)}`
     ],
-    "Restore schemas/local-ingress-readiness.schema.json and examples/contracts/local-ingress-readiness.json with required local envelope fields, duplicate-detection requirements, unknown/unauthenticated denial, policy handoff requirements, and no remote surface or authority claims."
+    "Restore local ingress readiness and idempotency reservation schemas/examples with required local envelope fields, atomic duplicate-key reservation before supervisor handoff, unknown/unauthenticated denial, policy handoff requirements, and no remote surface or authority claims."
   );
 }
 
@@ -3594,6 +3624,24 @@ function sha256Hex(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
+function hashDigest(value: string): string {
+  return value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
+}
+
+function stableCanonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableCanonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableCanonicalJson(child)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function workspaceFileUri(relativePath: string): string {
   return `workspace://${relativePath.split("/").map(encodeURIComponent).join("/")}`;
 }
@@ -5100,7 +5148,8 @@ type IngressAuditReport = {
     runnable_surface: "tui";
     contract_surface: "local_api_like_envelope";
     envelope_fields: string[];
-    current_duplicate_detection: "not_implemented";
+    current_duplicate_detection: "tui_run_local_atomic_reservation_before_supervisor_handoff";
+    idempotency_reservation_schema: "local-ingress-idempotency-reservation.schema.json";
     current_rate_limit_enforcement: "not_implemented";
     unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only";
     policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions";
@@ -5109,6 +5158,123 @@ type IngressAuditReport = {
   remaining_gaps: string[];
   source_documents: Array<{ path: string; role: string }>;
 };
+
+type LocalIngressIdempotencyReservation = {
+  id: string;
+  schema_version: "aetherion-local-ingress-idempotency-reservation-v1";
+  workspace_id: string;
+  run_id: string;
+  reserved_at: string;
+  surface_id: "tui";
+  command: "run";
+  key_source: "operator_supplied" | "generated";
+  idempotency_key_hash: string;
+  normalized_intent_hash: string;
+  duplicate_detection_stage: "before_supervisor_handoff";
+  duplicate_detector: "local_atomic_reservation_file";
+  auth_state: "local_operator";
+  rate_limit_state: "not_enforced";
+  policy_handoff: "pending_fresh_policy_and_scoped_lease";
+  raw_key_persisted: false;
+  raw_intent_persisted: false;
+  can_authorize_actions: false;
+};
+
+async function preflightSocketSupervisorBinding(options: CliOptions, runId: string): Promise<void> {
+  if (options.supervisor !== "socket") {
+    return;
+  }
+  const workspaceRoot = resolve(options.workspace);
+  await supervisorStatusPreflight(workspaceRoot, runId, options.socketPath, options.socketAuthToken);
+}
+
+async function supervisorStatusPreflight(workspaceRoot: string, runId: string, socketPath: string | undefined, socketAuthToken: string | undefined): Promise<void> {
+  if (!socketPath) {
+    throw new Error("--supervisor socket requires --socket-path <socket>");
+  }
+  rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${runId}_ingress_preflight`,
+    method: "supervisor.status",
+    workspace_root: workspaceRoot,
+    workspace_id: workspaceIdForRoot(workspaceRoot),
+    run_id: runId
+  }, {
+    socketPath,
+    authToken: socketAuthToken
+  }));
+}
+
+async function reserveLocalIngressIdempotency(options: CliOptions, runId: string): Promise<LocalIngressIdempotencyReservation> {
+  const workspaceRoot = resolve(options.workspace);
+  const workspaceId = workspaceIdForRoot(workspaceRoot);
+  const keySource: LocalIngressIdempotencyReservation["key_source"] = options.idempotencyKey ? "operator_supplied" : "generated";
+  const rawKey = options.idempotencyKey ?? `aetherion:tui:run:${runId}`;
+  if (rawKey.trim().length === 0) {
+    throw new Error("--idempotency-key must not be empty");
+  }
+  if (rawKey.length > 512) {
+    throw new Error("--idempotency-key must be 512 characters or fewer");
+  }
+  const idempotencyKeyHash = sha256Hex(rawKey);
+  const normalizedIntentHash = sha256Hex(stableCanonicalJson({
+    command: "run",
+    surface_id: "tui",
+    workspace_id: workspaceId,
+    input_path: options.input,
+    output_path: options.output,
+    approve_write: options.approveWrite,
+    supervisor: options.supervisor ?? "stdio",
+    summary_sha256: options.summary ? sha256Hex(options.summary) : null
+  }));
+  const reservation: LocalIngressIdempotencyReservation = {
+    id: `local_ingress_idempotency_${hashDigest(idempotencyKeyHash).slice(0, 16)}`,
+    schema_version: "aetherion-local-ingress-idempotency-reservation-v1",
+    workspace_id: workspaceId,
+    run_id: runId,
+    reserved_at: new Date().toISOString(),
+    surface_id: "tui",
+    command: "run",
+    key_source: keySource,
+    idempotency_key_hash: idempotencyKeyHash,
+    normalized_intent_hash: normalizedIntentHash,
+    duplicate_detection_stage: "before_supervisor_handoff",
+    duplicate_detector: "local_atomic_reservation_file",
+    auth_state: "local_operator",
+    rate_limit_state: "not_enforced",
+    policy_handoff: "pending_fresh_policy_and_scoped_lease",
+    raw_key_persisted: false,
+    raw_intent_persisted: false,
+    can_authorize_actions: false
+  };
+  const validation = await validateAgainstSchema(repoRoot, "local-ingress-idempotency-reservation.schema.json", reservation);
+  if (!validation.valid) {
+    throw new Error(`local-ingress-idempotency-reservation.schema.json validation failed: ${validation.errors.join("; ")}`);
+  }
+  const reservationPath = localIngressIdempotencyReservationPath(workspaceRoot, idempotencyKeyHash);
+  mkdirSync(dirname(reservationPath), { recursive: true });
+  try {
+    writeFileSync(reservationPath, `${JSON.stringify(reservation, null, 2)}\n`, { flag: "wx" });
+  } catch (error) {
+    if (!isFileExistsError(error)) {
+      throw error;
+    }
+    const existing = readOptionalLocalIngressReservation(reservationPath);
+    throw new Error(`Duplicate ingress idempotency key detected before action run: key_hash=${idempotencyKeyHash} existing_run_id=${existing?.run_id ?? "unknown"} duplicate_stage=before_supervisor_handoff`);
+  }
+  return reservation;
+}
+
+function localIngressIdempotencyReservationPath(workspaceRoot: string, idempotencyKeyHash: string): string {
+  return join(resolve(workspaceRoot), ".aetherion", "ingress", "idempotency", `idem_${hashDigest(idempotencyKeyHash)}.json`);
+}
+
+function readOptionalLocalIngressReservation(path: string): LocalIngressIdempotencyReservation | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as LocalIngressIdempotencyReservation;
+  } catch {
+    return null;
+  }
+}
 
 async function runIngress(options: CliOptions): Promise<void> {
   if (options.topic !== "audit") {
@@ -5165,7 +5331,8 @@ function buildIngressAuditReport(workspaceRoot: string): IngressAuditReport {
       runnable_surface: "tui",
       contract_surface: "local_api_like_envelope",
       envelope_fields: envelopeFields,
-      current_duplicate_detection: "not_implemented",
+      current_duplicate_detection: "tui_run_local_atomic_reservation_before_supervisor_handoff",
+      idempotency_reservation_schema: "local-ingress-idempotency-reservation.schema.json",
       current_rate_limit_enforcement: "not_implemented",
       unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only",
       policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions"
@@ -5180,7 +5347,7 @@ function buildIngressAuditReport(workspaceRoot: string): IngressAuditReport {
       "cloud worker ingress"
     ],
     remaining_gaps: [
-      "duplicate idempotency keys are required by contract but are not yet detected by a runtime gateway before new action runs",
+      "duplicate idempotency keys are rejected for TUI run through local atomic reservation before supervisor handoff, but cached replay of prior results is not implemented",
       "rate-limit state is required by contract but no runtime rate limiter is implemented",
       "caller identity is a placeholder; no durable user identity, device identity, remote channel identity, session token lifecycle, or OAuth pairing is implemented",
       "unknown or unauthenticated local API/browser/IM/mobile inputs may only be observations or queued intents and cannot authorize tools or side effects",
@@ -6340,6 +6507,13 @@ function isMissingFileError(error: unknown): boolean {
     && (error as { code?: unknown }).code === "ENOENT";
 }
 
+function isFileExistsError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "EEXIST";
+}
+
 async function requireSourceEvent(workspaceRoot: string, eventId: string): Promise<void> {
   const exists = await openWorkspace(workspaceRoot)
     .then(readEvents)
@@ -6499,9 +6673,16 @@ function printKeyValueRecord(record: Record<string, unknown>, keys: string[]): v
   }
 }
 
-async function printRunResult(result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>): Promise<void> {
+async function printRunResult(
+  result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>,
+  ingressReservation: LocalIngressIdempotencyReservation
+): Promise<void> {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
+  console.log(`ingress_idempotency_key_hash=${ingressReservation.idempotency_key_hash}`);
+  console.log(`ingress_idempotency_key_source=${ingressReservation.key_source}`);
+  console.log(`ingress_normalized_intent_hash=${ingressReservation.normalized_intent_hash}`);
+  console.log(`ingress_duplicate_detector=${ingressReservation.duplicate_detector}:${ingressReservation.duplicate_detection_stage}`);
   if ("supervisor" in result) {
     console.log(`supervisor=${result.supervisor}`);
   }
@@ -6531,9 +6712,9 @@ function printHelp(): void {
 
 Usage:
   V1 core:
-  npm run ether -- run --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
-  npm run ether -- run --supervisor stdio --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
-  npm run ether -- run --supervisor socket --socket-path <socket> --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write
+  npm run ether -- run --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write [--idempotency-key <key>]
+  npm run ether -- run --supervisor stdio --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write [--idempotency-key <key>]
+  npm run ether -- run --supervisor socket --socket-path <socket> --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write [--idempotency-key <key>]
   npm run ether -- replay <run_id> --workspace <path>
   npm run ether -- trace <run_id> --workspace <path>
   npm run ether -- boundary <run_id> --workspace <path>
@@ -6636,6 +6817,7 @@ Options:
   --input <path>       Workspace-relative file to read. Defaults to README.md.
   --output <path>      Workspace-relative file to write. Defaults to .aetherion/SUMMARY.md.
   --summary <text>     Explicit summary text to write; default output does not copy source content.
+  --idempotency-key <key> Optional caller-supplied run idempotency key; raw keys are hashed before local reservation.
   --approve-write      Required to execute the write stage.
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
   --socket-path <path> Explicit foreground supervisor socket for supervisor status.

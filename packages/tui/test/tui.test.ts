@@ -34,6 +34,7 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   assert.match(stdout, /write_policy_final=allow:L3/);
   assert.match(stdout, /verification=passed/);
   assert.match(stdout, /supervisor=stdio/);
+  assert.match(stdout, /ingress_duplicate_detector=local_atomic_reservation_file:before_supervisor_handoff/);
   assert.match(stdout, /chain_valid=true/);
   assert.match(stdout, /head_event_id=evt_/);
   assert.match(stdout, /live_side_effects_replayed=false/);
@@ -43,6 +44,24 @@ test("TUI run executes approval-gated local kernel loop", async () => {
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
+  const ingressKeyHash = stdoutValue(stdout, "ingress_idempotency_key_hash");
+  assert.match(ingressKeyHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(stdoutValue(stdout, "ingress_idempotency_key_source"), "generated");
+  assert.match(stdoutValue(stdout, "ingress_normalized_intent_hash"), /^sha256:[a-f0-9]{64}$/);
+  const ingressReservation = JSON.parse(await readFile(join(workspace, ".aetherion", "ingress", "idempotency", `idem_${ingressKeyHash.slice("sha256:".length)}.json`), "utf8")) as {
+    run_id: string;
+    duplicate_detection_stage: string;
+    duplicate_detector: string;
+    raw_key_persisted: boolean;
+    raw_intent_persisted: boolean;
+    can_authorize_actions: boolean;
+  };
+  assert.equal(ingressReservation.run_id, runId);
+  assert.equal(ingressReservation.duplicate_detection_stage, "before_supervisor_handoff");
+  assert.equal(ingressReservation.duplicate_detector, "local_atomic_reservation_file");
+  assert.equal(ingressReservation.raw_key_persisted, false);
+  assert.equal(ingressReservation.raw_intent_persisted, false);
+  assert.equal(ingressReservation.can_authorize_actions, false);
   assert.match(stdoutValue(stdout, "manifest_event_ids"), /^evt_/);
   assert.match(stdoutValue(stdout, "manifest_event_ids"), /evt_[^\n,]+_completed/);
   assert.match(stdoutValue(stdout, "artifact_refs"), new RegExp(`artifact://boundary/${runId}/facts`));
@@ -284,6 +303,62 @@ test("TUI run executes approval-gated local kernel loop", async () => {
   await assert.rejects(access(boundaryArtifactPath));
 });
 
+test("Ether run rejects duplicate idempotency keys before supervisor handoff", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-idempotency-"));
+  await writeFile(join(workspace, "README.md"), "Idempotency fixture\n");
+
+  const first = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write",
+    "--idempotency-key",
+    "repeatable-local-envelope"
+  ]);
+  const firstRunId = stdoutValue(first.stdout, "run_id");
+  const keyHash = stdoutValue(first.stdout, "ingress_idempotency_key_hash");
+  assert.equal(stdoutValue(first.stdout, "ingress_idempotency_key_source"), "operator_supplied");
+  assert.match(keyHash, /^sha256:[a-f0-9]{64}$/);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerBeforeDuplicate = await readFile(ledgerPath, "utf8");
+  const runsBeforeDuplicate = await readdir(runsPath);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "run",
+      "--workspace",
+      workspace,
+      "--input",
+      "README.md",
+      "--output",
+      ".aetherion/DUPLICATE.md",
+      "--approve-write",
+      "--idempotency-key",
+      "repeatable-local-envelope"
+    ]),
+    (error: unknown) => {
+      assert.match(commandStderr(error), /Duplicate ingress idempotency key detected before action run/);
+      assert.match(commandStderr(error), new RegExp(`existing_run_id=${firstRunId}`));
+      assert.match(commandStderr(error), /duplicate_stage=before_supervisor_handoff/);
+      assert.equal(commandStdout(error), "");
+      return true;
+    }
+  );
+
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBeforeDuplicate);
+  assert.deepEqual(await readdir(runsPath), runsBeforeDuplicate);
+  await assert.rejects(access(join(workspace, ".aetherion", "DUPLICATE.md")), /ENOENT/);
+  const reservations = await readdir(join(workspace, ".aetherion", "ingress", "idempotency"));
+  assert.deepEqual(reservations, [`idem_${keyHash.slice("sha256:".length)}.json`]);
+});
+
 test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   const help = await execFileAsync(process.execPath, [cliPath, "help"]);
 
@@ -306,6 +381,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /ingress\s+Read-only local ingress envelope\/idempotency readiness audit/);
   assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
+  assert.match(help.stdout, /--idempotency-key <key>\s+Optional caller-supplied run idempotency key/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
@@ -781,7 +857,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
-  assert.ok(report.remaining_gaps.some((gap) => gap.includes("local ingress readiness is contract")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("local ingress readiness now has TUI run duplicate-key reservation")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production daemon start/stop")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
@@ -946,7 +1022,7 @@ test("Ether ingress audit reports local envelope readiness without initializing 
     };
     summary: { fail: number };
     checks: Array<{ id: string; status: string; evidence: string[] }>;
-    ingress_profile: { envelope_fields: string[]; current_duplicate_detection: string; policy_handoff: string };
+    ingress_profile: { envelope_fields: string[]; current_duplicate_detection: string; idempotency_reservation_schema: string; policy_handoff: string };
     deferred_surfaces: string[];
     remaining_gaps: string[];
   };
@@ -966,10 +1042,11 @@ test("Ether ingress audit reports local envelope readiness without initializing 
   assert.equal(ingressCheck?.status, "pass");
   assert.match(ingressCheck?.evidence.join("\n") ?? "", /policy_handoff_safe=true/);
   assert.ok(report.ingress_profile.envelope_fields.includes("idempotency_key"));
-  assert.equal(report.ingress_profile.current_duplicate_detection, "not_implemented");
+  assert.equal(report.ingress_profile.current_duplicate_detection, "tui_run_local_atomic_reservation_before_supervisor_handoff");
+  assert.equal(report.ingress_profile.idempotency_reservation_schema, "local-ingress-idempotency-reservation.schema.json");
   assert.match(report.ingress_profile.policy_handoff, /fresh_policy/);
   assert.ok(report.deferred_surfaces.some((surface) => surface.includes("browser extension")));
-  assert.ok(report.remaining_gaps.some((gap) => gap.includes("duplicate idempotency keys")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("cached replay")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 

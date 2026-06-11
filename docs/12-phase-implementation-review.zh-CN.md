@@ -660,6 +660,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Local Ingress Readiness 是 P1 readiness/audit contract，不是 production ingress gateway 或 authority path。
 - 剩余严格复查差距包括 local envelope runtime duplicate detection、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 61 复核：TUI Run Idempotency Reservation
+
+本轮继续推进 PGC-3，把一个 idempotency 要求从 contract-only 推进到 TUI `run` runtime path，但不添加 API listener 或 remote ingress surface。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：Ingress Gateways 必须在 Local Supervisor handoff 前提供 idempotency。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 可以请求 action，但不能成为 trust root。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：local ingress metadata 必须拒绝 raw material persistence 和 inherited authority。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 要求 duplicate idempotency key 在创建新 action run 前被发现。
+
+本轮修正：
+
+- 新增 `schemas/local-ingress-idempotency-reservation.schema.json` 和 `examples/contracts/local-ingress-idempotency-reservation.json`。
+- `run` 现在会派生或接受 idempotency key，只保存 `sha256:` key hash 和 normalized-intent hash，并在调用 Rust supervisor 或 TypeScript test seed 前用 atomic `wx` 写入 local reservation file。
+- 重复使用同一个 `--idempotency-key` 会在任何新 run manifest、Ledger append、tool request、policy decision、lease 或 file action 前 fail closed。
+- `local-ingress-readiness` 现在记录 duplicate detector 仅限 TUI run local atomic reservation before supervisor handoff。
+- 新增 schema 测试，拒绝 raw idempotency key persistence、raw intent persistence、authority 和 late duplicate detection drift。
+- 新增 TUI 回归测试，证明 duplicate key rejection 不改变 Ledger 和 run manifest。
+- `ingress audit`、`doctor` 和 `release evidence` 现在区分已实现的 TUI duplicate-key reservation，以及仍未实现的 cached idempotent replay、rate limit、auth/session lifecycle 和 remote ingress。
+
+偏差复核：
+
+- 修正 Phase 60 仍把 runtime duplicate detection 完全列为未实现的偏差。
+- 保持更大架构边界：这只是 TUI run preflight state，不是 public gateway、session issuer、rate limiter、policy authority 或 lease issuer。
+- 未实现 prior idempotent result cached replay、remote envelope replay protection、durable session/auth lifecycle、rate-limit enforcement、public HTTP/API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress 或基于 ingress envelope 的 supervisor policy execution。
+
+修正与剩余边界：
+
+- Local idempotency reservation 是 duplicate-action guard，不是 authorization source of truth；Local Supervisor 和 Tool Access & Action Policy Proxy 仍负责 gate read/write。
+- 剩余严格复查差距包括 cached/replay-safe idempotency semantics、rate limiting、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

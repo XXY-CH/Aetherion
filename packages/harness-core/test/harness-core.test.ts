@@ -149,6 +149,7 @@ const schemaExamplePairs = [
   ["replay-record.schema.json", "replay-record.json"],
   ["migration-report.schema.json", "migration-report.json"],
   ["local-ingress-readiness.schema.json", "local-ingress-readiness.json"],
+  ["local-ingress-idempotency-reservation.schema.json", "local-ingress-idempotency-reservation.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
   ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
@@ -278,7 +279,8 @@ test("local ingress readiness rejects remote surface, auth, idempotency, and aut
     (draft: typeof valid) => { draft.authentication.user_identity_implemented = true; },
     (draft: typeof valid) => { draft.authentication.auth_token_persisted = true; },
     (draft: typeof valid) => { draft.rate_limit.over_limit_can_execute_actions = true; },
-    (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_implemented = true; },
+    (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_implemented = false; },
+    (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_scope = "remote_gateway_after_policy"; },
     (draft: typeof valid) => { draft.idempotency.duplicate_key_can_reuse_authority = true; },
     (draft: typeof valid) => { draft.idempotency.replay_protection_implemented = true; },
     (draft: typeof valid) => { draft.policy_handoff.ingress_envelope_can_issue_lease = true; },
@@ -294,6 +296,28 @@ test("local ingress readiness rejects remote surface, auth, idempotency, and aut
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "local-ingress-readiness.schema.json", draft);
     assert.equal(result.valid, false, "local-ingress-readiness schema accepted remote ingress or authority drift");
+  }
+});
+
+test("local ingress idempotency reservations reject raw key, raw intent, authority, and late detection drift", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "local-ingress-idempotency-reservation.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.idempotency_key = "raw-key"; },
+    (draft: typeof valid) => { draft.raw_key_persisted = true; },
+    (draft: typeof valid) => { draft.raw_intent_persisted = true; },
+    (draft: typeof valid) => { draft.can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.duplicate_detection_stage = "after_supervisor_handoff"; },
+    (draft: typeof valid) => { draft.duplicate_detector = "best_effort_registry_overwrite"; },
+    (draft: typeof valid) => { draft.policy_handoff = "lease_issued_by_ingress"; },
+    (draft: typeof valid) => { draft.rate_limit_state = "enforced"; },
+    (draft: typeof valid) => { draft.surface_id = "api"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "local-ingress-idempotency-reservation.schema.json", draft);
+    assert.equal(result.valid, false, "local-ingress-idempotency-reservation schema accepted raw material, authority, or late duplicate detection drift");
   }
 });
 
