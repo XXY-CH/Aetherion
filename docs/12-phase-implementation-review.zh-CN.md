@@ -47,7 +47,7 @@ schema 增长现在由 `docs/13-schema-runtime-governance.md` 治理：P0 kernel
 
 验证快照：
 
-- `npm test`：131 个测试通过。
+- `npm test`：143 个测试通过。
 - `cargo test`：39 个 Rust 测试通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
 - `cargo fmt --check`：通过。
@@ -433,6 +433,41 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - 修正 cross-platform/race-sensitive RPC client error-normalization gap；不改变 supervisor policy、lease、action execution、raw stdout persistence 或 socket RPC semantics。
 - 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+
+## Phase 54 复核：Remote Evidence Snapshot 与 Release Manifest Contract
+
+本轮启动 `.omx/plans/aetherion-production-gap-closure-plan.md` 交接的 PGC-1 release/readiness evidence 工作。此前 release snapshot 只能用 `checks_remote_ci=false` 区分 local configured evidence 与 executed proof；还没有 schema-locked release manifest，也没有入口读取 operator-observed CI/CodeQL 状态。
+
+与原始文档对照：
+
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-1 要求先补 remote CI/CodeQL evidence 和 release manifest schema，再进入更深 packaging/release automation。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：evidence record 必须可 review，并与 runtime authority 分离。
+- [路线图](06-roadmap.zh-CN.md)：本轮留在 V1 TUI/readiness lane，不新增 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：schema change 由真实 readiness command path 支撑，不是 speculative surface expansion。
+
+本轮修正：
+
+- `release evidence` 新增 `--remote-evidence <snapshot.json>`，只读取 workspace-local operator-supplied CI/CodeQL snapshot。
+- 报告现在把 `remote_observed_evidence` 与 `configured_evidence` 并列输出，并增加 `remote_ci_status`、`remote_codeql_status` 和 `commit_matches_head`。
+- 缺失 remote evidence 会让 release report 保持 `draft`；remote evidence 无效、CI/CodeQL 失败或 commit mismatch 会阻断 release report。
+- 新增 `schemas/release-manifest.schema.json` 和 `examples/contracts/release-manifest.json`。
+- README 和 TUI README 记录 optional snapshot，并明确命令不会 live 查询 remote CI。
+
+验证：
+
+- 目标测试通过：`node --test --test-name-pattern "release evidence|contract examples" packages/tui/test/tui.test.ts packages/harness-core/test/harness-core.test.ts`。
+- 最终 help-test 文案更新后已完成完整验证：`npm test`（143 个测试通过）、focused supervisor/TUI stability loop 5/5 通过、`cargo test --locked`（39 个 Rust 测试通过）、`cargo clippy --all-targets --all-features --locked -- -D warnings`、`cargo fmt --check`、`git diff --check`、`npm audit --audit-level=high --json` 且 0 vulnerabilities、`doctor` ready、`security audit` pass、`release evidence` 因本地改动和 remote evidence 尚未提交/提供而保持 draft。
+
+偏差复核：
+
+- 本轮修正 PGC-1 release-evidence gap，但不新增 live GitHub client、release package、签名、public docs deployment、installer/updater 或 release evidence repository。
+- 严格回看 source docs 后发现独立 scope drift：默认 CLI 已暴露很多 post-V1 contract/runtime lab 命令。它们多数仍是 non-authorizing，但下一切片应做 V1 Core Profile Gate，避免 V1 release readiness 与 post-V1 surface breadth 混淆。
+
+修正与剩余边界：
+
+- Remote evidence 是 operator-supplied snapshot，不是 live remote attestation。
+- Release Manifest 是 contract/example baseline，不是 generated signed release artifact。
+- 剩余严格复查差距包括 V1 Core Profile Gate、live remote CI/CodeQL reader、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 platform/release matrix artifacts，以及更深 supervisor/vault/ingress lifecycle work。
 
 ## 验证要求
 

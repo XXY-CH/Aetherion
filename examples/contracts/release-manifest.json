@@ -1,0 +1,68 @@
+{
+  "id": "release_manifest_example",
+  "repository": "aetherion-kernel",
+  "source_revision": {
+    "git_head": "0123456789abcdef0123456789abcdef01234567",
+    "git_head_short": "0123456",
+    "branch": "main",
+    "dirty": false
+  },
+  "generated_at": "2026-06-11T12:00:00.000Z",
+  "status": "candidate",
+  "dependency_lockfiles": [
+    {
+      "name": "package-lock.json",
+      "status": "pass",
+      "evidence": ["lockfile_version=3"]
+    },
+    {
+      "name": "Cargo.lock",
+      "status": "pass",
+      "evidence": ["cargo_lock=present"]
+    }
+  ],
+  "test_gates": [
+    {
+      "name": "node_tests",
+      "command": "npm test",
+      "status": "pass",
+      "evidence": ["node_tests=pass"]
+    },
+    {
+      "name": "rust_tests",
+      "command": "cargo test --locked",
+      "status": "pass",
+      "evidence": ["rust_tests=pass"]
+    }
+  ],
+  "artifact_hashes": [
+    {
+      "path": "package-lock.json",
+      "sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "governance_docs": [
+    {
+      "name": "SECURITY.md",
+      "status": "pass",
+      "evidence": ["SECURITY.md=present"]
+    }
+  ],
+  "bilingual_docs": [
+    {
+      "name": "README.zh-CN.md",
+      "status": "pass",
+      "evidence": ["README.zh-CN.md=linked"]
+    }
+  ],
+  "remote_observed_evidence": {
+    "ci_status": "pass",
+    "codeql_status": "pass",
+    "snapshot_ref": "remote-ci-evidence.json",
+    "observed_at": "2026-06-11T12:00:00.000Z"
+  },
+  "known_gaps": [
+    "release packages are not built",
+    "release artifacts are not signed"
+  ]
+}

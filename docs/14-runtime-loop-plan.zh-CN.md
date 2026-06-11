@@ -382,3 +382,32 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 supervisor daemon lifecycle feature、repair command、socket protocol change、policy change 或新的 runtime action family。
+
+## 已完成增量：Remote Evidence Snapshot 与 Release Manifest Contract
+
+目标：启动 PGC-1，把 local configured release evidence 与 operator-supplied remote CI/CodeQL observation 明确分开，并新增 schema-valid Release Manifest 合同。
+
+验收：
+
+- `release evidence --workspace <path>` 现在把 `remote_observed_evidence` 与 `configured_evidence` 分开报告。
+- `release evidence --remote-evidence <snapshot.json>` 读取 workspace-local CI/CodeQL 快照，但不 live 查询 GitHub、不解析凭据、不写 artifact、不追加 Ledger event，也不修改 `.aetherion`。
+- 缺失 remote evidence 会让报告保持 `draft`；remote evidence 无效、远端 CI/CodeQL 失败或 commit mismatch 会阻断 release report。
+- `release-manifest.schema.json` 及其 example 通过现有 contract example suite。
+
+与原始文档对照和修正：
+
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮启动 PGC-1 的 remote CI/CodeQL evidence 与 release manifest hardening，但不新增 release packaging、签名、部署或 live remote API call。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：remote observation 是可 review evidence record，不是 authority，也不修改 projection。
+- [路线图](06-roadmap.zh-CN.md)：本轮仍在 TUI-first V1 release-readiness lane 内，不启用 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：新增 schema 绑定 release-readiness evidence，不授予 runtime authority。
+
+偏差复核：
+
+- 没有 replacement-OS/chatbot 漂移。
+- Local Supervisor、Event Ledger、Tool Policy Proxy 仍是 authority/fact/action 边界。
+- 严格回看 docs 后确认：默认 CLI surface 已明显超出窄 V1 产品形态，虽然后续 surface 多数仍是 non-authorizing。下一实现切片应做 V1 Core Profile Gate，避免 post-V1 contract/runtime labs 被误认为 V1 release-critical 产品面。
+
+剩余边界：
+
+- 这不是 live GitHub API reader、release packager、artifact signer、installer/updater、public docs deployment 或 release evidence repository。
+- Remote evidence 只接受 workspace-local operator-supplied snapshot；live remote observation 仍是未来 PGC-1 子切片。

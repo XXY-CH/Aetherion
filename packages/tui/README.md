@@ -19,7 +19,7 @@ Current scope:
 - Print a read-only from-source onboarding preflight with `onboarding check`. It checks local toolchain availability, repo scripts, lockfiles, CI/governance/docs evidence, workspace runtime state, and next-step commands without installing dependencies, running long verification, starting daemons, repairing state, writing artifacts, appending events, or initializing `.aetherion`.
 - Print a read-only production-readiness report with `doctor`. It checks repo governance/docs/CI/schema/dependency/platform-smoke baselines and workspace identity/Ledger/run-manifest invariants without initializing workspaces, repairing state, writing artifacts, appending events, issuing leases, or calling providers.
 - Print a read-only security audit report with `security audit`. It checks tracked secret material, dependency lockfile evidence, tracked runtime/build roots from `tools/forbidden-tracked-roots.txt`, raw sensitive fields in existing runtime artifacts, workspace Ledger hash-chain validity, CI dependency/platform/readiness guard wiring, and the default model stdout boundary without mutating workspace state.
-- Print a read-only local/configured release evidence report with `release evidence`. It combines git head/dirty state, configured CI/action-runtime/platform-smoke evidence, dependency lockfiles, governance/docs checks, `doctor`, `security audit`, workspace runtime state, source-document links, and remaining release gaps without querying remote CI, packaging, signing, publishing, deploying docs, or mutating `.aetherion`.
+- Print a read-only release evidence report with `release evidence`. It combines git head/dirty state, configured CI/action-runtime/platform-smoke evidence, optional operator-supplied CI/CodeQL snapshots, dependency lockfiles, governance/docs checks, `doctor`, `security audit`, workspace runtime state, source-document links, and remaining release gaps without live-querying remote CI, packaging, signing, publishing, deploying docs, or mutating `.aetherion`.
 - Print `manifest_event_ids`, `artifact_refs`, and `artifact_ref_count` in V1 `run`, `replay`, and `trace` output so the run manifest projection and Ledger artifact evidence are visible from stdout.
 - Write `.aetherion/workspace.json` and `.aetherion/runs/<run_id>.json`.
 - Compose and validate risk records plus approval cards before writes.
@@ -97,7 +97,7 @@ npm run ether -- store install --path signed-package.json --approve-permissions 
 npm run ether -- onboarding check --workspace .
 npm run ether -- doctor --workspace .
 npm run ether -- security audit --workspace .
-npm run ether -- release evidence --workspace .
+npm run ether -- release evidence --workspace . [--remote-evidence <snapshot.json>]
 ```
 
 These commands do not click a browser, read every tab, send IM/email, start a webhook, or execute package code. They prove the first Phase 12 control-plane slice: external surface observations and messages become hash-only, tainted, policy-linked Ledger evidence, while Store installation is a trusted-publisher signed declaration import with local replay/sandbox evidence and no runtime authority.

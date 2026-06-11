@@ -300,7 +300,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
-  assert.match(help.stdout, /release\s+Read-only local\/configured release evidence snapshot/);
+  assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
   assert.match(help.stdout, /security\s+Phase 11 taint denial plus read-only security audit/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
@@ -574,6 +574,8 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       dependency_lockfiles: string;
       workspace_runtime: string;
       remote_ci_checked: boolean;
+      remote_ci_status: string;
+      remote_codeql_status: string;
       packaged: boolean;
       signed: boolean;
       published: boolean;
@@ -584,6 +586,14 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       platform_smoke_matrix: { configured: boolean; runners: string[]; evidence: string[] };
       action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
+    };
+    remote_observed_evidence: {
+      status: string;
+      source: string;
+      evidence_path: string | null;
+      ci: { status: string; latest_runs: unknown[]; summary: { total: number; success: number; failure: number; incomplete: number; unknown: number } };
+      codeql: { status: string };
+      warnings: string[];
     };
     local_reports: {
       doctor: { status: string; check_status: string };
@@ -604,7 +614,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
     remaining_gaps: string[];
   };
   assert.equal(report.id, "aetherion_release_evidence_report");
-  assert.equal(report.evidence_kind, "local_configured_release_snapshot");
+  assert.equal(report.evidence_kind, "local_and_optional_remote_release_snapshot");
   assert.match(report.status, /^(ready|draft)$/);
   assert.equal(report.scope.read_only, true);
   assert.equal(report.scope.mutates_ledger, false);
@@ -622,6 +632,8 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.summary.dependency_lockfiles, "pass");
   assert.equal(report.summary.workspace_runtime, "not_initialized");
   assert.equal(report.summary.remote_ci_checked, false);
+  assert.equal(report.summary.remote_ci_status, "not_checked");
+  assert.equal(report.summary.remote_codeql_status, "unknown");
   assert.equal(report.summary.packaged, false);
   assert.equal(report.summary.signed, false);
   assert.equal(report.summary.published, false);
@@ -639,6 +651,13 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
+  assert.equal(report.remote_observed_evidence.status, "not_checked");
+  assert.equal(report.remote_observed_evidence.source, "not_provided");
+  assert.equal(report.remote_observed_evidence.evidence_path, null);
+  assert.equal(report.remote_observed_evidence.ci.status, "not_checked");
+  assert.equal(report.remote_observed_evidence.ci.summary.total, 0);
+  assert.equal(report.remote_observed_evidence.codeql.status, "unknown");
+  assert.ok(report.remote_observed_evidence.warnings.some((warning) => warning.includes("not observed")));
   assert.equal(report.local_reports.doctor.status, "ready");
   assert.equal(report.local_reports.doctor.check_status, "pass");
   assert.equal(report.local_reports.security_audit.status, "pass");
@@ -660,6 +679,91 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Ether release evidence reads operator-supplied remote CI and CodeQL snapshots", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-release-remote-"));
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim();
+  await writeFile(join(workspace, "remote-ci-evidence.json"), JSON.stringify({
+    observed_at: "2026-06-11T12:00:00.000Z",
+    source: "github_actions_snapshot",
+    repository: "example/aetherion",
+    commit: head,
+    workflow_runs: [
+      {
+        name: "CI",
+        status: "completed",
+        conclusion: "success",
+        head_sha: head,
+        url: "https://github.example/actions/runs/1",
+        observed_at: "2026-06-11T12:00:00.000Z"
+      },
+      {
+        name: "CodeQL",
+        status: "completed",
+        conclusion: "success",
+        head_sha: head,
+        url: "https://github.example/actions/runs/2",
+        observed_at: "2026-06-11T12:00:00.000Z"
+      }
+    ],
+    codeql: {
+      status: "pass",
+      conclusion: "success",
+      url: "https://github.example/code-scanning",
+      observed_at: "2026-06-11T12:00:00.000Z"
+    }
+  }, null, 2));
+
+  const release = await execFileAsync(process.execPath, [
+    cliPath,
+    "release",
+    "evidence",
+    "--workspace",
+    workspace,
+    "--remote-evidence",
+    "remote-ci-evidence.json"
+  ]);
+  const report = JSON.parse(release.stdout) as {
+    scope: { read_only: boolean; checks_remote_ci: boolean; writes_artifacts: boolean };
+    summary: { remote_ci_checked: boolean; remote_ci_status: string; remote_codeql_status: string };
+    remote_observed_evidence: {
+      status: string;
+      source: string;
+      evidence_path: string | null;
+      commit_matches_head: boolean | null;
+      ci: { status: string; latest_runs: Array<{ name: string; conclusion: string }>; summary: { total: number; success: number; failure: number } };
+      codeql: { status: string; conclusion: string | null };
+      warnings: string[];
+    };
+    release_artifacts: { remote_ci_checked: boolean; packaged: boolean; signed: boolean; published: boolean };
+    remaining_gaps: string[];
+  };
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.checks_remote_ci, true);
+  assert.equal(report.summary.remote_ci_checked, true);
+  assert.equal(report.summary.remote_ci_status, "pass");
+  assert.equal(report.summary.remote_codeql_status, "pass");
+  assert.equal(report.remote_observed_evidence.status, "observed");
+  assert.equal(report.remote_observed_evidence.source, "snapshot_file");
+  assert.equal(report.remote_observed_evidence.evidence_path, "remote-ci-evidence.json");
+  assert.equal(report.remote_observed_evidence.commit_matches_head, true);
+  assert.equal(report.remote_observed_evidence.ci.status, "pass");
+  assert.equal(report.remote_observed_evidence.ci.summary.total, 2);
+  assert.equal(report.remote_observed_evidence.ci.summary.success, 2);
+  assert.equal(report.remote_observed_evidence.ci.summary.failure, 0);
+  assert.equal(report.remote_observed_evidence.ci.latest_runs[0]?.name, "CI");
+  assert.equal(report.remote_observed_evidence.ci.latest_runs[0]?.conclusion, "success");
+  assert.equal(report.remote_observed_evidence.codeql.status, "pass");
+  assert.equal(report.remote_observed_evidence.codeql.conclusion, "success");
+  assert.deepEqual(report.remote_observed_evidence.warnings, []);
+  assert.equal(report.release_artifacts.remote_ci_checked, true);
+  assert.equal(report.release_artifacts.packaged, false);
+  assert.equal(report.release_artifacts.signed, false);
+  assert.equal(report.release_artifacts.published, false);
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("operator-supplied snapshot")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 

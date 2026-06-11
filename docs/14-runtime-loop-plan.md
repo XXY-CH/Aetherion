@@ -776,3 +776,32 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not a supervisor daemon lifecycle feature, repair command, socket protocol change, policy change, or new runtime action family.
+
+## Completed Increment: Remote Evidence Snapshot And Release Manifest Contract
+
+Target: start PGC-1 by separating local configured release evidence from operator-supplied remote CI/CodeQL observations, and by adding a schema-valid Release Manifest contract.
+
+Acceptance:
+
+- `release evidence --workspace <path>` now reports `remote_observed_evidence` separately from `configured_evidence`.
+- `release evidence --remote-evidence <snapshot.json>` reads a workspace-local CI/CodeQL snapshot without live-querying GitHub, resolving credentials, writing artifacts, appending Ledger events, or mutating `.aetherion`.
+- Missing remote evidence keeps the report in `draft`; invalid remote evidence, failed remote CI/CodeQL, or commit mismatch blocks the release report.
+- `release-manifest.schema.json` and its example validate with the existing contract example suite.
+
+Matched source docs and corrections:
+
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this starts PGC-1 remote CI/CodeQL evidence and release manifest hardening without adding release packaging, signing, deployment, or live remote API calls.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): remote observations are evidence records supplied for review; they are not authority and do not mutate projections.
+- [Roadmap](06-roadmap.md): the slice stays inside the TUI-first V1 release-readiness lane and does not enable GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): the new schema is tied to release-readiness evidence, not to runtime authority.
+
+Drift review:
+
+- No replacement-OS/chatbot drift.
+- Local Supervisor, Event Ledger, and Tool Policy Proxy remain the authority/fact/action boundaries.
+- A strict docs comparison found that the default CLI surface has grown far beyond the narrow V1 product shape, even though those later surfaces are mostly non-authorizing. The next implementation slice should add a V1 Core Profile Gate so post-V1 contract/runtime labs cannot be mistaken for V1 release-critical product surface.
+
+Remaining boundary:
+
+- This is not a live GitHub API reader, release packager, artifact signer, installer/updater, public docs deployment, or release evidence repository.
+- Remote evidence is accepted only as a workspace-local operator-supplied snapshot; live remote observation remains a future PGC-1 sub-slice.

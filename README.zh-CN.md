@@ -124,7 +124,7 @@ pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检�
 
 如需只读安全快照，运行 `npm run ether -- security audit --workspace .`。报告会检查 tracked text file 中的高置信 secret material、dependency lockfile evidence、共享 denylist 下的 tracked runtime/build roots、现有 `.aetherion` artifact 中的 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI dependency/platform/readiness guard wiring，以及 `prompt invoke-model` stdout 边界。它不初始化 workspace、不 repair state、不追加 event、不写 artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
 
-如需只读本地 release-evidence 快照，运行 `npm run ether -- release evidence --workspace .`。报告会汇总 git head/dirty 状态、已配置 CI gates、Node 24 action-runtime evidence、Ubuntu/macOS smoke config、dependency lockfile evidence、governance 与双语文档检查、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger 状态、source-document links 和明确的剩余 release gaps。它只是 local/configured evidence：不查询远端 CI、不打包、不签名、不发布 release、不部署 docs、不初始化 workspace、不写 `.aetherion` artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
+如需只读 release-evidence 快照，运行 `npm run ether -- release evidence --workspace .`；如果已有 operator 提供的 workspace-local CI/CodeQL 观测快照，可加 `--remote-evidence <snapshot.json>`。报告会汇总 git head/dirty 状态、已配置 CI gates、可选 remote observed evidence、Node 24 action-runtime evidence、Ubuntu/macOS smoke config、dependency lockfile evidence、governance 与双语文档检查、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger 状态、source-document links 和明确的剩余 release gaps。它不会 live 查询远端 CI、不打包、不签名、不发布 release、不部署 docs、不初始化 workspace、不写 `.aetherion` artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
 
 ## 当前实现状态
 

@@ -35,7 +35,7 @@ Correction and remaining boundary:
 
 Verification from the latest pass:
 
-- `npm test`: 131 passing tests.
+- `npm test`: 143 passing tests.
 - `cargo test`: 39 passing Rust tests.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
@@ -1440,6 +1440,41 @@ Corrections and remaining boundary:
 
 - Corrects a cross-platform/race-sensitive RPC client error-normalization gap; it does not change supervisor policy, leases, action execution, raw stdout persistence, or socket RPC semantics.
 - This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+
+## Phase 54 Review Notes
+
+This pass starts the PGC-1 release/readiness evidence work from the local `$plan` handoff in `.omx/plans/aetherion-production-gap-closure-plan.md`. The prior release snapshot separated local configured evidence from executed proof only by saying `checks_remote_ci=false`; it had no schema-locked release manifest and no place to ingest operator-observed CI/CodeQL status.
+
+Matched source docs:
+
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-1 calls for remote CI/CodeQL evidence and a release manifest schema before deeper packaging/release automation.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): evidence records must remain reviewable and separate from runtime authority.
+- [Roadmap](06-roadmap.md): the work stays in the V1 TUI/readiness lane and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): schema changes are justified by a runtime/readiness command path, not by speculative surface expansion.
+
+Implemented correspondence:
+
+- `release evidence` now accepts `--remote-evidence <snapshot.json>` and reads only a workspace-local operator-supplied CI/CodeQL snapshot.
+- The report now includes `remote_observed_evidence` next to `configured_evidence`, plus `remote_ci_status`, `remote_codeql_status`, and `commit_matches_head`.
+- Missing remote evidence makes the release report `draft`; invalid remote evidence, failed CI/CodeQL, or commit mismatch blocks the release report.
+- Added `schemas/release-manifest.schema.json` and `examples/contracts/release-manifest.json`.
+- README and TUI README now document the optional snapshot and state that the command never live-queries remote CI.
+
+Verification evidence:
+
+- Focused tests passed: `node --test --test-name-pattern "release evidence|contract examples" packages/tui/test/tui.test.ts packages/harness-core/test/harness-core.test.ts`.
+- Full verification passed after the final help-test wording update: `npm test` (143 passing), focused supervisor/TUI stability loop 5/5 passing, `cargo test --locked` (39 Rust tests passing), `cargo clippy --all-targets --all-features --locked -- -D warnings`, `cargo fmt --check`, `git diff --check`, `npm audit --audit-level=high --json` with 0 vulnerabilities, `doctor` ready, `security audit` pass, and `release evidence` draft because local changes and remote evidence are intentionally not yet committed/provided.
+
+Drift review:
+
+- Corrects the PGC-1 release-evidence gap without adding a live GitHub client, release package, signature, public docs deployment, installer/updater, or release evidence repository.
+- A strict source-doc review found a separate scope drift: the default CLI already exposes many post-V1 contract/runtime lab commands. They remain mostly non-authorizing, but the next slice should add a V1 Core Profile Gate so V1 release readiness cannot be confused with post-V1 surface breadth.
+
+Corrections and remaining boundary:
+
+- Remote evidence is an operator-supplied snapshot, not live remote attestation.
+- Release Manifest is a contract/example baseline, not a generated signed release artifact.
+- Remaining strict-review gaps include V1 Core Profile Gate, live remote CI/CodeQL reader, release packaging, artifact signing, public docs deployment, installer/updater automation, broader platform/release matrix artifacts, and deeper supervisor/vault/ingress lifecycle work.
 
 ## Phase 3 Review Notes
 

@@ -54,6 +54,7 @@ type CliOptions = {
   supervisor?: "typescript-seed" | "stdio" | "socket";
   socketPath?: string;
   socketAuthToken?: string;
+  remoteEvidence?: string;
   checkWakeups: boolean;
   printOutput: boolean;
 };
@@ -283,6 +284,10 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--socket-auth-token":
         options.socketAuthToken = requireValue(arg, next);
+        index += 1;
+        break;
+      case "--remote-evidence":
+        options.remoteEvidence = requireValue(arg, next);
         index += 1;
         break;
       case "--check-wakeups":
@@ -831,17 +836,57 @@ type GitReleaseEvidence = {
   changed_files: string[];
 };
 
+type RemoteCiWorkflowRunEvidence = {
+  name: string;
+  status: "queued" | "in_progress" | "completed" | "unknown";
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "action_required" | "neutral" | "unknown" | null;
+  head_sha: string | null;
+  url: string | null;
+  observed_at: string;
+};
+
+type RemoteCodeqlEvidence = {
+  status: "pass" | "warn" | "fail" | "not_configured" | "unknown";
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "action_required" | "neutral" | "unknown" | null;
+  url: string | null;
+  observed_at: string | null;
+};
+
+type RemoteObservedEvidence = {
+  status: "not_checked" | "observed" | "invalid";
+  source: "not_provided" | "snapshot_file";
+  evidence_path: string | null;
+  repository: string | null;
+  observed_at: string | null;
+  commit: string | null;
+  commit_matches_head: boolean | null;
+  ci: {
+    status: "not_checked" | "pass" | "warn" | "fail" | "unknown";
+    latest_runs: RemoteCiWorkflowRunEvidence[];
+    summary: {
+      total: number;
+      success: number;
+      failure: number;
+      incomplete: number;
+      unknown: number;
+    };
+  };
+  codeql: RemoteCodeqlEvidence;
+  evidence: string[];
+  warnings: string[];
+};
+
 type ReleaseEvidenceReport = {
   id: "aetherion_release_evidence_report";
   generated_at: string;
   repo_root: string;
   workspace_root: string;
   status: "ready" | "draft" | "blocked";
-  evidence_kind: "local_configured_release_snapshot";
+  evidence_kind: "local_and_optional_remote_release_snapshot";
   scope: ReadOnlyCommandScope & {
     publishes_release: false;
     signs_artifacts: false;
-    checks_remote_ci: false;
+    checks_remote_ci: boolean;
   };
   summary: {
     doctor_status: DoctorReport["status"];
@@ -850,7 +895,9 @@ type ReleaseEvidenceReport = {
     configured_ci_gate: DoctorCheckStatus;
     dependency_lockfiles: DoctorCheckStatus;
     workspace_runtime: string;
-    remote_ci_checked: false;
+    remote_ci_checked: boolean;
+    remote_ci_status: RemoteObservedEvidence["ci"]["status"];
+    remote_codeql_status: RemoteCodeqlEvidence["status"];
     packaged: false;
     signed: false;
     published: false;
@@ -887,6 +934,7 @@ type ReleaseEvidenceReport = {
       evidence: string[];
     };
   };
+  remote_observed_evidence: RemoteObservedEvidence;
   local_reports: {
     doctor: Pick<DoctorReport, "status" | "check_status" | "summary">;
     security_audit: Pick<SecurityAuditReport, "status" | "summary">;
@@ -900,7 +948,7 @@ type ReleaseEvidenceReport = {
     packaged: false;
     signed: false;
     published: false;
-    remote_ci_checked: false;
+    remote_ci_checked: boolean;
     evidence_repository: false;
     public_docs_deployed: false;
     installer_available: false;
@@ -915,17 +963,18 @@ async function runRelease(options: CliOptions): Promise<void> {
     throw new Error("release supports evidence");
   }
   const workspaceRoot = resolve(options.workspace);
-  const report = await buildReleaseEvidenceReport(workspaceRoot);
+  const report = await buildReleaseEvidenceReport(workspaceRoot, options.remoteEvidence);
   if (report.status === "blocked") {
     process.exitCode = 1;
   }
   printRawJson(report);
 }
 
-async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<ReleaseEvidenceReport> {
+async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidencePath?: string): Promise<ReleaseEvidenceReport> {
   const doctor = await buildDoctorReport(workspaceRoot);
   const securityAudit = await buildSecurityAuditReport(workspaceRoot);
   const git = gitReleaseEvidence();
+  const remoteEvidence = readRemoteObservedEvidence(workspaceRoot, remoteEvidencePath, git.head);
   const doctorChecks = new Map(doctor.checks.map((checkItem) => [checkItem.id, checkItem]));
   const ciWorkflow = readRepoText(".github/workflows/ci.yml") ?? "";
   const ciWorkflowGate = doctorChecks.get("ci_workflow_gate");
@@ -933,8 +982,16 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
-  const blocked = doctor.status === "blocked" || securityAudit.status === "fail";
-  const status = blocked ? "blocked" : git.dirty ? "draft" : "ready";
+  const remoteBlocksRelease = remoteEvidence.status === "invalid"
+    || remoteEvidence.ci.status === "fail"
+    || remoteEvidence.codeql.status === "fail"
+    || remoteEvidence.commit_matches_head === false;
+  const blocked = doctor.status === "blocked" || securityAudit.status === "fail" || remoteBlocksRelease;
+  const status = blocked
+    ? "blocked"
+    : git.dirty || remoteEvidence.status !== "observed" || remoteEvidence.warnings.length > 0
+      ? "draft"
+      : "ready";
 
   return {
     id: "aetherion_release_evidence_report",
@@ -942,12 +999,12 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
     repo_root: repoRoot,
     workspace_root: workspaceRoot,
     status,
-    evidence_kind: "local_configured_release_snapshot",
+    evidence_kind: "local_and_optional_remote_release_snapshot",
     scope: {
       ...readOnlyCommandScope(),
       publishes_release: false,
       signs_artifacts: false,
-      checks_remote_ci: false
+      checks_remote_ci: remoteEvidence.status === "observed"
     },
     summary: {
       doctor_status: doctor.status,
@@ -956,7 +1013,9 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
       configured_ci_gate: ciWorkflowGate?.status ?? "fail",
       dependency_lockfiles: dependencyLockfiles?.status ?? "fail",
       workspace_runtime: workspaceRuntime.status,
-      remote_ci_checked: false,
+      remote_ci_checked: remoteEvidence.status === "observed",
+      remote_ci_status: remoteEvidence.ci.status,
+      remote_codeql_status: remoteEvidence.codeql.status,
       packaged: false,
       signed: false,
       published: false
@@ -1003,6 +1062,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
       }
     },
+    remote_observed_evidence: remoteEvidence,
     local_reports: {
       doctor: {
         status: doctor.status,
@@ -1019,7 +1079,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
       packaged: false,
       signed: false,
       published: false,
-      remote_ci_checked: false,
+      remote_ci_checked: remoteEvidence.status === "observed",
       evidence_repository: false,
       public_docs_deployed: false,
       installer_available: false,
@@ -1033,7 +1093,9 @@ async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<Releas
       { path: "docs/14-runtime-loop-plan.md", role: "current production-hardening loop" }
     ],
     remaining_gaps: [
-      "remote CI execution is not queried by this local report",
+      remoteEvidence.status === "observed"
+        ? "remote CI/CodeQL evidence is read from an operator-supplied snapshot, not queried live"
+        : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
       "public docs are not deployed",
@@ -1179,6 +1241,181 @@ function gitReleaseEvidence(): GitReleaseEvidence {
     untracked_file_count: changedFiles.filter((line) => line.startsWith("??")).length,
     changed_files: changedFiles
   };
+}
+
+function readRemoteObservedEvidence(workspaceRoot: string, snapshotPath: string | undefined, gitHead: string | null): RemoteObservedEvidence {
+  if (!snapshotPath) {
+    return {
+      status: "not_checked",
+      source: "not_provided",
+      evidence_path: null,
+      repository: null,
+      observed_at: null,
+      commit: null,
+      commit_matches_head: null,
+      ci: {
+        status: "not_checked",
+        latest_runs: [],
+        summary: { total: 0, success: 0, failure: 0, incomplete: 0, unknown: 0 }
+      },
+      codeql: {
+        status: "unknown",
+        conclusion: null,
+        url: null,
+        observed_at: null
+      },
+      evidence: ["remote_evidence_snapshot=not_provided"],
+      warnings: ["remote CI and CodeQL evidence were not observed in this report"]
+    };
+  }
+
+  const relativeSnapshotPath = assertWorkspaceReadPath(workspaceRoot, snapshotPath);
+  const resolvedSnapshotPath = resolve(workspaceRoot, relativeSnapshotPath);
+  try {
+    const snapshot = JSON.parse(readFileSync(resolvedSnapshotPath, "utf8")) as Record<string, unknown>;
+    const runs = Array.isArray(snapshot.workflow_runs)
+      ? snapshot.workflow_runs.map(normalizeRemoteWorkflowRun).filter((run): run is RemoteCiWorkflowRunEvidence => Boolean(run))
+      : [];
+    const codeql = normalizeRemoteCodeqlEvidence(snapshot.codeql);
+    const commit = typeof snapshot.commit === "string" && snapshot.commit.length > 0 ? snapshot.commit : null;
+    const observedAt = typeof snapshot.observed_at === "string" && snapshot.observed_at.length > 0 ? snapshot.observed_at : null;
+    const repository = typeof snapshot.repository === "string" && snapshot.repository.length > 0 ? snapshot.repository : null;
+    const summary = {
+      total: runs.length,
+      success: runs.filter((run) => run.status === "completed" && run.conclusion === "success").length,
+      failure: runs.filter((run) => run.status === "completed" && run.conclusion !== "success" && run.conclusion !== "neutral" && run.conclusion !== "skipped").length,
+      incomplete: runs.filter((run) => run.status === "queued" || run.status === "in_progress").length,
+      unknown: runs.filter((run) => run.status === "unknown" || run.conclusion === "unknown").length
+    };
+    const ciStatus = remoteCiStatus(summary);
+    const warnings = [
+      ...(runs.length === 0 ? ["remote workflow run evidence is empty"] : []),
+      ...(codeql.status === "unknown" ? ["remote CodeQL evidence is unknown"] : []),
+      ...(commit && gitHead && commit !== gitHead ? ["remote evidence commit does not match local git head"] : [])
+    ];
+    return {
+      status: "observed",
+      source: "snapshot_file",
+      evidence_path: relativeSnapshotPath,
+      repository,
+      observed_at: observedAt,
+      commit,
+      commit_matches_head: commit && gitHead ? commit === gitHead : null,
+      ci: {
+        status: ciStatus,
+        latest_runs: runs,
+        summary
+      },
+      codeql,
+      evidence: [
+        `remote_evidence_snapshot=${relativeSnapshotPath}`,
+        `workflow_runs=${runs.length}`,
+        `workflow_success=${summary.success}`,
+        `workflow_failure=${summary.failure}`,
+        `workflow_incomplete=${summary.incomplete}`,
+        `codeql_status=${codeql.status}`,
+        `commit_matches_head=${String(commit && gitHead ? commit === gitHead : "unknown")}`
+      ],
+      warnings
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: "invalid",
+      source: "snapshot_file",
+      evidence_path: relativeSnapshotPath,
+      repository: null,
+      observed_at: null,
+      commit: null,
+      commit_matches_head: null,
+      ci: {
+        status: "unknown",
+        latest_runs: [],
+        summary: { total: 0, success: 0, failure: 0, incomplete: 0, unknown: 0 }
+      },
+      codeql: {
+        status: "unknown",
+        conclusion: null,
+        url: null,
+        observed_at: null
+      },
+      evidence: [`remote_evidence_snapshot=${relativeSnapshotPath}`, `error=${singleLine(message)}`],
+      warnings: ["remote evidence snapshot could not be parsed"]
+    };
+  }
+}
+
+function normalizeRemoteWorkflowRun(value: unknown): RemoteCiWorkflowRunEvidence | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const status = normalizeRemoteRunStatus(record.status);
+  return {
+    name: typeof record.name === "string" && record.name.length > 0 ? record.name : "unknown",
+    status,
+    conclusion: normalizeRemoteConclusion(record.conclusion),
+    head_sha: typeof record.head_sha === "string" && record.head_sha.length > 0 ? record.head_sha : null,
+    url: typeof record.url === "string" && record.url.length > 0 ? record.url : null,
+    observed_at: typeof record.observed_at === "string" && record.observed_at.length > 0 ? record.observed_at : new Date(0).toISOString()
+  };
+}
+
+function normalizeRemoteCodeqlEvidence(value: unknown): RemoteCodeqlEvidence {
+  if (typeof value !== "object" || value === null) {
+    return { status: "unknown", conclusion: null, url: null, observed_at: null };
+  }
+  const record = value as Record<string, unknown>;
+  const conclusion = normalizeRemoteConclusion(record.conclusion);
+  let status: RemoteCodeqlEvidence["status"] = "unknown";
+  if (record.status === "pass" || conclusion === "success") {
+    status = "pass";
+  } else if (record.status === "fail" || conclusion === "failure" || conclusion === "timed_out" || conclusion === "action_required") {
+    status = "fail";
+  } else if (record.status === "warn" || conclusion === "cancelled" || conclusion === "neutral") {
+    status = "warn";
+  } else if (record.status === "not_configured") {
+    status = "not_configured";
+  }
+  return {
+    status,
+    conclusion,
+    url: typeof record.url === "string" && record.url.length > 0 ? record.url : null,
+    observed_at: typeof record.observed_at === "string" && record.observed_at.length > 0 ? record.observed_at : null
+  };
+}
+
+function normalizeRemoteRunStatus(value: unknown): RemoteCiWorkflowRunEvidence["status"] {
+  return value === "queued" || value === "in_progress" || value === "completed" ? value : "unknown";
+}
+
+function normalizeRemoteConclusion(value: unknown): RemoteCiWorkflowRunEvidence["conclusion"] {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return value === "success"
+    || value === "failure"
+    || value === "cancelled"
+    || value === "skipped"
+    || value === "timed_out"
+    || value === "action_required"
+    || value === "neutral"
+    || value === "unknown"
+    ? value
+    : "unknown";
+}
+
+function remoteCiStatus(summary: RemoteObservedEvidence["ci"]["summary"]): RemoteObservedEvidence["ci"]["status"] {
+  if (summary.total === 0 || summary.unknown > 0) {
+    return "unknown";
+  }
+  if (summary.failure > 0) {
+    return "fail";
+  }
+  if (summary.incomplete > 0) {
+    return "warn";
+  }
+  return "pass";
 }
 
 function gitOutput(args: string[]): string | null {
@@ -5241,7 +5478,7 @@ Usage:
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
   npm run ether -- onboarding check --workspace <path>
   npm run ether -- doctor --workspace <path>
-  npm run ether -- release evidence --workspace <path>
+  npm run ether -- release evidence --workspace <path> [--remote-evidence <snapshot.json>]
 
   Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -5312,7 +5549,7 @@ Commands:
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
-  release                Read-only local/configured release evidence snapshot; no packaging, signing, publishing, or remote CI query
+  release                Read-only local/configured plus optional operator-supplied remote release evidence; no packaging, signing, publishing, or live CI query
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
@@ -5336,6 +5573,7 @@ Options:
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
   --socket-path <path> Explicit foreground supervisor socket for supervisor status.
   --socket-auth-token <token> Caller-supplied token for an auth-gated supervisor socket.
+  --remote-evidence <path>  Workspace-local CI/CodeQL snapshot for release evidence; read-only and never queried live.
   --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
   --print-output     Explicitly include raw model output in prompt invoke-model stdout.
 `);
