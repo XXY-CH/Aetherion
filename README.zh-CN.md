@@ -90,19 +90,25 @@ Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent �
 验证：
 
 ```sh
+cargo install cargo-audit --locked --version 0.22.1
+npm ci --ignore-scripts
+npm audit --audit-level=high --json
 npm test
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo audit
+cargo test --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check
 git diff --check
 xargs git ls-files < tools/forbidden-tracked-roots.txt
+npm run ether -- doctor --workspace .
+npm run ether -- security audit --workspace .
 ```
 
-pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。
+pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。根 JavaScript surface 当前没有 npm dependency，但已提交 `package-lock.json`，所以第一项 dependency 加入前 `npm ci` 和 `npm audit` 已经可复现。`Cargo.lock` 已提交，Rust verification 使用 `--locked`；完整本地 dependency audit 需要 `cargo-audit`。被 ignore 的 `promo/` 子树是 local/generated promotional experiment，不属于 release evidence。
 
-如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、CI/script/artifact guard 预期、schema/example baseline、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，也不会修复 runtime state。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)和[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)。
+如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、CI/script/artifact/dependency-audit guard 预期、dependency lockfiles、schema/example baseline、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，也不会修复 runtime state。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)和[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)。
 
-如需只读安全快照，运行 `npm run ether -- security audit --workspace .`。报告会检查 tracked text file 中的高置信 secret material、共享 denylist 下的 tracked runtime/build roots、现有 `.aetherion` artifact 中的 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI guard wiring，以及 `prompt invoke-model` stdout 边界。它不初始化 workspace、不 repair state、不追加 event、不写 artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
+如需只读安全快照，运行 `npm run ether -- security audit --workspace .`。报告会检查 tracked text file 中的高置信 secret material、dependency lockfile evidence、共享 denylist 下的 tracked runtime/build roots、现有 `.aetherion` artifact 中的 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI dependency/readiness guard wiring，以及 `prompt invoke-model` stdout 边界。它不初始化 workspace、不 repair state、不追加 event、不写 artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
 
 ## 当前实现状态
 

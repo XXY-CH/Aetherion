@@ -17,7 +17,7 @@ jobs:
   verify:
     name: Verify contracts, runtime, and supervisor
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -28,17 +28,29 @@ jobs:
         with:
           node-version: 25.x
 
+      - name: Install Node dependencies from lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Audit Node dependencies
+        run: npm audit --audit-level=high --json
+
       - name: Set up Rust tools
         run: rustup component add clippy rustfmt
+
+      - name: Install Rust dependency audit tool
+        run: cargo install cargo-audit --locked --version 0.22.1
+
+      - name: Audit Rust dependencies
+        run: cargo audit
 
       - name: Run TypeScript contract and TUI tests
         run: npm test
 
       - name: Run Rust supervisor tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Lint Rust supervisor
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
       - name: Check Rust formatting
         run: cargo fmt --check
@@ -54,3 +66,8 @@ jobs:
             echo "$tracked"
             exit 1
           fi
+
+      - name: Check operator readiness snapshots
+        run: |
+          npm run ether -- doctor --workspace .
+          npm run ether -- security audit --workspace .

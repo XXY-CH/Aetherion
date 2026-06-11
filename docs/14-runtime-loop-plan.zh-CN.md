@@ -209,3 +209,28 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - `security audit` 不是 repair command、dependency scanner、release signer、package sandbox、live connector probe、OAuth flow 或 secret vault。
 - 剩余生产差距包括 install/onboarding automation、release packaging、platform matrix、dependency/reproducibility policy、public docs deployment 和更深入的 dependency audit evidence。
+
+## 已完成增量：Dependency Reproducibility 与 Audit Evidence
+
+目标：把剩余 dependency/reproducibility gap 收束为已提交 lockfile evidence、CI gate 和 operator readiness gate，同时不新增 runtime dependency，也不扩大 V1 authority。
+
+验收：
+
+- 根目录提交 `package-lock.json`，因此即使根 JavaScript surface 当前没有 npm dependency，`npm ci --ignore-scripts` 与 `npm audit --audit-level=high --json` 也能从 repo state 可复现执行。
+- Rust verification 使用已提交 `Cargo.lock`：CI 和 docs 运行 `cargo test --locked` 与 `cargo clippy --all-targets --all-features --locked -- -D warnings`。
+- CI 用 `--locked` 安装 pinned `cargo-audit`，运行 `cargo audit`，并运行 `doctor` 与 `security audit` 作为 operator readiness snapshots。
+- `doctor` 报告 dependency lockfile state，并要求 CI dependency/readiness gates。
+- `security audit` 在 lockfile 或 gate 漂移时报告 dependency reproducibility 与 CI dependency/readiness guard findings。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：重要行为继续通过 repo evidence 可审计，而不是依赖本地 shell 记忆。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：release evidence 通过已提交 lockfiles 和可 review workflow config 变得可复现。
+- [路线图](06-roadmap.zh-CN.md)：先在 TUI-first V1 path 内强化生产纪律，再扩展 platform matrix 或 packaging。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：dependency audit evidence 是 repo/operator check，不是 runtime authority。
+
+剩余边界：
+
+- 本轮不是 release packaging、artifact signing、update infrastructure、platform matrix execution、public docs deployment 或 dependency auto-remediation。
+- 被 ignore 的 `promo/` 子树仍是 local/generated promotional experiment，不属于 release evidence。
+- 剩余生产差距包括 install/onboarding automation、release packaging、platform matrix、public docs deployment 和更深入的 release artifact evidence。

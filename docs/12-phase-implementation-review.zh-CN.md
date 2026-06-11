@@ -197,6 +197,40 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不增加 GUI、browser automation、IM delivery、MCP/OAuth connector、daemon lifecycle start/stop/recover、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括 install/onboarding automation、release packaging、platform/release matrix、dependency/reproducibility policy、public docs deployment 和更深入的 dependency audit evidence。
 
+## Phase 47 复核：Dependency Reproducibility 与 Audit Evidence
+
+本轮关闭严格 OpenClaw 对照和两个子智能体指出的 dependency/reproducibility evidence gap。此前根 Node surface 没有 lockfile，`npm audit` 会因 `ENOLOCK` 失败，Cargo 命令未使用 `--locked`，CI 也没有运行文档中声明的 operator readiness snapshots。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：重要动作和 release posture 应能从 durable evidence 重建。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：verification evidence 应通过 human-readable state 和可 review workflow config 可复现。
+- [路线图](06-roadmap.zh-CN.md)：先强化 TUI/Rust loop 的生产纪律，再扩展 GUI、IM、browser、connector、cloud 或 platform matrix。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：dependency/audit result 是 repo readiness evidence，不是 runtime authority 或 policy decision。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：本轮跟进 security-audit increment 后剩余的 dependency/reproducibility gap。
+
+本轮修正：
+
+- 新增已提交的根目录 `package-lock.json`，即使根 npm dependency 当前为 0，`npm ci --ignore-scripts` 和 `npm audit --audit-level=high --json` 也能从 repo state 可复现。
+- Rust scripts/docs/CI gates 改为 `cargo test --locked` 和 `cargo clippy --all-targets --all-features --locked -- -D warnings`。
+- CI 用 `--locked` 安装 pinned `cargo-audit`，运行 `cargo audit`，并把 `npm run ether -- doctor --workspace .` 与 `npm run ether -- security audit --workspace .` 作为 operator readiness snapshots。
+- `doctor` 现在报告 dependency lockfile state，并要求 CI dependency/readiness gates。
+- `security audit` 现在会在 lockfile 或 workflow gate 漂移时报告 dependency reproducibility 与 CI dependency/readiness guard findings。
+- README、CONTRIBUTING、TUI README 和中文伴读文档记录当前 zero-root-JS-dependency 状态、lockfile policy、locked Rust commands，以及 `promo/` 不属于 release evidence。
+
+验证：
+
+- `npm ci --ignore-scripts` 可从 committed lockfile 成功执行。
+- `npm audit --audit-level=high --json` 报告 0 vulnerabilities。
+- 目标 TUI doctor/security tests 断言 dependency lockfile 与 CI dependency/readiness checks。
+
+修正与剩余边界：
+
+- 修正 root Node `ENOLOCK` audit gap 和 unlocked Cargo command drift，没有新增 npm runtime dependency。
+- 修正文档/CI 偏差：`doctor` 和 `security audit` 已存在但此前没有作为 release evidence 运行。
+- 本轮仍不增加 release packaging、artifact signing、update infrastructure、platform matrix execution、public docs deployment、dependency auto-remediation、GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 install/onboarding automation、release packaging、platform/release matrix、public docs deployment 和更深入的 release artifact evidence。
+
 ## 验证要求
 
 每轮结束应至少检查：

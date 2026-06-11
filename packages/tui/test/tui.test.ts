@@ -335,6 +335,8 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const workspaceCheck = report.checks.find((check) => check.id === "workspace_runtime_state");
   assert.equal(workspaceCheck?.status, "not_applicable");
   assert.match(workspaceCheck?.summary ?? "", /not initialized/);
+  assert.equal(report.checks.find((check) => check.id === "dependency_lockfiles")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "ci_workflow_gate")?.status, "pass");
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
@@ -373,6 +375,10 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "workspace_registry_identity")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_ledger_hash_chain")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_run_manifests")?.status, "pass");
+  const dependencyCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
+  assert.equal(dependencyCheck?.status, "pass");
+  assert.match(dependencyCheck?.evidence.join("\n") ?? "", /package_lock_version=3/);
+  assert.match(dependencyCheck?.evidence.join("\n") ?? "", /cargo_lock=present/);
   assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
   assert.deepEqual(await readdir(runsPath), runsBefore);
 });
@@ -418,6 +424,8 @@ test("Ether security audit reports read-only status without initializing a works
   assert.equal(report.findings.length, 0);
   assert.equal(report.checks.find((check) => check.id === "workspace.ledger_hash_chain")?.status, "not_applicable");
   assert.equal(report.checks.find((check) => check.id === "prompt.invoke_model_stdout_default")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "repo.dependency_reproducibility")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "ci.dependency_audit_guard")?.status, "pass");
   const artifactGuardEvidence = report.checks.find((check) => check.id === "repo.tracked_runtime_artifacts")?.evidence.join("\n") ?? "";
   assert.match(artifactGuardEvidence, /vault/);
   assert.match(artifactGuardEvidence, /memory-vault/);

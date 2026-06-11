@@ -1204,6 +1204,40 @@ Corrections and remaining boundary:
 - This still does not add GUI, browser automation, IM delivery, MCP/OAuth connectors, daemon lifecycle start/stop/recover, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include install/onboarding automation, release packaging, platform/release matrix, dependency/reproducibility policy, public docs deployment, and deeper dependency audit evidence.
 
+## Phase 47 Review Notes
+
+This pass closes the dependency/reproducibility evidence gap raised by the strict OpenClaw comparison and the two bounded subagent reviews. Before this pass, the root Node surface had no lockfile, `npm audit` failed with `ENOLOCK`, Cargo commands did not use `--locked`, and CI did not exercise the operator readiness snapshots it documented.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): important actions and release posture should be reconstructable from durable evidence.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): verification evidence should be reproducible through human-readable state and reviewable workflow configuration.
+- [Roadmap](06-roadmap.md): production discipline must improve around the TUI/Rust loop before broader GUI, IM, browser, connector, cloud, or platform-matrix surfaces.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): dependency/audit results are repo readiness evidence, not runtime authority or policy decisions.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): this follows the remaining dependency/reproducibility gap after the security-audit increment.
+
+Implemented correspondence:
+
+- Added a committed root `package-lock.json`, making `npm ci --ignore-scripts` and `npm audit --audit-level=high --json` reproducible from the repository even with zero root npm dependencies.
+- Changed Rust scripts/docs/CI gates to use `cargo test --locked` and `cargo clippy --all-targets --all-features --locked -- -D warnings`.
+- CI now installs pinned `cargo-audit` with `--locked`, runs `cargo audit`, and runs `npm run ether -- doctor --workspace .` plus `npm run ether -- security audit --workspace .` as operator readiness snapshots.
+- `doctor` now reports dependency lockfile state and requires the CI dependency/readiness gates.
+- `security audit` now reports dependency reproducibility and CI dependency/readiness guard findings if lockfiles or workflow gates drift.
+- README, CONTRIBUTING, TUI README, and Chinese companions document the current zero-root-JS-dependency state, lockfile policy, locked Rust commands, and `promo/` release-evidence exclusion.
+
+Verification evidence:
+
+- `npm ci --ignore-scripts` succeeds from the committed lockfile.
+- `npm audit --audit-level=high --json` reports 0 vulnerabilities.
+- Targeted TUI doctor/security tests assert the dependency lockfile and CI dependency/readiness checks.
+
+Corrections and remaining boundary:
+
+- Corrects the root Node `ENOLOCK` audit gap and the unlocked Cargo command drift without adding npm runtime dependencies.
+- Corrects the documentation/CI gap where `doctor` and `security audit` existed but were not run as release evidence.
+- This still does not add release packaging, artifact signing, update infrastructure, platform matrix execution, public docs deployment, dependency auto-remediation, GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include install/onboarding automation, release packaging, platform/release matrix, public docs deployment, and deeper release artifact evidence.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

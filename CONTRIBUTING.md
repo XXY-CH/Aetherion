@@ -26,21 +26,29 @@ Requirements:
 
 - Node.js 25 or newer for the current TypeScript test runner.
 - Rust and Cargo for the supervisor crate.
+- `cargo-audit` for the full dependency-audit gate (`cargo install cargo-audit --locked --version 0.22.1`).
 
 Useful commands:
 
 ```sh
+npm ci --ignore-scripts
+npm audit --audit-level=high --json
 npm test
-cargo test
+cargo audit
+cargo test --locked
 npm run test:all
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check
 git diff --check
+npm run ether -- doctor --workspace .
+npm run ether -- security audit --workspace .
 npm run ether -- run --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
 Runtime output under `.aetherion/` is local state and should not be committed.
-GitHub Actions runs the TypeScript tests, Rust tests, Rust lint/format gates, whitespace diff check, and tracked runtime/build artifact guard for pull requests and pushes to `main`.
+GitHub Actions runs lockfile installs, dependency audits, TypeScript tests, locked Rust tests, Rust lint/format gates, whitespace diff check, tracked runtime/build artifact guard, and operator readiness snapshots for pull requests and pushes to `main`.
+
+The root JavaScript surface currently has no npm dependencies, but `package-lock.json` is committed and must be updated in the same change as any future dependency addition. `Cargo.lock` is committed and Rust verification should use `--locked`. The ignored `promo/` subtree is local/generated promotional material and is not release evidence.
 
 ## Contribution Workflow
 

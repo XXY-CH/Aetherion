@@ -26,21 +26,29 @@ Aetherion 不是聊天机器人、替代操作系统、不受限插件宿主或�
 
 - Node.js 25 或更新版本。
 - Rust 和 Cargo。
+- full dependency-audit gate 需要 `cargo-audit`（`cargo install cargo-audit --locked --version 0.22.1`）。
 
 常用命令：
 
 ```sh
+npm ci --ignore-scripts
+npm audit --audit-level=high --json
 npm test
-cargo test
+cargo audit
+cargo test --locked
 npm run test:all
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check
 git diff --check
+npm run ether -- doctor --workspace .
+npm run ether -- security audit --workspace .
 npm run ether -- run --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
 `.aetherion/` 下的运行时输出是本地状态，不应提交。
-pull request 和 push 到 `main` 会通过 GitHub Actions 运行 TypeScript 测试、Rust 测试、Rust lint/format、whitespace diff check，以及 runtime/build artifact tracked guard。
+pull request 和 push 到 `main` 会通过 GitHub Actions 运行 lockfile install、dependency audit、TypeScript 测试、locked Rust 测试、Rust lint/format、whitespace diff check、runtime/build artifact tracked guard，以及 operator readiness snapshots。
+
+根 JavaScript surface 当前没有 npm dependency，但 `package-lock.json` 已提交；未来任何 dependency 增加都必须在同一变更中更新 lockfile。`Cargo.lock` 已提交，Rust verification 应使用 `--locked`。被 ignore 的 `promo/` 子树是 local/generated promotional material，不属于 release evidence。
 
 ## 贡献流程
 

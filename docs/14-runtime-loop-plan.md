@@ -584,3 +584,28 @@ Remaining boundary:
 
 - `security audit` is not a repair command, dependency scanner, release signer, package sandbox, live connector probe, OAuth flow, or secret vault.
 - Remaining production gaps are install/onboarding automation, release packaging, platform matrix, dependency/reproducibility policy, public docs deployment, and deeper dependency audit evidence.
+
+## Completed Increment: Dependency Reproducibility And Audit Evidence
+
+Target: turn the remaining dependency/reproducibility gap into committed lockfile evidence plus CI and operator-readiness gates, without adding runtime dependencies or widening V1 authority.
+
+Acceptance:
+
+- Root `package-lock.json` is committed so `npm ci --ignore-scripts` and `npm audit --audit-level=high --json` are reproducible from repo state even while the root JavaScript surface has zero npm dependencies.
+- Rust verification uses the committed `Cargo.lock`: CI and docs run `cargo test --locked` and `cargo clippy --all-targets --all-features --locked -- -D warnings`.
+- CI installs a pinned `cargo-audit` with `--locked`, runs `cargo audit`, and runs `doctor` plus `security audit` as operator readiness snapshots.
+- `doctor` reports dependency lockfile state and requires the CI dependency/readiness gates.
+- `security audit` reports dependency reproducibility and CI dependency/readiness guard findings if lockfiles or gates drift.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): important behavior remains auditable through repo evidence, not local shell memory.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): release evidence becomes reproducible through committed lockfiles and reviewable workflow configuration.
+- [Roadmap](06-roadmap.md): production discipline improves inside the TUI-first V1 path before platform matrix or packaging expansion.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): dependency audit evidence is a repo/operator check, not runtime authority.
+
+Remaining boundary:
+
+- This is not release packaging, artifact signing, update infrastructure, platform matrix execution, public docs deployment, or dependency auto-remediation.
+- The ignored `promo/` subtree remains a local/generated promotional experiment and is outside release evidence.
+- Remaining production gaps are install/onboarding automation, release packaging, platform matrix, public docs deployment, and deeper release artifact evidence.

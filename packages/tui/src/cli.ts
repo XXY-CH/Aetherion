@@ -639,7 +639,7 @@ async function readVerifiedLedgerForReadOnlyCommand(workspaceRoot: string, comma
 }
 
 function repoDoctorChecks(): DoctorCheck[] {
-  const packageJson = readRepoJson("package.json") as { license?: string; private?: boolean; engines?: { node?: string }; scripts?: Record<string, string> } | null;
+  const packageJson = readRepoJson("package.json") as { name?: string; license?: string; private?: boolean; engines?: { node?: string }; scripts?: Record<string, string> } | null;
   const ciWorkflow = readRepoText(".github/workflows/ci.yml");
   const gitignore = readRepoText(".gitignore");
   const checks: DoctorCheck[] = [];
@@ -678,14 +678,25 @@ function repoDoctorChecks(): DoctorCheck[] {
   ));
   checks.push(check(
     "ci_workflow_gate",
-    ciWorkflow && ["npm test", "cargo test", "cargo clippy --all-targets --all-features -- -D warnings", "cargo fmt --check", "git diff --check", "tools/forbidden-tracked-roots.txt"].every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
+    ciWorkflow && ciGateNeedles().every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
     ciWorkflow ? "info" : "error",
     "GitHub Actions workflow covers the current local quality gates.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=npm test,cargo test,cargo clippy,cargo fmt,git diff --check,artifact guard"
+      "required=npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
+  ));
+  const dependencyLockfiles = dependencyLockfileState(packageJson);
+  checks.push(check(
+    "dependency_lockfiles",
+    dependencyLockfiles.ok ? "pass" : "fail",
+    dependencyLockfiles.ok ? "info" : "error",
+    dependencyLockfiles.ok
+      ? "Root Node and Rust dependency lockfiles are present and match project metadata."
+      : "Dependency lockfile evidence is missing or inconsistent.",
+    dependencyLockfiles.evidence,
+    "Regenerate package-lock.json with npm install --package-lock-only --ignore-scripts and keep Cargo.lock committed."
   ));
   checks.push(check(
     "governance_files",
@@ -728,6 +739,56 @@ function repoDoctorChecks(): DoctorCheck[] {
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
   return checks;
+}
+
+function ciGateNeedles(): string[] {
+  return [
+    "npm ci --ignore-scripts",
+    "npm audit --audit-level=high --json",
+    "cargo install cargo-audit --locked --version 0.22.1",
+    "cargo audit",
+    "npm test",
+    "cargo test --locked",
+    "cargo clippy --all-targets --all-features --locked -- -D warnings",
+    "cargo fmt --check",
+    "git diff --check",
+    "tools/forbidden-tracked-roots.txt",
+    "npm run ether -- doctor --workspace .",
+    "npm run ether -- security audit --workspace ."
+  ];
+}
+
+function dependencyLockfileState(packageJson: { name?: string; license?: string; engines?: { node?: string } } | null): { ok: boolean; evidence: string[] } {
+  const packageLock = readRepoJson("package-lock.json") as {
+    lockfileVersion?: number;
+    packages?: Record<string, { name?: string; license?: string; engines?: { node?: string }; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> }>;
+  } | null;
+  const cargoLock = readRepoText("Cargo.lock");
+  const rootPackage = packageLock?.packages?.[""];
+  const rootDependencyCount = Object.keys(rootPackage?.dependencies ?? {}).length;
+  const rootDevDependencyCount = Object.keys(rootPackage?.devDependencies ?? {}).length;
+  const packageLockOk = packageLock?.lockfileVersion === 3
+    && rootPackage?.name === packageJson?.name
+    && rootPackage?.license === packageJson?.license
+    && rootPackage?.engines?.node === packageJson?.engines?.node;
+  const cargoLockOk = Boolean(cargoLock?.includes("version = 4") && cargoLock.includes('name = "aetherion-supervisor"'));
+  return {
+    ok: Boolean(packageLockOk && cargoLockOk),
+    evidence: [
+      `package_lock=${packageLock ? "present" : "missing"}`,
+      `package_lock_version=${packageLock?.lockfileVersion ?? "missing"}`,
+      `package_lock_root_name=${rootPackage?.name ?? "missing"}`,
+      `package_name=${packageJson?.name ?? "missing"}`,
+      `package_lock_root_license=${rootPackage?.license ?? "missing"}`,
+      `package_license=${packageJson?.license ?? "missing"}`,
+      `package_lock_node_engine=${rootPackage?.engines?.node ?? "missing"}`,
+      `package_node_engine=${packageJson?.engines?.node ?? "missing"}`,
+      `package_lock_root_dependencies=${rootDependencyCount}`,
+      `package_lock_root_dev_dependencies=${rootDevDependencyCount}`,
+      `cargo_lock=${cargoLock ? "present" : "missing"}`,
+      `cargo_lock_supervisor_package=${String(Boolean(cargoLock?.includes('name = "aetherion-supervisor"')))}`
+    ]
+  };
 }
 
 async function workspaceDoctorChecks(workspaceRoot: string): Promise<DoctorCheck[]> {
@@ -3274,8 +3335,10 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
   const findings: SecurityAuditFinding[] = [
     ...trackedRuntimeArtifactFindings(),
     ...trackedSecretFindings(),
+    ...dependencyReproducibilityFindings(),
     ...workspaceRuntimeArtifactFindings(workspaceRoot),
     ...ciArtifactGuardFindings(),
+    ...ciDependencyAuditGuardFindings(),
     ...workspaceLedger.findings,
     ...modelStdout.findings
   ];
@@ -3293,6 +3356,12 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
       ["patterns=private_keys,api_keys,provider_tokens,github_tokens,aws_access_keys"]
     ),
     checkForFindings(
+      "repo.dependency_reproducibility",
+      findings,
+      "Root Node and Rust dependency lockfiles are present and match project metadata.",
+      dependencyLockfileState(readRepoJson("package.json") as { name?: string; license?: string; engines?: { node?: string } } | null).evidence
+    ),
+    checkForFindings(
       "runtime.raw_sensitive_artifacts",
       findings,
       existsSync(join(workspaceRoot, ".aetherion"))
@@ -3307,6 +3376,12 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
       findings,
       "CI artifact guard covers the documented runtime/build artifact roots.",
       [`forbidden_roots=${forbiddenTrackedRoots().join(",")}`]
+    ),
+    checkForFindings(
+      "ci.dependency_audit_guard",
+      findings,
+      "CI enforces lockfile install, dependency audit, and operator readiness snapshots.",
+      [`required_gates=${ciGateNeedles().join(",")}`]
     ),
     modelStdout.check
   ];
@@ -3416,6 +3491,22 @@ function trackedSecretFindings(): SecurityAuditFinding[] {
   return findings;
 }
 
+function dependencyReproducibilityFindings(): SecurityAuditFinding[] {
+  const packageJson = readRepoJson("package.json") as { name?: string; license?: string; engines?: { node?: string } } | null;
+  const state = dependencyLockfileState(packageJson);
+  if (state.ok) {
+    return [];
+  }
+  return [securityFinding(
+    "repo.dependency_reproducibility",
+    "high",
+    "Dependency lockfile evidence is incomplete",
+    "Root Node and Rust dependency lockfiles are missing or inconsistent with project metadata.",
+    state.evidence,
+    "Commit a fresh package-lock.json and Cargo.lock so dependency resolution and audit commands are reproducible."
+  )];
+}
+
 function workspaceRuntimeArtifactFindings(workspaceRoot: string): SecurityAuditFinding[] {
   const artifactsDir = join(workspaceRoot, ".aetherion", "artifacts");
   if (!existsSync(artifactsDir)) {
@@ -3479,6 +3570,21 @@ function ciArtifactGuardFindings(): SecurityAuditFinding[] {
         "The CI tracked-artifact guard does not cover every documented runtime/build artifact root.",
         [`missing_roots=${missing.join(",")}`],
         "Update .github/workflows/ci.yml or a checked helper script so tracked runtime/build roots fail CI."
+      )];
+}
+
+function ciDependencyAuditGuardFindings(): SecurityAuditFinding[] {
+  const workflow = readRepoText(".github/workflows/ci.yml") ?? "";
+  const missing = ciGateNeedles().filter((needle) => !workflow.includes(needle));
+  return missing.length === 0
+    ? []
+    : [securityFinding(
+        "ci.dependency_audit_guard",
+        "medium",
+        "CI dependency and readiness guard is incomplete",
+        "GitHub Actions does not run every dependency reproducibility, dependency audit, and operator readiness gate.",
+        [`missing_gates=${missing.join(",")}`],
+        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, doctor, and security audit."
       )];
 }
 

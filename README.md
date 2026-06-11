@@ -138,19 +138,25 @@ Future interactive TUI work may use Charmbracelet Bubbles as a component-templat
 Run verification:
 
 ```sh
+cargo install cargo-audit --locked --version 0.22.1
+npm ci --ignore-scripts
+npm audit --audit-level=high --json
 npm test
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo audit
+cargo test --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check
 git diff --check
 xargs git ls-files < tools/forbidden-tracked-roots.txt
+npm run ether -- doctor --workspace .
+npm run ether -- security audit --workspace .
 ```
 
-The same checks run in GitHub Actions CI for pull requests and pushes to `main`; the tracked artifact guard reads the shared denylist in `tools/forbidden-tracked-roots.txt`.
+The same checks run in GitHub Actions CI for pull requests and pushes to `main`; the tracked artifact guard reads the shared denylist in `tools/forbidden-tracked-roots.txt`. The root JavaScript surface currently has no npm dependencies, but `package-lock.json` is committed so `npm ci` and `npm audit` are reproducible before the first dependency lands. `Cargo.lock` is committed and Rust verification uses `--locked`; full local dependency audit needs `cargo-audit`. The ignored `promo/` subtree is a local/generated promotional experiment and is outside release evidence.
 
-For a read-only production-readiness snapshot, run `npm run ether -- doctor --workspace .`. The report checks repo governance files, bilingual documentation links, CI/script/artifact-guard expectations, schema/example baselines, workspace identity, Ledger hash-chain validity, and run-manifest presence without initializing unstarted workspaces or repairing runtime state. This increment is tracked in [Phase Implementation Review](docs/12-phase-implementation-review.md) and [Runtime Loop Plan](docs/14-runtime-loop-plan.md).
+For a read-only production-readiness snapshot, run `npm run ether -- doctor --workspace .`. The report checks repo governance files, bilingual documentation links, CI/script/artifact-guard/dependency-audit expectations, dependency lockfiles, schema/example baselines, workspace identity, Ledger hash-chain validity, and run-manifest presence without initializing unstarted workspaces or repairing runtime state. This increment is tracked in [Phase Implementation Review](docs/12-phase-implementation-review.md) and [Runtime Loop Plan](docs/14-runtime-loop-plan.md).
 
-For a read-only security snapshot, run `npm run ether -- security audit --workspace .`. The report checks high-confidence secret material in tracked text files, tracked runtime/build roots from the shared denylist, raw prompt/model/provider payload fields in existing `.aetherion` artifacts, workspace Ledger hash-chain validity, CI guard wiring, and the `prompt invoke-model` stdout boundary. It never initializes workspaces, repairs state, appends events, writes artifacts, calls providers, issues leases, or enables deferred GUI/IM/browser/MCP/OAuth/cloud/package-code surfaces.
+For a read-only security snapshot, run `npm run ether -- security audit --workspace .`. The report checks high-confidence secret material in tracked text files, dependency lockfile evidence, tracked runtime/build roots from the shared denylist, raw prompt/model/provider payload fields in existing `.aetherion` artifacts, workspace Ledger hash-chain validity, CI dependency/readiness guard wiring, and the `prompt invoke-model` stdout boundary. It never initializes workspaces, repairs state, appends events, writes artifacts, calls providers, issues leases, or enables deferred GUI/IM/browser/MCP/OAuth/cloud/package-code surfaces.
 
 ## Current Implementation Status
 
