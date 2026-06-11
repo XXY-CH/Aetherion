@@ -40,6 +40,7 @@ npm run test:all
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check
 git diff --check
+npm run ether -- onboarding check --workspace .
 npm run ether -- doctor --workspace .
 npm run ether -- security audit --workspace .
 npm run ether -- release evidence --workspace .
@@ -47,7 +48,7 @@ npm run ether -- run --workspace . --input README.md --output .aetherion/SUMMARY
 ```
 
 `.aetherion/` 下的运行时输出是本地状态，不应提交。
-pull request 和 push 到 `main` 会通过 GitHub Actions 运行 lockfile install、dependency audit、TypeScript 测试、locked Rust 测试、Rust lint/format、whitespace diff check、runtime/build artifact tracked guard、operator readiness/release-evidence snapshots、Node 24 JavaScript action-runtime opt-in，以及 Ubuntu/macOS platform-smoke job。
+pull request 和 push 到 `main` 会通过 GitHub Actions 运行 lockfile install、dependency audit、TypeScript 测试、locked Rust 测试、Rust lint/format、whitespace diff check、runtime/build artifact tracked guard、from-source onboarding preflight、operator readiness/release-evidence snapshots、Node 24 JavaScript action-runtime opt-in，以及 Ubuntu/macOS platform-smoke job。
 
 根 JavaScript surface 当前没有 npm dependency，但 `package-lock.json` 已提交；未来任何 dependency 增加都必须在同一变更中更新 lockfile。`Cargo.lock` 已提交，Rust verification 应使用 `--locked`。被 ignore 的 `promo/` 子树是 local/generated promotional material，不属于 release evidence。
 

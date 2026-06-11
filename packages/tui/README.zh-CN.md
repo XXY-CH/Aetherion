@@ -13,6 +13,7 @@
 - 通过 scoped policy 写默认 summary；`--summary` 提供用户显式控制的 summary text，`--output` 选择输出路径。
 - 默认通过 Rust supervisor POC 路由 `run`。TypeScript seed policy path 仅用于测试，并需要 `AETHERION_ALLOW_TYPESCRIPT_SEED=1`。
 - 提供 trace、replay、doctor、audit、memory、context、prompt、capsule、sandbox、hibernation、surface、store 等本地命令表面。
+- `onboarding check` 输出只读 from-source onboarding preflight，检查本机 toolchain、repo scripts、lockfiles、CI/governance/docs evidence、workspace runtime state 和下一步命令；它不安装 dependency、不运行长 verification、不启动 daemon、不修复 state、不写 artifact、不追加 event，也不初始化 `.aetherion`。
 - `doctor` 输出只读生产就绪报告，检查 repo governance/docs/CI/schema/dependency/platform-smoke baseline 以及 workspace identity、Ledger hash chain、run manifest 状态；它不初始化 workspace、不修复 state、不追加 Ledger、不写 artifact、不发 lease、不调用 provider。
 - `security audit` 输出只读安全报告，检查 tracked secret material、dependency lockfile evidence、`tools/forbidden-tracked-roots.txt` 中的 runtime/build roots、现有 runtime artifacts 的 raw sensitive fields、workspace Ledger hash chain、CI dependency/platform/readiness guard wiring 和默认 model stdout 边界；它不修改 workspace state。
 - `release evidence` 输出只读 local/configured release evidence 报告，汇总 git head/dirty、已配置 CI/action-runtime/platform-smoke evidence、dependency lockfiles、governance/docs checks、`doctor`、`security audit`、workspace runtime state、source-document links 和剩余 release gaps；它不查询远端 CI、不打包、不签名、不发布、不部署 docs，也不修改 `.aetherion`。
@@ -27,6 +28,7 @@ AETHERION_MODEL_PROVIDER=openai_chat_completions OPENAI_API_KEY=... npm run ethe
 AETHERION_MODEL_PROVIDER=anthropic ANTHROPIC_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
 AETHERION_MODEL_PROVIDER=gemini GEMINI_API_KEY=... npm run ether -- prompt invoke-model <request_id> --content <task> --workspace .
 npm run ether -- prompt invoke-model <request_id> --content <task> --workspace . --print-output
+npm run ether -- onboarding check --workspace .
 npm run ether -- security audit --workspace .
 npm run ether -- release evidence --workspace .
 ```

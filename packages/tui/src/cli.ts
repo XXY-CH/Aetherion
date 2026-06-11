@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
@@ -393,6 +393,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "doctor":
       await runDoctor(options);
       return true;
+    case "onboarding":
+      await runOnboarding(options);
+      return true;
     case "release":
       await runRelease(options);
       return true;
@@ -609,6 +612,162 @@ type ReadOnlyCommandScope = {
   issues_lease: false;
   repairs_state: false;
 };
+
+type OnboardingPreflightReport = {
+  id: "aetherion_onboarding_preflight_report";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  status: "ready" | "degraded" | "blocked";
+  installation_kind: "from_source";
+  scope: ReadOnlyCommandScope & {
+    installs_dependencies: false;
+    runs_verification_suite: false;
+    starts_daemon: false;
+    opens_browser: false;
+    writes_workspace: false;
+    checks_remote_ci: false;
+  };
+  summary: {
+    pass: number;
+    warn: number;
+    fail: number;
+    not_applicable: number;
+  };
+  readiness_layers: {
+    toolchain_ready: DoctorReport["status"];
+    repo_ready: DoctorReport["status"];
+    workspace_runtime_state: "not_initialized" | "initialized" | "invalid";
+    next_steps_ready: boolean;
+  };
+  checks: DoctorCheck[];
+  next_steps: string[];
+  deferred_surfaces: string[];
+  source_documents: Array<{ path: string; role: string }>;
+};
+
+async function runOnboarding(options: CliOptions): Promise<void> {
+  if (options.topic !== "check") {
+    throw new Error("onboarding supports check");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const report = await buildOnboardingPreflightReport(workspaceRoot);
+  if (report.status === "blocked") {
+    process.exitCode = 1;
+  }
+  printRawJson(report);
+}
+
+async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<OnboardingPreflightReport> {
+  const repoChecks = repoDoctorChecks();
+  const repoCheckById = new Map(repoChecks.map((checkItem) => [checkItem.id, checkItem]));
+  const workspaceChecks = await workspaceDoctorChecks(workspaceRoot);
+  const checks: DoctorCheck[] = [
+    checkWorkspaceTarget(workspaceRoot),
+    repoCheckById.get("node_runtime_version") ?? check(
+      "node_runtime_version",
+      "fail",
+      "error",
+      "Node.js runtime check could not be built.",
+      [],
+      "Run Ether with Node.js 25 or newer."
+    ),
+    commandVersionCheck("npm_available", "npm", ["--version"], "npm is available for lockfile install and audit commands.", "Install npm with Node.js 25 or newer."),
+    commandVersionCheck("git_available", "git", ["--version"], "git is available for source checkout and evidence snapshots.", "Install git before using from-source onboarding."),
+    commandVersionCheck("rustc_available", "rustc", ["--version"], "rustc is available for Rust supervisor builds and checks.", "Install the Rust toolchain before running supervisor tests."),
+    commandVersionCheck("cargo_available", "cargo", ["--version"], "cargo is available for Rust supervisor tests, clippy, and audit commands.", "Install Cargo with the Rust toolchain."),
+    commandVersionCheck("cargo_audit_available", "cargo", ["audit", "--version"], "cargo-audit is available for the full dependency-audit gate.", "Install cargo-audit with: cargo install cargo-audit --locked --version 0.22.1", "warn"),
+    repoCheckById.get("package_metadata") ?? missingRepoCheck("package_metadata"),
+    repoCheckById.get("package_scripts") ?? missingRepoCheck("package_scripts"),
+    repoCheckById.get("dependency_lockfiles") ?? missingRepoCheck("dependency_lockfiles"),
+    repoCheckById.get("ci_workflow_gate") ?? missingRepoCheck("ci_workflow_gate"),
+    repoCheckById.get("governance_files") ?? missingRepoCheck("governance_files"),
+    repoCheckById.get("bilingual_main_docs") ?? missingRepoCheck("bilingual_main_docs"),
+    repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
+    repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
+    ...workspaceChecks,
+    onboardingDocsCheck()
+  ];
+  const summary = {
+    pass: checks.filter((checkItem) => checkItem.status === "pass").length,
+    warn: checks.filter((checkItem) => checkItem.status === "warn").length,
+    fail: checks.filter((checkItem) => checkItem.status === "fail").length,
+    not_applicable: checks.filter((checkItem) => checkItem.status === "not_applicable").length
+  };
+  const status = summary.fail > 0 ? "blocked" : summary.warn > 0 ? "degraded" : "ready";
+  const toolchainChecks = checks.filter((checkItem) => [
+    "node_runtime_version",
+    "npm_available",
+    "git_available",
+    "rustc_available",
+    "cargo_available",
+    "cargo_audit_available"
+  ].includes(checkItem.id));
+  const repoLayerChecks = checks.filter((checkItem) => [
+    "package_metadata",
+    "package_scripts",
+    "dependency_lockfiles",
+    "ci_workflow_gate",
+    "governance_files",
+    "bilingual_main_docs",
+    "runtime_artifact_ignore_rules",
+    "schema_example_manifest",
+    "from_source_onboarding_docs"
+  ].includes(checkItem.id));
+  const workspaceLayer = onboardingWorkspaceRuntimeState(workspaceChecks);
+  return {
+    id: "aetherion_onboarding_preflight_report",
+    generated_at: new Date().toISOString(),
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    status,
+    installation_kind: "from_source",
+    scope: {
+      ...readOnlyCommandScope(),
+      installs_dependencies: false,
+      runs_verification_suite: false,
+      starts_daemon: false,
+      opens_browser: false,
+      writes_workspace: false,
+      checks_remote_ci: false
+    },
+    summary,
+    readiness_layers: {
+      toolchain_ready: layerStatus(toolchainChecks),
+      repo_ready: layerStatus(repoLayerChecks),
+      workspace_runtime_state: workspaceLayer,
+      next_steps_ready: status !== "blocked"
+    },
+    checks,
+    next_steps: [
+      "npm ci --ignore-scripts",
+      "npm audit --audit-level=high --json",
+      "npm test",
+      "cargo audit",
+      "cargo test --locked",
+      "cargo clippy --all-targets --all-features --locked -- -D warnings",
+      "cargo fmt --check",
+      "git diff --check",
+      "npm run ether -- doctor --workspace .",
+      "npm run ether -- security audit --workspace .",
+      "npm run ether -- release evidence --workspace ."
+    ],
+    deferred_surfaces: [
+      "installer/updater automation",
+      "release packaging",
+      "artifact signing",
+      "public docs deployment",
+      "daemon lifecycle start/stop/repair commands",
+      "GUI, browser automation, IM delivery, MCP/OAuth connectors, cloud workers, and package-code execution"
+    ],
+    source_documents: [
+      { path: "README.md", role: "from-source verification commands and current scope" },
+      { path: "CONTRIBUTING.md", role: "developer setup and contribution workflow" },
+      { path: "docs/06-roadmap.md", role: "V1 TUI-first scope and deferred product surfaces" },
+      { path: "docs/14-runtime-loop-plan.md", role: "production-hardening gap tracker" }
+    ]
+  };
+}
 
 async function runDoctor(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
@@ -897,6 +1056,113 @@ function readOnlyCommandScope(): ReadOnlyCommandScope {
   };
 }
 
+function checkWorkspaceTarget(workspaceRoot: string): DoctorCheck {
+  let isDirectory = false;
+  try {
+    isDirectory = existsSync(workspaceRoot) && statSync(workspaceRoot).isDirectory();
+  } catch {
+    isDirectory = false;
+  }
+  return check(
+    "workspace_target",
+    isDirectory ? "pass" : "fail",
+    isDirectory ? "info" : "error",
+    isDirectory
+      ? "Workspace target exists for from-source onboarding checks."
+      : "Workspace target does not exist or is not a directory.",
+    [`workspace_root=${workspaceRoot}`, `is_directory=${String(isDirectory)}`],
+    "Create the workspace directory or pass --workspace <path> that points to an existing directory."
+  );
+}
+
+function commandVersionCheck(
+  id: string,
+  commandName: string,
+  args: string[],
+  passSummary: string,
+  remediation: string,
+  missingStatus: "warn" | "fail" = "fail"
+): DoctorCheck {
+  try {
+    const output = execFileSync(commandName, args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5000
+    }).trim();
+    return check(
+      id,
+      "pass",
+      "info",
+      passSummary,
+      [`command=${[commandName, ...args].join(" ")}`, `version=${singleLine(output.split(/\r?\n/)[0] ?? "available")}`],
+      remediation
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return check(
+      id,
+      missingStatus,
+      missingStatus === "warn" ? "warning" : "error",
+      `${commandName} ${args.join(" ")} is not available for from-source onboarding.`,
+      [`command=${[commandName, ...args].join(" ")}`, `error=${singleLine(message)}`],
+      remediation
+    );
+  }
+}
+
+function missingRepoCheck(id: string): DoctorCheck {
+  return check(
+    id,
+    "fail",
+    "error",
+    `Required repo onboarding check ${id} could not be built.`,
+    [`check_id=${id}`],
+    "Restore repo doctor checks before relying on onboarding preflight."
+  );
+}
+
+function onboardingDocsCheck(): DoctorCheck {
+  const requiredLinks = [
+    ["README.md", "npm run ether -- onboarding check --workspace ."],
+    ["README.zh-CN.md", "npm run ether -- onboarding check --workspace ."],
+    ["CONTRIBUTING.md", "npm run ether -- onboarding check --workspace ."],
+    ["CONTRIBUTING.zh-CN.md", "npm run ether -- onboarding check --workspace ."],
+    ["packages/tui/README.md", "npm run ether -- onboarding check --workspace ."],
+    ["packages/tui/README.zh-CN.md", "npm run ether -- onboarding check --workspace ."]
+  ] as const;
+  const evidence = requiredLinks.map(([file, needle]) => `${file}:${readRepoText(file)?.includes(needle) ? "linked" : "missing"}`);
+  const ok = evidence.every((line) => line.endsWith(":linked"));
+  return check(
+    "from_source_onboarding_docs",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    "Primary docs link the from-source onboarding preflight command.",
+    evidence,
+    "Add npm run ether -- onboarding check --workspace . to README, CONTRIBUTING, and TUI README in both languages."
+  );
+}
+
+function layerStatus(checks: DoctorCheck[]): DoctorReport["status"] {
+  if (checks.some((checkItem) => checkItem.status === "fail")) {
+    return "blocked";
+  }
+  if (checks.some((checkItem) => checkItem.status === "warn")) {
+    return "degraded";
+  }
+  return "ready";
+}
+
+function onboardingWorkspaceRuntimeState(workspaceChecks: DoctorCheck[]): OnboardingPreflightReport["readiness_layers"]["workspace_runtime_state"] {
+  if (workspaceChecks.some((checkItem) => checkItem.status === "fail")) {
+    return "invalid";
+  }
+  if (workspaceChecks.some((checkItem) => checkItem.id === "workspace_runtime_state" && checkItem.status === "not_applicable")) {
+    return "not_initialized";
+  }
+  return "initialized";
+}
+
 function gitReleaseEvidence(): GitReleaseEvidence {
   const head = gitOutput(["rev-parse", "HEAD"]);
   const changedFiles = gitOutputRaw(["status", "--porcelain=v1", "--untracked-files=all"])
@@ -1026,7 +1292,7 @@ function repoDoctorChecks(): DoctorCheck[] {
     "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, release evidence, and the Node 24 action-runtime baseline.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit,release evidence,ubuntu/macos platform smoke"
+      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,onboarding check,doctor,security audit,release evidence,ubuntu/macos platform smoke"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
   ));
@@ -1100,6 +1366,7 @@ function ciGateNeedles(): string[] {
     "cargo fmt --check",
     "git diff --check",
     "tools/forbidden-tracked-roots.txt",
+    "npm run ether -- onboarding check --workspace .",
     "npm run ether -- doctor --workspace .",
     "npm run ether -- security audit --workspace .",
     "npm run ether -- release evidence --workspace .",
@@ -3938,7 +4205,7 @@ function ciDependencyAuditGuardFindings(): SecurityAuditFinding[] {
         "CI dependency and readiness guard is incomplete",
         "GitHub Actions does not run every dependency reproducibility, dependency audit, platform smoke, action-runtime, and operator readiness/release-evidence gate.",
         [`missing_gates=${missing.join(",")}`],
-        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, doctor, security audit, Node 24 JavaScript actions, and the platform smoke matrix."
+        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, onboarding check, doctor, security audit, release evidence, Node 24 JavaScript actions, and the platform smoke matrix."
       )];
 }
 
@@ -4972,6 +5239,7 @@ Usage:
   npm run ether -- supervisor status --workspace <path>
   npm run ether -- supervisor preflight --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
+  npm run ether -- onboarding check --workspace <path>
   npm run ether -- doctor --workspace <path>
   npm run ether -- release evidence --workspace <path>
 
@@ -5042,6 +5310,7 @@ Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
+  onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
   release                Read-only local/configured release evidence snapshot; no packaging, signing, publishing, or remote CI query
   import                 Phase 4 dry-run migration report

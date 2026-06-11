@@ -16,6 +16,7 @@ Current scope:
 - Emit the P0 local-file action lifecycle for `run`: `tool.requested`, `risk.composed`, `policy.decided`, `lease.issued`, `consent.recorded`, `action.recorded`, `observation.recorded`, `verification.recorded`, and `run.completed`.
 - Print Rust or test-seed event hash-chain status and head pointers in `run`, `replay`, and `trace` output.
 - Print read-only Rust supervisor workspace status with `supervisor status`, including transport, `daemon_running=false`, runtime paths, Ledger hash-chain validity, event count, head pointers, runtime-lock fields, runtime-lock owner process status, and stale-lock detection. `supervisor preflight` derives a lifecycle state and operator next step from the same status evidence. These are daemon-readiness previews, not a background service, start/stop command, or lock-repair command; the foreground Unix socket can also bind one workspace and write a runtime lock while it is live.
+- Print a read-only from-source onboarding preflight with `onboarding check`. It checks local toolchain availability, repo scripts, lockfiles, CI/governance/docs evidence, workspace runtime state, and next-step commands without installing dependencies, running long verification, starting daemons, repairing state, writing artifacts, appending events, or initializing `.aetherion`.
 - Print a read-only production-readiness report with `doctor`. It checks repo governance/docs/CI/schema/dependency/platform-smoke baselines and workspace identity/Ledger/run-manifest invariants without initializing workspaces, repairing state, writing artifacts, appending events, issuing leases, or calling providers.
 - Print a read-only security audit report with `security audit`. It checks tracked secret material, dependency lockfile evidence, tracked runtime/build roots from `tools/forbidden-tracked-roots.txt`, raw sensitive fields in existing runtime artifacts, workspace Ledger hash-chain validity, CI dependency/platform/readiness guard wiring, and the default model stdout boundary without mutating workspace state.
 - Print a read-only local/configured release evidence report with `release evidence`. It combines git head/dirty state, configured CI/action-runtime/platform-smoke evidence, dependency lockfiles, governance/docs checks, `doctor`, `security audit`, workspace runtime state, source-document links, and remaining release gaps without querying remote CI, packaging, signing, publishing, deploying docs, or mutating `.aetherion`.
@@ -93,6 +94,7 @@ npm run ether -- surface im-inbox --path inbox-input.json --workspace .
 npm run ether -- surface im-outbox --path outbox-input.json --workspace .
 npm run ether -- store trust-publisher --path publisher-key.json --workspace .
 npm run ether -- store install --path signed-package.json --approve-permissions --workspace .
+npm run ether -- onboarding check --workspace .
 npm run ether -- doctor --workspace .
 npm run ether -- security audit --workspace .
 npm run ether -- release evidence --workspace .

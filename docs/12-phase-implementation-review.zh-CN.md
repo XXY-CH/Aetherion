@@ -325,6 +325,37 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
 
+## Phase 51 复核：From-Source Onboarding Preflight
+
+本轮在不假装已有 installer 的前提下缩小 guided-onboarding gap。release evidence 之后，fresh clone 已能证明 repo readiness，但仍缺一个命令回答：“这台机器能不能从源码安全开始，下一步该跑什么？”
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：onboarding 仍是 local-first、evidence-backed，不是 account-linking 或 cloud bootstrap。
+- [路线图](06-roadmap.zh-CN.md)：本轮仍在 V1 terminal/kernel path 内，不增加 GUI、IM、browser、MCP/OAuth connector、cloud worker 或 release packaging。
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 仍是 contract/TUI iteration surface；Rust 仍保留给 supervisor authority boundary。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：本轮实现 planned from-source onboarding preflight slice。
+
+本轮修正：
+
+- 新增 `npm run ether -- onboarding check --workspace <path>`。
+- 报告区分 `toolchain_ready`、`repo_ready`、`workspace_runtime_state` 和 `next_steps_ready`。
+- 检查 Node、npm、git、rustc、cargo、可选 cargo-audit、repo scripts、dependency lockfiles、CI gates、governance files、双语文档、onboarding doc links 和 workspace runtime state。
+- 缺失 `.aetherion` 会被解释为 `not_initialized`，不是 broken state。
+- 命令输出 next-step commands，但不执行它们。
+- CI 现在把 `onboarding check` 与已有 operator snapshots 一起运行。
+- README、CONTRIBUTING、TUI README 和中文伴读文档都链接了该命令和只读边界。
+
+验证：
+
+- 目标 TUI tests 覆盖 help text、fresh-clone onboarding、已初始化 workspace 不变更行为，以及缺失本机 toolchain 的 failure reporting。
+
+修正与剩余边界：
+
+- 修正 from-source onboarding preflight 缺口，但不新增 installer/updater automation、package installation、daemon lifecycle commands、provider auth wizard、connector account linking、public docs deployment、release packaging、artifact signing 或 remote CI querying。
+- 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括真实 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
+
 ## 验证要求
 
 每轮结束应至少检查：

@@ -308,3 +308,28 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 - 这是 local/configured source snapshot，不是 executed remote CI proof、release packaging、artifact signing、installer/updater infrastructure、public docs deployment、package registry publication 或 release evidence repository。
 - dirty worktree 会报告为 `draft`；它不阻止本地检查，因为可能存在 unrelated operator files，但它不是 clean release claim。
 - 剩余生产差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
+
+## 已完成增量：From-Source Onboarding Preflight
+
+目标：用只读 preflight 缩小 guided-onboarding gap，让 fresh clone 能判断本机 toolchain、repo evidence 和 workspace runtime state 是否足以开始 from-source 工作，同时不新增 installer、updater、daemon manager 或 release packaging。
+
+验收：
+
+- `onboarding check --workspace <path>` 输出单个 JSON 报告，分出 `toolchain_ready`、`repo_ready`、`workspace_runtime_state` 和 `next_steps_ready` 四层。
+- fresh clone 没有 `.aetherion` runtime state 时被解释为可引导的 `not_initialized` workspace，而不是损坏 workspace。
+- 命令检查 Node、npm、git、rustc、cargo、可选 cargo-audit、repo scripts、lockfiles、CI gates、governance docs、双语文档、onboarding doc links，以及已存在 workspace 的 Ledger state。
+- 命令严格只读：不安装 dependency、不运行整套 verification suite、不初始化 `.aetherion`、不启动或停止 daemon、不 repair state、不写 artifact、不追加 Ledger event、不调用 provider、不发 lease、不查询远端 CI，也不启用延后产品表面。
+- CI 将该 preflight 与已有 operator snapshots 一起运行，避免 docs 与 workflow 分叉。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：onboarding 仍是 local-first、evidence-oriented，而不是 cloud account 或 connector bootstrap。
+- [路线图](06-roadmap.zh-CN.md)：先强化 V1 TUI path，再进入 GUI、IM、browser、MCP/OAuth、cloud、installer 或 release-packaging。
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 仍是 contract/TUI iteration surface；Rust 仍是 supervisor boundary。
+- [阶段实现复核](12-phase-implementation-review.zh-CN.md)：本轮只把记录中的 install/onboarding gap 缩小到 from-source preflight 层。
+
+剩余边界：
+
+- 这不是 installer、updater、package manager、daemon lifecycle manager、public docs deployment、release package、artifact signer、provider-auth wizard 或 connector account-linking flow。
+- 它报告缺失工具和下一步命令，但不安装或修复它们。
+- 剩余生产差距包括 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。

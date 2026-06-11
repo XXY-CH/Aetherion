@@ -73,6 +73,7 @@ jobs:
 
       - name: Check operator readiness snapshots
         run: |
+          npm run ether -- onboarding check --workspace .
           npm run ether -- doctor --workspace .
           npm run ether -- security audit --workspace .
           npm run ether -- release evidence --workspace .
@@ -109,6 +110,7 @@ jobs:
 
       - name: Check operator readiness snapshot
         run: |
+          npm run ether -- onboarding check --workspace .
           npm run ether -- doctor --workspace .
           npm run ether -- security audit --workspace .
           npm run ether -- release evidence --workspace .

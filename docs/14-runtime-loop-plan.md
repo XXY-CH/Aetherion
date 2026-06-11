@@ -683,3 +683,28 @@ Remaining boundary:
 - This is a local/configured source snapshot, not executed remote CI proof, release packaging, artifact signing, installer/updater infrastructure, public docs deployment, package registry publication, or a release evidence repository.
 - A dirty worktree is reported as `draft`; it does not block local inspection because unrelated operator files may be present, but it is not a clean release claim.
 - Remaining production gaps are install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
+
+## Completed Increment: From-Source Onboarding Preflight
+
+Target: reduce the guided-onboarding gap with a read-only preflight that tells a fresh clone whether the local toolchain, repo evidence, and workspace runtime state are ready to begin from-source work, without adding an installer, updater, daemon manager, or release packaging.
+
+Acceptance:
+
+- `onboarding check --workspace <path>` prints a single JSON report with `toolchain_ready`, `repo_ready`, `workspace_runtime_state`, and `next_steps_ready` layers.
+- Fresh clones with no `.aetherion` runtime state are treated as onboardable `not_initialized` workspaces, not damaged workspaces.
+- The command checks Node, npm, git, rustc, cargo, optional cargo-audit, repo scripts, lockfiles, CI gates, governance docs, bilingual docs, onboarding doc links, and workspace Ledger state when it exists.
+- The command is strictly read-only: it does not install dependencies, run the verification suite, initialize `.aetherion`, start or stop daemons, repair state, write artifacts, append Ledger events, call providers, issue leases, query remote CI, or enable deferred product surfaces.
+- CI runs the preflight with the existing operator snapshots so docs and workflow stay aligned.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): onboarding remains local-first and evidence-oriented rather than a cloud account or connector bootstrap.
+- [Roadmap](06-roadmap.md): the increment strengthens the V1 TUI path before GUI, IM, browser, MCP/OAuth, cloud, installer, or release-packaging work.
+- [Technical Strategy](10-technical-strategy.md): TypeScript remains the contract/TUI iteration surface; Rust remains the supervisor boundary.
+- [Phase Implementation Review](12-phase-implementation-review.md): this addresses the recorded install/onboarding gap only at the from-source preflight layer.
+
+Remaining boundary:
+
+- This is not an installer, updater, package manager, daemon lifecycle manager, public docs deployment, release package, artifact signer, provider-auth wizard, or connector account-linking flow.
+- It reports missing tools and next steps; it does not install or repair them.
+- Remaining production gaps are installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.

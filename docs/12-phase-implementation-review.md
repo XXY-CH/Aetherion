@@ -1332,6 +1332,37 @@ Corrections and remaining boundary:
 - This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
 
+## Phase 51 Review Notes
+
+This pass reduces the next guided-onboarding gap without pretending Aetherion has an installer. After release evidence, a fresh clone could prove repo readiness but still lacked a single command that answered: "Can this local machine start from source safely, and what should I run next?"
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): onboarding remains local-first and evidence-backed, not an account-linking or cloud bootstrap.
+- [Roadmap](06-roadmap.md): the work stays in the V1 terminal/kernel path and does not add GUI, IM, browser, MCP/OAuth connectors, cloud workers, or release packaging.
+- [Technical Strategy](10-technical-strategy.md): TypeScript remains the right surface for contract/TUI iteration; Rust remains reserved for supervisor authority boundaries.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): this implements the planned from-source onboarding preflight slice.
+
+Implemented correspondence:
+
+- Added `npm run ether -- onboarding check --workspace <path>`.
+- The report distinguishes `toolchain_ready`, `repo_ready`, `workspace_runtime_state`, and `next_steps_ready`.
+- It checks Node, npm, git, rustc, cargo, optional cargo-audit, repo scripts, dependency lockfiles, CI gates, governance files, bilingual docs, onboarding doc links, and workspace runtime state.
+- A missing `.aetherion` directory is treated as `not_initialized`, not as broken state.
+- The command prints next-step commands but does not run them.
+- CI now runs `onboarding check` with the existing operator snapshots.
+- README, CONTRIBUTING, TUI README, and Chinese companions link the command and its read-only boundary.
+
+Verification evidence:
+
+- Targeted TUI tests cover help text, fresh-clone onboarding, initialized workspace no-mutation behavior, and missing local toolchain failure reporting.
+
+Corrections and remaining boundary:
+
+- Corrects the from-source onboarding preflight gap without adding installer/updater automation, package installation, daemon lifecycle commands, provider auth wizard, connector account linking, public docs deployment, release packaging, artifact signing, or remote CI querying.
+- This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include real installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

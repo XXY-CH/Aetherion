@@ -289,6 +289,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
 
   assert.match(help.stdout, /V1 core:/);
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- onboarding check --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- release evidence --workspace <path>/);
   assert.match(help.stdout, /Trace-backed local runtime:/);
@@ -297,6 +298,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- store trust-publisher --path <publisher-key\.json>/);
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
   assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
+  assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
   assert.match(help.stdout, /release\s+Read-only local\/configured release evidence snapshot/);
   assert.match(help.stdout, /security\s+Phase 11 taint denial plus read-only security audit/);
@@ -307,6 +309,157 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
+});
+
+test("Ether onboarding check reports fresh-clone next steps without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-onboarding-empty-"));
+
+  const onboarding = await execFileAsync(process.execPath, [
+    cliPath,
+    "onboarding",
+    "check",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(onboarding.stdout) as {
+    id: string;
+    status: string;
+    installation_kind: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      mutates_registries: boolean;
+      writes_artifacts: boolean;
+      calls_model_provider: boolean;
+      issues_lease: boolean;
+      repairs_state: boolean;
+      installs_dependencies: boolean;
+      runs_verification_suite: boolean;
+      starts_daemon: boolean;
+      opens_browser: boolean;
+      writes_workspace: boolean;
+      checks_remote_ci: boolean;
+    };
+    summary: { fail: number; warn: number };
+    readiness_layers: {
+      toolchain_ready: string;
+      repo_ready: string;
+      workspace_runtime_state: string;
+      next_steps_ready: boolean;
+    };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+    next_steps: string[];
+    deferred_surfaces: string[];
+    source_documents: Array<{ path: string; role: string }>;
+  };
+  assert.equal(report.id, "aetherion_onboarding_preflight_report");
+  assert.equal(report.installation_kind, "from_source");
+  assert.match(report.status, /^(ready|degraded)$/);
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.mutates_registries, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.calls_model_provider, false);
+  assert.equal(report.scope.issues_lease, false);
+  assert.equal(report.scope.repairs_state, false);
+  assert.equal(report.scope.installs_dependencies, false);
+  assert.equal(report.scope.runs_verification_suite, false);
+  assert.equal(report.scope.starts_daemon, false);
+  assert.equal(report.scope.opens_browser, false);
+  assert.equal(report.scope.writes_workspace, false);
+  assert.equal(report.scope.checks_remote_ci, false);
+  assert.equal(report.summary.fail, 0);
+  assert.match(report.readiness_layers.toolchain_ready, /^(ready|degraded)$/);
+  assert.equal(report.readiness_layers.repo_ready, "ready");
+  assert.equal(report.readiness_layers.workspace_runtime_state, "not_initialized");
+  assert.equal(report.readiness_layers.next_steps_ready, true);
+  assert.equal(report.checks.find((check) => check.id === "workspace_target")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "workspace_runtime_state")?.status, "not_applicable");
+  assert.equal(report.checks.find((check) => check.id === "from_source_onboarding_docs")?.status, "pass");
+  assert.ok(report.next_steps.includes("npm ci --ignore-scripts"));
+  assert.ok(report.next_steps.includes("npm run ether -- release evidence --workspace ."));
+  assert.ok(report.deferred_surfaces.some((surface) => surface.includes("release packaging")));
+  assert.ok(report.source_documents.some((doc) => doc.path === "README.md"));
+  assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Ether onboarding check is read-only for initialized workspace evidence", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-onboarding-ready-"));
+  await writeFile(join(workspace, "README.md"), "Onboarding ready fixture\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerBefore = await readFile(ledgerPath, "utf8");
+  const runsBefore = await readdir(runsPath);
+
+  const onboarding = await execFileAsync(process.execPath, [
+    cliPath,
+    "onboarding",
+    "check",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(onboarding.stdout) as {
+    status: string;
+    readiness_layers: { workspace_runtime_state: string; repo_ready: string };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+  };
+  assert.match(report.status, /^(ready|degraded)$/);
+  assert.equal(report.readiness_layers.workspace_runtime_state, "initialized");
+  assert.equal(report.readiness_layers.repo_ready, "ready");
+  assert.equal(report.checks.find((check) => check.id === "workspace_ledger_hash_chain")?.status, "pass");
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
+  assert.deepEqual(await readdir(runsPath), runsBefore);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "onboarding")), /ENOENT/);
+});
+
+test("Ether onboarding check reports missing local toolchain without mutating workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-onboarding-missing-toolchain-"));
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "onboarding",
+      "check",
+      "--workspace",
+      workspace
+    ], {
+      env: { ...process.env, PATH: "" }
+    }),
+    (error: unknown) => {
+      const report = JSON.parse(commandStdout(error)) as {
+        status: string;
+        scope: { installs_dependencies: boolean; repairs_state: boolean; writes_workspace: boolean };
+        readiness_layers: { toolchain_ready: string; repo_ready: string; workspace_runtime_state: string; next_steps_ready: boolean };
+        checks: Array<{ id: string; status: string }>;
+      };
+      assert.equal(report.status, "blocked");
+      assert.equal(report.scope.installs_dependencies, false);
+      assert.equal(report.scope.repairs_state, false);
+      assert.equal(report.scope.writes_workspace, false);
+      assert.equal(report.readiness_layers.toolchain_ready, "blocked");
+      assert.equal(report.readiness_layers.repo_ready, "ready");
+      assert.equal(report.readiness_layers.workspace_runtime_state, "not_initialized");
+      assert.equal(report.readiness_layers.next_steps_ready, false);
+      assert.equal(report.checks.find((check) => check.id === "npm_available")?.status, "fail");
+      assert.equal(report.checks.find((check) => check.id === "git_available")?.status, "fail");
+      assert.equal(report.checks.find((check) => check.id === "rustc_available")?.status, "fail");
+      assert.equal(report.checks.find((check) => check.id === "cargo_available")?.status, "fail");
+      return true;
+    }
+  );
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
 test("TUI doctor reports read-only readiness without initializing a workspace", async () => {
