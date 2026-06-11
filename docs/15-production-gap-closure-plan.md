@@ -32,7 +32,7 @@ The plan is grounded in these source documents and current implementation summar
 | --- | --- | --- | --- |
 | Client Surfaces | Ether TUI exists; GUI/mobile/IM/browser/API are documented as deferred; README lists governed post-V1 scaffolds. | No productized desktop/mobile/browser/IM/API clients, and no surface identity/pairing lifecycle. | Keep V1 TUI as the only runnable client. Add API/GUI/browser/IM/mobile only as post-gate clients after ingress identity and supervisor policy gateways exist. |
 | Ingress Gateways | Local command invocation has workspace identity checks; IM/browser/store observations are hash-only or queue-only slices. | No general normalize/authenticate/rate-limit/idempotency gateway for local API, IM, browser, or mobile requests. | Build a local ingress contract before any real remote surface: request envelope, caller identity, idempotency key, replay protection, rate-limit evidence, and policy handoff. |
-| Local Supervisor | Rust POC owns workspace identity, hash-chained ledger append, traced file reads/writes, scoped leases, status/preflight, foreground socket lock observation, supervisor lifecycle readiness evidence, and process-failure hardening. | No long-running production daemon, vault backend, signing, process sandbox, socket auth lifecycle, start/stop/recover commands, or stale-lock recovery command. | Promote lifecycle semantics in small steps: explicit start/stop/status/recover behavior, auth token boundary, vault metadata binding, signer plan, and daemon health evidence. |
+| Local Supervisor | Rust POC owns workspace identity, hash-chained ledger append, traced file reads/writes, scoped leases, status/preflight, foreground socket lock observation, supervisor lifecycle readiness evidence, metadata-only vault references, vault policy binding readiness evidence, and process-failure hardening. | No long-running production daemon, vault backend, signing, process sandbox, socket auth lifecycle, start/stop/recover commands, stale-lock recovery command, or secret retrieval path. | Promote lifecycle semantics in small steps: explicit start/stop/status/recover behavior, auth token boundary, vault metadata binding, signer plan, and daemon health evidence. |
 | Agent Orchestrator | Prompt assembly, runtime binding, model request/response metadata, live no-tools invocation, response audit, and tool-request proposal are implemented as non-authorizing evidence. | No full agent loop, planner/verifier runtime, streaming, retry policy, semantic verification, tool-call translation, or durable queue integration. | Keep no-tools provider lane; then bridge operator-restated proposals into fresh supervisor policy requests before adding model-driven tool loops. |
 | Memory OS | Source-backed Memory Candidate/Card/Tombstone lifecycle, context assembly, tombstone exclusion, conflict projection, and parity previews exist. | No full deterministic rebuild/repair, redaction lifecycle, semantic retrieval, vector/graph indexes, or memory quality dashboards. | Expand parity coverage and redaction/rebuild tooling before semantic/vector retrieval. |
 | Capability OS | Document-only Capsule lifecycle, proposal from passing traces, local trust-publisher store install, sandbox/replay evidence checks, and rollback exist. | No remote marketplace, transparency log, revocation feed, package-code execution sandbox, route scoring, or permission-diff UX. | Finish local integrity/revocation evidence first; keep package code quarantined until a supervisor-governed execution sandbox exists. |
@@ -76,12 +76,12 @@ Deliverables:
 
 - Typed lifecycle contract for `supervisor start`, `status`, `stop`, and explicit `recover-stale-lock` preflight.
 - Socket/auth-token lifecycle boundaries for local clients.
-- Vault reference contract with metadata-only secret refs, redaction rules, and no raw secret persistence.
+- Vault reference contract plus vault policy binding contract with metadata-only secret refs, redaction rules, policy-decision citation boundaries, and no raw secret persistence.
 
 Acceptance criteria:
 
 - Lifecycle commands are deterministic, idempotency-aware, and fail closed on workspace mismatch or stale lock ambiguity.
-- Vault refs can be cited by policy decisions without storing raw secret values in examples, artifacts, Ledger events, run manifests, or docs.
+- Vault refs can be cited by policy decisions as reference-and-fingerprint metadata without storing raw secret values in examples, artifacts, Ledger events, run manifests, stdout, or docs, and without granting egress, provider calls, connector grants, or leases.
 
 ### PGC-3: Local Ingress Gateway MVP
 

@@ -504,3 +504,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production daemon、service installer、daemon manager、stale-lock recovery command、crash-recovery system、socket-auth lifecycle、device/user identity layer、vault backend、signer、process sandbox、cloud worker 或 policy lease。
 - 下一高价值 PGC-2 切片是 vault reference binding design 或第一个显式 lifecycle command contract，除非 local ingress 或 release evidence 先成为更尖锐 blocker。
+
+## 已完成增量：Vault Policy Binding Readiness Contract
+
+目标：补齐下一块 PGC-2 credential-boundary 缺口，证明未来 policy decision 可以引用 Vault Reference，但这个引用不会变成 secret access、egress authority 或 provider credential resolution。
+
+验收：
+
+- `vault-policy-binding.schema.json` 及其 example 通过现有 contract example suite。
+- schema 只用 reference 名称绑定 `vault-reference`、`policy-decision` 和 `model-provider-readiness`。
+- schema 允许 policy decision 以 reference-and-fingerprint metadata 形式引用 `vault://` reference。
+- schema 拒绝 secret resolution、raw secret copy、provider vault-backed call、egress authorization、connector grant、token refresh、OAuth flow，以及 binding 自己发 lease。
+- `doctor`、`onboarding check` 和 `release evidence` 输出 `vault_policy_binding_contract` evidence。
+
+与原始文档对照和修正：
+
+- [架构](01-architecture.zh-CN.md)：Tool Access & Action Policy Proxy 仍是 action/egress choke point；vault metadata 不能绕过它。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 仍是未来 vault/authority behavior 的 owner；本轮 TypeScript 只做 contract/readiness evidence。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：vault policy binding 是 P1 readiness metadata，并用负向测试覆盖 secret resolution、egress、connector grant 和 lease authority。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮推进 PGC-2 中“vault ref 可被 policy decision 引用但不存储 raw secret value”的验收项。
+
+剩余边界：
+
+- 这不是 production vault backend、secret retrieval API、provider vault-backed invocation path、OAuth flow、token refresh system、connector grant lifecycle、egress policy implementation 或 policy lease。
+- 下一高价值切片是显式 lifecycle command contracts、local ingress envelope/idempotency，或 provider error/credential-source productionization。

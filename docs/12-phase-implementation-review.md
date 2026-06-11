@@ -1602,6 +1602,38 @@ Corrections and remaining boundary:
 - Supervisor Lifecycle Readiness is a P1 readiness contract, not daemon control, a vault, an auth lifecycle, a recovery command, or a policy gateway.
 - Remaining strict-review gaps include vault reference binding design, explicit lifecycle command contracts, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 59 Review Notes
+
+This pass closes the first vault reference binding design gap without implementing a vault backend. The previous Vault Reference contract proved that raw secret material is not stored; this pass proves the next boundary: a future policy decision may cite a vault reference only as metadata, and that citation cannot become secret resolution, provider credential use, egress authority, a connector grant, or a lease.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): the Tool Access & Action Policy Proxy remains the choke point for sensitive reads, data egress, and side effects; vault metadata cannot bypass policy.
+- [Technical Strategy](10-technical-strategy.md): Rust remains the future vault/authority owner; TypeScript can define readiness contracts but not implement secret access.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 credential-boundary metadata needs negative tests for raw secrets, inherited authority, and live side-effect replay.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 requires vault refs to be citeable by policy decisions without storing raw secret values in examples, artifacts, Ledger events, run manifests, or docs.
+
+Implemented correspondence:
+
+- Added `schemas/vault-policy-binding.schema.json` and `examples/contracts/vault-policy-binding.json`.
+- The contract references `vault-reference.schema.json`, `policy-decision.schema.json`, and `model-provider-readiness.schema.json` by schema name and binds a `vault://` URI plus SHA-256 fingerprint into policy-decision metadata.
+- The contract requires fresh policy and scoped lease requirements while keeping the binding itself unable to issue leases or authorize actions.
+- The contract explicitly marks secret resolution, provider vault resolution, raw secret persistence, raw secret availability, OAuth flow, token refresh, connector grants, and egress-by-binding as unimplemented.
+- Added a negative schema test rejecting raw-secret material, missing fresh-policy or lease requirements, secret resolution, raw secret copy, provider call authorization, connector grant authorization, raw Ledger material, egress authority, connector-grant authority, and extra raw-secret fields.
+- `doctor`, `onboarding check`, and `release evidence` now include `vault_policy_binding_contract` evidence.
+- README, TUI README, harness-core README, schema governance, and runtime-loop docs were updated in English and Chinese.
+
+Drift review:
+
+- Corrects a PGC-2 binding drift: Aetherion had a metadata-only Vault Reference, but production reports could not yet prove how a policy decision may cite it safely.
+- Corrects an OAuth/connector drift risk: a vault reference is now explicitly not a connector grant, token refresh path, provider vault-backed call, or egress permission.
+- Does not implement secret retrieval, OS keychain access, production vault storage, provider credential resolution from vault, OAuth flow, token refresh, connector account linking, connector grants, egress policy, or lease issuance.
+
+Corrections and remaining boundary:
+
+- Vault Policy Binding is a P1 readiness/credential-boundary metadata contract, not a secret use path or policy authority.
+- Remaining strict-review gaps include explicit supervisor lifecycle command contracts, local ingress envelope/idempotency, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

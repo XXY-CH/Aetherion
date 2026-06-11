@@ -1,0 +1,69 @@
+{
+  "id": "vault_policy_binding_provider_credential_v1",
+  "schema_version": "aetherion-vault-policy-binding-v1",
+  "status": "declared",
+  "binding_kind": "policy_decision_metadata",
+  "vault_reference": {
+    "schema": "vault-reference.schema.json",
+    "id": "vaultref_provider_api_key_demo",
+    "uri": "vault://pending/operator/provider-api-key",
+    "fingerprint": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "material_kind": "opaque_secret_reference"
+  },
+  "policy_decision_binding": {
+    "policy_decision_schema": "policy-decision.schema.json",
+    "policy_decision_id": "policy_provider_credential_reference_demo",
+    "tool_request_id": "toolreq_provider_credential_reference_demo",
+    "allowed_reference_scopes": ["policy_decision"],
+    "fresh_policy_required": true,
+    "scoped_lease_required": true,
+    "may_cite_vault_reference": true,
+    "may_resolve_secret": false,
+    "may_copy_secret": false,
+    "vault_reference_can_authorize_action": false
+  },
+  "provider_boundary": {
+    "provider_readiness_schema": "model-provider-readiness.schema.json",
+    "supported_provider_refs": [
+      "provider_openai_responses",
+      "provider_openai_chat_completions",
+      "provider_anthropic",
+      "provider_gemini"
+    ],
+    "future_credential_source": "vault_reference_metadata_only",
+    "current_provider_vault_resolution": false,
+    "provider_call_authorized_by_reference": false,
+    "connector_grant_authorized_by_reference": false
+  },
+  "redaction": {
+    "ledger_material": "reference_and_fingerprint_only",
+    "artifact_material": "reference_and_fingerprint_only",
+    "run_manifest_material": "reference_and_fingerprint_only",
+    "stdout_material": "reference_and_fingerprint_only"
+  },
+  "authority": {
+    "local_supervisor_required_for_actions": true,
+    "tool_policy_proxy_required_for_egress": true,
+    "scoped_lease_required_for_secret_use": true,
+    "binding_can_issue_lease": false,
+    "binding_can_authorize_egress": false,
+    "binding_can_create_connector_grant": false
+  },
+  "limits": {
+    "raw_secret_persisted": false,
+    "raw_secret_available_to_aetherion": false,
+    "secret_resolution_implemented": false,
+    "provider_vault_resolution_implemented": false,
+    "oauth_flow_implemented": false,
+    "token_refresh_implemented": false,
+    "connector_grant_implemented": false,
+    "egress_allowed_by_binding": false
+  },
+  "source_files": [
+    "schemas/vault-reference.schema.json",
+    "schemas/policy-decision.schema.json",
+    "schemas/model-provider-readiness.schema.json",
+    "packages/tui/src/cli.ts",
+    "packages/harness-core/test/harness-core.test.ts"
+  ]
+}

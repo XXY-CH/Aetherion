@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/vault-policy-binding.schema.json",
+  "title": "VaultPolicyBinding",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "binding_kind",
+    "vault_reference",
+    "policy_decision_binding",
+    "provider_boundary",
+    "redaction",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^vault_policy_binding_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-vault-policy-binding-v1"] },
+    "status": { "type": "string", "enum": ["declared"] },
+    "binding_kind": { "type": "string", "enum": ["policy_decision_metadata"] },
+    "vault_reference": {
+      "type": "object",
+      "required": ["schema", "id", "uri", "fingerprint", "material_kind"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "type": "string", "enum": ["vault-reference.schema.json"] },
+        "id": { "type": "string", "pattern": "^vaultref_[A-Za-z0-9_-]+$" },
+        "uri": { "type": "string", "pattern": "^vault://[A-Za-z0-9][A-Za-z0-9_./:-]*$" },
+        "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "material_kind": { "type": "string", "enum": ["opaque_secret_reference"] }
+      }
+    },
+    "policy_decision_binding": {
+      "type": "object",
+      "required": [
+        "policy_decision_schema",
+        "policy_decision_id",
+        "tool_request_id",
+        "allowed_reference_scopes",
+        "fresh_policy_required",
+        "scoped_lease_required",
+        "may_cite_vault_reference",
+        "may_resolve_secret",
+        "may_copy_secret",
+        "vault_reference_can_authorize_action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "policy_decision_schema": { "type": "string", "enum": ["policy-decision.schema.json"] },
+        "policy_decision_id": { "type": "string", "pattern": "^policy_[A-Za-z0-9_-]+$" },
+        "tool_request_id": { "type": "string", "pattern": "^toolreq_[A-Za-z0-9_-]+$" },
+        "allowed_reference_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["policy_decision"] },
+          "uniqueItems": true
+        },
+        "fresh_policy_required": { "type": "boolean", "enum": [true] },
+        "scoped_lease_required": { "type": "boolean", "enum": [true] },
+        "may_cite_vault_reference": { "type": "boolean", "enum": [true] },
+        "may_resolve_secret": { "type": "boolean", "enum": [false] },
+        "may_copy_secret": { "type": "boolean", "enum": [false] },
+        "vault_reference_can_authorize_action": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "provider_boundary": {
+      "type": "object",
+      "required": [
+        "provider_readiness_schema",
+        "supported_provider_refs",
+        "future_credential_source",
+        "current_provider_vault_resolution",
+        "provider_call_authorized_by_reference",
+        "connector_grant_authorized_by_reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider_readiness_schema": { "type": "string", "enum": ["model-provider-readiness.schema.json"] },
+        "supported_provider_refs": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "provider_openai_responses",
+              "provider_openai_chat_completions",
+              "provider_anthropic",
+              "provider_gemini"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "future_credential_source": { "type": "string", "enum": ["vault_reference_metadata_only"] },
+        "current_provider_vault_resolution": { "type": "boolean", "enum": [false] },
+        "provider_call_authorized_by_reference": { "type": "boolean", "enum": [false] },
+        "connector_grant_authorized_by_reference": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["ledger_material", "artifact_material", "run_manifest_material", "stdout_material"],
+      "additionalProperties": false,
+      "properties": {
+        "ledger_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] },
+        "artifact_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] },
+        "run_manifest_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] },
+        "stdout_material": { "type": "string", "enum": ["reference_and_fingerprint_only"] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required_for_actions",
+        "tool_policy_proxy_required_for_egress",
+        "scoped_lease_required_for_secret_use",
+        "binding_can_issue_lease",
+        "binding_can_authorize_egress",
+        "binding_can_create_connector_grant"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required_for_actions": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_required_for_egress": { "type": "boolean", "enum": [true] },
+        "scoped_lease_required_for_secret_use": { "type": "boolean", "enum": [true] },
+        "binding_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "binding_can_authorize_egress": { "type": "boolean", "enum": [false] },
+        "binding_can_create_connector_grant": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "raw_secret_persisted",
+        "raw_secret_available_to_aetherion",
+        "secret_resolution_implemented",
+        "provider_vault_resolution_implemented",
+        "oauth_flow_implemented",
+        "token_refresh_implemented",
+        "connector_grant_implemented",
+        "egress_allowed_by_binding"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "raw_secret_persisted": { "type": "boolean", "enum": [false] },
+        "raw_secret_available_to_aetherion": { "type": "boolean", "enum": [false] },
+        "secret_resolution_implemented": { "type": "boolean", "enum": [false] },
+        "provider_vault_resolution_implemented": { "type": "boolean", "enum": [false] },
+        "oauth_flow_implemented": { "type": "boolean", "enum": [false] },
+        "token_refresh_implemented": { "type": "boolean", "enum": [false] },
+        "connector_grant_implemented": { "type": "boolean", "enum": [false] },
+        "egress_allowed_by_binding": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}

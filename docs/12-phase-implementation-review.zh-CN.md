@@ -595,6 +595,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Supervisor Lifecycle Readiness 是 P1 readiness contract，不是 daemon control、vault、auth lifecycle、recovery command 或 policy gateway。
 - 剩余严格复查差距包括 vault reference binding design、显式 lifecycle command contracts、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 59 复核：Vault Policy Binding Readiness Contract
+
+本轮补齐第一块 vault reference binding design 缺口，但不实现 vault backend。上一轮 Vault Reference contract 证明 raw secret material 不会被存储；本轮证明下一层边界：未来 policy decision 只能以 metadata 形式引用 vault reference，且该引用不能变成 secret resolution、provider credential use、egress authority、connector grant 或 lease。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：Tool Access & Action Policy Proxy 仍是 sensitive read、data egress 和 side effect 的 choke point；vault metadata 不能绕过 policy。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 仍是未来 vault/authority owner；TypeScript 可以定义 readiness contract，但不能实现 secret access。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 credential-boundary metadata 需要对 raw secret、inherited authority 和 live side-effect replay 加负向测试。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 要求 vault ref 可以被 policy decision 引用，但 raw secret value 不能进入 example、artifact、Ledger event、run manifest 或 docs。
+
+本轮修正：
+
+- 新增 `schemas/vault-policy-binding.schema.json` 和 `examples/contracts/vault-policy-binding.json`。
+- contract 通过 schema 名引用 `vault-reference.schema.json`、`policy-decision.schema.json` 和 `model-provider-readiness.schema.json`，并把 `vault://` URI 与 SHA-256 fingerprint 绑定到 policy-decision metadata。
+- contract 要求 fresh policy 和 scoped lease requirement，同时保持 binding 本身不能发 lease 或授权 action。
+- contract 明确把 secret resolution、provider vault resolution、raw secret persistence、raw secret availability、OAuth flow、token refresh、connector grant 和 egress-by-binding 标为未实现。
+- 新增负向 schema 测试，拒绝 raw-secret material、缺少 fresh-policy 或 lease requirement、secret resolution、raw secret copy、provider call authorization、connector grant authorization、raw Ledger material、egress authority、connector-grant authority 和额外 raw-secret 字段。
+- `doctor`、`onboarding check` 和 `release evidence` 现在输出 `vault_policy_binding_contract` evidence。
+- README、TUI README、harness-core README、schema governance 和 runtime-loop docs 都已同步中英文说明。
+
+偏差复核：
+
+- 修正 PGC-2 binding drift：Aetherion 已有 metadata-only Vault Reference，但 production reports 还不能证明 policy decision 如何安全引用它。
+- 修正 OAuth/connector drift 风险：vault reference 现在明确不是 connector grant、token refresh path、provider vault-backed call 或 egress permission。
+- 未实现 secret retrieval、OS keychain access、production vault storage、provider credential resolution from vault、OAuth flow、token refresh、connector account linking、connector grant、egress policy 或 lease issuance。
+
+修正与剩余边界：
+
+- Vault Policy Binding 是 P1 readiness/credential-boundary metadata contract，不是 secret use path 或 policy authority。
+- 剩余严格复查差距包括显式 supervisor lifecycle command contracts、local ingress envelope/idempotency、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

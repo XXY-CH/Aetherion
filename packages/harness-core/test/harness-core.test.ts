@@ -149,6 +149,7 @@ const schemaExamplePairs = [
   ["replay-record.schema.json", "replay-record.json"],
   ["migration-report.schema.json", "migration-report.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
+  ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
   ["supervisor-lifecycle-readiness.schema.json", "supervisor-lifecycle-readiness.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
@@ -226,6 +227,38 @@ test("vault references reject raw secret and implemented OAuth or connector gran
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "vault-reference.schema.json", draft);
     assert.equal(result.valid, false, "vault-reference schema accepted authority or raw-secret drift");
+  }
+});
+
+test("vault policy bindings reject secret resolution, egress, connector grant, and authority overclaims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "vault-policy-binding.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.vault_reference.material_kind = "raw_secret"; },
+    (draft: typeof valid) => { draft.policy_decision_binding.fresh_policy_required = false; },
+    (draft: typeof valid) => { draft.policy_decision_binding.scoped_lease_required = false; },
+    (draft: typeof valid) => { draft.policy_decision_binding.may_resolve_secret = true; },
+    (draft: typeof valid) => { draft.policy_decision_binding.may_copy_secret = true; },
+    (draft: typeof valid) => { draft.policy_decision_binding.vault_reference_can_authorize_action = true; },
+    (draft: typeof valid) => { draft.provider_boundary.current_provider_vault_resolution = true; },
+    (draft: typeof valid) => { draft.provider_boundary.provider_call_authorized_by_reference = true; },
+    (draft: typeof valid) => { draft.provider_boundary.connector_grant_authorized_by_reference = true; },
+    (draft: typeof valid) => { draft.redaction.ledger_material = "raw_secret"; },
+    (draft: typeof valid) => { draft.authority.binding_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.authority.binding_can_authorize_egress = true; },
+    (draft: typeof valid) => { draft.authority.binding_can_create_connector_grant = true; },
+    (draft: typeof valid) => { draft.limits.raw_secret_persisted = true; },
+    (draft: typeof valid) => { draft.limits.secret_resolution_implemented = true; },
+    (draft: typeof valid) => { draft.limits.oauth_flow_implemented = true; },
+    (draft: typeof valid) => { draft.limits.token_refresh_implemented = true; },
+    (draft: typeof valid) => { draft.limits.egress_allowed_by_binding = true; },
+    (draft: typeof valid) => { draft.raw_secret_value = "sk-do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "vault-policy-binding.schema.json", draft);
+    assert.equal(result.valid, false, "vault-policy-binding schema accepted secret-resolution or authority drift");
   }
 });
 

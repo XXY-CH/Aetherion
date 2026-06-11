@@ -32,7 +32,7 @@
 | --- | --- | --- | --- |
 | Client Surfaces | 已有 Ether TUI；GUI/mobile/IM/browser/API 都标为 deferred；README 列出受治理的 post-V1 scaffold。 | 没有产品化 desktop/mobile/browser/IM/API client，也没有 surface identity/pairing lifecycle。 | 保持 V1 只有 TUI 可运行。API/GUI/browser/IM/mobile 必须等 ingress identity 和 supervisor policy gateway 后再实现。 |
 | Ingress Gateways | 本地 command invocation 有 workspace identity checks；IM/browser/store observation 是 hash-only 或 queue-only slice。 | 没有给 local API、IM、browser、mobile request 使用的 normalize/authenticate/rate-limit/idempotency gateway。 | 先建 local ingress contract：request envelope、caller identity、idempotency key、replay protection、rate-limit evidence 和 policy handoff。 |
-| Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、start/stop/recover commands 或 stale-lock recovery command。 | 小步推进 lifecycle：显式 start/stop/status/recover behavior、auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
+| Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence、metadata-only vault reference、vault policy binding readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、start/stop/recover commands、stale-lock recovery command 或 secret retrieval path。 | 小步推进 lifecycle：显式 start/stop/status/recover behavior、auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
 | Agent Orchestrator | prompt assembly、runtime binding、model request/response metadata、live no-tools invocation、response audit 和 tool-request proposal 都作为 non-authorizing evidence 实现。 | 没有 full agent loop、planner/verifier runtime、streaming、retry policy、semantic verification、tool-call translation 或 durable queue integration。 | 保持 no-tools provider lane；先把 operator-restated proposal 转成 fresh supervisor policy request，再考虑 model-driven tool loop。 |
 | Memory OS | 已有 source-backed Memory Candidate/Card/Tombstone lifecycle、context assembly、tombstone exclusion、conflict projection 和 parity preview。 | 没有 full deterministic rebuild/repair、redaction lifecycle、semantic retrieval、vector/graph index 或 memory quality dashboard。 | 先扩展 parity coverage 与 redaction/rebuild tooling，再做 semantic/vector retrieval。 |
 | Capability OS | 已有 document-only Capsule lifecycle、passing traces proposal、local trust-publisher store install、sandbox/replay evidence checks 和 rollback。 | 没有 remote marketplace、transparency log、revocation feed、package-code execution sandbox、route scoring 或 permission-diff UX。 | 先补 local integrity/revocation evidence；package code 继续 quarantine，直到有 supervisor-governed execution sandbox。 |
@@ -76,12 +76,12 @@
 
 - `supervisor start/status/stop/recover-stale-lock` 的 typed lifecycle contract。
 - local client 的 socket/auth-token lifecycle boundary。
-- metadata-only secret ref、redaction rules 和 no raw secret persistence 的 vault reference contract。
+- metadata-only secret ref、redaction rules、policy-decision citation boundary 和 no raw secret persistence 的 vault reference contract 与 vault policy binding contract。
 
 验收：
 
 - lifecycle command deterministic、idempotency-aware，并在 workspace mismatch 或 stale lock ambiguity 时 fail closed。
-- vault ref 可以被 policy decision 引用，但 raw secret value 不进入 example、artifact、Ledger、run manifest 或 docs。
+- vault ref 可以作为 reference-and-fingerprint metadata 被 policy decision 引用，但 raw secret value 不进入 example、artifact、Ledger、run manifest、stdout 或 docs，也不能授予 egress、provider call、connector grant 或 lease。
 
 ### PGC-3：Local Ingress Gateway MVP
 

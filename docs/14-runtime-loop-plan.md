@@ -898,3 +898,27 @@ Remaining boundary:
 
 - This is not a production daemon, service installer, daemon manager, stale-lock recovery command, crash-recovery system, socket-auth lifecycle, device/user identity layer, vault backend, signer, process sandbox, cloud worker, or policy lease.
 - The next high-value PGC-2 slice is vault reference binding design or the first explicit lifecycle command contract, unless local ingress or release evidence becomes the sharper blocker.
+
+## Completed Increment: Vault Policy Binding Readiness Contract
+
+Target: close the next PGC-2 credential-boundary gap by proving how a future policy decision may cite a Vault Reference without turning the reference into secret access, egress authority, or provider credential resolution.
+
+Acceptance:
+
+- `vault-policy-binding.schema.json` and its example validate with the existing contract example suite.
+- The schema binds `vault-reference`, `policy-decision`, and `model-provider-readiness` by reference names only.
+- The schema permits policy decisions to cite `vault://` references as reference-and-fingerprint metadata only.
+- The schema rejects secret resolution, raw secret copying, provider vault-backed calls, egress authorization, connector grants, token refresh, OAuth flow, and lease issuance by the binding itself.
+- `doctor`, `onboarding check`, and `release evidence` surface `vault_policy_binding_contract` evidence.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Tool Access & Action Policy Proxy remains the action/egress choke point; vault metadata cannot bypass it.
+- [Technical Strategy](10-technical-strategy.md): Rust remains the future owner of vault/authority behavior; this pass keeps TypeScript to contract/readiness evidence.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): vault policy binding is P1 readiness metadata with negative tests for secret resolution, egress, connector grants, and lease authority.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this advances PGC-2 acceptance that vault refs can be cited by policy decisions without storing raw secret values.
+
+Remaining boundary:
+
+- This is not a production vault backend, secret retrieval API, provider vault-backed invocation path, OAuth flow, token refresh system, connector grant lifecycle, egress policy implementation, or policy lease.
+- The next high-value slices are explicit lifecycle command contracts, local ingress envelope/idempotency, or provider error/credential-source productionization.

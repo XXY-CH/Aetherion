@@ -403,6 +403,9 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   const modelProviderReadiness = report.checks.find((check) => check.id === "model_provider_readiness_contract");
   assert.equal(modelProviderReadiness?.status, "pass");
   assert.match(modelProviderReadiness?.evidence.join("\n") ?? "", /provider_openai_responses/);
+  const vaultPolicyBinding = report.checks.find((check) => check.id === "vault_policy_binding_contract");
+  assert.equal(vaultPolicyBinding?.status, "pass");
+  assert.match(vaultPolicyBinding?.evidence.join("\n") ?? "", /policy_binding_safe=true/);
   const supervisorLifecycleReadiness = report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract");
   assert.equal(supervisorLifecycleReadiness?.status, "pass");
   assert.match(supervisorLifecycleReadiness?.evidence.join("\n") ?? "", /start_stop_recover_unsupported=true/);
@@ -527,6 +530,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const modelProviderReadinessCheck = report.checks.find((check) => check.id === "model_provider_readiness_contract");
   assert.equal(modelProviderReadinessCheck?.status, "pass");
   assert.match(modelProviderReadinessCheck?.summary ?? "", /OpenAI Responses/);
+  const vaultPolicyBindingCheck = report.checks.find((check) => check.id === "vault_policy_binding_contract");
+  assert.equal(vaultPolicyBindingCheck?.status, "pass");
+  assert.match(vaultPolicyBindingCheck?.summary ?? "", /may cite vault references/);
   const supervisorLifecycleReadinessCheck = report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract");
   assert.equal(supervisorLifecycleReadinessCheck?.status, "pass");
   assert.match(supervisorLifecycleReadinessCheck?.summary ?? "", /read-only status\/preflight/);
@@ -572,6 +578,7 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "workspace_ledger_hash_chain")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_run_manifests")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "model_provider_readiness_contract")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "vault_policy_binding_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_reference_contract")?.status, "pass");
   const dependencyCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
@@ -629,6 +636,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
       model_provider_readiness_contract: { status: string; evidence: string[] };
+      vault_policy_binding_contract: { status: string; evidence: string[] };
       supervisor_lifecycle_readiness_contract: { status: string; evidence: string[] };
       vault_reference_contract: { status: string; evidence: string[] };
     };
@@ -708,6 +716,9 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.model_provider_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.model_provider_readiness_contract.evidence.join("\n"), /provider_openai_chat_completions/);
   assert.match(report.configured_evidence.model_provider_readiness_contract.evidence.join("\n"), /limits_safe=true/);
+  assert.equal(report.configured_evidence.vault_policy_binding_contract.status, "pass");
+  assert.match(report.configured_evidence.vault_policy_binding_contract.evidence.join("\n"), /policy_binding_safe=true/);
+  assert.match(report.configured_evidence.vault_policy_binding_contract.evidence.join("\n"), /redaction_safe=true/);
   assert.equal(report.configured_evidence.supervisor_lifecycle_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.supervisor_lifecycle_readiness_contract.evidence.join("\n"), /start_stop_recover_unsupported=true/);
   assert.match(report.configured_evidence.supervisor_lifecycle_readiness_contract.evidence.join("\n"), /runtime_lock_observable_only=true/);
@@ -752,6 +763,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production daemon start/stop")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("OAuth flows")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);

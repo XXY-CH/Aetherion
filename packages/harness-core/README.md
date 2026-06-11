@@ -13,7 +13,7 @@ Current scope:
 - Create `aetherion-event-v1` hashes over the complete canonical event envelope, excluding only `event_hash`.
 - Verify `parent_event_id`, `parent_event_hash`, and cross-author `event_hash` pointers from Rust supervisor events and the test-only TypeScript seed.
 - Validate events and contract examples against JSON Schemas.
-- Validate the metadata-only Vault Reference, Model Provider Readiness, and Supervisor Lifecycle Readiness contracts, rejecting raw secret, raw prompt/model payload, OAuth-flow, token-refresh, connector-grant, provider tool-call, model-output authority, production-daemon, stale-lock repair, socket-auth authority, vault-backend, and supervisor lease-authority claims in schema tests.
+- Validate the metadata-only Vault Reference, Vault Policy Binding, Model Provider Readiness, and Supervisor Lifecycle Readiness contracts, rejecting raw secret, secret-resolution, egress, raw prompt/model payload, OAuth-flow, token-refresh, connector-grant, provider tool-call, model-output authority, production-daemon, stale-lock repair, socket-auth authority, vault-backend, and supervisor lease-authority claims in schema tests.
 - Create a tool request for a workspace-scoped file read.
 - Compose seed risk records and deterministic seed policy decisions.
 - Execute a local file read through that policy decision.

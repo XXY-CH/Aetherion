@@ -692,6 +692,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
     repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
     repoCheckById.get("model_provider_readiness_contract") ?? missingRepoCheck("model_provider_readiness_contract"),
+    repoCheckById.get("vault_policy_binding_contract") ?? missingRepoCheck("vault_policy_binding_contract"),
     repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
@@ -722,6 +723,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "runtime_artifact_ignore_rules",
     "schema_example_manifest",
     "model_provider_readiness_contract",
+    "vault_policy_binding_contract",
     "supervisor_lifecycle_readiness_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
@@ -957,6 +959,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    vault_policy_binding_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     supervisor_lifecycle_readiness_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1015,6 +1021,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
   const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
+  const vaultPolicyBindingContract = doctorChecks.get("vault_policy_binding_contract");
   const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
@@ -1102,6 +1109,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: modelProviderReadinessContract?.status ?? "fail",
         evidence: modelProviderReadinessContract?.evidence ?? ["model_provider_readiness_contract=missing"]
       },
+      vault_policy_binding_contract: {
+        status: vaultPolicyBindingContract?.status ?? "fail",
+        evidence: vaultPolicyBindingContract?.evidence ?? ["vault_policy_binding_contract=missing"]
+      },
       supervisor_lifecycle_readiness_contract: {
         status: supervisorLifecycleReadinessContract?.status ?? "fail",
         evidence: supervisorLifecycleReadinessContract?.evidence ?? ["supervisor_lifecycle_readiness_contract=missing"]
@@ -1149,6 +1160,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       "release packages are not built",
       "release artifacts are not signed",
       "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
+      "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
       "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
       "public docs are not deployed",
@@ -1699,6 +1711,7 @@ function repoDoctorChecks(): DoctorCheck[] {
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
   checks.push(modelProviderReadinessContractCheck());
+  checks.push(vaultPolicyBindingContractCheck());
   checks.push(supervisorLifecycleReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
@@ -1863,6 +1876,163 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
       `tests_ready=${String(testsReady)}`
     ],
     "Restore schemas/model-provider-readiness.schema.json, examples/contracts/model-provider-readiness.json, and the no-tools provider boundary without raw credential persistence, OAuth-flow claims, connector grants, or model-output authority."
+  );
+}
+
+function vaultPolicyBindingContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/vault-policy-binding.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/vault-policy-binding.json");
+  const vaultSchema = readRepoText("schemas/vault-reference.schema.json") ?? "";
+  const policySchema = readRepoText("schemas/policy-decision.schema.json") ?? "";
+  const providerReadiness = readRepoText("examples/contracts/model-provider-readiness.json") ?? "";
+  const tests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const example = readRepoJson("examples/contracts/vault-policy-binding.json") as {
+    vault_reference?: {
+      schema?: unknown;
+      id?: unknown;
+      uri?: unknown;
+      fingerprint?: unknown;
+      material_kind?: unknown;
+    };
+    policy_decision_binding?: {
+      policy_decision_schema?: unknown;
+      policy_decision_id?: unknown;
+      tool_request_id?: unknown;
+      allowed_reference_scopes?: unknown;
+      fresh_policy_required?: unknown;
+      scoped_lease_required?: unknown;
+      may_cite_vault_reference?: unknown;
+      may_resolve_secret?: unknown;
+      may_copy_secret?: unknown;
+      vault_reference_can_authorize_action?: unknown;
+    };
+    provider_boundary?: {
+      provider_readiness_schema?: unknown;
+      supported_provider_refs?: unknown;
+      future_credential_source?: unknown;
+      current_provider_vault_resolution?: unknown;
+      provider_call_authorized_by_reference?: unknown;
+      connector_grant_authorized_by_reference?: unknown;
+    };
+    redaction?: {
+      ledger_material?: unknown;
+      artifact_material?: unknown;
+      run_manifest_material?: unknown;
+      stdout_material?: unknown;
+    };
+    authority?: {
+      local_supervisor_required_for_actions?: unknown;
+      tool_policy_proxy_required_for_egress?: unknown;
+      scoped_lease_required_for_secret_use?: unknown;
+      binding_can_issue_lease?: unknown;
+      binding_can_authorize_egress?: unknown;
+      binding_can_create_connector_grant?: unknown;
+    };
+    limits?: {
+      raw_secret_persisted?: unknown;
+      raw_secret_available_to_aetherion?: unknown;
+      secret_resolution_implemented?: unknown;
+      provider_vault_resolution_implemented?: unknown;
+      oauth_flow_implemented?: unknown;
+      token_refresh_implemented?: unknown;
+      connector_grant_implemented?: unknown;
+      egress_allowed_by_binding?: unknown;
+    };
+  } | null;
+  const providerRefs = Array.isArray(example?.provider_boundary?.supported_provider_refs)
+    ? example.provider_boundary.supported_provider_refs
+    : [];
+  const requiredProviderRefs = [
+    "provider_openai_responses",
+    "provider_openai_chat_completions",
+    "provider_anthropic",
+    "provider_gemini"
+  ];
+  const vaultRefSafe = example?.vault_reference?.schema === "vault-reference.schema.json"
+    && typeof example.vault_reference.id === "string"
+    && example.vault_reference.id.startsWith("vaultref_")
+    && typeof example.vault_reference.uri === "string"
+    && example.vault_reference.uri.startsWith("vault://")
+    && typeof example.vault_reference.fingerprint === "string"
+    && example.vault_reference.fingerprint.startsWith("sha256:")
+    && example.vault_reference.material_kind === "opaque_secret_reference";
+  const allowedScopes = Array.isArray(example?.policy_decision_binding?.allowed_reference_scopes)
+    ? example.policy_decision_binding.allowed_reference_scopes
+    : [];
+  const policyBindingSafe = example?.policy_decision_binding?.policy_decision_schema === "policy-decision.schema.json"
+    && typeof example.policy_decision_binding.policy_decision_id === "string"
+    && example.policy_decision_binding.policy_decision_id.startsWith("policy_")
+    && typeof example.policy_decision_binding.tool_request_id === "string"
+    && example.policy_decision_binding.tool_request_id.startsWith("toolreq_")
+    && allowedScopes.length === 1
+    && allowedScopes[0] === "policy_decision"
+    && example.policy_decision_binding.fresh_policy_required === true
+    && example.policy_decision_binding.scoped_lease_required === true
+    && example.policy_decision_binding.may_cite_vault_reference === true
+    && example.policy_decision_binding.may_resolve_secret === false
+    && example.policy_decision_binding.may_copy_secret === false
+    && example.policy_decision_binding.vault_reference_can_authorize_action === false;
+  const providerBoundarySafe = example?.provider_boundary?.provider_readiness_schema === "model-provider-readiness.schema.json"
+    && requiredProviderRefs.every((ref) => providerRefs.includes(ref))
+    && example.provider_boundary.future_credential_source === "vault_reference_metadata_only"
+    && example.provider_boundary.current_provider_vault_resolution === false
+    && example.provider_boundary.provider_call_authorized_by_reference === false
+    && example.provider_boundary.connector_grant_authorized_by_reference === false;
+  const redactionSafe = example?.redaction?.ledger_material === "reference_and_fingerprint_only"
+    && example.redaction.artifact_material === "reference_and_fingerprint_only"
+    && example.redaction.run_manifest_material === "reference_and_fingerprint_only"
+    && example.redaction.stdout_material === "reference_and_fingerprint_only";
+  const authoritySafe = example?.authority?.local_supervisor_required_for_actions === true
+    && example.authority.tool_policy_proxy_required_for_egress === true
+    && example.authority.scoped_lease_required_for_secret_use === true
+    && example.authority.binding_can_issue_lease === false
+    && example.authority.binding_can_authorize_egress === false
+    && example.authority.binding_can_create_connector_grant === false;
+  const limitsSafe = example?.limits?.raw_secret_persisted === false
+    && example.limits.raw_secret_available_to_aetherion === false
+    && example.limits.secret_resolution_implemented === false
+    && example.limits.provider_vault_resolution_implemented === false
+    && example.limits.oauth_flow_implemented === false
+    && example.limits.token_refresh_implemented === false
+    && example.limits.connector_grant_implemented === false
+    && example.limits.egress_allowed_by_binding === false;
+  const sourceReady = vaultSchema.includes("policy_binding")
+    && vaultSchema.includes("reference_and_fingerprint_only")
+    && policySchema.includes("policy-decision.schema.json")
+    && providerReadiness.includes("provider_openai_chat_completions")
+    && providerReadiness.includes("legacy_openai_text_completions_implemented");
+  const testsReady = tests.includes("vault policy bindings reject secret resolution, egress, connector grant, and authority overclaims")
+    && tests.includes("vault-policy-binding.schema.json");
+  const ok = schemaPresent
+    && examplePresent
+    && vaultRefSafe
+    && policyBindingSafe
+    && providerBoundarySafe
+    && redactionSafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "vault_policy_binding_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Vault policy binding contract proves policy decisions may cite vault references as metadata without secret resolution, egress, connector grants, or authority transfer."
+      : "Vault policy binding contract is missing or overclaims secret resolution, egress, provider vault resolution, connector grants, or authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `vault_ref_citation_safe=${String(vaultRefSafe)}`,
+      `policy_binding_safe=${String(policyBindingSafe)}`,
+      `provider_boundary_safe=${String(providerBoundarySafe)}`,
+      `redaction_safe=${String(redactionSafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore schemas/vault-policy-binding.schema.json and examples/contracts/vault-policy-binding.json with metadata-only vault refs, fresh-policy and scoped-lease requirements, reference/fingerprint-only redaction, and no secret resolution, egress, connector grant, or authority claims."
   );
 }
 
