@@ -31,7 +31,7 @@ The plan is grounded in these source documents and current implementation summar
 | Architecture layer | Current repository evidence | Production gap | Closure direction |
 | --- | --- | --- | --- |
 | Client Surfaces | Ether TUI exists; GUI/mobile/IM/browser/API are documented as deferred; README lists governed post-V1 scaffolds. | No productized desktop/mobile/browser/IM/API clients, and no surface identity/pairing lifecycle. | Keep V1 TUI as the only runnable client. Add API/GUI/browser/IM/mobile only as post-gate clients after ingress identity and supervisor policy gateways exist. |
-| Ingress Gateways | Local command invocation has workspace identity checks; IM/browser/store observations are hash-only or queue-only slices. | No general normalize/authenticate/rate-limit/idempotency gateway for local API, IM, browser, or mobile requests. | Build a local ingress contract before any real remote surface: request envelope, caller identity, idempotency key, replay protection, rate-limit evidence, and policy handoff. |
+| Ingress Gateways | Local command invocation has workspace identity checks; Local Ingress Readiness now defines the contract-only envelope/idempotency/auth-state/rate-limit/policy-handoff boundary; IM/browser/store observations are hash-only or queue-only slices. | No runtime duplicate detector, rate limiter, durable auth/session lifecycle, public API listener, IM/browser/mobile ingress gateway, or real remote-surface request execution. | Promote the local ingress contract into a runtime gateway in small steps: duplicate idempotency detection, replay protection, rate-limit state enforcement, caller/session identity, and fresh supervisor policy handoff before any real remote surface. |
 | Local Supervisor | Rust POC owns workspace identity, hash-chained ledger append, traced file reads/writes, scoped leases, status/preflight, foreground socket lock observation, supervisor lifecycle readiness evidence, metadata-only vault references, vault policy binding readiness evidence, and process-failure hardening. | No long-running production daemon, vault backend, signing, process sandbox, socket auth lifecycle, start/stop/recover commands, stale-lock recovery command, or secret retrieval path. | Promote lifecycle semantics in small steps: explicit start/stop/status/recover behavior, auth token boundary, vault metadata binding, signer plan, and daemon health evidence. |
 | Agent Orchestrator | Prompt assembly, runtime binding, model request/response metadata, live no-tools invocation, response audit, and tool-request proposal are implemented as non-authorizing evidence. | No full agent loop, planner/verifier runtime, streaming, retry policy, semantic verification, tool-call translation, or durable queue integration. | Keep no-tools provider lane; then bridge operator-restated proposals into fresh supervisor policy requests before adding model-driven tool loops. |
 | Memory OS | Source-backed Memory Candidate/Card/Tombstone lifecycle, context assembly, tombstone exclusion, conflict projection, and parity previews exist. | No full deterministic rebuild/repair, redaction lifecycle, semantic retrieval, vector/graph indexes, or memory quality dashboards. | Expand parity coverage and redaction/rebuild tooling before semantic/vector retrieval. |
@@ -87,13 +87,18 @@ Acceptance criteria:
 
 Deliverables:
 
-- Local ingress request envelope for TUI/API-like inputs: caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff.
+- Local ingress request envelope for TUI/API-like inputs: caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff. The readiness contract and read-only audit command now exist as `local_ingress_readiness_contract` evidence.
+- Runtime duplicate/idempotency detector and replay protection before any new action run.
 - Read-only ingress audit command that proves no real remote surface bypasses Local Supervisor.
 
 Acceptance criteria:
 
 - Duplicate idempotency keys are detected before new action runs.
 - Unauthenticated or unknown local API/browser/IM/mobile inputs can be recorded as observations or queued intents, but cannot authorize tools or side effects.
+
+Current partial status:
+
+- The contract and `ingress audit` surface are in place. Runtime duplicate detection, rate-limit enforcement, auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress remain open.
 
 ### PGC-4: Provider Boundary Productionization
 

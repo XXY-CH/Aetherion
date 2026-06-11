@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/local-ingress-readiness.schema.json",
+  "title": "LocalIngressReadiness",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "ingress_kind",
+    "supported_surfaces",
+    "request_envelope",
+    "normalization",
+    "authentication",
+    "rate_limit",
+    "idempotency",
+    "policy_handoff",
+    "remote_surface_boundary",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^local_ingress_readiness_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-local-ingress-readiness-v1"] },
+    "status": { "type": "string", "enum": ["declared"] },
+    "ingress_kind": { "type": "string", "enum": ["local_envelope_readiness"] },
+    "supported_surfaces": {
+      "type": "object",
+      "required": [
+        "tui_command_surface",
+        "local_api_like_envelope_contract",
+        "public_http_api_listener",
+        "gui_client",
+        "browser_extension",
+        "im_delivery",
+        "mobile_client",
+        "cloud_worker"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tui_command_surface": { "type": "boolean", "enum": [true] },
+        "local_api_like_envelope_contract": { "type": "boolean", "enum": [true] },
+        "public_http_api_listener": { "type": "boolean", "enum": [false] },
+        "gui_client": { "type": "boolean", "enum": [false] },
+        "browser_extension": { "type": "boolean", "enum": [false] },
+        "im_delivery": { "type": "boolean", "enum": [false] },
+        "mobile_client": { "type": "boolean", "enum": [false] },
+        "cloud_worker": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "request_envelope": {
+      "type": "object",
+      "required": [
+        "required_fields",
+        "caller_identity_placeholder_required",
+        "surface_id_required",
+        "workspace_id_required",
+        "idempotency_key_required",
+        "normalized_intent_hash_required",
+        "auth_state_required",
+        "rate_limit_state_required",
+        "policy_handoff_required",
+        "raw_intent_persisted",
+        "raw_remote_payload_persisted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "enum": [
+              "caller_identity_placeholder",
+              "surface_id",
+              "workspace_id",
+              "idempotency_key",
+              "normalized_intent_hash",
+              "auth_state",
+              "rate_limit_state",
+              "policy_handoff"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "caller_identity_placeholder_required": { "type": "boolean", "enum": [true] },
+        "surface_id_required": { "type": "boolean", "enum": [true] },
+        "workspace_id_required": { "type": "boolean", "enum": [true] },
+        "idempotency_key_required": { "type": "boolean", "enum": [true] },
+        "normalized_intent_hash_required": { "type": "boolean", "enum": [true] },
+        "auth_state_required": { "type": "boolean", "enum": [true] },
+        "rate_limit_state_required": { "type": "boolean", "enum": [true] },
+        "policy_handoff_required": { "type": "boolean", "enum": [true] },
+        "raw_intent_persisted": { "type": "boolean", "enum": [false] },
+        "raw_remote_payload_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "required": [
+        "canonical_surface_required",
+        "normalized_intent_hash_algorithm",
+        "raw_payload_can_authorize_actions",
+        "unknown_surface_disposition"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canonical_surface_required": { "type": "boolean", "enum": [true] },
+        "normalized_intent_hash_algorithm": { "type": "string", "enum": ["sha256"] },
+        "raw_payload_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "unknown_surface_disposition": { "type": "string", "enum": ["observation_or_queued_intent_only"] }
+      }
+    },
+    "authentication": {
+      "type": "object",
+      "required": [
+        "auth_state_values",
+        "unknown_or_unauthenticated_can_authorize_tools",
+        "device_identity_implemented",
+        "user_identity_implemented",
+        "remote_channel_identity_implemented",
+        "oauth_pairing_implemented",
+        "auth_token_persisted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "auth_state_values": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string", "enum": ["local_operator", "unknown", "unauthenticated"] },
+          "uniqueItems": true
+        },
+        "unknown_or_unauthenticated_can_authorize_tools": { "type": "boolean", "enum": [false] },
+        "device_identity_implemented": { "type": "boolean", "enum": [false] },
+        "user_identity_implemented": { "type": "boolean", "enum": [false] },
+        "remote_channel_identity_implemented": { "type": "boolean", "enum": [false] },
+        "oauth_pairing_implemented": { "type": "boolean", "enum": [false] },
+        "auth_token_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "required": [
+        "rate_limit_state_required",
+        "rate_limit_enforcement_implemented",
+        "over_limit_can_execute_actions",
+        "background_queue_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "rate_limit_state_required": { "type": "boolean", "enum": [true] },
+        "rate_limit_enforcement_implemented": { "type": "boolean", "enum": [false] },
+        "over_limit_can_execute_actions": { "type": "boolean", "enum": [false] },
+        "background_queue_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "required": [
+        "idempotency_key_required",
+        "duplicate_detection_before_action_run_required",
+        "duplicate_runtime_detector_implemented",
+        "duplicate_key_can_reuse_authority",
+        "replay_protection_required",
+        "replay_protection_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key_required": { "type": "boolean", "enum": [true] },
+        "duplicate_detection_before_action_run_required": { "type": "boolean", "enum": [true] },
+        "duplicate_runtime_detector_implemented": { "type": "boolean", "enum": [false] },
+        "duplicate_key_can_reuse_authority": { "type": "boolean", "enum": [false] },
+        "replay_protection_required": { "type": "boolean", "enum": [true] },
+        "replay_protection_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "policy_handoff": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required",
+        "tool_policy_proxy_required",
+        "fresh_policy_required_for_actions",
+        "scoped_lease_required_for_actions",
+        "ingress_envelope_can_issue_lease",
+        "ingress_envelope_can_authorize_side_effects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_required": { "type": "boolean", "enum": [true] },
+        "fresh_policy_required_for_actions": { "type": "boolean", "enum": [true] },
+        "scoped_lease_required_for_actions": { "type": "boolean", "enum": [true] },
+        "ingress_envelope_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "ingress_envelope_can_authorize_side_effects": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "remote_surface_boundary": {
+      "type": "object",
+      "required": [
+        "remote_api_gateway_implemented",
+        "browser_extension_delivery_implemented",
+        "im_delivery_implemented",
+        "mobile_pairing_implemented",
+        "connector_oauth_implemented",
+        "cloud_worker_ingress_implemented",
+        "remote_surface_can_bypass_supervisor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "remote_api_gateway_implemented": { "type": "boolean", "enum": [false] },
+        "browser_extension_delivery_implemented": { "type": "boolean", "enum": [false] },
+        "im_delivery_implemented": { "type": "boolean", "enum": [false] },
+        "mobile_pairing_implemented": { "type": "boolean", "enum": [false] },
+        "connector_oauth_implemented": { "type": "boolean", "enum": [false] },
+        "cloud_worker_ingress_implemented": { "type": "boolean", "enum": [false] },
+        "remote_surface_can_bypass_supervisor": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "local_supervisor_is_root_authority",
+        "event_ledger_is_fact_layer",
+        "tool_policy_proxy_gates_side_effects",
+        "ingress_contract_can_mutate_state",
+        "ingress_contract_can_write_ledger",
+        "ingress_contract_can_authorize_tools"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_is_root_authority": { "type": "boolean", "enum": [true] },
+        "event_ledger_is_fact_layer": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_gates_side_effects": { "type": "boolean", "enum": [true] },
+        "ingress_contract_can_mutate_state": { "type": "boolean", "enum": [false] },
+        "ingress_contract_can_write_ledger": { "type": "boolean", "enum": [false] },
+        "ingress_contract_can_authorize_tools": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "production_gateway_implemented",
+        "public_http_listener_implemented",
+        "persistent_session_tokens_implemented",
+        "automatic_tool_execution_implemented",
+        "real_remote_surface_ingress_implemented",
+        "raw_external_payload_storage_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "production_gateway_implemented": { "type": "boolean", "enum": [false] },
+        "public_http_listener_implemented": { "type": "boolean", "enum": [false] },
+        "persistent_session_tokens_implemented": { "type": "boolean", "enum": [false] },
+        "automatic_tool_execution_implemented": { "type": "boolean", "enum": [false] },
+        "real_remote_surface_ingress_implemented": { "type": "boolean", "enum": [false] },
+        "raw_external_payload_storage_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}

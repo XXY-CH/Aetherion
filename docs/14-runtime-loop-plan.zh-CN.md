@@ -528,3 +528,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production vault backend、secret retrieval API、provider vault-backed invocation path、OAuth flow、token refresh system、connector grant lifecycle、egress policy implementation 或 policy lease。
 - 下一高价值切片是显式 lifecycle command contracts、local ingress envelope/idempotency，或 provider error/credential-source productionization。
+
+## 已完成增量：Local Ingress Readiness Contract And Audit
+
+目标：在不把 V1 扩大到 TUI 之外的前提下启动 PGC-3，把未来 ingress gateway 的 envelope、idempotency、auth-state、rate-limit-state 和 policy-handoff 要求变成 machine-checkable evidence。
+
+验收：
+
+- `local-ingress-readiness.schema.json` 及其 example 进入现有 contract example validation suite。
+- schema 要求 caller identity placeholder、surface id、workspace id、idempotency key、normalized intent hash、auth state、rate-limit state 和 policy handoff metadata。
+- schema 拒绝 public API/browser/IM/mobile/cloud ingress overclaim、unauthenticated authority、duplicate-key authority reuse、raw external payload persistence、session issuance、rate-limit enforcement claim 和 supervisor bypass。
+- `doctor`、`onboarding check`、`ingress audit` 和 `release evidence` 输出 `local_ingress_readiness_contract` evidence。
+- `ingress audit` 保持只读，并报告当前缺口：没有 runtime duplicate detector、rate-limit enforcement、durable auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 或 cloud worker ingress。
+
+匹配源文档与修正：
+
+- [架构](01-architecture.zh-CN.md)：Ingress Gateways 必须在 Local Supervisor handoff 前负责 normalize、authenticate、rate-limit 和 idempotency。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surfaces 与 remote channels 不能直接授权 sensitive action。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：local ingress readiness 是 P1 metadata，必须拒绝 inherited authority 或 live side-effect claim。
+- [生产缺口关闭计划](15-production-gap-closure-plan.zh-CN.md)：本轮通过 local ingress request envelope 和只读 audit command 启动 PGC-3。
+
+剩余边界：
+
+- 这不是 production ingress gateway、public API listener、browser extension、IM delivery path、mobile pairing system、connector OAuth ingress、cloud worker、session manager、runtime duplicate detector、rate limiter、policy lease 或 side-effect authorization path。
+- 下一高价值切片是 local command envelope 的 runtime idempotency/duplicate detection、显式 supervisor lifecycle command contracts，或 provider error/credential-source productionization。

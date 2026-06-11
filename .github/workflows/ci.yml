@@ -75,6 +75,7 @@ jobs:
         run: |
           npm run ether -- onboarding check --workspace .
           npm run ether -- doctor --workspace .
+          npm run ether -- ingress audit --workspace .
           npm run ether -- security audit --workspace .
           npm run ether -- release evidence --workspace .
 
@@ -112,5 +113,6 @@ jobs:
         run: |
           npm run ether -- onboarding check --workspace .
           npm run ether -- doctor --workspace .
+          npm run ether -- ingress audit --workspace .
           npm run ether -- security audit --workspace .
           npm run ether -- release evidence --workspace .

@@ -148,6 +148,7 @@ const schemaExamplePairs = [
   ["proactive-opportunity.schema.json", "proactive-opportunity.json"],
   ["replay-record.schema.json", "replay-record.json"],
   ["migration-report.schema.json", "migration-report.json"],
+  ["local-ingress-readiness.schema.json", "local-ingress-readiness.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
   ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
@@ -259,6 +260,40 @@ test("vault policy bindings reject secret resolution, egress, connector grant, a
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "vault-policy-binding.schema.json", draft);
     assert.equal(result.valid, false, "vault-policy-binding schema accepted secret-resolution or authority drift");
+  }
+});
+
+test("local ingress readiness rejects remote surface, auth, idempotency, and authority overclaims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "local-ingress-readiness.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.supported_surfaces.public_http_api_listener = true; },
+    (draft: typeof valid) => { draft.supported_surfaces.browser_extension = true; },
+    (draft: typeof valid) => { draft.request_envelope.required_fields = draft.request_envelope.required_fields.filter((field: string) => field !== "idempotency_key"); },
+    (draft: typeof valid) => { draft.request_envelope.raw_intent_persisted = true; },
+    (draft: typeof valid) => { draft.request_envelope.raw_remote_payload_persisted = true; },
+    (draft: typeof valid) => { draft.normalization.raw_payload_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.authentication.unknown_or_unauthenticated_can_authorize_tools = true; },
+    (draft: typeof valid) => { draft.authentication.user_identity_implemented = true; },
+    (draft: typeof valid) => { draft.authentication.auth_token_persisted = true; },
+    (draft: typeof valid) => { draft.rate_limit.over_limit_can_execute_actions = true; },
+    (draft: typeof valid) => { draft.idempotency.duplicate_runtime_detector_implemented = true; },
+    (draft: typeof valid) => { draft.idempotency.duplicate_key_can_reuse_authority = true; },
+    (draft: typeof valid) => { draft.idempotency.replay_protection_implemented = true; },
+    (draft: typeof valid) => { draft.policy_handoff.ingress_envelope_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.policy_handoff.ingress_envelope_can_authorize_side_effects = true; },
+    (draft: typeof valid) => { draft.remote_surface_boundary.remote_api_gateway_implemented = true; },
+    (draft: typeof valid) => { draft.remote_surface_boundary.remote_surface_can_bypass_supervisor = true; },
+    (draft: typeof valid) => { draft.authority.ingress_contract_can_write_ledger = true; },
+    (draft: typeof valid) => { draft.authority.ingress_contract_can_authorize_tools = true; },
+    (draft: typeof valid) => { draft.limits.production_gateway_implemented = true; },
+    (draft: typeof valid) => { draft.raw_remote_payload = "do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "local-ingress-readiness.schema.json", draft);
+    assert.equal(result.valid, false, "local-ingress-readiness schema accepted remote ingress or authority drift");
   }
 });
 

@@ -922,3 +922,27 @@ Remaining boundary:
 
 - This is not a production vault backend, secret retrieval API, provider vault-backed invocation path, OAuth flow, token refresh system, connector grant lifecycle, egress policy implementation, or policy lease.
 - The next high-value slices are explicit lifecycle command contracts, local ingress envelope/idempotency, or provider error/credential-source productionization.
+
+## Completed Increment: Local Ingress Readiness Contract And Audit
+
+Target: start PGC-3 without widening V1 beyond the TUI by making the future ingress gateway envelope, idempotency, auth-state, rate-limit-state, and policy-handoff requirements machine-checkable.
+
+Acceptance:
+
+- `local-ingress-readiness.schema.json` and its example validate with the existing contract example suite.
+- The schema requires caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff metadata.
+- The schema rejects public API/browser/IM/mobile/cloud ingress overclaims, unauthenticated authority, duplicate-key authority reuse, raw external payload persistence, session issuance, rate-limit enforcement claims, and supervisor bypass.
+- `doctor`, `onboarding check`, `ingress audit`, and `release evidence` surface `local_ingress_readiness_contract` evidence.
+- `ingress audit` is read-only and reports the current gap: no runtime duplicate detector, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, or cloud worker ingress.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Ingress Gateways must normalize, authenticate, rate-limit, and provide idempotency before Local Supervisor handoff.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces and remote channels cannot authorize sensitive actions directly.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): local ingress readiness is P1 metadata and must reject inherited authority or live side-effect claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this starts PGC-3 by adding the local ingress request envelope and read-only audit command.
+
+Remaining boundary:
+
+- This is not a production ingress gateway, public API listener, browser extension, IM delivery path, mobile pairing system, connector OAuth ingress, cloud worker, session manager, runtime duplicate detector, rate limiter, policy lease, or side-effect authorization path.
+- The next high-value slices are either runtime idempotency/duplicate detection for local command envelopes, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.

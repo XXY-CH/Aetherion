@@ -386,6 +386,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "security":
       await runSecurity(options);
       return true;
+    case "ingress":
+      await runIngress(options);
+      return true;
     case "surface":
       await runSurface(options);
       return true;
@@ -691,6 +694,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("bilingual_main_docs") ?? missingRepoCheck("bilingual_main_docs"),
     repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
     repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
+    repoCheckById.get("local_ingress_readiness_contract") ?? missingRepoCheck("local_ingress_readiness_contract"),
     repoCheckById.get("model_provider_readiness_contract") ?? missingRepoCheck("model_provider_readiness_contract"),
     repoCheckById.get("vault_policy_binding_contract") ?? missingRepoCheck("vault_policy_binding_contract"),
     repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
@@ -722,6 +726,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "bilingual_main_docs",
     "runtime_artifact_ignore_rules",
     "schema_example_manifest",
+    "local_ingress_readiness_contract",
     "model_provider_readiness_contract",
     "vault_policy_binding_contract",
     "supervisor_lifecycle_readiness_contract",
@@ -955,6 +960,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    local_ingress_readiness_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     model_provider_readiness_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1020,6 +1029,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const dependencyLockfiles = doctorChecks.get("dependency_lockfiles");
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
+  const localIngressReadinessContract = doctorChecks.get("local_ingress_readiness_contract");
   const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
   const vaultPolicyBindingContract = doctorChecks.get("vault_policy_binding_contract");
   const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
@@ -1105,6 +1115,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: bilingualMainDocs?.status ?? "fail",
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
       },
+      local_ingress_readiness_contract: {
+        status: localIngressReadinessContract?.status ?? "fail",
+        evidence: localIngressReadinessContract?.evidence ?? ["local_ingress_readiness_contract=missing"]
+      },
       model_provider_readiness_contract: {
         status: modelProviderReadinessContract?.status ?? "fail",
         evidence: modelProviderReadinessContract?.evidence ?? ["model_provider_readiness_contract=missing"]
@@ -1159,6 +1173,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
+      "local ingress readiness is contract/audit-only; no duplicate runtime detector, rate-limit enforcement, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is implemented",
       "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
       "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
@@ -1320,7 +1335,7 @@ function buildV1CoreProfile(): V1CoreProfile {
     "doctor",
     "release evidence"
   ];
-  const releaseSupportCommands = ["security audit"];
+  const releaseSupportCommands = ["security audit", "ingress audit"];
   const postV1ContractLabs = [
     "import",
     "memory",
@@ -1350,7 +1365,7 @@ function buildV1CoreProfile(): V1CoreProfile {
   return {
     status: overlap.length === 0 ? "pass" : "fail",
     release_critical_commands: releaseCriticalCommands,
-    readiness_commands: ["onboarding check", "doctor", "security audit", "release evidence"],
+    readiness_commands: ["onboarding check", "doctor", "security audit", "ingress audit", "release evidence"],
     release_support_commands: releaseSupportCommands,
     post_v1_contract_labs: postV1ContractLabs,
     post_v1_surface_labs: postV1SurfaceLabs,
@@ -1655,7 +1670,7 @@ function repoDoctorChecks(): DoctorCheck[] {
     "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, release evidence, and the Node 24 action-runtime baseline.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,onboarding check,doctor,security audit,release evidence,ubuntu/macos platform smoke"
+      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,onboarding check,doctor,ingress audit,security audit,release evidence,ubuntu/macos platform smoke"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
   ));
@@ -1710,11 +1725,237 @@ function repoDoctorChecks(): DoctorCheck[] {
     ],
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
+  checks.push(localIngressReadinessContractCheck());
   checks.push(modelProviderReadinessContractCheck());
   checks.push(vaultPolicyBindingContractCheck());
   checks.push(supervisorLifecycleReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
+}
+
+function localIngressReadinessContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/local-ingress-readiness.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/local-ingress-readiness.json");
+  const architecture = readRepoText("docs/01-architecture.md") ?? "";
+  const gapPlan = readRepoText("docs/15-production-gap-closure-plan.md") ?? "";
+  const source = readRepoText("packages/tui/src/cli.ts") ?? "";
+  const tests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const example = readRepoJson("examples/contracts/local-ingress-readiness.json") as {
+    supported_surfaces?: {
+      tui_command_surface?: unknown;
+      local_api_like_envelope_contract?: unknown;
+      public_http_api_listener?: unknown;
+      gui_client?: unknown;
+      browser_extension?: unknown;
+      im_delivery?: unknown;
+      mobile_client?: unknown;
+      cloud_worker?: unknown;
+    };
+    request_envelope?: {
+      required_fields?: unknown;
+      caller_identity_placeholder_required?: unknown;
+      surface_id_required?: unknown;
+      workspace_id_required?: unknown;
+      idempotency_key_required?: unknown;
+      normalized_intent_hash_required?: unknown;
+      auth_state_required?: unknown;
+      rate_limit_state_required?: unknown;
+      policy_handoff_required?: unknown;
+      raw_intent_persisted?: unknown;
+      raw_remote_payload_persisted?: unknown;
+    };
+    normalization?: {
+      canonical_surface_required?: unknown;
+      normalized_intent_hash_algorithm?: unknown;
+      raw_payload_can_authorize_actions?: unknown;
+      unknown_surface_disposition?: unknown;
+    };
+    authentication?: {
+      auth_state_values?: unknown;
+      unknown_or_unauthenticated_can_authorize_tools?: unknown;
+      device_identity_implemented?: unknown;
+      user_identity_implemented?: unknown;
+      remote_channel_identity_implemented?: unknown;
+      oauth_pairing_implemented?: unknown;
+      auth_token_persisted?: unknown;
+    };
+    rate_limit?: {
+      rate_limit_state_required?: unknown;
+      rate_limit_enforcement_implemented?: unknown;
+      over_limit_can_execute_actions?: unknown;
+      background_queue_implemented?: unknown;
+    };
+    idempotency?: {
+      idempotency_key_required?: unknown;
+      duplicate_detection_before_action_run_required?: unknown;
+      duplicate_runtime_detector_implemented?: unknown;
+      duplicate_key_can_reuse_authority?: unknown;
+      replay_protection_required?: unknown;
+      replay_protection_implemented?: unknown;
+    };
+    policy_handoff?: {
+      local_supervisor_required?: unknown;
+      tool_policy_proxy_required?: unknown;
+      fresh_policy_required_for_actions?: unknown;
+      scoped_lease_required_for_actions?: unknown;
+      ingress_envelope_can_issue_lease?: unknown;
+      ingress_envelope_can_authorize_side_effects?: unknown;
+    };
+    remote_surface_boundary?: {
+      remote_api_gateway_implemented?: unknown;
+      browser_extension_delivery_implemented?: unknown;
+      im_delivery_implemented?: unknown;
+      mobile_pairing_implemented?: unknown;
+      connector_oauth_implemented?: unknown;
+      cloud_worker_ingress_implemented?: unknown;
+      remote_surface_can_bypass_supervisor?: unknown;
+    };
+    authority?: {
+      local_supervisor_is_root_authority?: unknown;
+      event_ledger_is_fact_layer?: unknown;
+      tool_policy_proxy_gates_side_effects?: unknown;
+      ingress_contract_can_mutate_state?: unknown;
+      ingress_contract_can_write_ledger?: unknown;
+      ingress_contract_can_authorize_tools?: unknown;
+    };
+    limits?: {
+      production_gateway_implemented?: unknown;
+      public_http_listener_implemented?: unknown;
+      persistent_session_tokens_implemented?: unknown;
+      automatic_tool_execution_implemented?: unknown;
+      real_remote_surface_ingress_implemented?: unknown;
+      raw_external_payload_storage_implemented?: unknown;
+    };
+  } | null;
+  const requiredEnvelopeFields = [
+    "caller_identity_placeholder",
+    "surface_id",
+    "workspace_id",
+    "idempotency_key",
+    "normalized_intent_hash",
+    "auth_state",
+    "rate_limit_state",
+    "policy_handoff"
+  ];
+  const envelopeFields = Array.isArray(example?.request_envelope?.required_fields)
+    ? example.request_envelope.required_fields
+    : [];
+  const authStateValues = Array.isArray(example?.authentication?.auth_state_values)
+    ? example.authentication.auth_state_values
+    : [];
+  const surfacesSafe = example?.supported_surfaces?.tui_command_surface === true
+    && example.supported_surfaces.local_api_like_envelope_contract === true
+    && example.supported_surfaces.public_http_api_listener === false
+    && example.supported_surfaces.gui_client === false
+    && example.supported_surfaces.browser_extension === false
+    && example.supported_surfaces.im_delivery === false
+    && example.supported_surfaces.mobile_client === false
+    && example.supported_surfaces.cloud_worker === false;
+  const envelopeSafe = requiredEnvelopeFields.every((field) => envelopeFields.includes(field))
+    && envelopeFields.length === requiredEnvelopeFields.length
+    && example?.request_envelope?.caller_identity_placeholder_required === true
+    && example.request_envelope.surface_id_required === true
+    && example.request_envelope.workspace_id_required === true
+    && example.request_envelope.idempotency_key_required === true
+    && example.request_envelope.normalized_intent_hash_required === true
+    && example.request_envelope.auth_state_required === true
+    && example.request_envelope.rate_limit_state_required === true
+    && example.request_envelope.policy_handoff_required === true
+    && example.request_envelope.raw_intent_persisted === false
+    && example.request_envelope.raw_remote_payload_persisted === false;
+  const normalizationSafe = example?.normalization?.canonical_surface_required === true
+    && example.normalization.normalized_intent_hash_algorithm === "sha256"
+    && example.normalization.raw_payload_can_authorize_actions === false
+    && example.normalization.unknown_surface_disposition === "observation_or_queued_intent_only";
+  const authSafe = ["local_operator", "unknown", "unauthenticated"].every((state) => authStateValues.includes(state))
+    && authStateValues.length === 3
+    && example?.authentication?.unknown_or_unauthenticated_can_authorize_tools === false
+    && example.authentication.device_identity_implemented === false
+    && example.authentication.user_identity_implemented === false
+    && example.authentication.remote_channel_identity_implemented === false
+    && example.authentication.oauth_pairing_implemented === false
+    && example.authentication.auth_token_persisted === false;
+  const rateLimitSafe = example?.rate_limit?.rate_limit_state_required === true
+    && example.rate_limit.rate_limit_enforcement_implemented === false
+    && example.rate_limit.over_limit_can_execute_actions === false
+    && example.rate_limit.background_queue_implemented === false;
+  const idempotencySafe = example?.idempotency?.idempotency_key_required === true
+    && example.idempotency.duplicate_detection_before_action_run_required === true
+    && example.idempotency.duplicate_runtime_detector_implemented === false
+    && example.idempotency.duplicate_key_can_reuse_authority === false
+    && example.idempotency.replay_protection_required === true
+    && example.idempotency.replay_protection_implemented === false;
+  const policyHandoffSafe = example?.policy_handoff?.local_supervisor_required === true
+    && example.policy_handoff.tool_policy_proxy_required === true
+    && example.policy_handoff.fresh_policy_required_for_actions === true
+    && example.policy_handoff.scoped_lease_required_for_actions === true
+    && example.policy_handoff.ingress_envelope_can_issue_lease === false
+    && example.policy_handoff.ingress_envelope_can_authorize_side_effects === false;
+  const remoteSurfaceSafe = example?.remote_surface_boundary?.remote_api_gateway_implemented === false
+    && example.remote_surface_boundary.browser_extension_delivery_implemented === false
+    && example.remote_surface_boundary.im_delivery_implemented === false
+    && example.remote_surface_boundary.mobile_pairing_implemented === false
+    && example.remote_surface_boundary.connector_oauth_implemented === false
+    && example.remote_surface_boundary.cloud_worker_ingress_implemented === false
+    && example.remote_surface_boundary.remote_surface_can_bypass_supervisor === false;
+  const authoritySafe = example?.authority?.local_supervisor_is_root_authority === true
+    && example.authority.event_ledger_is_fact_layer === true
+    && example.authority.tool_policy_proxy_gates_side_effects === true
+    && example.authority.ingress_contract_can_mutate_state === false
+    && example.authority.ingress_contract_can_write_ledger === false
+    && example.authority.ingress_contract_can_authorize_tools === false;
+  const limitsSafe = example?.limits?.production_gateway_implemented === false
+    && example.limits.public_http_listener_implemented === false
+    && example.limits.persistent_session_tokens_implemented === false
+    && example.limits.automatic_tool_execution_implemented === false
+    && example.limits.real_remote_surface_ingress_implemented === false
+    && example.limits.raw_external_payload_storage_implemented === false;
+  const sourceReady = architecture.includes("normalize / authenticate / rate-limit / idempotency")
+    && gapPlan.includes("Local ingress request envelope")
+    && gapPlan.includes("Duplicate idempotency keys")
+    && source.includes("function buildIngressAuditReport")
+    && source.includes("local_ingress_readiness_contract");
+  const testsReady = tests.includes("local ingress readiness rejects remote surface, auth, idempotency, and authority overclaims")
+    && tests.includes("local-ingress-readiness.schema.json");
+  const ok = schemaPresent
+    && examplePresent
+    && surfacesSafe
+    && envelopeSafe
+    && normalizationSafe
+    && authSafe
+    && rateLimitSafe
+    && idempotencySafe
+    && policyHandoffSafe
+    && remoteSurfaceSafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "local_ingress_readiness_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Local ingress readiness contract requires envelope, auth-state, rate-limit, idempotency, and policy handoff metadata without enabling remote surfaces or authority bypass."
+      : "Local ingress readiness contract is missing or overclaims remote ingress, authentication, idempotency, rate-limit, or authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `surfaces_safe=${String(surfacesSafe)}`,
+      `envelope_safe=${String(envelopeSafe)}`,
+      `normalization_safe=${String(normalizationSafe)}`,
+      `auth_safe=${String(authSafe)}`,
+      `rate_limit_safe=${String(rateLimitSafe)}`,
+      `idempotency_safe=${String(idempotencySafe)}`,
+      `policy_handoff_safe=${String(policyHandoffSafe)}`,
+      `remote_surface_safe=${String(remoteSurfaceSafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore schemas/local-ingress-readiness.schema.json and examples/contracts/local-ingress-readiness.json with required local envelope fields, duplicate-detection requirements, unknown/unauthenticated denial, policy handoff requirements, and no remote surface or authority claims."
+  );
 }
 
 function modelProviderReadinessContractCheck(): DoctorCheck {
@@ -2307,6 +2548,7 @@ function ciGateNeedles(): string[] {
     "tools/forbidden-tracked-roots.txt",
     "npm run ether -- onboarding check --workspace .",
     "npm run ether -- doctor --workspace .",
+    "npm run ether -- ingress audit --workspace .",
     "npm run ether -- security audit --workspace .",
     "npm run ether -- release evidence --workspace .",
     "platform-smoke:",
@@ -4833,6 +5075,126 @@ async function runSecurity(options: CliOptions): Promise<void> {
   throw new Error("security supports audit, scan, ack <signal_id>, trial <signal_id>, and fixture <signal_id>");
 }
 
+type IngressAuditReport = {
+  id: "aetherion_ingress_audit_report";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  status: "draft" | "blocked";
+  scope: ReadOnlyCommandScope & {
+    starts_listener: false;
+    accepts_remote_connections: false;
+    mutates_workspace: false;
+    detects_live_duplicates: false;
+    enforces_rate_limits: false;
+    issues_session: false;
+  };
+  summary: {
+    pass: number;
+    warn: number;
+    fail: number;
+    not_applicable: number;
+  };
+  checks: DoctorCheck[];
+  ingress_profile: {
+    runnable_surface: "tui";
+    contract_surface: "local_api_like_envelope";
+    envelope_fields: string[];
+    current_duplicate_detection: "not_implemented";
+    current_rate_limit_enforcement: "not_implemented";
+    unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only";
+    policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions";
+  };
+  deferred_surfaces: string[];
+  remaining_gaps: string[];
+  source_documents: Array<{ path: string; role: string }>;
+};
+
+async function runIngress(options: CliOptions): Promise<void> {
+  if (options.topic !== "audit") {
+    throw new Error("ingress supports audit");
+  }
+  const report = buildIngressAuditReport(resolve(options.workspace));
+  if (report.status === "blocked") {
+    process.exitCode = 1;
+  }
+  printRawJson(report);
+}
+
+function buildIngressAuditReport(workspaceRoot: string): IngressAuditReport {
+  const repoChecks = repoDoctorChecks();
+  const repoCheckById = new Map(repoChecks.map((checkItem) => [checkItem.id, checkItem]));
+  const checks = [
+    checkWorkspaceTarget(workspaceRoot),
+    repoCheckById.get("local_ingress_readiness_contract") ?? missingRepoCheck("local_ingress_readiness_contract")
+  ];
+  const summary = {
+    pass: checks.filter((checkItem) => checkItem.status === "pass").length,
+    warn: checks.filter((checkItem) => checkItem.status === "warn").length,
+    fail: checks.filter((checkItem) => checkItem.status === "fail").length,
+    not_applicable: checks.filter((checkItem) => checkItem.status === "not_applicable").length
+  };
+  const envelopeFields = [
+    "caller_identity_placeholder",
+    "surface_id",
+    "workspace_id",
+    "idempotency_key",
+    "normalized_intent_hash",
+    "auth_state",
+    "rate_limit_state",
+    "policy_handoff"
+  ];
+  return {
+    id: "aetherion_ingress_audit_report",
+    generated_at: new Date().toISOString(),
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    status: summary.fail > 0 ? "blocked" : "draft",
+    scope: {
+      ...readOnlyCommandScope(),
+      starts_listener: false,
+      accepts_remote_connections: false,
+      mutates_workspace: false,
+      detects_live_duplicates: false,
+      enforces_rate_limits: false,
+      issues_session: false
+    },
+    summary,
+    checks,
+    ingress_profile: {
+      runnable_surface: "tui",
+      contract_surface: "local_api_like_envelope",
+      envelope_fields: envelopeFields,
+      current_duplicate_detection: "not_implemented",
+      current_rate_limit_enforcement: "not_implemented",
+      unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only",
+      policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions"
+    },
+    deferred_surfaces: [
+      "public HTTP/API listener",
+      "GUI client ingress",
+      "browser extension ingress",
+      "IM delivery ingress",
+      "mobile pairing and ingress",
+      "connector OAuth ingress",
+      "cloud worker ingress"
+    ],
+    remaining_gaps: [
+      "duplicate idempotency keys are required by contract but are not yet detected by a runtime gateway before new action runs",
+      "rate-limit state is required by contract but no runtime rate limiter is implemented",
+      "caller identity is a placeholder; no durable user identity, device identity, remote channel identity, session token lifecycle, or OAuth pairing is implemented",
+      "unknown or unauthenticated local API/browser/IM/mobile inputs may only be observations or queued intents and cannot authorize tools or side effects",
+      "no public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, or cloud worker ingress is implemented"
+    ],
+    source_documents: [
+      { path: "docs/01-architecture.md", role: "Ingress Gateways normalize, authenticate, rate-limit, and provide idempotency before Local Supervisor" },
+      { path: "docs/02-user-boundary-layer.md", role: "client surfaces and remote channels cannot authorize sensitive actions directly" },
+      { path: "docs/06-roadmap.md", role: "V1 stays TUI-first before broader client surfaces" },
+      { path: "docs/15-production-gap-closure-plan.md", role: "PGC-3 local ingress gateway MVP acceptance criteria" }
+    ]
+  };
+}
+
 type SecurityAuditSeverity = "info" | "low" | "medium" | "high" | "critical";
 type SecurityAuditCheckStatus = "pass" | "warn" | "fail" | "not_applicable";
 
@@ -5144,7 +5506,7 @@ function ciDependencyAuditGuardFindings(): SecurityAuditFinding[] {
         "CI dependency and readiness guard is incomplete",
         "GitHub Actions does not run every dependency reproducibility, dependency audit, platform smoke, action-runtime, and operator readiness/release-evidence gate.",
         [`missing_gates=${missing.join(",")}`],
-        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, onboarding check, doctor, security audit, release evidence, Node 24 JavaScript actions, and the platform smoke matrix."
+        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, onboarding check, doctor, ingress audit, security audit, release evidence, Node 24 JavaScript actions, and the platform smoke matrix."
       )];
 }
 
@@ -6180,6 +6542,7 @@ Usage:
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
   npm run ether -- onboarding check --workspace <path>
   npm run ether -- doctor --workspace <path>
+  npm run ether -- ingress audit --workspace <path>
   npm run ether -- release evidence --workspace <path> [--remote-evidence <snapshot.json>]
 
   Post-V1 / experimental local contract labs (not V1 release-critical):
@@ -6244,6 +6607,7 @@ Usage:
   npm run ether -- audit sandbox-records --workspace <path>
   npm run ether -- audit payload-refs --workspace <path>
   npm run ether -- audit response-audits --workspace <path>
+  npm run ether -- ingress audit --workspace <path>
 
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
@@ -6251,6 +6615,7 @@ Commands:
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
+  ingress                Read-only local ingress envelope/idempotency readiness audit; no listener, session, remote connection, or action authority
   release                Read-only local/configured plus optional operator-supplied remote release evidence; no packaging, signing, publishing, or live CI query
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Post-V1 contract lab: source-backed Memory OS plus non-authorizing prompt plan/audit previews

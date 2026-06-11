@@ -627,6 +627,39 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Vault Policy Binding 是 P1 readiness/credential-boundary metadata contract，不是 secret use path 或 policy authority。
 - 剩余严格复查差距包括显式 supervisor lifecycle command contracts、local ingress envelope/idempotency、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 60 复核：Local Ingress Readiness Contract And Audit
+
+本轮启动 PGC-3 local ingress 路径，但不实现 production gateway。此前 architecture matrix 已经暴露 Ingress Gateway 缺口：Aetherion 有本地 TUI invocation，也有 hash-only/queue-only surface labs，但还没有 machine-checkable envelope 来说明未来 local API-like ingress 在交给 Local Supervisor 前必须证明什么。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：Ingress Gateways 在 Local Supervisor handoff 前负责 normalize、authenticate、rate-limit 和 idempotency。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 与 remote channel 不能直接授权 sensitive action。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 readiness metadata 必须拒绝 inherited authority、raw payload persistence 和 live side-effect claim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 要求 local ingress request envelope 和只读 ingress audit command 先于真实 API/browser/IM/mobile ingress。
+
+本轮修正：
+
+- 新增 `schemas/local-ingress-readiness.schema.json` 和 `examples/contracts/local-ingress-readiness.json`。
+- contract 要求 caller identity placeholder、surface id、workspace id、idempotency key、normalized intent hash、auth state、rate-limit state 和 policy handoff metadata。
+- contract 保持 TUI 是唯一可运行 surface，并把 local API-like ingress 标为 contract-only。
+- contract 拒绝 public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress、cloud worker ingress、unauthenticated authority、duplicate-key authority reuse、raw external payload persistence、session issuance、rate-limit enforcement overclaim、supervisor bypass 和 ingress-issued lease。
+- 新增负向 schema 测试，覆盖 remote surface、auth、idempotency、rate-limit、raw-payload 和 authority overclaim。
+- 新增 `ingress audit` 只读报告；它不启动 listener、不接受 remote connection、不修改 workspace、不写 artifact、不追加 Ledger event、不发 session、不检测 live duplicate keys、不执行 rate limit，也不授予 authority。
+- `doctor`、`onboarding check` 和 `release evidence` 现在输出 `local_ingress_readiness_contract` evidence；`release evidence` 明确 local ingress runtime 剩余缺口。
+- README、TUI README、harness-core README、schema governance 和 runtime-loop docs 都已同步中英文说明。
+
+偏差复核：
+
+- 修正 PGC-3 planning drift：架构要求 ingress normalize/auth/rate-limit/idempotency，但 production report 还不能区分 future gateway contract 和已经可运行的 TUI。
+- 修正 remote-surface drift 风险：API/browser/IM/mobile/cloud ingress 现在明确未实现，且不能绕过 Local Supervisor 或 Tool Access & Action Policy Proxy。
+- 未实现 action run 前 duplicate idempotency detection、rate limiter、persistent auth/session lifecycle、public HTTP/API listener、browser extension、IM delivery、mobile client、connector OAuth ingress、cloud worker ingress 或基于 ingress envelope 的 supervisor policy execution。
+
+修正与剩余边界：
+
+- Local Ingress Readiness 是 P1 readiness/audit contract，不是 production ingress gateway 或 authority path。
+- 剩余严格复查差距包括 local envelope runtime duplicate detection、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

@@ -1634,6 +1634,39 @@ Corrections and remaining boundary:
 - Vault Policy Binding is a P1 readiness/credential-boundary metadata contract, not a secret use path or policy authority.
 - Remaining strict-review gaps include explicit supervisor lifecycle command contracts, local ingress envelope/idempotency, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 60 Review Notes
+
+This pass starts the PGC-3 local ingress path without implementing a production gateway. The previous architecture matrix had a visible Ingress Gateway gap: Aetherion had local TUI invocation and hash-only/queue-only surface labs, but no machine-checkable envelope describing what future local API-like ingress must prove before handing anything to the Local Supervisor.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): Ingress Gateways normalize, authenticate, rate-limit, and provide idempotency before Local Supervisor handoff.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces and remote channels cannot authorize sensitive actions directly.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 readiness metadata must reject inherited authority, raw payload persistence, and live side-effect claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 requires a local ingress request envelope plus a read-only ingress audit command before real API/browser/IM/mobile ingress.
+
+Implemented correspondence:
+
+- Added `schemas/local-ingress-readiness.schema.json` and `examples/contracts/local-ingress-readiness.json`.
+- The contract requires caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff metadata.
+- The contract keeps the TUI as the only runnable surface and marks local API-like ingress as contract-only.
+- The contract rejects public API listeners, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, cloud worker ingress, unauthenticated authority, duplicate-key authority reuse, raw external payload persistence, session issuance, rate-limit enforcement overclaims, supervisor bypass, and ingress-issued leases.
+- Added a negative schema test for remote surface, auth, idempotency, rate-limit, raw-payload, and authority overclaims.
+- Added `ingress audit`, a read-only report that starts no listener, accepts no remote connection, mutates no workspace, writes no artifact, appends no Ledger event, issues no session, detects no live duplicate keys, enforces no rate limits, and grants no authority.
+- `doctor`, `onboarding check`, and `release evidence` now include `local_ingress_readiness_contract` evidence; `release evidence` names the remaining local ingress runtime gaps.
+- README, TUI README, harness-core README, schema governance, and runtime-loop docs were updated in English and Chinese.
+
+Drift review:
+
+- Corrects the PGC-3 planning drift: the architecture required ingress normalize/auth/rate-limit/idempotency, but production reports could not yet distinguish a future gateway contract from the already runnable TUI.
+- Corrects a remote-surface drift risk: API/browser/IM/mobile/cloud ingress is now explicitly not implemented and cannot bypass Local Supervisor or Tool Access & Action Policy Proxy.
+- Does not implement duplicate idempotency detection before action runs, a rate limiter, a persistent auth/session lifecycle, public HTTP/API listener, browser extension, IM delivery, mobile client, connector OAuth ingress, cloud worker ingress, or supervisor policy execution from ingress envelopes.
+
+Corrections and remaining boundary:
+
+- Local Ingress Readiness is a P1 readiness/audit contract, not a production ingress gateway or authority path.
+- Remaining strict-review gaps include runtime duplicate detection for local envelopes, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

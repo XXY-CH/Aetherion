@@ -291,6 +291,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- onboarding check --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- ingress audit --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- release evidence --workspace <path>/);
   assert.match(help.stdout, /Post-V1 \/ experimental local contract labs \(not V1 release-critical\):/);
   assert.match(help.stdout, /npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> \[--print-output\]/);
@@ -302,6 +303,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /store\s+Post-V1 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
+  assert.match(help.stdout, /ingress\s+Read-only local ingress envelope\/idempotency readiness audit/);
   assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
@@ -312,6 +314,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
   const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
   assert.match(v1Help, /npm run ether -- run --workspace <path>/);
+  assert.match(v1Help, /npm run ether -- ingress audit --workspace <path>/);
   assert.match(v1Help, /npm run ether -- release evidence --workspace <path>/);
   for (const excluded of ["memory", "prompt", "capsule", "agent", "surface", "store", "audit"]) {
     assert.equal(v1Help.includes(`npm run ether -- ${excluded}`), false, `${excluded} must not appear in the V1 core help section`);
@@ -392,14 +395,20 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   assert.ok(report.v1_core_profile.release_critical_commands.includes("run"));
   assert.ok(report.v1_core_profile.release_critical_commands.includes("release evidence"));
   assert.ok(report.v1_core_profile.readiness_commands.includes("security audit"));
+  assert.ok(report.v1_core_profile.readiness_commands.includes("ingress audit"));
   assert.ok(report.v1_core_profile.release_support_commands.includes("security audit"));
+  assert.ok(report.v1_core_profile.release_support_commands.includes("ingress audit"));
   assert.equal(report.v1_core_profile.release_critical_commands.includes("security audit"), false);
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("ingress audit"), false);
   assert.ok(report.v1_core_profile.excluded_from_v1_release_critical.includes("prompt"));
   assert.equal(report.v1_core_profile.release_critical_commands.includes("prompt"), false);
   assert.match(report.v1_core_profile.evidence.join("\n"), /not V1 release-critical/);
   assert.equal(report.checks.find((check) => check.id === "workspace_target")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_runtime_state")?.status, "not_applicable");
   assert.equal(report.checks.find((check) => check.id === "from_source_onboarding_docs")?.status, "pass");
+  const localIngressReadiness = report.checks.find((check) => check.id === "local_ingress_readiness_contract");
+  assert.equal(localIngressReadiness?.status, "pass");
+  assert.match(localIngressReadiness?.evidence.join("\n") ?? "", /idempotency_safe=true/);
   const modelProviderReadiness = report.checks.find((check) => check.id === "model_provider_readiness_contract");
   assert.equal(modelProviderReadiness?.status, "pass");
   assert.match(modelProviderReadiness?.evidence.join("\n") ?? "", /provider_openai_responses/);
@@ -530,6 +539,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const modelProviderReadinessCheck = report.checks.find((check) => check.id === "model_provider_readiness_contract");
   assert.equal(modelProviderReadinessCheck?.status, "pass");
   assert.match(modelProviderReadinessCheck?.summary ?? "", /OpenAI Responses/);
+  const localIngressReadinessCheck = report.checks.find((check) => check.id === "local_ingress_readiness_contract");
+  assert.equal(localIngressReadinessCheck?.status, "pass");
+  assert.match(localIngressReadinessCheck?.summary ?? "", /Local ingress readiness contract/);
   const vaultPolicyBindingCheck = report.checks.find((check) => check.id === "vault_policy_binding_contract");
   assert.equal(vaultPolicyBindingCheck?.status, "pass");
   assert.match(vaultPolicyBindingCheck?.summary ?? "", /may cite vault references/);
@@ -577,6 +589,7 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "workspace_registry_identity")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_ledger_hash_chain")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "workspace_run_manifests")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "local_ingress_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "model_provider_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_policy_binding_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract")?.status, "pass");
@@ -635,6 +648,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       platform_smoke_matrix: { configured: boolean; runners: string[]; evidence: string[] };
       action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
+      local_ingress_readiness_contract: { status: string; evidence: string[] };
       model_provider_readiness_contract: { status: string; evidence: string[] };
       vault_policy_binding_contract: { status: string; evidence: string[] };
       supervisor_lifecycle_readiness_contract: { status: string; evidence: string[] };
@@ -713,6 +727,9 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
+  assert.equal(report.configured_evidence.local_ingress_readiness_contract.status, "pass");
+  assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /envelope_safe=true/);
+  assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /remote_surface_safe=true/);
   assert.equal(report.configured_evidence.model_provider_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.model_provider_readiness_contract.evidence.join("\n"), /provider_openai_chat_completions/);
   assert.match(report.configured_evidence.model_provider_readiness_contract.evidence.join("\n"), /limits_safe=true/);
@@ -728,7 +745,9 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.v1_core_profile.status, "pass");
   assert.ok(report.v1_core_profile.release_critical_commands.includes("run"));
   assert.ok(report.v1_core_profile.release_support_commands.includes("security audit"));
+  assert.ok(report.v1_core_profile.release_support_commands.includes("ingress audit"));
   assert.equal(report.v1_core_profile.release_critical_commands.includes("security audit"), false);
+  assert.equal(report.v1_core_profile.release_critical_commands.includes("ingress audit"), false);
   assert.equal(report.v1_core_profile.release_critical_commands.includes("surface"), false);
   assert.ok(report.v1_core_profile.post_v1_contract_labs.includes("prompt"));
   assert.ok(report.v1_core_profile.post_v1_surface_labs.includes("store"));
@@ -762,6 +781,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("local ingress readiness is contract")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production daemon start/stop")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
@@ -898,6 +918,59 @@ test("Ether release evidence is read-only for initialized workspace evidence", a
   assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
   assert.deepEqual(await readdir(runsPath), runsBefore);
   await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "release")), /ENOENT/);
+});
+
+test("Ether ingress audit reports local envelope readiness without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-ingress-audit-empty-"));
+
+  const ingress = await execFileAsync(process.execPath, [
+    cliPath,
+    "ingress",
+    "audit",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(ingress.stdout) as {
+    id: string;
+    status: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      writes_artifacts: boolean;
+      starts_listener: boolean;
+      accepts_remote_connections: boolean;
+      mutates_workspace: boolean;
+      detects_live_duplicates: boolean;
+      enforces_rate_limits: boolean;
+      issues_session: boolean;
+    };
+    summary: { fail: number };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+    ingress_profile: { envelope_fields: string[]; current_duplicate_detection: string; policy_handoff: string };
+    deferred_surfaces: string[];
+    remaining_gaps: string[];
+  };
+  assert.equal(report.id, "aetherion_ingress_audit_report");
+  assert.equal(report.status, "draft");
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.starts_listener, false);
+  assert.equal(report.scope.accepts_remote_connections, false);
+  assert.equal(report.scope.mutates_workspace, false);
+  assert.equal(report.scope.detects_live_duplicates, false);
+  assert.equal(report.scope.enforces_rate_limits, false);
+  assert.equal(report.scope.issues_session, false);
+  assert.equal(report.summary.fail, 0);
+  const ingressCheck = report.checks.find((check) => check.id === "local_ingress_readiness_contract");
+  assert.equal(ingressCheck?.status, "pass");
+  assert.match(ingressCheck?.evidence.join("\n") ?? "", /policy_handoff_safe=true/);
+  assert.ok(report.ingress_profile.envelope_fields.includes("idempotency_key"));
+  assert.equal(report.ingress_profile.current_duplicate_detection, "not_implemented");
+  assert.match(report.ingress_profile.policy_handoff, /fresh_policy/);
+  assert.ok(report.deferred_surfaces.some((surface) => surface.includes("browser extension")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("duplicate idempotency keys")));
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
 test("Ether security audit reports read-only status without initializing a workspace", async () => {

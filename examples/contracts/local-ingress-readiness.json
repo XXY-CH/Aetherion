@@ -1,0 +1,106 @@
+{
+  "id": "local_ingress_readiness_tui_gateway_v1",
+  "schema_version": "aetherion-local-ingress-readiness-v1",
+  "status": "declared",
+  "ingress_kind": "local_envelope_readiness",
+  "supported_surfaces": {
+    "tui_command_surface": true,
+    "local_api_like_envelope_contract": true,
+    "public_http_api_listener": false,
+    "gui_client": false,
+    "browser_extension": false,
+    "im_delivery": false,
+    "mobile_client": false,
+    "cloud_worker": false
+  },
+  "request_envelope": {
+    "required_fields": [
+      "caller_identity_placeholder",
+      "surface_id",
+      "workspace_id",
+      "idempotency_key",
+      "normalized_intent_hash",
+      "auth_state",
+      "rate_limit_state",
+      "policy_handoff"
+    ],
+    "caller_identity_placeholder_required": true,
+    "surface_id_required": true,
+    "workspace_id_required": true,
+    "idempotency_key_required": true,
+    "normalized_intent_hash_required": true,
+    "auth_state_required": true,
+    "rate_limit_state_required": true,
+    "policy_handoff_required": true,
+    "raw_intent_persisted": false,
+    "raw_remote_payload_persisted": false
+  },
+  "normalization": {
+    "canonical_surface_required": true,
+    "normalized_intent_hash_algorithm": "sha256",
+    "raw_payload_can_authorize_actions": false,
+    "unknown_surface_disposition": "observation_or_queued_intent_only"
+  },
+  "authentication": {
+    "auth_state_values": ["local_operator", "unknown", "unauthenticated"],
+    "unknown_or_unauthenticated_can_authorize_tools": false,
+    "device_identity_implemented": false,
+    "user_identity_implemented": false,
+    "remote_channel_identity_implemented": false,
+    "oauth_pairing_implemented": false,
+    "auth_token_persisted": false
+  },
+  "rate_limit": {
+    "rate_limit_state_required": true,
+    "rate_limit_enforcement_implemented": false,
+    "over_limit_can_execute_actions": false,
+    "background_queue_implemented": false
+  },
+  "idempotency": {
+    "idempotency_key_required": true,
+    "duplicate_detection_before_action_run_required": true,
+    "duplicate_runtime_detector_implemented": false,
+    "duplicate_key_can_reuse_authority": false,
+    "replay_protection_required": true,
+    "replay_protection_implemented": false
+  },
+  "policy_handoff": {
+    "local_supervisor_required": true,
+    "tool_policy_proxy_required": true,
+    "fresh_policy_required_for_actions": true,
+    "scoped_lease_required_for_actions": true,
+    "ingress_envelope_can_issue_lease": false,
+    "ingress_envelope_can_authorize_side_effects": false
+  },
+  "remote_surface_boundary": {
+    "remote_api_gateway_implemented": false,
+    "browser_extension_delivery_implemented": false,
+    "im_delivery_implemented": false,
+    "mobile_pairing_implemented": false,
+    "connector_oauth_implemented": false,
+    "cloud_worker_ingress_implemented": false,
+    "remote_surface_can_bypass_supervisor": false
+  },
+  "authority": {
+    "local_supervisor_is_root_authority": true,
+    "event_ledger_is_fact_layer": true,
+    "tool_policy_proxy_gates_side_effects": true,
+    "ingress_contract_can_mutate_state": false,
+    "ingress_contract_can_write_ledger": false,
+    "ingress_contract_can_authorize_tools": false
+  },
+  "limits": {
+    "production_gateway_implemented": false,
+    "public_http_listener_implemented": false,
+    "persistent_session_tokens_implemented": false,
+    "automatic_tool_execution_implemented": false,
+    "real_remote_surface_ingress_implemented": false,
+    "raw_external_payload_storage_implemented": false
+  },
+  "source_files": [
+    "docs/01-architecture.md",
+    "docs/15-production-gap-closure-plan.md",
+    "packages/tui/src/cli.ts",
+    "packages/harness-core/test/harness-core.test.ts"
+  ]
+}
