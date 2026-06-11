@@ -1,0 +1,119 @@
+{
+  "id": "supervisor_lifecycle_readiness_stdio_socket_v1",
+  "schema_version": "aetherion-supervisor-lifecycle-readiness-v1",
+  "status": "declared",
+  "supported_runtime_modes": {
+    "stdio_rpc": true,
+    "foreground_unix_socket": true,
+    "foreground_workspace_lock": true,
+    "production_daemon": false,
+    "service_installation": false,
+    "background_process_manager": false
+  },
+  "lifecycle_commands": [
+    {
+      "command": "supervisor status",
+      "supported": true,
+      "read_only": true,
+      "idempotent": true,
+      "mutates_ledger": false,
+      "issues_lease": false,
+      "repairs_state": false
+    },
+    {
+      "command": "supervisor preflight",
+      "supported": true,
+      "read_only": true,
+      "idempotent": true,
+      "mutates_ledger": false,
+      "issues_lease": false,
+      "repairs_state": false
+    },
+    {
+      "command": "supervisor start",
+      "supported": false,
+      "implemented": false,
+      "mutates_ledger": false,
+      "issues_lease": false,
+      "repairs_state": false
+    },
+    {
+      "command": "supervisor stop",
+      "supported": false,
+      "implemented": false,
+      "mutates_ledger": false,
+      "issues_lease": false,
+      "repairs_state": false
+    },
+    {
+      "command": "supervisor recover-stale-lock",
+      "supported": false,
+      "implemented": false,
+      "mutates_ledger": false,
+      "issues_lease": false,
+      "repairs_state": false
+    }
+  ],
+  "runtime_lock": {
+    "lock_path": ".aetherion/supervisor.lock",
+    "workspace_bound": true,
+    "owner_pid_reported": true,
+    "owner_process_status_reported": true,
+    "stale_lock_detected": true,
+    "stale_lock_repaired": false,
+    "runtime_lock_can_authorize_actions": false,
+    "reported_fields": [
+      "runtime_lock_present",
+      "runtime_lock_path",
+      "runtime_lock_pid",
+      "runtime_lock_transport",
+      "runtime_lock_workspace_id",
+      "runtime_lock_socket_path",
+      "runtime_lock_workspace_match",
+      "runtime_lock_process_status",
+      "runtime_lock_stale",
+      "runtime_lock_parse_error"
+    ]
+  },
+  "socket_auth_boundary": {
+    "caller_supplied_token_supported": true,
+    "token_value_persisted": false,
+    "token_rotation_implemented": false,
+    "device_identity_implemented": false,
+    "user_identity_implemented": false,
+    "pairing_implemented": false,
+    "vault_backed_token_storage": false
+  },
+  "vault_boundary": {
+    "vault_reference_contract_present": true,
+    "raw_secret_available_to_supervisor": false,
+    "secret_retrieval_api_implemented": false,
+    "provider_tokens_resolved_by_supervisor": false
+  },
+  "authority": {
+    "local_supervisor_is_root_authority": true,
+    "workspace_id_derived_from_root": true,
+    "lifecycle_contract_can_issue_lease": false,
+    "socket_token_can_authorize_tools": false,
+    "preflight_can_mutate_state": false,
+    "status_can_mutate_ledger": false
+  },
+  "limits": {
+    "production_daemon_implemented": false,
+    "start_command_implemented": false,
+    "stop_command_implemented": false,
+    "recover_stale_lock_command_implemented": false,
+    "socket_auth_lifecycle_implemented": false,
+    "vault_backend_implemented": false,
+    "signer_implemented": false,
+    "process_sandbox_implemented": false,
+    "cloud_worker_implemented": false
+  },
+  "source_files": [
+    "packages/tui/src/cli.ts",
+    "packages/tui/test/tui.test.ts",
+    "crates/supervisor/src/main.rs",
+    "crates/supervisor/README.md",
+    "schemas/vault-reference.schema.json"
+  ]
+}

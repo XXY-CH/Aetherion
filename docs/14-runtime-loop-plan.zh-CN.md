@@ -480,3 +480,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 OAuth client、provider-auth wizard、token refresh system、connector grant lifecycle、streaming/multimodal provider path、provider tool executor 或 runtime authority grant。
 - 下一高价值 PGC-2 切片仍是 supervisor lifecycle/vault reference binding design，除非 release evidence 或 CI 先成为更尖锐 blocker。
+
+## 已完成增量：Supervisor Lifecycle Readiness Contract
+
+目标：继续推进 PGC-2，把当前 supervisor lifecycle boundary 做成 release-checkable evidence，同时不把 foreground status/preflight 误称为 production daemon lifecycle。
+
+验收：
+
+- `supervisor-lifecycle-readiness.schema.json` 及其 example 通过现有 contract example suite。
+- schema 将已支持 lifecycle evidence 锁定为只读 `supervisor status`、`supervisor preflight`，以及 stdio/foreground Unix socket/runtime-lock observation。
+- schema 拒绝 production daemon、start/stop、stale-lock repair、socket-auth lifecycle、vault backend、process sandbox、signer、cloud worker、socket-token tool authority、runtime-lock authority 和 supervisor lease-authority overclaim。
+- `doctor`、`onboarding check` 和 `release evidence` 输出 `supervisor_lifecycle_readiness_contract` evidence。
+- release evidence 继续明确 lifecycle 剩余缺口：status/preflight 与 foreground socket lock 已存在，但 production daemon start/stop、socket-auth lifecycle、stale-lock recovery、process sandboxing 和 vault-backed supervisor secrets 仍未实现。
+
+与原始文档对照和修正：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 authority boundary；lifecycle readiness metadata 本身不能授予 authority 或 lease。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 仍是未来 authority/vault/daemon boundary 的 owner；本轮只记录当前 status/preflight evidence 和 unsupported lifecycle claims。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：supervisor lifecycle readiness 是 P1 metadata，并用负向测试覆盖 daemon、repair、vault、socket-auth 和 lease-authority overclaiming。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮继续 PGC-2，在实现 start/stop/recover-stale-lock behavior 之前先 typed lifecycle readiness。
+
+剩余边界：
+
+- 这不是 production daemon、service installer、daemon manager、stale-lock recovery command、crash-recovery system、socket-auth lifecycle、device/user identity layer、vault backend、signer、process sandbox、cloud worker 或 policy lease。
+- 下一高价值 PGC-2 切片是 vault reference binding design 或第一个显式 lifecycle command contract，除非 local ingress 或 release evidence 先成为更尖锐 blocker。

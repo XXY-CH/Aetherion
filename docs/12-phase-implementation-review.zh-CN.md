@@ -564,6 +564,37 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Model Provider Readiness 是 P1 readiness/credential-boundary metadata contract，不是 credential store、OAuth client、connector grant 或 policy lease。
 - 剩余严格复查差距包括 supervisor lifecycle/vault reference binding design、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 58 复核：Supervisor Lifecycle Readiness Contract
+
+本轮继续推进 PGC-2，把当前 supervisor lifecycle boundary 做成可复查、可 release-check 的证据。仓库已有只读 `supervisor status` 和 `supervisor preflight`、foreground Unix socket binding、runtime-lock observation、stale-lock detection，以及这些路径不追加 Ledger event 的测试。缺口是还没有 schema-checked readiness contract 证明这并不是 production daemon lifecycle management。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority，但 readiness metadata 和 runtime lock 不能授权 action。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 拥有未来 supervisor/vault/daemon authority boundary；TypeScript readiness reports 只能检查 evidence，不能成为 authority。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：readiness schema 必须分 tier，并拒绝 authority、repair、vault 和 daemon overclaim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 要求在扩大 daemon behavior 前，先为 status/start/stop/recover-stale-lock 建立 typed lifecycle contracts。
+
+本轮修正：
+
+- 新增 `schemas/supervisor-lifecycle-readiness.schema.json` 和 `examples/contracts/supervisor-lifecycle-readiness.json`。
+- contract 命名当前支持的 evidence：stdio RPC、foreground Unix socket mode、foreground workspace runtime lock、只读 `supervisor status` 和只读 `supervisor preflight`。
+- contract 明确把 production daemon、service installation、background process manager、`supervisor start`、`supervisor stop`、`supervisor recover-stale-lock`、socket-auth lifecycle、vault backend、signer、process sandbox、cloud worker、stale-lock repair、runtime-lock authority、socket-token tool authority 和 supervisor lease issuance 标为未实现。
+- 新增负向 schema 测试，拒绝 daemon、stale-lock repair、socket-auth persistence/vault backing、raw socket auth token 字段、raw supervisor secret availability、vault retrieval、socket-token authority、lifecycle lease authority 和 vault-backend overclaim。
+- `doctor`、`onboarding check` 和 `release evidence` 现在输出 `supervisor_lifecycle_readiness_contract` evidence，与 Model Provider 和 Vault Reference readiness 并列。
+- README、TUI README、harness-core README、supervisor README、schema governance 和 runtime-loop docs 都已同步中英文说明。
+
+偏差复核：
+
+- 修正 PGC-2 readiness drift：supervisor lifecycle behavior 已存在于 status/preflight code 和 tests，但 production reports 不能单独证明 unsupported daemon/recovery/vault boundary。
+- 修正 lifecycle terminology drift 风险：foreground socket/runtime-lock evidence 可能被误认为 service installation、process management、crash recovery 或 stale-lock repair。
+- 未实现 production daemon start/stop、service install、stale-lock recovery、crash recovery、socket token storage/rotation、device/user identity、vault-backed supervisor secrets、process sandboxing、cloud execution、connector grants 或 lease authority。
+
+修正与剩余边界：
+
+- Supervisor Lifecycle Readiness 是 P1 readiness contract，不是 daemon control、vault、auth lifecycle、recovery command 或 policy gateway。
+- 剩余严格复查差距包括 vault reference binding design、显式 lifecycle command contracts、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

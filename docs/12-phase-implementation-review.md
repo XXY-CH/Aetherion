@@ -1571,6 +1571,37 @@ Corrections and remaining boundary:
 - Model Provider Readiness is a P1 readiness/credential-boundary metadata contract, not a credential store, OAuth client, connector grant, or policy lease.
 - Remaining strict-review gaps include supervisor lifecycle/vault reference binding design, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 58 Review Notes
+
+This pass continues PGC-2 by making the current supervisor lifecycle boundary reviewable and release-checkable. The repo already had read-only `supervisor status` and `supervisor preflight`, foreground Unix socket binding, runtime-lock observation, stale-lock detection, and tests that these paths do not append Ledger events. The missing piece was a schema-checked readiness contract proving that this is not yet production daemon lifecycle management.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): Local Supervisor remains the root authority, but readiness metadata and runtime locks cannot authorize actions.
+- [Technical Strategy](10-technical-strategy.md): Rust owns the future supervisor/vault/daemon authority boundary; TypeScript readiness reports should inspect evidence without becoming authority.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): readiness schemas must be tiered and must reject authority, repair, vault, and daemon overclaims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 calls for typed lifecycle contracts for status/start/stop/recover-stale-lock before broadening daemon behavior.
+
+Implemented correspondence:
+
+- Added `schemas/supervisor-lifecycle-readiness.schema.json` and `examples/contracts/supervisor-lifecycle-readiness.json`.
+- The contract names current supported evidence: stdio RPC, foreground Unix socket mode, foreground workspace runtime lock, read-only `supervisor status`, and read-only `supervisor preflight`.
+- The contract explicitly marks production daemon, service installation, background process manager, `supervisor start`, `supervisor stop`, `supervisor recover-stale-lock`, socket-auth lifecycle, vault backend, signer, process sandbox, cloud worker, stale-lock repair, runtime-lock authority, socket-token tool authority, and supervisor lease issuance as unimplemented.
+- Added a negative schema test rejecting daemon, stale-lock repair, socket-auth persistence/vault backing, raw socket auth token fields, raw supervisor secret availability, vault retrieval, socket-token authority, lifecycle lease authority, and vault-backend overclaims.
+- `doctor`, `onboarding check`, and `release evidence` now include `supervisor_lifecycle_readiness_contract` evidence alongside Model Provider and Vault Reference readiness.
+- README, TUI README, harness-core README, supervisor README, schema governance, and runtime-loop docs were updated in English and Chinese.
+
+Drift review:
+
+- Corrects a PGC-2 readiness drift: supervisor lifecycle behavior existed as status/preflight code and tests, but production reports could not separately prove the unsupported daemon/recovery/vault boundary.
+- Corrects a lifecycle terminology drift risk where foreground socket/runtime-lock evidence could be mistaken for service installation, process management, crash recovery, or stale-lock repair.
+- Does not implement production daemon start/stop, service install, stale-lock recovery, crash recovery, socket token storage/rotation, device/user identity, vault-backed supervisor secrets, process sandboxing, cloud execution, connector grants, or lease authority.
+
+Corrections and remaining boundary:
+
+- Supervisor Lifecycle Readiness is a P1 readiness contract, not daemon control, a vault, an auth lifecycle, a recovery command, or a policy gateway.
+- Remaining strict-review gaps include vault reference binding design, explicit lifecycle command contracts, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

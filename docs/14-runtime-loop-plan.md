@@ -874,3 +874,27 @@ Remaining boundary:
 
 - This is not an OAuth client, provider-auth wizard, token refresh system, connector grant lifecycle, streaming/multimodal provider path, provider tool executor, or runtime authority grant.
 - The next high-value PGC-2 slice is still supervisor lifecycle/vault reference binding design, unless release evidence or CI becomes the sharper blocker.
+
+## Completed Increment: Supervisor Lifecycle Readiness Contract
+
+Target: continue PGC-2 by making the current supervisor lifecycle boundary release-checkable without pretending that foreground status/preflight is a production daemon lifecycle.
+
+Acceptance:
+
+- `supervisor-lifecycle-readiness.schema.json` and its example validate with the existing contract example suite.
+- The schema locks supported lifecycle evidence to read-only `supervisor status` and `supervisor preflight`, plus stdio/foreground Unix socket/runtime-lock observation.
+- The schema rejects production daemon, start/stop, stale-lock repair, socket-auth lifecycle, vault backend, process sandbox, signer, cloud worker, socket-token tool authority, runtime-lock authority, and supervisor lease-authority overclaims.
+- `doctor`, `onboarding check`, and `release evidence` surface `supervisor_lifecycle_readiness_contract` evidence.
+- Release evidence keeps the remaining lifecycle gap explicit: status/preflight and foreground socket locks exist, but production daemon start/stop, socket-auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are still unimplemented.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Local Supervisor stays the authority boundary, while lifecycle readiness metadata cannot itself grant authority or leases.
+- [Technical Strategy](10-technical-strategy.md): Rust remains the future owner for authority/vault/daemon boundaries; this pass only records current status/preflight evidence and unsupported lifecycle claims.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): supervisor lifecycle readiness is P1 metadata with negative tests for daemon, repair, vault, socket-auth, and lease-authority overclaiming.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this continues PGC-2 by typing lifecycle readiness before implementing start/stop/recover-stale-lock behavior.
+
+Remaining boundary:
+
+- This is not a production daemon, service installer, daemon manager, stale-lock recovery command, crash-recovery system, socket-auth lifecycle, device/user identity layer, vault backend, signer, process sandbox, cloud worker, or policy lease.
+- The next high-value PGC-2 slice is vault reference binding design or the first explicit lifecycle command contract, unless local ingress or release evidence becomes the sharper blocker.

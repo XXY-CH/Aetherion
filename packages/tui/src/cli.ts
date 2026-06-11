@@ -692,6 +692,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
     repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
     repoCheckById.get("model_provider_readiness_contract") ?? missingRepoCheck("model_provider_readiness_contract"),
+    repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
@@ -721,6 +722,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "runtime_artifact_ignore_rules",
     "schema_example_manifest",
     "model_provider_readiness_contract",
+    "supervisor_lifecycle_readiness_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
@@ -955,6 +957,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    supervisor_lifecycle_readiness_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     vault_reference_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1009,6 +1015,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
   const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
+  const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
@@ -1095,6 +1102,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: modelProviderReadinessContract?.status ?? "fail",
         evidence: modelProviderReadinessContract?.evidence ?? ["model_provider_readiness_contract=missing"]
       },
+      supervisor_lifecycle_readiness_contract: {
+        status: supervisorLifecycleReadinessContract?.status ?? "fail",
+        evidence: supervisorLifecycleReadinessContract?.evidence ?? ["supervisor_lifecycle_readiness_contract=missing"]
+      },
       vault_reference_contract: {
         status: vaultReferenceContract?.status ?? "fail",
         evidence: vaultReferenceContract?.evidence ?? ["vault_reference_contract=missing"]
@@ -1137,6 +1148,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
+      "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
       "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
       "public docs are not deployed",
@@ -1687,6 +1699,7 @@ function repoDoctorChecks(): DoctorCheck[] {
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
   checks.push(modelProviderReadinessContractCheck());
+  checks.push(supervisorLifecycleReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
 }
@@ -1850,6 +1863,205 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
       `tests_ready=${String(testsReady)}`
     ],
     "Restore schemas/model-provider-readiness.schema.json, examples/contracts/model-provider-readiness.json, and the no-tools provider boundary without raw credential persistence, OAuth-flow claims, connector grants, or model-output authority."
+  );
+}
+
+function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/supervisor-lifecycle-readiness.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/supervisor-lifecycle-readiness.json");
+  const source = readRepoText("packages/tui/src/cli.ts") ?? "";
+  const tests = readRepoText("packages/tui/test/tui.test.ts") ?? "";
+  const supervisorReadme = readRepoText("crates/supervisor/README.md") ?? "";
+  const example = readRepoJson("examples/contracts/supervisor-lifecycle-readiness.json") as {
+    supported_runtime_modes?: {
+      stdio_rpc?: unknown;
+      foreground_unix_socket?: unknown;
+      foreground_workspace_lock?: unknown;
+      production_daemon?: unknown;
+      service_installation?: unknown;
+      background_process_manager?: unknown;
+    };
+    lifecycle_commands?: Array<{
+      command?: unknown;
+      supported?: unknown;
+      implemented?: unknown;
+      read_only?: unknown;
+      idempotent?: unknown;
+      mutates_ledger?: unknown;
+      issues_lease?: unknown;
+      repairs_state?: unknown;
+    }>;
+    runtime_lock?: {
+      lock_path?: unknown;
+      workspace_bound?: unknown;
+      owner_pid_reported?: unknown;
+      owner_process_status_reported?: unknown;
+      stale_lock_detected?: unknown;
+      stale_lock_repaired?: unknown;
+      runtime_lock_can_authorize_actions?: unknown;
+      reported_fields?: unknown;
+    };
+    socket_auth_boundary?: {
+      caller_supplied_token_supported?: unknown;
+      token_value_persisted?: unknown;
+      token_rotation_implemented?: unknown;
+      device_identity_implemented?: unknown;
+      user_identity_implemented?: unknown;
+      pairing_implemented?: unknown;
+      vault_backed_token_storage?: unknown;
+    };
+    vault_boundary?: {
+      vault_reference_contract_present?: unknown;
+      raw_secret_available_to_supervisor?: unknown;
+      secret_retrieval_api_implemented?: unknown;
+      provider_tokens_resolved_by_supervisor?: unknown;
+    };
+    authority?: {
+      local_supervisor_is_root_authority?: unknown;
+      workspace_id_derived_from_root?: unknown;
+      lifecycle_contract_can_issue_lease?: unknown;
+      socket_token_can_authorize_tools?: unknown;
+      preflight_can_mutate_state?: unknown;
+      status_can_mutate_ledger?: unknown;
+    };
+    limits?: {
+      production_daemon_implemented?: unknown;
+      start_command_implemented?: unknown;
+      stop_command_implemented?: unknown;
+      recover_stale_lock_command_implemented?: unknown;
+      socket_auth_lifecycle_implemented?: unknown;
+      vault_backend_implemented?: unknown;
+      signer_implemented?: unknown;
+      process_sandbox_implemented?: unknown;
+      cloud_worker_implemented?: unknown;
+    };
+  } | null;
+  const commands = Array.isArray(example?.lifecycle_commands) ? example.lifecycle_commands : [];
+  const commandByName = new Map(commands
+    .filter((entry): entry is typeof entry & { command: string } => typeof entry.command === "string")
+    .map((entry) => [entry.command, entry]));
+  const readOnlyCommandSafe = ["supervisor status", "supervisor preflight"].every((name) => {
+    const command = commandByName.get(name);
+    return command?.supported === true
+      && command.read_only === true
+      && command.idempotent === true
+      && command.mutates_ledger === false
+      && command.issues_lease === false
+      && command.repairs_state === false;
+  });
+  const unsupportedLifecycleSafe = ["supervisor start", "supervisor stop", "supervisor recover-stale-lock"].every((name) => {
+    const command = commandByName.get(name);
+    return command?.supported === false
+      && command.implemented === false
+      && command.mutates_ledger === false
+      && command.issues_lease === false
+      && command.repairs_state === false;
+  });
+  const runtimeModesSafe = example?.supported_runtime_modes?.stdio_rpc === true
+    && example.supported_runtime_modes.foreground_unix_socket === true
+    && example.supported_runtime_modes.foreground_workspace_lock === true
+    && example.supported_runtime_modes.production_daemon === false
+    && example.supported_runtime_modes.service_installation === false
+    && example.supported_runtime_modes.background_process_manager === false;
+  const reportedFields = Array.isArray(example?.runtime_lock?.reported_fields)
+    ? example.runtime_lock.reported_fields
+    : [];
+  const requiredRuntimeLockFields = [
+    "runtime_lock_present",
+    "runtime_lock_path",
+    "runtime_lock_pid",
+    "runtime_lock_transport",
+    "runtime_lock_workspace_id",
+    "runtime_lock_socket_path",
+    "runtime_lock_workspace_match",
+    "runtime_lock_process_status",
+    "runtime_lock_stale",
+    "runtime_lock_parse_error"
+  ];
+  const runtimeLockSafe = example?.runtime_lock?.lock_path === ".aetherion/supervisor.lock"
+    && example.runtime_lock.workspace_bound === true
+    && example.runtime_lock.owner_pid_reported === true
+    && example.runtime_lock.owner_process_status_reported === true
+    && example.runtime_lock.stale_lock_detected === true
+    && example.runtime_lock.stale_lock_repaired === false
+    && example.runtime_lock.runtime_lock_can_authorize_actions === false
+    && requiredRuntimeLockFields.every((field) => reportedFields.includes(field));
+  const socketAuthBoundarySafe = example?.socket_auth_boundary?.caller_supplied_token_supported === true
+    && example.socket_auth_boundary.token_value_persisted === false
+    && example.socket_auth_boundary.token_rotation_implemented === false
+    && example.socket_auth_boundary.device_identity_implemented === false
+    && example.socket_auth_boundary.user_identity_implemented === false
+    && example.socket_auth_boundary.pairing_implemented === false
+    && example.socket_auth_boundary.vault_backed_token_storage === false;
+  const vaultBoundarySafe = example?.vault_boundary?.vault_reference_contract_present === true
+    && example.vault_boundary.raw_secret_available_to_supervisor === false
+    && example.vault_boundary.secret_retrieval_api_implemented === false
+    && example.vault_boundary.provider_tokens_resolved_by_supervisor === false;
+  const authoritySafe = example?.authority?.local_supervisor_is_root_authority === true
+    && example.authority.workspace_id_derived_from_root === true
+    && example.authority.lifecycle_contract_can_issue_lease === false
+    && example.authority.socket_token_can_authorize_tools === false
+    && example.authority.preflight_can_mutate_state === false
+    && example.authority.status_can_mutate_ledger === false;
+  const limitsSafe = example?.limits?.production_daemon_implemented === false
+    && example.limits.start_command_implemented === false
+    && example.limits.stop_command_implemented === false
+    && example.limits.recover_stale_lock_command_implemented === false
+    && example.limits.socket_auth_lifecycle_implemented === false
+    && example.limits.vault_backend_implemented === false
+    && example.limits.signer_implemented === false
+    && example.limits.process_sandbox_implemented === false
+    && example.limits.cloud_worker_implemented === false;
+  const sourceReady = source.includes("supervisor supports status and preflight")
+    && source.includes("function supervisorLifecyclePreflight")
+    && source.includes("start_supported: false")
+    && source.includes("repair_supported: false")
+    && source.includes("runtime_lock_stale")
+    && source.includes("socketAuthToken")
+    && supervisorReadme.includes("Production daemon lifecycle")
+    && supervisorReadme.includes("stale supervisor runtime-lock recovery")
+    && supervisorReadme.includes("Real vault backend");
+  const testsReady = tests.includes("TUI supervisor status reports Rust runtime health without appending events")
+    && tests.includes("foreground_socket_running")
+    && tests.includes("stale_runtime_lock")
+    && tests.includes("start_supported")
+    && tests.includes("repair_supported");
+  const ok = schemaPresent
+    && examplePresent
+    && commands.length === 5
+    && readOnlyCommandSafe
+    && unsupportedLifecycleSafe
+    && runtimeModesSafe
+    && runtimeLockSafe
+    && socketAuthBoundarySafe
+    && vaultBoundarySafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "supervisor_lifecycle_readiness_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Supervisor lifecycle readiness contract covers read-only status/preflight, foreground socket lock observation, and unsupported production lifecycle boundaries."
+      : "Supervisor lifecycle readiness contract is missing or overclaims daemon, socket-auth, stale-lock repair, vault, lease, or tool authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `commands=${[...commandByName.keys()].sort().join(",") || "missing"}`,
+      `read_only_status_preflight=${String(readOnlyCommandSafe)}`,
+      `start_stop_recover_unsupported=${String(unsupportedLifecycleSafe)}`,
+      `runtime_modes_safe=${String(runtimeModesSafe)}`,
+      `runtime_lock_observable_only=${String(runtimeLockSafe)}`,
+      `socket_auth_boundary_safe=${String(socketAuthBoundarySafe)}`,
+      `vault_boundary_safe=${String(vaultBoundarySafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore schemas/supervisor-lifecycle-readiness.schema.json, examples/contracts/supervisor-lifecycle-readiness.json, and the status/preflight boundary without claiming production daemon lifecycle, socket-auth lifecycle, stale-lock repair, vault backend, or lease authority."
   );
 }
 

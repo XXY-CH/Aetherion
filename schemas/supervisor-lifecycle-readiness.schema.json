@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/supervisor-lifecycle-readiness.schema.json",
+  "title": "SupervisorLifecycleReadiness",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "supported_runtime_modes",
+    "lifecycle_commands",
+    "runtime_lock",
+    "socket_auth_boundary",
+    "vault_boundary",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^supervisor_lifecycle_readiness_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-supervisor-lifecycle-readiness-v1"] },
+    "status": { "type": "string", "enum": ["declared"] },
+    "supported_runtime_modes": {
+      "type": "object",
+      "required": [
+        "stdio_rpc",
+        "foreground_unix_socket",
+        "foreground_workspace_lock",
+        "production_daemon",
+        "service_installation",
+        "background_process_manager"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stdio_rpc": { "type": "boolean", "enum": [true] },
+        "foreground_unix_socket": { "type": "boolean", "enum": [true] },
+        "foreground_workspace_lock": { "type": "boolean", "enum": [true] },
+        "production_daemon": { "type": "boolean", "enum": [false] },
+        "service_installation": { "type": "boolean", "enum": [false] },
+        "background_process_manager": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "lifecycle_commands": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/supervisorStatus" },
+        { "$ref": "#/$defs/supervisorPreflight" },
+        { "$ref": "#/$defs/supervisorStart" },
+        { "$ref": "#/$defs/supervisorStop" },
+        { "$ref": "#/$defs/supervisorRecoverStaleLock" }
+      ],
+      "items": false
+    },
+    "runtime_lock": {
+      "type": "object",
+      "required": [
+        "lock_path",
+        "workspace_bound",
+        "owner_pid_reported",
+        "owner_process_status_reported",
+        "stale_lock_detected",
+        "stale_lock_repaired",
+        "runtime_lock_can_authorize_actions",
+        "reported_fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lock_path": { "type": "string", "enum": [".aetherion/supervisor.lock"] },
+        "workspace_bound": { "type": "boolean", "enum": [true] },
+        "owner_pid_reported": { "type": "boolean", "enum": [true] },
+        "owner_process_status_reported": { "type": "boolean", "enum": [true] },
+        "stale_lock_detected": { "type": "boolean", "enum": [true] },
+        "stale_lock_repaired": { "type": "boolean", "enum": [false] },
+        "runtime_lock_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "reported_fields": {
+          "type": "array",
+          "minItems": 7,
+          "items": {
+            "type": "string",
+            "enum": [
+              "runtime_lock_present",
+              "runtime_lock_path",
+              "runtime_lock_pid",
+              "runtime_lock_transport",
+              "runtime_lock_workspace_id",
+              "runtime_lock_socket_path",
+              "runtime_lock_workspace_match",
+              "runtime_lock_process_status",
+              "runtime_lock_stale",
+              "runtime_lock_parse_error"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "socket_auth_boundary": {
+      "type": "object",
+      "required": [
+        "caller_supplied_token_supported",
+        "token_value_persisted",
+        "token_rotation_implemented",
+        "device_identity_implemented",
+        "user_identity_implemented",
+        "pairing_implemented",
+        "vault_backed_token_storage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caller_supplied_token_supported": { "type": "boolean", "enum": [true] },
+        "token_value_persisted": { "type": "boolean", "enum": [false] },
+        "token_rotation_implemented": { "type": "boolean", "enum": [false] },
+        "device_identity_implemented": { "type": "boolean", "enum": [false] },
+        "user_identity_implemented": { "type": "boolean", "enum": [false] },
+        "pairing_implemented": { "type": "boolean", "enum": [false] },
+        "vault_backed_token_storage": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "vault_boundary": {
+      "type": "object",
+      "required": [
+        "vault_reference_contract_present",
+        "raw_secret_available_to_supervisor",
+        "secret_retrieval_api_implemented",
+        "provider_tokens_resolved_by_supervisor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "vault_reference_contract_present": { "type": "boolean", "enum": [true] },
+        "raw_secret_available_to_supervisor": { "type": "boolean", "enum": [false] },
+        "secret_retrieval_api_implemented": { "type": "boolean", "enum": [false] },
+        "provider_tokens_resolved_by_supervisor": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "local_supervisor_is_root_authority",
+        "workspace_id_derived_from_root",
+        "lifecycle_contract_can_issue_lease",
+        "socket_token_can_authorize_tools",
+        "preflight_can_mutate_state",
+        "status_can_mutate_ledger"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_is_root_authority": { "type": "boolean", "enum": [true] },
+        "workspace_id_derived_from_root": { "type": "boolean", "enum": [true] },
+        "lifecycle_contract_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "socket_token_can_authorize_tools": { "type": "boolean", "enum": [false] },
+        "preflight_can_mutate_state": { "type": "boolean", "enum": [false] },
+        "status_can_mutate_ledger": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "production_daemon_implemented",
+        "start_command_implemented",
+        "stop_command_implemented",
+        "recover_stale_lock_command_implemented",
+        "socket_auth_lifecycle_implemented",
+        "vault_backend_implemented",
+        "signer_implemented",
+        "process_sandbox_implemented",
+        "cloud_worker_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "production_daemon_implemented": { "type": "boolean", "enum": [false] },
+        "start_command_implemented": { "type": "boolean", "enum": [false] },
+        "stop_command_implemented": { "type": "boolean", "enum": [false] },
+        "recover_stale_lock_command_implemented": { "type": "boolean", "enum": [false] },
+        "socket_auth_lifecycle_implemented": { "type": "boolean", "enum": [false] },
+        "vault_backend_implemented": { "type": "boolean", "enum": [false] },
+        "signer_implemented": { "type": "boolean", "enum": [false] },
+        "process_sandbox_implemented": { "type": "boolean", "enum": [false] },
+        "cloud_worker_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "supervisorStatus": {
+      "type": "object",
+      "required": ["command", "supported", "read_only", "idempotent", "mutates_ledger", "issues_lease", "repairs_state"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "enum": ["supervisor status"] },
+        "supported": { "type": "boolean", "enum": [true] },
+        "read_only": { "type": "boolean", "enum": [true] },
+        "idempotent": { "type": "boolean", "enum": [true] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "supervisorPreflight": {
+      "type": "object",
+      "required": ["command", "supported", "read_only", "idempotent", "mutates_ledger", "issues_lease", "repairs_state"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "enum": ["supervisor preflight"] },
+        "supported": { "type": "boolean", "enum": [true] },
+        "read_only": { "type": "boolean", "enum": [true] },
+        "idempotent": { "type": "boolean", "enum": [true] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "supervisorStart": {
+      "type": "object",
+      "required": ["command", "supported", "implemented", "mutates_ledger", "issues_lease", "repairs_state"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "enum": ["supervisor start"] },
+        "supported": { "type": "boolean", "enum": [false] },
+        "implemented": { "type": "boolean", "enum": [false] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "supervisorStop": {
+      "type": "object",
+      "required": ["command", "supported", "implemented", "mutates_ledger", "issues_lease", "repairs_state"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "enum": ["supervisor stop"] },
+        "supported": { "type": "boolean", "enum": [false] },
+        "implemented": { "type": "boolean", "enum": [false] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "supervisorRecoverStaleLock": {
+      "type": "object",
+      "required": ["command", "supported", "implemented", "mutates_ledger", "issues_lease", "repairs_state"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "enum": ["supervisor recover-stale-lock"] },
+        "supported": { "type": "boolean", "enum": [false] },
+        "implemented": { "type": "boolean", "enum": [false] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] }
+      }
+    }
+  }
+}

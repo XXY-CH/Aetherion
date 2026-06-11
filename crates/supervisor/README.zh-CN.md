@@ -15,6 +15,7 @@
 - 评估最小 deterministic local file policy。
 - 颁发 scoped lease。
 - 用 lease-gated read 和 traced write prepare/commit 证明本地文件 action lifecycle。
+- 仓库级 Supervisor Lifecycle Readiness contract 只把 status/preflight 作为 observable readiness evidence；它不声明 production daemon start/stop、socket-auth lifecycle、stale-lock recovery、vault-backed supervisor secret 或 lease authority 已实现。
 
 重要边界：
 
