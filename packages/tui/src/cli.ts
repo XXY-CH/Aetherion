@@ -680,10 +680,10 @@ function repoDoctorChecks(): DoctorCheck[] {
     "ci_workflow_gate",
     ciWorkflow && ciGateNeedles().every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
     ciWorkflow ? "info" : "error",
-    "GitHub Actions workflow covers the current local quality gates.",
+    "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, and the Node 24 action-runtime baseline.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit"
+      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit,ubuntu/macos platform smoke"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
   ));
@@ -743,6 +743,10 @@ function repoDoctorChecks(): DoctorCheck[] {
 
 function ciGateNeedles(): string[] {
   return [
+    "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
+    "actions/checkout@v5",
+    "actions/setup-node@v5",
+    "package-manager-cache: false",
     "npm ci --ignore-scripts",
     "npm audit --audit-level=high --json",
     "cargo install cargo-audit --locked --version 0.22.1",
@@ -754,7 +758,13 @@ function ciGateNeedles(): string[] {
     "git diff --check",
     "tools/forbidden-tracked-roots.txt",
     "npm run ether -- doctor --workspace .",
-    "npm run ether -- security audit --workspace ."
+    "npm run ether -- security audit --workspace .",
+    "platform-smoke:",
+    "fail-fast: false",
+    "ubuntu-latest",
+    "macos-latest",
+    "node --test --test-name-pattern",
+    "Platform smoke"
   ];
 }
 
@@ -3380,7 +3390,7 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
     checkForFindings(
       "ci.dependency_audit_guard",
       findings,
-      "CI enforces lockfile install, dependency audit, and operator readiness snapshots.",
+      "CI enforces lockfile install, dependency audit, platform smoke, Node 24 action runtime, and operator readiness snapshots.",
       [`required_gates=${ciGateNeedles().join(",")}`]
     ),
     modelStdout.check
@@ -3582,9 +3592,9 @@ function ciDependencyAuditGuardFindings(): SecurityAuditFinding[] {
         "ci.dependency_audit_guard",
         "medium",
         "CI dependency and readiness guard is incomplete",
-        "GitHub Actions does not run every dependency reproducibility, dependency audit, and operator readiness gate.",
+        "GitHub Actions does not run every dependency reproducibility, dependency audit, platform smoke, action-runtime, and operator readiness gate.",
         [`missing_gates=${missing.join(",")}`],
-        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, doctor, and security audit."
+        "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, doctor, security audit, Node 24 JavaScript actions, and the platform smoke matrix."
       )];
 }
 

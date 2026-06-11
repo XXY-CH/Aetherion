@@ -336,7 +336,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   assert.equal(workspaceCheck?.status, "not_applicable");
   assert.match(workspaceCheck?.summary ?? "", /not initialized/);
   assert.equal(report.checks.find((check) => check.id === "dependency_lockfiles")?.status, "pass");
-  assert.equal(report.checks.find((check) => check.id === "ci_workflow_gate")?.status, "pass");
+  const ciWorkflowCheck = report.checks.find((check) => check.id === "ci_workflow_gate");
+  assert.equal(ciWorkflowCheck?.status, "pass");
+  assert.match(ciWorkflowCheck?.summary ?? "", /platform smoke/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
@@ -425,7 +427,10 @@ test("Ether security audit reports read-only status without initializing a works
   assert.equal(report.checks.find((check) => check.id === "workspace.ledger_hash_chain")?.status, "not_applicable");
   assert.equal(report.checks.find((check) => check.id === "prompt.invoke_model_stdout_default")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "repo.dependency_reproducibility")?.status, "pass");
-  assert.equal(report.checks.find((check) => check.id === "ci.dependency_audit_guard")?.status, "pass");
+  const ciDependencyGuard = report.checks.find((check) => check.id === "ci.dependency_audit_guard");
+  assert.equal(ciDependencyGuard?.status, "pass");
+  assert.match(ciDependencyGuard?.evidence.join("\n") ?? "", /macos-latest/);
+  assert.match(ciDependencyGuard?.evidence.join("\n") ?? "", /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24/);
   const artifactGuardEvidence = report.checks.find((check) => check.id === "repo.tracked_runtime_artifacts")?.evidence.join("\n") ?? "";
   assert.match(artifactGuardEvidence, /vault/);
   assert.match(artifactGuardEvidence, /memory-vault/);

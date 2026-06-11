@@ -609,3 +609,52 @@ Remaining boundary:
 - This is not release packaging, artifact signing, update infrastructure, platform matrix execution, public docs deployment, or dependency auto-remediation.
 - The ignored `promo/` subtree remains a local/generated promotional experiment and is outside release evidence.
 - Remaining production gaps are install/onboarding automation, release packaging, platform matrix, public docs deployment, and deeper release artifact evidence.
+
+## Completed Increment: CI Platform Smoke And Action Runtime Evidence
+
+Target: remove the remaining GitHub Actions Node.js 20 action-runtime warning and turn part of the platform/release-evidence gap into a checked Ubuntu/macOS smoke lane, without adding release packaging or widening runtime authority.
+
+Acceptance:
+
+- CI uses `actions/checkout@v5` and `actions/setup-node@v5`, with `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` as an explicit Node 24 action-runtime baseline.
+- CI includes a `platform-smoke` matrix over `ubuntu-latest` and `macos-latest`.
+- The smoke lane runs lockfile install, a focused contract/provider/TUI-help Node test subset, locked Rust supervisor tests, `doctor`, and `security audit`.
+- `doctor` and `security audit` fail if the workflow drifts away from the action-runtime or platform-smoke evidence.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): readiness evidence is committed and replayable from CI configuration.
+- [Roadmap](06-roadmap.md): platform discipline improves inside the TUI-first scope before broader release packaging or app surfaces.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): workflow configuration remains a human-readable contract for release evidence.
+- [Phase Implementation Review](12-phase-implementation-review.md): this follows the remaining platform/release gap identified by the OpenClaw comparison.
+
+Remaining boundary:
+
+- This is a smoke matrix, not a full release matrix, package build, installer, updater, or artifact-signing pipeline.
+- Real OAuth, MCP connectors, browser automation, IM delivery, GUI apps, package-code execution, cloud workers, and public docs deployment remain deferred.
+- Remaining production gaps are install/onboarding automation, release packaging, deeper release artifact evidence, public docs deployment, and broader platform/release matrix coverage.
+
+## Completed Increment: Provider Tool-Call Refusal
+
+Target: make the multi-provider `prompt invoke-model` path enforce no-tools semantics when live providers return tool/function-call response shapes, without adding provider tool execution or OAuth connector runtime.
+
+Acceptance:
+
+- OpenAI Responses call-type output fails before response evidence is persisted.
+- OpenAI Chat Completions `tool_calls` output fails before response evidence is persisted.
+- Anthropic `tool_use` output fails before response evidence is persisted.
+- Gemini `functionCall` and executable-code parts fail before response evidence is persisted.
+- Provider failures remain local errors; no `tool.requested`, policy decision, lease, action, observation, or verification event is synthesized.
+
+Matched source docs and corrections:
+
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no-tools mode is now enforced at the provider boundary, not only recorded as response metadata.
+- [Roadmap](06-roadmap.md): model provider portability remains inside the TUI-first evidence loop while OAuth/MCP/SaaS connectors stay deferred.
+- [User Boundary Layer](02-user-boundary-layer.md): provider output is untrusted data and cannot cross into action authority without policy.
+- [Phase Implementation Review](12-phase-implementation-review.md): this follows the strict security review finding that provider tool-call outputs must fail closed.
+
+Remaining boundary:
+
+- This is not provider tool execution, a tool-call proposal parser, streaming support, multimodal support, browser OAuth, token refresh, vault storage, connector grants, or live-provider CI probing.
+- OpenAI support remains OpenAI Responses and OpenAI Chat Completions; legacy `/v1/completions` is not implemented.
+- OAuth remains limited to externally acquired bearer-token env vars for provider paths that support them.

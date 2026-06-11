@@ -231,6 +231,68 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不增加 release packaging、artifact signing、update infrastructure、platform matrix execution、public docs deployment、dependency auto-remediation、GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括 install/onboarding automation、release packaging、platform/release matrix、public docs deployment 和更深入的 release artifact evidence。
 
+## Phase 48 复核：CI Platform Smoke 与 Action Runtime Evidence
+
+本轮修正上一轮远端绿灯后暴露的窄 CI/release-evidence 偏差：GitHub Actions 虽然成功，但给出 Node.js 20 JavaScript action-runtime deprecation annotation，而且仓库仍没有跨平台 smoke lane。这与严格 OpenClaw 对照里记录的 platform/release evidence gap 不完全对齐。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：readiness claim 应继续依赖 durable、可 review evidence，而不是本地一次性成功。
+- [路线图](06-roadmap.zh-CN.md)：先围绕 TUI/Rust loop 扩大生产纪律，再进入延后的 GUI、IM、browser、connector、cloud 或 marketplace surface。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：本轮跟进 dependency reproducibility 后仍剩余的 platform matrix 与 release-evidence gap。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：CI workflow config 是 human-readable、可 review、可重放的 evidence。
+
+本轮修正：
+
+- CI 使用 `actions/checkout@v5` 与 `actions/setup-node@v5`，保留 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 作为显式 runtime baseline，并用 `package-manager-cache=false` 关闭 setup-node package-manager auto-cache。
+- CI 新增覆盖 `ubuntu-latest` 与 `macos-latest` 的 `platform-smoke` job。
+- platform smoke lane 运行 `npm ci --ignore-scripts`、聚焦的 contract/provider/TUI-help Node test subset、`cargo test --locked`、`npm run ether -- doctor --workspace .` 和 `npm run ether -- security audit --workspace .`。
+- `doctor` 与 `security audit` 现在要求 `.github/workflows/ci.yml` 中存在 Node 24 action-runtime baseline 与 platform-smoke evidence。
+- README、CONTRIBUTING、TUI README 和中文伴读文档记录 platform-smoke 与 action-runtime evidence。
+
+验证：
+
+- 本地 workflow YAML 解析通过。
+- 目标 TUI doctor/security tests 断言 platform-smoke 与 Node 24 action-runtime evidence。
+- Markdown relative-link verification 覆盖新增链接。
+
+修正与剩余边界：
+
+- 修正 CI/release-evidence 偏差，但不新增 release packaging、artifact signing、public docs deployment、installer/updater infrastructure 或真实 platform packages。
+- macOS/Ubuntu lane 是 smoke matrix，不是完整 OpenClaw-class platform/release matrix。
+- 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 install/onboarding automation、release packaging、更深入的 release artifact evidence、public docs deployment 和更广的 platform/release matrix。
+
+## Phase 49 复核：Provider No-Tools 硬失败边界
+
+本轮关闭 bounded security review 指出的 no-tools provider-boundary 偏差。Aetherion 已支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Gemini `generateContent`，但 provider tool/function-call output 之前主要作为 metadata 表达。严格 no-tools runtime 应在写入成功 model-response 或 response-audit evidence 前拒绝这些输出。
+
+与原始文档对照：
+
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：model output 不能授权 action、追加 tool request event、发 lease 或触发 side effect。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：provider hardening 仍是 no-tools/hash-only，不增加 OAuth flow、connector grant、provider tool 或 side effect。
+- [路线图](06-roadmap.zh-CN.md)：OAuth/MCP/SaaS connector 仍延后，同时允许 TUI model-evidence path 调用选定 provider。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：untrusted/model-derived content 不能绕过 policy 进入 action authority。
+
+本轮修正：
+
+- live provider 映射结果一旦包含 tool/function call 或 executable-code 形态就 fail closed。
+- 覆盖 OpenAI Responses call-type output、OpenAI Chat Completions `tool_calls`、Anthropic `tool_use` 和 Gemini `functionCall`/`executableCode`。
+- fail-closed 检查位于 provider boundary 内，早于 `prompt invoke-model` 写 hash-only response evidence 或本地 response-audit evidence。
+- 文档澄清支持的是 `openai_chat_completions` 这个 OpenAI completion-style surface，不是 legacy `/v1/completions` 实现。
+- OAuth 仍仅限 provider 支持路径上的外部 bearer-token env var；Aetherion 不运行 OAuth、不持久化 token、不 refresh grant，也不创建 connector authority。
+
+验证：
+
+- provider unit tests 模拟四类 tool-call output family 并断言 no-tools failure。
+- 既有 provider tests 继续覆盖 endpoint、header、body、credential、timeout、HTTP error 和 malformed JSON 行为。
+
+修正与剩余边界：
+
+- 将 no-tools 从描述性 metadata flag 修正为 live model call 的强制 provider boundary。
+- 本轮仍不增加 streaming、多模态 payload、provider tool execution、browser OAuth、token refresh、vault storage、connector grant 或 live-provider CI probe。
+- 剩余 provider hardening gap 包括 optional live contract probes、更细 provider refusal taxonomy，以及禁止 workflow 意外使用 `--print-output` 的显式 CI guard。
+
 ## 验证要求
 
 每轮结束应至少检查：

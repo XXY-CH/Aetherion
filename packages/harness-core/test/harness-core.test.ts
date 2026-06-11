@@ -825,6 +825,89 @@ test("live model providers map official API surfaces without persisting credenti
   );
 });
 
+test("live model providers reject tool calls in no-tools mode", async () => {
+  const messages = [{ role: "user" as const, content: "Answer without tools." }];
+  const request = {
+    provider_ref: "provider_openai_responses",
+    model_ref: "model-test",
+    output_mode: "answer" as const,
+    messages,
+    max_output_tokens: 10
+  };
+
+  await withMockFetch({
+    status: "completed",
+    output: [{ type: "function_call", name: "read_file", arguments: "{}" }],
+    usage: { input_tokens: 3, output_tokens: 0, total_tokens: 3 }
+  }, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /provider_openai_responses returned a tool\/function call in no-tools mode/
+    );
+  });
+
+  await withMockFetch({
+    choices: [{
+      finish_reason: "tool_calls",
+      message: { content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } }] }
+    }],
+    usage: { prompt_tokens: 3, completion_tokens: 0, total_tokens: 3 }
+  }, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_chat_completions",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /provider_openai_chat_completions returned a tool\/function call in no-tools mode/
+    );
+  });
+
+  await withMockFetch({
+    content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }],
+    stop_reason: "tool_use",
+    usage: { input_tokens: 3, output_tokens: 0 }
+  }, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "anthropic",
+        ANTHROPIC_API_KEY: "anthropic-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /provider_anthropic returned a tool\/function call in no-tools mode/
+    );
+  });
+
+  await withMockFetch({
+    candidates: [{
+      finishReason: "STOP",
+      content: { parts: [{ functionCall: { name: "read_file", args: {} } }] }
+    }],
+    usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 0, totalTokenCount: 3 }
+  }, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "gemini",
+        GEMINI_API_KEY: "gemini-api-key"
+      }
+    });
+    await assert.rejects(
+      provider.invoke(request),
+      /provider_gemini returned a tool\/function call in no-tools mode/
+    );
+  });
+});
+
 test("live model providers fail closed on timeout, HTTP errors, and malformed JSON", async () => {
   const messages = [{ role: "user" as const, content: "Answer from evidence." }];
   const request = {

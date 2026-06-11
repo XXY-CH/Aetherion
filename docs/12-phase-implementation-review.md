@@ -1238,6 +1238,68 @@ Corrections and remaining boundary:
 - This still does not add release packaging, artifact signing, update infrastructure, platform matrix execution, public docs deployment, dependency auto-remediation, GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include install/onboarding automation, release packaging, platform/release matrix, public docs deployment, and deeper release artifact evidence.
 
+## Phase 48 Review Notes
+
+This pass closes a narrow CI/release-evidence drift exposed by the previous green remote run: GitHub Actions completed, but emitted a Node.js 20 JavaScript action-runtime deprecation annotation, and the repo still had no cross-platform smoke lane. That left Aetherion short of the platform/release evidence called out in the strict OpenClaw comparison.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): readiness claims should remain grounded in durable, reviewable evidence rather than local-only success.
+- [Roadmap](06-roadmap.md): production discipline should expand around the TUI/Rust loop before deferred GUI, IM, browser, connector, cloud, or marketplace surfaces.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): this follows the remaining platform matrix and release-evidence gap after dependency reproducibility was closed.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): CI workflow configuration is human-readable evidence that can be reviewed and replayed.
+
+Implemented correspondence:
+
+- CI uses `actions/checkout@v5` and `actions/setup-node@v5`, keeps `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` as an explicit runtime baseline, and disables setup-node package-manager auto-cache with `package-manager-cache=false`.
+- CI adds a `platform-smoke` job over `ubuntu-latest` and `macos-latest`.
+- The platform smoke lane runs `npm ci --ignore-scripts`, a focused contract/provider/TUI-help Node test subset, `cargo test --locked`, `npm run ether -- doctor --workspace .`, and `npm run ether -- security audit --workspace .`.
+- `doctor` and `security audit` now require the Node 24 action-runtime baseline and platform-smoke evidence in `.github/workflows/ci.yml`.
+- README, CONTRIBUTING, TUI README, and Chinese companions describe the platform-smoke and action-runtime evidence.
+
+Verification evidence:
+
+- Workflow YAML parses locally.
+- Targeted TUI doctor/security tests assert platform-smoke and Node 24 action-runtime evidence.
+- Markdown relative-link verification covers the new links.
+
+Corrections and remaining boundary:
+
+- Corrects the CI/release-evidence drift without adding release packaging, artifact signing, public docs deployment, installer/updater infrastructure, or real platform packages.
+- The macOS/Ubuntu lane is a smoke matrix, not a full OpenClaw-class platform/release matrix.
+- This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include install/onboarding automation, release packaging, deeper release artifact evidence, public docs deployment, and a broader platform/release matrix.
+
+## Phase 49 Review Notes
+
+This pass closes a no-tools provider-boundary drift raised by the bounded security review. Aetherion already supported OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini `generateContent`, but provider tool/function-call outputs were only represented as metadata. A strict no-tools runtime should reject those outputs before writing successful model-response or response-audit evidence.
+
+Matched source docs:
+
+- [Schema Runtime Governance](13-schema-runtime-governance.md): model output cannot authorize actions, append tool request events, issue leases, or trigger side effects.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): provider hardening remains no-tools and hash-only, without OAuth flows, connector grants, provider tools, or side effects.
+- [Roadmap](06-roadmap.md): keeps OAuth/MCP/SaaS connectors deferred while allowing the TUI model-evidence path to call selected providers.
+- [User Boundary Layer](02-user-boundary-layer.md): untrusted/model-derived content must not cross into action authority without policy.
+
+Implemented correspondence:
+
+- Live providers now fail closed if mapped output contains a tool/function call or executable-code shape.
+- Covered shapes include OpenAI Responses call-type output, OpenAI Chat Completions `tool_calls`, Anthropic `tool_use`, and Gemini `functionCall`/`executableCode`.
+- The fail-closed check occurs inside the provider boundary, before `prompt invoke-model` can write hash-only response evidence or local response-audit evidence.
+- Docs clarify that `openai_chat_completions` is the supported OpenAI completion-style surface, not a legacy `/v1/completions` implementation.
+- OAuth remains limited to externally acquired bearer-token env vars for provider paths that support them; Aetherion still does not run OAuth, persist tokens, refresh grants, or create connector authority.
+
+Verification evidence:
+
+- Provider unit tests simulate all four tool-call output families and assert no-tools failure.
+- Existing provider tests still verify endpoint, header, body, credential, timeout, HTTP error, and malformed JSON behavior.
+
+Corrections and remaining boundary:
+
+- Corrects no-tools from a descriptive metadata flag into an enforced provider boundary for live model calls.
+- This still does not add streaming, multimodal payloads, provider tool execution, browser OAuth, token refresh, vault storage, connector grants, or live-provider CI probes.
+- Remaining provider hardening gaps include optional live contract probes, richer provider refusal taxonomy, and explicit CI guards against accidental `--print-output` use in workflows.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

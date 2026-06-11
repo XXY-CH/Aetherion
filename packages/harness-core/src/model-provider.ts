@@ -57,6 +57,12 @@ export type ModelProvider = {
   invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult>;
 };
 
+export function assertNoProviderToolCalls(result: ModelInvocationResult, providerRef: string): void {
+  if (result.tool_calls_present || result.finish_reason === "tool_call") {
+    throw new Error(`${providerRef} returned a tool/function call in no-tools mode; refusing to persist model response evidence.`);
+  }
+}
+
 export type ResolveModelProviderOptions = {
   providerName?: string;
   modelRef?: string;
@@ -150,7 +156,9 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
       }, body, "openai_responses", timeoutMs);
-      return mapOpenAIResponsesResponse(payload);
+      const result = mapOpenAIResponsesResponse(payload);
+      assertNoProviderToolCalls(result, "provider_openai_responses");
+      return result;
     }
   };
 }
@@ -176,7 +184,9 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
       }, body, "openai_chat_completions", timeoutMs);
-      return mapOpenAIChatCompletionResponse(payload);
+      const result = mapOpenAIChatCompletionResponse(payload);
+      assertNoProviderToolCalls(result, "provider_openai_chat_completions");
+      return result;
     }
   };
 }
@@ -209,7 +219,9 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
         "x-api-key": apiKey.value
       };
       const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", timeoutMs);
-      return mapAnthropicResponse(payload);
+      const result = mapAnthropicResponse(payload);
+      assertNoProviderToolCalls(result, "provider_anthropic");
+      return result;
     }
   };
 }
@@ -247,7 +259,9 @@ export function createGeminiProvider(modelRef: string, env: Record<string, strin
         "gemini",
         timeoutMs
       );
-      return mapGeminiResponse(payload);
+      const result = mapGeminiResponse(payload);
+      assertNoProviderToolCalls(result, "provider_gemini");
+      return result;
     }
   };
 }

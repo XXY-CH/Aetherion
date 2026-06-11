@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,12 +24,13 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 25.x
+          package-manager-cache: false
 
       - name: Install Node dependencies from lockfile
         run: npm ci --ignore-scripts
@@ -68,6 +72,41 @@ jobs:
           fi
 
       - name: Check operator readiness snapshots
+        run: |
+          npm run ether -- doctor --workspace .
+          npm run ether -- security audit --workspace .
+
+  platform-smoke:
+    name: Platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 25.x
+          package-manager-cache: false
+
+      - name: Install Node dependencies from lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Run platform smoke tests
+        run: node --test --test-name-pattern "contract examples validate|live model providers map official API surfaces|TUI help" packages/*/test/*.test.ts
+
+      - name: Run Rust supervisor smoke tests
+        run: cargo test --locked
+
+      - name: Check operator readiness snapshot
         run: |
           npm run ether -- doctor --workspace .
           npm run ether -- security audit --workspace .

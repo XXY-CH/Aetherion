@@ -104,11 +104,11 @@ npm run ether -- doctor --workspace .
 npm run ether -- security audit --workspace .
 ```
 
-pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。根 JavaScript surface 当前没有 npm dependency，但已提交 `package-lock.json`，所以第一项 dependency 加入前 `npm ci` 和 `npm audit` 已经可复现。`Cargo.lock` 已提交，Rust verification 使用 `--locked`；完整本地 dependency audit 需要 `cargo-audit`。被 ignore 的 `promo/` 子树是 local/generated promotional experiment，不属于 release evidence。
+pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。CI 也会把 GitHub JavaScript actions opt in 到 Node 24 runtime，并运行 Ubuntu/macOS platform-smoke job，覆盖 contract/provider/help 子集、locked Rust tests、`doctor` 和 `security audit`。根 JavaScript surface 当前没有 npm dependency，但已提交 `package-lock.json`，所以第一项 dependency 加入前 `npm ci` 和 `npm audit` 已经可复现。`Cargo.lock` 已提交，Rust verification 使用 `--locked`；完整本地 dependency audit 需要 `cargo-audit`。被 ignore 的 `promo/` 子树是 local/generated promotional experiment，不属于 release evidence。
 
-如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、CI/script/artifact/dependency-audit guard 预期、dependency lockfiles、schema/example baseline、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，也不会修复 runtime state。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)和[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)。
+如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、CI/script/artifact/dependency-audit/platform-smoke guard 预期、dependency lockfiles、schema/example baseline、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，也不会修复 runtime state。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)和[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)。
 
-如需只读安全快照，运行 `npm run ether -- security audit --workspace .`。报告会检查 tracked text file 中的高置信 secret material、dependency lockfile evidence、共享 denylist 下的 tracked runtime/build roots、现有 `.aetherion` artifact 中的 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI dependency/readiness guard wiring，以及 `prompt invoke-model` stdout 边界。它不初始化 workspace、不 repair state、不追加 event、不写 artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
+如需只读安全快照，运行 `npm run ether -- security audit --workspace .`。报告会检查 tracked text file 中的高置信 secret material、dependency lockfile evidence、共享 denylist 下的 tracked runtime/build roots、现有 `.aetherion` artifact 中的 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI dependency/platform/readiness guard wiring，以及 `prompt invoke-model` stdout 边界。它不初始化 workspace、不 repair state、不追加 event、不写 artifact、不调用 provider、不发 lease，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
 
 ## 当前实现状态
 
@@ -123,6 +123,8 @@ pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检�
 - `gemini`：Gemini `generateContent` API。
 
 provider 凭据只从环境变量内存读取。Aetherion 不运行浏览器 OAuth 流、不持久化 token、不创建 connector grant，也不把模型访问当作工具权限。
+
+如果 live provider 返回 tool/function call（OpenAI `tool_calls`、Responses call-type output、Anthropic `tool_use`、Gemini `functionCall` 或 executable code），no-tools 路径会在写入 model response 或 response-audit evidence 前 fail closed。
 
 `prompt invoke-model` 默认 stdout 只输出 hash/metadata。只有显式传 `--print-output` 时才会把 raw model output 回显给本地 operator；即便如此，raw output 仍不会写入 artifact、Ledger、registry 或日志。
 

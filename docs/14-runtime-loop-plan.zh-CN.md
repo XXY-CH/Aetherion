@@ -234,3 +234,52 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 - 本轮不是 release packaging、artifact signing、update infrastructure、platform matrix execution、public docs deployment 或 dependency auto-remediation。
 - 被 ignore 的 `promo/` 子树仍是 local/generated promotional experiment，不属于 release evidence。
 - 剩余生产差距包括 install/onboarding automation、release packaging、platform matrix、public docs deployment 和更深入的 release artifact evidence。
+
+## 已完成增量：CI Platform Smoke 与 Action Runtime Evidence
+
+目标：清除剩余 GitHub Actions Node.js 20 action-runtime warning，并把部分 platform/release-evidence gap 收束成已检查的 Ubuntu/macOS smoke lane，同时不新增 release packaging，也不扩大 runtime authority。
+
+验收：
+
+- CI 使用 `actions/checkout@v5` 和 `actions/setup-node@v5`，并保留 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 作为显式 Node 24 action-runtime baseline。
+- CI 包含覆盖 `ubuntu-latest` 与 `macos-latest` 的 `platform-smoke` matrix。
+- smoke lane 运行 lockfile install、聚焦的 contract/provider/TUI-help Node test subset、locked Rust supervisor tests、`doctor` 和 `security audit`。
+- `doctor` 与 `security audit` 会在 workflow 漂离 action-runtime 或 platform-smoke evidence 时 fail/warn。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：readiness evidence 由已提交 CI config 提供，可 review、可重放。
+- [路线图](06-roadmap.zh-CN.md)：先在 TUI-first 范围内强化 platform discipline，再扩展 release packaging 或 app surface。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：workflow configuration 继续作为 release evidence 的 human-readable contract。
+- [阶段实现复核](12-phase-implementation-review.zh-CN.md)：本轮跟进 OpenClaw 对照指出的剩余 platform/release gap。
+
+剩余边界：
+
+- 这是 smoke matrix，不是完整 release matrix、package build、installer、updater 或 artifact-signing pipeline。
+- 真实 OAuth、MCP connector、browser automation、IM delivery、GUI app、package-code execution、cloud worker 和 public docs deployment 仍然延后。
+- 剩余生产差距包括 install/onboarding automation、release packaging、更深入的 release artifact evidence、public docs deployment 和更广的 platform/release matrix coverage。
+
+## 已完成增量：Provider Tool-Call Refusal
+
+目标：当 live provider 返回 tool/function-call response shape 时，让 multi-provider `prompt invoke-model` path 强制执行 no-tools 语义，同时不新增 provider tool execution 或 OAuth connector runtime。
+
+验收：
+
+- OpenAI Responses call-type output 在 response evidence 持久化前失败。
+- OpenAI Chat Completions `tool_calls` output 在 response evidence 持久化前失败。
+- Anthropic `tool_use` output 在 response evidence 持久化前失败。
+- Gemini `functionCall` 和 executable-code parts 在 response evidence 持久化前失败。
+- provider failure 仍是本地 error；不会合成 `tool.requested`、policy decision、lease、action、observation 或 verification event。
+
+与原始文档对照和修正：
+
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：no-tools mode 现在在 provider boundary 强制执行，而不只是记录 response metadata。
+- [路线图](06-roadmap.zh-CN.md)：model provider portability 仍在 TUI-first evidence loop 内，OAuth/MCP/SaaS connector 继续延后。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：provider output 是 untrusted data，不能不经过 policy 进入 action authority。
+- [阶段实现复核](12-phase-implementation-review.zh-CN.md)：本轮跟进严格 security review 指出的 provider tool-call output 必须 fail closed。
+
+剩余边界：
+
+- 本轮不是 provider tool execution、tool-call proposal parser、streaming support、多模态 support、browser OAuth、token refresh、vault storage、connector grant 或 live-provider CI probing。
+- OpenAI support 仍是 OpenAI Responses 和 OpenAI Chat Completions；未实现 legacy `/v1/completions`。
+- OAuth 仍仅限 provider 支持路径上的外部 bearer-token env var。
