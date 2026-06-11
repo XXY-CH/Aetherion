@@ -537,9 +537,9 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - `local-ingress-readiness.schema.json` 及其 example 进入现有 contract example validation suite。
 - schema 要求 caller identity placeholder、surface id、workspace id、idempotency key、normalized intent hash、auth state、rate-limit state 和 policy handoff metadata。
-- schema 拒绝 public API/browser/IM/mobile/cloud ingress overclaim、unauthenticated authority、duplicate-key authority reuse、raw external payload persistence、session issuance、rate-limit enforcement claim 和 supervisor bypass。
+- schema 拒绝 public API/browser/IM/mobile/cloud ingress overclaim、unauthenticated authority、duplicate-key authority reuse、raw external payload persistence、session issuance、durable/distributed/session/remote rate-limit claim 和 supervisor bypass。
 - `doctor`、`onboarding check`、`ingress audit` 和 `release evidence` 输出 `local_ingress_readiness_contract` evidence。
-- `ingress audit` 保持只读，并报告当前缺口：TUI run duplicate-key reservation 已存在，但 cached idempotent result replay、rate-limit enforcement、durable auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 仍未完成。
+- `ingress audit` 保持只读，并报告当前缺口：TUI run rate-limit 与 duplicate-key reservation 已存在，但 cached idempotent result replay、durable/distributed/session/remote rate limiting、durable auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 仍未完成。
 
 匹配源文档与修正：
 
@@ -550,8 +550,8 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 剩余边界：
 
-- 这不是 production ingress gateway、public API listener、browser extension、IM delivery path、mobile pairing system、connector OAuth ingress、cloud worker、session manager、cached idempotent replay system、rate limiter、policy lease 或 side-effect authorization path。
-- 下一高价值切片是 local command envelope 的 runtime idempotency/duplicate detection、显式 supervisor lifecycle command contracts，或 provider error/credential-source productionization。
+- 这不是 production ingress gateway、public API listener、browser extension、IM delivery path、mobile pairing system、connector OAuth ingress、cloud worker、session manager、cached idempotent replay system、durable 或 remote rate limiter、policy lease 或 side-effect authorization path。
+- 下一高价值切片是 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts，或 provider error/credential-source productionization。
 
 ## 已完成增量：TUI Run Idempotency Reservation
 
@@ -561,9 +561,9 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - `local-ingress-idempotency-reservation.schema.json` 及其 example 进入 contract example validation suite。
 - `run` 支持 `--idempotency-key <key>`，未传入时会派生 generated local key；raw key 和 raw intent text 不会被持久化。
-- idempotency reservation 记录 `idempotency_key_hash`、`normalized_intent_hash`、`surface_id=tui`、`auth_state=local_operator`、`rate_limit_state=not_enforced` 和 `policy_handoff=pending_fresh_policy_and_scoped_lease`。
+- idempotency reservation 记录 `idempotency_key_hash`、`normalized_intent_hash`、`surface_id=tui`、`auth_state=local_operator`、`rate_limit_state=enforced_allow` 和 `policy_handoff=pending_fresh_policy_and_scoped_lease`。
 - reservation 在 supervisor handoff 前用 atomic create (`wx`) 写入，所以重复 key 会在新 run manifest、Ledger event、tool request、policy decision、lease 或 action 创建前 fail closed。
-- `ingress audit`、`doctor` 和 `release evidence` 会报告 TUI duplicate-key reservation，同时继续把 cached idempotent replay、rate-limit enforcement、durable auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 标为开放缺口。
+- `ingress audit`、`doctor` 和 `release evidence` 会报告 TUI duplicate-key reservation，同时继续把 cached idempotent replay、durable/distributed/session/remote rate limiting、durable auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 标为开放缺口。
 
 匹配源文档与修正：
 
@@ -574,5 +574,29 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 剩余边界：
 
-- 这不是 production ingress gateway、public API listener、remote replay-protection system、cached idempotent response replay、rate limiter、session manager、auth lifecycle、policy lease 或 side-effect authorization path。
-- 下一高价值切片是 cached/replay-safe idempotency semantics、rate-limit state enforcement、显式 supervisor lifecycle command contracts，或 provider error/credential-source productionization。
+- 这不是 production ingress gateway、public API listener、remote replay-protection system、cached idempotent response replay、durable 或 remote rate limiter、session manager、auth lifecycle、policy lease 或 side-effect authorization path。
+- 下一高价值切片是 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts，或 provider error/credential-source productionization。
+
+## 已完成增量：TUI Run Rate Limit Reservation
+
+目标：在不添加 production gateway 或 remote ingress surface 的前提下，让 PGC-3 的 rate-limit 要求先在当前 TUI `run` surface 上，于 Local Supervisor handoff 前可执行。
+
+验收：
+
+- `local-ingress-rate-limit-reservation.schema.json` 及其 example 进入 contract example validation suite。
+- `run` 会在 idempotency reservation、supervisor handoff、run manifest、Ledger append、tool request、policy decision、lease 或 file action 前创建 hash-only local atomic window-slot reservation。
+- reservation 记录 `rate_limit_key_hash`、`normalized_intent_hash`、`surface_id=tui`、`auth_state=local_operator`、`rate_limit_state=enforced_allow`、`enforcement_stage=before_supervisor_handoff` 和 `policy_handoff=pending_fresh_policy_and_scoped_lease`。
+- schema 拒绝 raw key 或 raw intent persistence、ingress-issued authority、session issuance、background queue、mutable counter registry、late enforcement 和 non-TUI surface。
+- `ingress audit`、`doctor` 和 `release evidence` 现在区分已实现的 TUI local rate-limit enforcement，以及仍未实现的 cached idempotent replay、durable/distributed/session/remote rate limiting、auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress。
+
+匹配源文档与修正：
+
+- [架构](01-architecture.zh-CN.md)：rate limiting 属于 Local Supervisor handoff 前的 ingress gateway boundary。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 可以请求 action，但不能授予 permission、发 session 或成为 trust root。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：local ingress reservation metadata 必须保持 hash-only，并拒绝 raw material、authority、session 和 background-queue claim。
+- [生产缺口关闭计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 要求在 broader ingress surface 前先有 rate-limit state enforcement。
+
+剩余边界：
+
+- 这不是 production ingress gateway、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress、session manager、durable distributed limiter、cached idempotent result replay、policy lease 或 side-effect authorization path。
+- 下一高价值切片是 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts、provider error/credential-source productionization，或 remote CI/release hardening。

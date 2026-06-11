@@ -52,7 +52,8 @@
   },
   "rate_limit": {
     "rate_limit_state_required": true,
-    "rate_limit_enforcement_implemented": false,
+    "rate_limit_enforcement_implemented": true,
+    "rate_limit_enforcement_scope": "tui_run_local_atomic_window_before_supervisor_handoff",
     "over_limit_can_execute_actions": false,
     "background_queue_implemented": false
   },
@@ -101,6 +102,7 @@
   "source_files": [
     "docs/01-architecture.md",
     "docs/15-production-gap-closure-plan.md",
+    "schemas/local-ingress-rate-limit-reservation.schema.json",
     "schemas/local-ingress-idempotency-reservation.schema.json",
     "packages/tui/src/cli.ts",
     "packages/harness-core/test/harness-core.test.ts"

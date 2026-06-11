@@ -931,9 +931,9 @@ Acceptance:
 
 - `local-ingress-readiness.schema.json` and its example validate with the existing contract example suite.
 - The schema requires caller identity placeholder, surface id, workspace id, idempotency key, normalized intent hash, auth state, rate-limit state, and policy handoff metadata.
-- The schema rejects public API/browser/IM/mobile/cloud ingress overclaims, unauthenticated authority, duplicate-key authority reuse, raw external payload persistence, session issuance, rate-limit enforcement claims, and supervisor bypass.
+- The schema rejects public API/browser/IM/mobile/cloud ingress overclaims, unauthenticated authority, duplicate-key authority reuse, raw external payload persistence, session issuance, durable/distributed/session/remote rate-limit claims, and supervisor bypass.
 - `doctor`, `onboarding check`, `ingress audit`, and `release evidence` surface `local_ingress_readiness_contract` evidence.
-- `ingress audit` is read-only and reports the current gap: TUI run duplicate-key reservation exists, but cached idempotent result replay, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress remain missing.
+- `ingress audit` is read-only and reports the current gap: TUI run rate-limit and duplicate-key reservations exist, but cached idempotent result replay, durable/distributed/session/remote rate limiting, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress remain missing.
 
 Matched source docs and corrections:
 
@@ -944,8 +944,8 @@ Matched source docs and corrections:
 
 Remaining boundary:
 
-- This is not a production ingress gateway, public API listener, browser extension, IM delivery path, mobile pairing system, connector OAuth ingress, cloud worker, session manager, cached idempotent replay system, rate limiter, policy lease, or side-effect authorization path.
-- The next high-value slices are either runtime idempotency/duplicate detection for local command envelopes, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.
+- This is not a production ingress gateway, public API listener, browser extension, IM delivery path, mobile pairing system, connector OAuth ingress, cloud worker, session manager, cached idempotent replay system, durable or remote rate limiter, policy lease, or side-effect authorization path.
+- The next high-value slices are either cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.
 
 ## Completed Increment: TUI Run Idempotency Reservation
 
@@ -955,9 +955,9 @@ Acceptance:
 
 - `local-ingress-idempotency-reservation.schema.json` and its example validate with the contract example suite.
 - `run` accepts `--idempotency-key <key>` and otherwise derives a generated local key; raw keys and raw intent text are not persisted.
-- The idempotency reservation records `idempotency_key_hash`, `normalized_intent_hash`, `surface_id=tui`, `auth_state=local_operator`, `rate_limit_state=not_enforced`, and `policy_handoff=pending_fresh_policy_and_scoped_lease`.
+- The idempotency reservation records `idempotency_key_hash`, `normalized_intent_hash`, `surface_id=tui`, `auth_state=local_operator`, `rate_limit_state=enforced_allow`, and `policy_handoff=pending_fresh_policy_and_scoped_lease`.
 - Reservation uses atomic create (`wx`) before supervisor handoff, so a repeated key fails closed before a new run manifest, Ledger event, tool request, policy decision, lease, or action is created.
-- `ingress audit`, `doctor`, and `release evidence` report the TUI duplicate-key reservation while keeping cached idempotent replay, rate-limit enforcement, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress open.
+- `ingress audit`, `doctor`, and `release evidence` report the TUI duplicate-key reservation while keeping cached idempotent replay, durable/distributed/session/remote rate limiting, durable auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress open.
 
 Matched source docs and corrections:
 
@@ -968,5 +968,29 @@ Matched source docs and corrections:
 
 Remaining boundary:
 
-- This is not a production ingress gateway, public API listener, remote replay-protection system, cached idempotent response replay, rate limiter, session manager, auth lifecycle, policy lease, or side-effect authorization path.
-- The next high-value slices are cached/replay-safe idempotency semantics, rate-limit state enforcement, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.
+- This is not a production ingress gateway, public API listener, remote replay-protection system, cached idempotent response replay, durable or remote rate limiter, session manager, auth lifecycle, policy lease, or side-effect authorization path.
+- The next high-value slices are cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, or provider error/credential-source productionization.
+
+## Completed Increment: TUI Run Rate Limit Reservation
+
+Target: make the PGC-3 rate-limit requirement executable for the current TUI `run` surface before Local Supervisor handoff, without adding a production gateway or remote ingress surface.
+
+Acceptance:
+
+- `local-ingress-rate-limit-reservation.schema.json` and its example validate with the contract example suite.
+- `run` creates a hash-only local atomic window-slot reservation before idempotency reservation, supervisor handoff, run manifest creation, Ledger append, tool request, policy decision, lease, or file action.
+- The reservation records `rate_limit_key_hash`, `normalized_intent_hash`, `surface_id=tui`, `auth_state=local_operator`, `rate_limit_state=enforced_allow`, `enforcement_stage=before_supervisor_handoff`, and `policy_handoff=pending_fresh_policy_and_scoped_lease`.
+- The schema rejects raw key or raw intent persistence, ingress-issued authority, session issuance, background queues, mutable counter registries, late enforcement, and non-TUI surfaces.
+- `ingress audit`, `doctor`, and `release evidence` now distinguish implemented TUI local rate-limit enforcement from still-missing cached idempotent replay, durable/distributed/session/remote rate limiting, auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, and cloud worker ingress.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): rate limiting is part of the ingress gateway boundary before Local Supervisor handoff.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces can request action but cannot grant permissions, issue sessions, or become the trust root.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): local ingress reservation metadata must remain hash-only and must reject raw material, authority, session, and background-queue claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 requires rate-limit state enforcement before broader ingress surfaces.
+
+Remaining boundary:
+
+- This is not a production ingress gateway, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, session manager, durable distributed limiter, cached idempotent result replay, policy lease, or side-effect authorization path.
+- The next high-value slices are cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, or remote CI/release hardening.

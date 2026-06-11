@@ -12,7 +12,7 @@
   "duplicate_detection_stage": "before_supervisor_handoff",
   "duplicate_detector": "local_atomic_reservation_file",
   "auth_state": "local_operator",
-  "rate_limit_state": "not_enforced",
+  "rate_limit_state": "enforced_allow",
   "policy_handoff": "pending_fresh_policy_and_scoped_lease",
   "raw_key_persisted": false,
   "raw_intent_persisted": false,

@@ -31,7 +31,7 @@
 | 架构层 | 当前仓库证据 | 生产缺口 | 补全方向 |
 | --- | --- | --- | --- |
 | Client Surfaces | 已有 Ether TUI；GUI/mobile/IM/browser/API 都标为 deferred；README 列出受治理的 post-V1 scaffold。 | 没有产品化 desktop/mobile/browser/IM/API client，也没有 surface identity/pairing lifecycle。 | 保持 V1 只有 TUI 可运行。API/GUI/browser/IM/mobile 必须等 ingress identity 和 supervisor policy gateway 后再实现。 |
-| Ingress Gateways | 本地 command invocation 有 workspace identity checks；Local Ingress Readiness 已定义 envelope/idempotency/auth-state/rate-limit/policy-handoff 边界；TUI `run` 会在 supervisor handoff 前创建 hash-only idempotency reservation，并用原子 duplicate-key rejection 拦截重复；IM/browser/store observation 是 hash-only 或 queue-only slice。 | 没有 cached idempotent result replay、rate limiter、durable auth/session lifecycle、public API listener、IM/browser/mobile ingress gateway 或真实 remote-surface request execution。 | 小步把 local ingress contract 推进为 runtime gateway：replay-safe duplicate handling、rate-limit state enforcement、caller/session identity，以及真实 remote surface 前的 fresh supervisor policy handoff。 |
+| Ingress Gateways | 本地 command invocation 有 workspace identity checks；Local Ingress Readiness 已定义 envelope/idempotency/auth-state/rate-limit/policy-handoff 边界；TUI `run` 会在 supervisor handoff 前创建 hash-only local rate-limit window-slot 与 idempotency reservation；IM/browser/store observation 是 hash-only 或 queue-only slice。 | 没有 cached idempotent result replay、durable/distributed/session/remote rate limiting、durable auth/session lifecycle、public API listener、IM/browser/mobile ingress gateway 或真实 remote-surface request execution。 | 小步把 local ingress contract 推进为 runtime gateway：cached/replay-safe duplicate handling、caller/session identity、durable 或 remote rate-limit semantics，以及真实 remote surface 前的 fresh supervisor policy handoff。 |
 | Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence、metadata-only vault reference、vault policy binding readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、start/stop/recover commands、stale-lock recovery command 或 secret retrieval path。 | 小步推进 lifecycle：显式 start/stop/status/recover behavior、auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
 | Agent Orchestrator | prompt assembly、runtime binding、model request/response metadata、live no-tools invocation、response audit 和 tool-request proposal 都作为 non-authorizing evidence 实现。 | 没有 full agent loop、planner/verifier runtime、streaming、retry policy、semantic verification、tool-call translation 或 durable queue integration。 | 保持 no-tools provider lane；先把 operator-restated proposal 转成 fresh supervisor policy request，再考虑 model-driven tool loop。 |
 | Memory OS | 已有 source-backed Memory Candidate/Card/Tombstone lifecycle、context assembly、tombstone exclusion、conflict projection 和 parity preview。 | 没有 full deterministic rebuild/repair、redaction lifecycle、semantic retrieval、vector/graph index 或 memory quality dashboard。 | 先扩展 parity coverage 与 redaction/rebuild tooling，再做 semantic/vector retrieval。 |
@@ -88,17 +88,17 @@
 交付物：
 
 - 面向 TUI/API-like input 的 local ingress request envelope：caller identity placeholder、surface id、workspace id、idempotency key、normalized intent hash、auth state、rate-limit state 和 policy handoff。当前 readiness contract 与只读 audit command 已作为 `local_ingress_readiness_contract` evidence 存在。
-- 在任何新 action run 之前加入 runtime duplicate/idempotency detector 和 replay protection。TUI `run` 现在已有 supervisor handoff 前的 local atomic duplicate-key reservation；prior result 的 cached replay 仍未完成。
+- 在任何新 action run 之前加入 runtime duplicate/idempotency detector、local rate-limit enforcement 和 replay protection。TUI `run` 现在已有 supervisor handoff 前的 local atomic rate-limit window-slot 与 duplicate-key reservation；prior result 的 cached replay 仍未完成。
 - 只读 ingress audit command，证明没有 real remote surface 绕过 Local Supervisor。
 
 验收：
 
-- duplicate idempotency key 在创建新 action run 前被发现。
+- duplicate idempotency key 和 over-limit local TUI run window 在创建新 action run 前被发现。
 - unauthenticated/unknown local API/browser/IM/mobile input 可以被记录成 observation 或 queued intent，但不能授权 tool 或 side effect。
 
 当前部分状态：
 
-- Contract、`ingress audit` surface，以及 TUI `run` local atomic duplicate-key reservation 已存在。Cached idempotent result replay、rate-limit enforcement、auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 仍未完成。
+- Contract、`ingress audit` surface，以及 TUI `run` local atomic rate-limit 与 duplicate-key reservation 已存在。Cached idempotent result replay、durable/distributed/session/remote rate limiting、auth/session lifecycle、public API listener、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress 和 cloud worker ingress 仍未完成。
 
 ### PGC-4：Provider Boundary 生产化
 

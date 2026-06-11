@@ -147,13 +147,15 @@
       "required": [
         "rate_limit_state_required",
         "rate_limit_enforcement_implemented",
+        "rate_limit_enforcement_scope",
         "over_limit_can_execute_actions",
         "background_queue_implemented"
       ],
       "additionalProperties": false,
       "properties": {
         "rate_limit_state_required": { "type": "boolean", "enum": [true] },
-        "rate_limit_enforcement_implemented": { "type": "boolean", "enum": [false] },
+        "rate_limit_enforcement_implemented": { "type": "boolean", "enum": [true] },
+        "rate_limit_enforcement_scope": { "type": "string", "enum": ["tui_run_local_atomic_window_before_supervisor_handoff"] },
         "over_limit_can_execute_actions": { "type": "boolean", "enum": [false] },
         "background_queue_implemented": { "type": "boolean", "enum": [false] }
       }

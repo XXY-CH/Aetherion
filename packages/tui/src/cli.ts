@@ -89,7 +89,9 @@ async function main(): Promise<void> {
   }
   const runId = `run_${Date.now()}_${randomUUID().slice(0, 8)}`;
   await preflightSocketSupervisorBinding(options, runId);
-  const ingressReservation = await reserveLocalIngressIdempotency(options, runId);
+  const rawIdempotencyKey = validatedRunIdempotencyKey(options, runId);
+  const rateLimitReservation = await reserveLocalIngressRateLimit(options, runId);
+  const ingressReservation = await reserveLocalIngressIdempotency(options, runId, rawIdempotencyKey);
   const result = options.supervisor === "typescript-seed"
     ? await runLocalKernelLoop({
         repoRoot,
@@ -112,7 +114,7 @@ async function main(): Promise<void> {
         socketAuthToken: options.supervisor === "socket" ? options.socketAuthToken : undefined
       });
 
-  await printRunResult(result, ingressReservation);
+  await printRunResult(result, ingressReservation, rateLimitReservation);
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -1183,7 +1185,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
       "release packages are not built",
       "release artifacts are not signed",
-      "local ingress readiness now has TUI run duplicate-key reservation before supervisor handoff, but cached idempotent replay, rate-limit enforcement, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
+      "local ingress readiness now has TUI run local rate-limit and duplicate-key reservation before supervisor handoff, but cached idempotent replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
       "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
       "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
@@ -1746,6 +1748,8 @@ function repoDoctorChecks(): DoctorCheck[] {
 function localIngressReadinessContractCheck(): DoctorCheck {
   const schemaPresent = existsRepoFile("schemas/local-ingress-readiness.schema.json");
   const examplePresent = existsRepoFile("examples/contracts/local-ingress-readiness.json");
+  const rateLimitReservationSchemaPresent = existsRepoFile("schemas/local-ingress-rate-limit-reservation.schema.json");
+  const rateLimitReservationExamplePresent = existsRepoFile("examples/contracts/local-ingress-rate-limit-reservation.json");
   const idempotencyReservationSchemaPresent = existsRepoFile("schemas/local-ingress-idempotency-reservation.schema.json");
   const idempotencyReservationExamplePresent = existsRepoFile("examples/contracts/local-ingress-idempotency-reservation.json");
   const architecture = readRepoText("docs/01-architecture.md") ?? "";
@@ -1795,6 +1799,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     rate_limit?: {
       rate_limit_state_required?: unknown;
       rate_limit_enforcement_implemented?: unknown;
+      rate_limit_enforcement_scope?: unknown;
       over_limit_can_execute_actions?: unknown;
       background_queue_implemented?: unknown;
     };
@@ -1890,7 +1895,8 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     && example.authentication.oauth_pairing_implemented === false
     && example.authentication.auth_token_persisted === false;
   const rateLimitSafe = example?.rate_limit?.rate_limit_state_required === true
-    && example.rate_limit.rate_limit_enforcement_implemented === false
+    && example.rate_limit.rate_limit_enforcement_implemented === true
+    && example.rate_limit.rate_limit_enforcement_scope === "tui_run_local_atomic_window_before_supervisor_handoff"
     && example.rate_limit.over_limit_can_execute_actions === false
     && example.rate_limit.background_queue_implemented === false;
   const idempotencySafe = example?.idempotency?.idempotency_key_required === true
@@ -1908,6 +1914,14 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     && source.includes("Duplicate ingress idempotency key detected before action run")
     && tuiTests.includes("Ether run rejects duplicate idempotency keys before supervisor handoff")
     && contractTests.includes("local-ingress-idempotency-reservation.schema.json");
+  const runtimeRateLimitReady = rateLimitReservationSchemaPresent
+    && rateLimitReservationExamplePresent
+    && source.includes("reserveLocalIngressRateLimit")
+    && source.includes("local-ingress-rate-limit-reservation.schema.json")
+    && source.includes("local_atomic_window_slot")
+    && source.includes("TUI run ingress rate limit exceeded before action run")
+    && tuiTests.includes("Ether run rejects local rate-limit overflow before supervisor handoff")
+    && contractTests.includes("local-ingress-rate-limit-reservation.schema.json");
   const policyHandoffSafe = example?.policy_handoff?.local_supervisor_required === true
     && example.policy_handoff.tool_policy_proxy_required === true
     && example.policy_handoff.fresh_policy_required_for_actions === true
@@ -1936,13 +1950,17 @@ function localIngressReadinessContractCheck(): DoctorCheck {
   const sourceReady = architecture.includes("normalize / authenticate / rate-limit / idempotency")
     && gapPlan.includes("Local ingress request envelope")
     && gapPlan.includes("Duplicate idempotency keys")
+    && gapPlan.includes("rate-limit")
     && source.includes("function buildIngressAuditReport")
     && source.includes("local_ingress_readiness_contract");
   const testsReady = contractTests.includes("local ingress readiness rejects remote surface, auth, idempotency, and authority overclaims")
     && contractTests.includes("local-ingress-readiness.schema.json")
-    && tuiTests.includes("Ether run rejects duplicate idempotency keys before supervisor handoff");
+    && tuiTests.includes("Ether run rejects duplicate idempotency keys before supervisor handoff")
+    && tuiTests.includes("Ether run rejects local rate-limit overflow before supervisor handoff");
   const ok = schemaPresent
     && examplePresent
+    && rateLimitReservationSchemaPresent
+    && rateLimitReservationExamplePresent
     && idempotencyReservationSchemaPresent
     && idempotencyReservationExamplePresent
     && surfacesSafe
@@ -1951,6 +1969,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     && authSafe
     && rateLimitSafe
     && idempotencySafe
+    && runtimeRateLimitReady
     && runtimeDuplicateDetectorReady
     && policyHandoffSafe
     && remoteSurfaceSafe
@@ -1963,11 +1982,13 @@ function localIngressReadinessContractCheck(): DoctorCheck {
     ok ? "pass" : "fail",
     ok ? "info" : "error",
     ok
-      ? "Local ingress readiness contract requires envelope, auth-state, rate-limit, idempotency, and policy handoff metadata with TUI run duplicate-key reservation before supervisor handoff, without enabling remote surfaces or authority bypass."
+      ? "Local ingress readiness contract requires envelope, auth-state, rate-limit, idempotency, and policy handoff metadata with TUI run local rate-limit and duplicate-key reservation before supervisor handoff, without enabling remote surfaces or authority bypass."
       : "Local ingress readiness contract is missing or overclaims remote ingress, authentication, idempotency, rate-limit, or authority behavior.",
     [
       `schema=${schemaPresent ? "present" : "missing"}`,
       `example=${examplePresent ? "present" : "missing"}`,
+      `rate_limit_reservation_schema=${rateLimitReservationSchemaPresent ? "present" : "missing"}`,
+      `rate_limit_reservation_example=${rateLimitReservationExamplePresent ? "present" : "missing"}`,
       `idempotency_reservation_schema=${idempotencyReservationSchemaPresent ? "present" : "missing"}`,
       `idempotency_reservation_example=${idempotencyReservationExamplePresent ? "present" : "missing"}`,
       `surfaces_safe=${String(surfacesSafe)}`,
@@ -1976,6 +1997,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
       `auth_safe=${String(authSafe)}`,
       `rate_limit_safe=${String(rateLimitSafe)}`,
       `idempotency_safe=${String(idempotencySafe)}`,
+      `runtime_rate_limit_ready=${String(runtimeRateLimitReady)}`,
       `runtime_duplicate_detector_ready=${String(runtimeDuplicateDetectorReady)}`,
       `policy_handoff_safe=${String(policyHandoffSafe)}`,
       `remote_surface_safe=${String(remoteSurfaceSafe)}`,
@@ -1984,7 +2006,7 @@ function localIngressReadinessContractCheck(): DoctorCheck {
       `source_ready=${String(sourceReady)}`,
       `tests_ready=${String(testsReady)}`
     ],
-    "Restore local ingress readiness and idempotency reservation schemas/examples with required local envelope fields, atomic duplicate-key reservation before supervisor handoff, unknown/unauthenticated denial, policy handoff requirements, and no remote surface or authority claims."
+    "Restore local ingress readiness plus rate-limit/idempotency reservation schemas/examples with required local envelope fields, atomic TUI run rate-limit and duplicate-key reservation before supervisor handoff, unknown/unauthenticated denial, policy handoff requirements, and no remote surface or authority claims."
   );
 }
 
@@ -5148,15 +5170,44 @@ type IngressAuditReport = {
     runnable_surface: "tui";
     contract_surface: "local_api_like_envelope";
     envelope_fields: string[];
+    current_rate_limit_enforcement: "tui_run_local_atomic_window_before_supervisor_handoff";
+    rate_limit_reservation_schema: "local-ingress-rate-limit-reservation.schema.json";
     current_duplicate_detection: "tui_run_local_atomic_reservation_before_supervisor_handoff";
     idempotency_reservation_schema: "local-ingress-idempotency-reservation.schema.json";
-    current_rate_limit_enforcement: "not_implemented";
     unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only";
     policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions";
   };
   deferred_surfaces: string[];
   remaining_gaps: string[];
   source_documents: Array<{ path: string; role: string }>;
+};
+
+type LocalIngressRateLimitReservation = {
+  id: string;
+  schema_version: "aetherion-local-ingress-rate-limit-reservation-v1";
+  workspace_id: string;
+  run_id: string;
+  reserved_at: string;
+  surface_id: "tui";
+  command: "run";
+  rate_limit_key_hash: string;
+  normalized_intent_hash: string;
+  window_started_at: string;
+  window_ends_at: string;
+  window_size_ms: number;
+  max_requests: number;
+  slot_index: number;
+  remaining_after: number;
+  rate_limit_state: "enforced_allow";
+  enforcement_stage: "before_supervisor_handoff";
+  enforcer: "local_atomic_window_slot";
+  auth_state: "local_operator";
+  policy_handoff: "pending_fresh_policy_and_scoped_lease";
+  raw_key_persisted: false;
+  raw_intent_persisted: false;
+  can_authorize_actions: false;
+  issues_session: false;
+  background_queue_implemented: false;
 };
 
 type LocalIngressIdempotencyReservation = {
@@ -5173,7 +5224,7 @@ type LocalIngressIdempotencyReservation = {
   duplicate_detection_stage: "before_supervisor_handoff";
   duplicate_detector: "local_atomic_reservation_file";
   auth_state: "local_operator";
-  rate_limit_state: "not_enforced";
+  rate_limit_state: "enforced_allow";
   policy_handoff: "pending_fresh_policy_and_scoped_lease";
   raw_key_persisted: false;
   raw_intent_persisted: false;
@@ -5204,10 +5255,7 @@ async function supervisorStatusPreflight(workspaceRoot: string, runId: string, s
   }));
 }
 
-async function reserveLocalIngressIdempotency(options: CliOptions, runId: string): Promise<LocalIngressIdempotencyReservation> {
-  const workspaceRoot = resolve(options.workspace);
-  const workspaceId = workspaceIdForRoot(workspaceRoot);
-  const keySource: LocalIngressIdempotencyReservation["key_source"] = options.idempotencyKey ? "operator_supplied" : "generated";
+function validatedRunIdempotencyKey(options: CliOptions, runId: string): string {
   const rawKey = options.idempotencyKey ?? `aetherion:tui:run:${runId}`;
   if (rawKey.trim().length === 0) {
     throw new Error("--idempotency-key must not be empty");
@@ -5215,8 +5263,11 @@ async function reserveLocalIngressIdempotency(options: CliOptions, runId: string
   if (rawKey.length > 512) {
     throw new Error("--idempotency-key must be 512 characters or fewer");
   }
-  const idempotencyKeyHash = sha256Hex(rawKey);
-  const normalizedIntentHash = sha256Hex(stableCanonicalJson({
+  return rawKey;
+}
+
+function normalizedIntentHashForRun(options: CliOptions, workspaceId: string): string {
+  return sha256Hex(stableCanonicalJson({
     command: "run",
     surface_id: "tui",
     workspace_id: workspaceId,
@@ -5226,6 +5277,109 @@ async function reserveLocalIngressIdempotency(options: CliOptions, runId: string
     supervisor: options.supervisor ?? "stdio",
     summary_sha256: options.summary ? sha256Hex(options.summary) : null
   }));
+}
+
+function rateLimitKeyHashForRun(workspaceId: string): string {
+  return sha256Hex(stableCanonicalJson({
+    auth_state: "local_operator",
+    command: "run",
+    surface_id: "tui",
+    workspace_id: workspaceId
+  }));
+}
+
+type LocalIngressRateLimitConfig = {
+  maxRequests: number;
+  windowSizeMs: number;
+};
+
+function localIngressRateLimitConfig(env: NodeJS.ProcessEnv = process.env): LocalIngressRateLimitConfig {
+  return {
+    maxRequests: boundedPositiveIntegerEnv(env.AETHERION_TUI_RUN_RATE_LIMIT_MAX, 120, 1, 10000, "AETHERION_TUI_RUN_RATE_LIMIT_MAX"),
+    windowSizeMs: boundedPositiveIntegerEnv(env.AETHERION_TUI_RUN_RATE_LIMIT_WINDOW_MS, 60000, 1000, 86400000, "AETHERION_TUI_RUN_RATE_LIMIT_WINDOW_MS")
+  };
+}
+
+function boundedPositiveIntegerEnv(value: string | undefined, fallback: number, min: number, max: number, name: string): number {
+  if (value === undefined || value.length === 0) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return parsed;
+}
+
+async function reserveLocalIngressRateLimit(options: CliOptions, runId: string): Promise<LocalIngressRateLimitReservation> {
+  const workspaceRoot = resolve(options.workspace);
+  const workspaceId = workspaceIdForRoot(workspaceRoot);
+  const config = localIngressRateLimitConfig();
+  const now = Date.now();
+  const windowStartMs = Math.floor(now / config.windowSizeMs) * config.windowSizeMs;
+  const windowEndMs = windowStartMs + config.windowSizeMs;
+  const rateLimitKeyHash = rateLimitKeyHashForRun(workspaceId);
+  const normalizedIntentHash = normalizedIntentHashForRun(options, workspaceId);
+  const reservationDir = localIngressRateLimitReservationDir(workspaceRoot, rateLimitKeyHash, windowStartMs);
+  mkdirSync(reservationDir, { recursive: true });
+  for (let slotIndex = 0; slotIndex < config.maxRequests; slotIndex += 1) {
+    const reservation: LocalIngressRateLimitReservation = {
+      id: `local_ingress_rate_limit_${hashDigest(rateLimitKeyHash).slice(0, 16)}_${slotIndex}`,
+      schema_version: "aetherion-local-ingress-rate-limit-reservation-v1",
+      workspace_id: workspaceId,
+      run_id: runId,
+      reserved_at: new Date(now).toISOString(),
+      surface_id: "tui",
+      command: "run",
+      rate_limit_key_hash: rateLimitKeyHash,
+      normalized_intent_hash: normalizedIntentHash,
+      window_started_at: new Date(windowStartMs).toISOString(),
+      window_ends_at: new Date(windowEndMs).toISOString(),
+      window_size_ms: config.windowSizeMs,
+      max_requests: config.maxRequests,
+      slot_index: slotIndex,
+      remaining_after: config.maxRequests - slotIndex - 1,
+      rate_limit_state: "enforced_allow",
+      enforcement_stage: "before_supervisor_handoff",
+      enforcer: "local_atomic_window_slot",
+      auth_state: "local_operator",
+      policy_handoff: "pending_fresh_policy_and_scoped_lease",
+      raw_key_persisted: false,
+      raw_intent_persisted: false,
+      can_authorize_actions: false,
+      issues_session: false,
+      background_queue_implemented: false
+    };
+    const validation = await validateAgainstSchema(repoRoot, "local-ingress-rate-limit-reservation.schema.json", reservation);
+    if (!validation.valid) {
+      throw new Error(`local-ingress-rate-limit-reservation.schema.json validation failed: ${validation.errors.join("; ")}`);
+    }
+    try {
+      writeFileSync(localIngressRateLimitReservationPath(reservationDir, slotIndex), `${JSON.stringify(reservation, null, 2)}\n`, { flag: "wx" });
+      return reservation;
+    } catch (error) {
+      if (!isFileExistsError(error)) {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`TUI run ingress rate limit exceeded before action run: key_hash=${rateLimitKeyHash} window_started_at=${new Date(windowStartMs).toISOString()} max_requests=${config.maxRequests} enforcement_stage=before_supervisor_handoff`);
+}
+
+function localIngressRateLimitReservationDir(workspaceRoot: string, rateLimitKeyHash: string, windowStartMs: number): string {
+  return join(resolve(workspaceRoot), ".aetherion", "ingress", "rate-limit", hashDigest(rateLimitKeyHash), String(windowStartMs));
+}
+
+function localIngressRateLimitReservationPath(reservationDir: string, slotIndex: number): string {
+  return join(reservationDir, `slot_${slotIndex}.json`);
+}
+
+async function reserveLocalIngressIdempotency(options: CliOptions, runId: string, rawKey: string): Promise<LocalIngressIdempotencyReservation> {
+  const workspaceRoot = resolve(options.workspace);
+  const workspaceId = workspaceIdForRoot(workspaceRoot);
+  const keySource: LocalIngressIdempotencyReservation["key_source"] = options.idempotencyKey ? "operator_supplied" : "generated";
+  const idempotencyKeyHash = sha256Hex(rawKey);
+  const normalizedIntentHash = normalizedIntentHashForRun(options, workspaceId);
   const reservation: LocalIngressIdempotencyReservation = {
     id: `local_ingress_idempotency_${hashDigest(idempotencyKeyHash).slice(0, 16)}`,
     schema_version: "aetherion-local-ingress-idempotency-reservation-v1",
@@ -5240,7 +5394,7 @@ async function reserveLocalIngressIdempotency(options: CliOptions, runId: string
     duplicate_detection_stage: "before_supervisor_handoff",
     duplicate_detector: "local_atomic_reservation_file",
     auth_state: "local_operator",
-    rate_limit_state: "not_enforced",
+    rate_limit_state: "enforced_allow",
     policy_handoff: "pending_fresh_policy_and_scoped_lease",
     raw_key_persisted: false,
     raw_intent_persisted: false,
@@ -5331,9 +5485,10 @@ function buildIngressAuditReport(workspaceRoot: string): IngressAuditReport {
       runnable_surface: "tui",
       contract_surface: "local_api_like_envelope",
       envelope_fields: envelopeFields,
+      current_rate_limit_enforcement: "tui_run_local_atomic_window_before_supervisor_handoff",
+      rate_limit_reservation_schema: "local-ingress-rate-limit-reservation.schema.json",
       current_duplicate_detection: "tui_run_local_atomic_reservation_before_supervisor_handoff",
       idempotency_reservation_schema: "local-ingress-idempotency-reservation.schema.json",
-      current_rate_limit_enforcement: "not_implemented",
       unknown_or_unauthenticated_disposition: "observation_or_queued_intent_only",
       policy_handoff: "fresh_policy_and_scoped_lease_required_before_actions"
     },
@@ -5347,8 +5502,8 @@ function buildIngressAuditReport(workspaceRoot: string): IngressAuditReport {
       "cloud worker ingress"
     ],
     remaining_gaps: [
+      "TUI run rate limits are enforced through local atomic window slots before supervisor handoff, but durable/distributed/session/remote rate limiting is not implemented",
       "duplicate idempotency keys are rejected for TUI run through local atomic reservation before supervisor handoff, but cached replay of prior results is not implemented",
-      "rate-limit state is required by contract but no runtime rate limiter is implemented",
       "caller identity is a placeholder; no durable user identity, device identity, remote channel identity, session token lifecycle, or OAuth pairing is implemented",
       "unknown or unauthenticated local API/browser/IM/mobile inputs may only be observations or queued intents and cannot authorize tools or side effects",
       "no public API listener, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, or cloud worker ingress is implemented"
@@ -6675,10 +6830,17 @@ function printKeyValueRecord(record: Record<string, unknown>, keys: string[]): v
 
 async function printRunResult(
   result: Awaited<ReturnType<typeof runLocalKernelLoop>> | Awaited<ReturnType<typeof runSupervisorKernelLoop>>,
-  ingressReservation: LocalIngressIdempotencyReservation
+  ingressReservation: LocalIngressIdempotencyReservation,
+  rateLimitReservation: LocalIngressRateLimitReservation
 ): Promise<void> {
   console.log(`run_id=${result.runId}`);
   console.log(`workspace=${result.workspace.root}`);
+  console.log(`ingress_rate_limit_key_hash=${rateLimitReservation.rate_limit_key_hash}`);
+  console.log(`ingress_rate_limit_state=${rateLimitReservation.rate_limit_state}`);
+  console.log(`ingress_rate_limit_window=${rateLimitReservation.window_started_at}/${rateLimitReservation.window_ends_at}`);
+  console.log(`ingress_rate_limit_slot=${rateLimitReservation.slot_index}`);
+  console.log(`ingress_rate_limit_remaining=${rateLimitReservation.remaining_after}`);
+  console.log(`ingress_rate_limit_enforcer=${rateLimitReservation.enforcer}:${rateLimitReservation.enforcement_stage}`);
   console.log(`ingress_idempotency_key_hash=${ingressReservation.idempotency_key_hash}`);
   console.log(`ingress_idempotency_key_source=${ingressReservation.key_source}`);
   console.log(`ingress_normalized_intent_hash=${ingressReservation.normalized_intent_hash}`);
@@ -6796,7 +6958,7 @@ Commands:
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
-  ingress                Read-only local ingress envelope/idempotency readiness audit; no listener, session, remote connection, or action authority
+  ingress                Read-only local ingress envelope/rate-limit/idempotency readiness audit; no listener, session, remote connection, or action authority
   release                Read-only local/configured plus optional operator-supplied remote release evidence; no packaging, signing, publishing, or live CI query
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Post-V1 contract lab: source-backed Memory OS plus non-authorizing prompt plan/audit previews

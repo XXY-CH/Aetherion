@@ -1699,6 +1699,39 @@ Corrections and remaining boundary:
 - Local idempotency reservation is a duplicate-action guard, not a source of truth for authorization; Local Supervisor and Tool Access & Action Policy Proxy still gate reads/writes.
 - Remaining strict-review gaps include cached/replay-safe idempotency semantics, rate limiting, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 62 Review Notes
+
+This pass continues PGC-3 by moving the rate-limit requirement from contract-only readiness into the TUI `run` runtime path, still without adding a public API listener, browser/IM/mobile ingress, cloud worker, or connector OAuth flow.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): Ingress Gateways must normalize, authenticate, rate-limit, and provide idempotency before Local Supervisor handoff.
+- [User Boundary Layer](02-user-boundary-layer.md): client surfaces can request action but cannot become the trust root, issue sessions, or grant permissions.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): local ingress metadata must stay hash-only and reject raw material, authority, session, and background-queue claims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-3 requires rate-limit state enforcement before broader ingress surfaces.
+
+Implemented correspondence:
+
+- Added `schemas/local-ingress-rate-limit-reservation.schema.json` and `examples/contracts/local-ingress-rate-limit-reservation.json`.
+- `run` now reserves a local atomic rate-limit slot before idempotency reservation, supervisor handoff, run manifest creation, Ledger append, tool request, policy decision, lease, or file action.
+- The reservation stores only `sha256:` hashes for the rate-limit key and normalized intent, with `surface_id=tui`, `auth_state=local_operator`, `rate_limit_state=enforced_allow`, and `enforcement_stage=before_supervisor_handoff`.
+- Overflow fails closed with no new run manifest, Ledger event, idempotency reservation, tool request, lease, or output file.
+- Added schema tests rejecting raw key/intent persistence, authority, session issuance, background queues, mutable counters, late enforcement, and non-TUI surfaces.
+- Added TUI regression coverage proving local rate-limit overflow leaves Ledger and run manifests unchanged.
+- `ingress audit`, `doctor`, and `release evidence` now distinguish implemented TUI local rate-limit enforcement from still-missing cached idempotent replay, durable/distributed/session/remote rate limiting, auth/session lifecycle, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, and cloud worker ingress.
+
+Drift review:
+
+- Corrects the Phase 61 drift that still listed rate limiting as entirely unimplemented.
+- Corrects readiness drift by changing `local-ingress-readiness` rate-limit scope from missing enforcement to `tui_run_local_atomic_window_before_supervisor_handoff`.
+- Keeps V1 surface discipline intact: this is TUI run preflight state, not a production gateway, session issuer, policy authority, distributed limiter, or lease issuer.
+- Does not implement cached replay of a prior idempotent result, replay protection for remote envelopes, durable session/auth lifecycle, durable or remote rate limiting, public HTTP/API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, or supervisor policy execution from ingress envelopes.
+
+Corrections and remaining boundary:
+
+- Local rate-limit reservation is an ingress guard only; Local Supervisor and Tool Access & Action Policy Proxy still gate all reads, writes, leases, and side effects.
+- Remaining strict-review gaps include cached/replay-safe idempotency semantics, explicit supervisor lifecycle command contracts, provider error/credential-source productionization, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

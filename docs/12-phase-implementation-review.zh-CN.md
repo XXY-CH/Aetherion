@@ -692,6 +692,39 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Local idempotency reservation 是 duplicate-action guard，不是 authorization source of truth；Local Supervisor 和 Tool Access & Action Policy Proxy 仍负责 gate read/write。
 - 剩余严格复查差距包括 cached/replay-safe idempotency semantics、rate limiting、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 62 复核：TUI Run Rate Limit Reservation
+
+本轮继续推进 PGC-3，把 rate-limit 要求从 contract-only readiness 推进到 TUI `run` runtime path，但仍不添加 public API listener、browser/IM/mobile ingress、cloud worker 或 connector OAuth flow。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：Ingress Gateways 必须在 Local Supervisor handoff 前负责 normalize、authenticate、rate-limit 和 idempotency。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface 可以请求 action，但不能成为 trust root、发 session 或授予 permission。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：local ingress metadata 必须保持 hash-only，并拒绝 raw material、authority、session 和 background-queue claim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-3 要求 broader ingress surface 前先有 rate-limit state enforcement。
+
+本轮修正：
+
+- 新增 `schemas/local-ingress-rate-limit-reservation.schema.json` 和 `examples/contracts/local-ingress-rate-limit-reservation.json`。
+- `run` 现在会在 idempotency reservation、supervisor handoff、run manifest、Ledger append、tool request、policy decision、lease 或 file action 前预留 local atomic rate-limit slot。
+- reservation 只保存 `sha256:` rate-limit key 和 normalized intent hash，并记录 `surface_id=tui`、`auth_state=local_operator`、`rate_limit_state=enforced_allow` 和 `enforcement_stage=before_supervisor_handoff`。
+- 超出限制时 fail closed，不创建新的 run manifest、Ledger event、idempotency reservation、tool request、lease 或 output file。
+- 新增 schema 测试，拒绝 raw key/intent persistence、authority、session issuance、background queue、mutable counter、late enforcement 和 non-TUI surface。
+- 新增 TUI 回归测试，证明 local rate-limit overflow 不改变 Ledger 和 run manifest。
+- `ingress audit`、`doctor` 和 `release evidence` 现在区分已实现的 TUI local rate-limit enforcement，以及仍未实现的 cached idempotent replay、durable/distributed/session/remote rate limiting、auth/session lifecycle、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress 和 cloud worker ingress。
+
+偏差复核：
+
+- 修正 Phase 61 仍把 rate limiting 完全列为未实现的偏差。
+- 修正 readiness 偏差：`local-ingress-readiness` 的 rate-limit scope 从未实现 enforcement 改为 `tui_run_local_atomic_window_before_supervisor_handoff`。
+- 保持 V1 surface discipline：这只是 TUI run preflight state，不是 production gateway、session issuer、policy authority、distributed limiter 或 lease issuer。
+- 未实现 prior idempotent result cached replay、remote envelope replay protection、durable session/auth lifecycle、durable 或 remote rate limiting、public HTTP/API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress 或基于 ingress envelope 的 supervisor policy execution。
+
+修正与剩余边界：
+
+- Local rate-limit reservation 只是 ingress guard；Local Supervisor 和 Tool Access & Action Policy Proxy 仍负责 gate 所有 read、write、lease 和 side effect。
+- 剩余严格复查差距包括 cached/replay-safe idempotency semantics、显式 supervisor lifecycle command contracts、provider error/credential-source productionization、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

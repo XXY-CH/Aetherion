@@ -38,7 +38,7 @@
     "duplicate_detection_stage": { "type": "string", "enum": ["before_supervisor_handoff"] },
     "duplicate_detector": { "type": "string", "enum": ["local_atomic_reservation_file"] },
     "auth_state": { "type": "string", "enum": ["local_operator"] },
-    "rate_limit_state": { "type": "string", "enum": ["not_enforced"] },
+    "rate_limit_state": { "type": "string", "enum": ["enforced_allow"] },
     "policy_handoff": { "type": "string", "enum": ["pending_fresh_policy_and_scoped_lease"] },
     "raw_key_persisted": { "type": "boolean", "enum": [false] },
     "raw_intent_persisted": { "type": "boolean", "enum": [false] },

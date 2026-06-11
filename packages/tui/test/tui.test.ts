@@ -44,6 +44,39 @@ test("TUI run executes approval-gated local kernel loop", async () => {
 
   const runId = stdout.match(/run_id=(run_[^\n]+)/)?.[1];
   assert.ok(runId);
+  const rateLimitKeyHash = stdoutValue(stdout, "ingress_rate_limit_key_hash");
+  assert.match(rateLimitKeyHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(stdoutValue(stdout, "ingress_rate_limit_state"), "enforced_allow");
+  assert.match(stdoutValue(stdout, "ingress_rate_limit_window"), /^\d{4}-\d{2}-\d{2}T.*Z\/\d{4}-\d{2}-\d{2}T.*Z$/);
+  assert.equal(stdoutValue(stdout, "ingress_rate_limit_slot"), "0");
+  assert.equal(stdoutValue(stdout, "ingress_rate_limit_enforcer"), "local_atomic_window_slot:before_supervisor_handoff");
+  const [windowStartedAt] = stdoutValue(stdout, "ingress_rate_limit_window").split("/");
+  const rateLimitReservation = JSON.parse(await readFile(join(
+    workspace,
+    ".aetherion",
+    "ingress",
+    "rate-limit",
+    rateLimitKeyHash.slice("sha256:".length),
+    String(Date.parse(windowStartedAt)),
+    "slot_0.json"
+  ), "utf8")) as {
+    run_id: string;
+    rate_limit_state: string;
+    enforcement_stage: string;
+    enforcer: string;
+    raw_key_persisted: boolean;
+    raw_intent_persisted: boolean;
+    can_authorize_actions: boolean;
+    issues_session: boolean;
+  };
+  assert.equal(rateLimitReservation.run_id, runId);
+  assert.equal(rateLimitReservation.rate_limit_state, "enforced_allow");
+  assert.equal(rateLimitReservation.enforcement_stage, "before_supervisor_handoff");
+  assert.equal(rateLimitReservation.enforcer, "local_atomic_window_slot");
+  assert.equal(rateLimitReservation.raw_key_persisted, false);
+  assert.equal(rateLimitReservation.raw_intent_persisted, false);
+  assert.equal(rateLimitReservation.can_authorize_actions, false);
+  assert.equal(rateLimitReservation.issues_session, false);
   const ingressKeyHash = stdoutValue(stdout, "ingress_idempotency_key_hash");
   assert.match(ingressKeyHash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(stdoutValue(stdout, "ingress_idempotency_key_source"), "generated");
@@ -359,6 +392,75 @@ test("Ether run rejects duplicate idempotency keys before supervisor handoff", a
   assert.deepEqual(reservations, [`idem_${keyHash.slice("sha256:".length)}.json`]);
 });
 
+test("Ether run rejects local rate-limit overflow before supervisor handoff", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rate-limit-"));
+  await writeFile(join(workspace, "README.md"), "Rate limit fixture\n");
+  const rateLimitEnv = {
+    ...process.env,
+    AETHERION_TUI_RUN_RATE_LIMIT_MAX: "1",
+    AETHERION_TUI_RUN_RATE_LIMIT_WINDOW_MS: "60000"
+  };
+
+  const first = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write",
+    "--idempotency-key",
+    "first-local-rate-limit-key"
+  ], { env: rateLimitEnv });
+  assert.equal(stdoutValue(first.stdout, "ingress_rate_limit_slot"), "0");
+  assert.equal(stdoutValue(first.stdout, "ingress_rate_limit_remaining"), "0");
+  const rateLimitKeyHash = stdoutValue(first.stdout, "ingress_rate_limit_key_hash");
+  const [windowStartedAt] = stdoutValue(first.stdout, "ingress_rate_limit_window").split("/");
+  const slotDir = join(
+    workspace,
+    ".aetherion",
+    "ingress",
+    "rate-limit",
+    rateLimitKeyHash.slice("sha256:".length),
+    String(Date.parse(windowStartedAt))
+  );
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerBeforeOverflow = await readFile(ledgerPath, "utf8");
+  const runsBeforeOverflow = await readdir(runsPath);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "run",
+      "--workspace",
+      workspace,
+      "--input",
+      "README.md",
+      "--output",
+      ".aetherion/RATE_LIMIT.md",
+      "--approve-write",
+      "--idempotency-key",
+      "second-local-rate-limit-key"
+    ], { env: rateLimitEnv }),
+    (error: unknown) => {
+      assert.match(commandStderr(error), /TUI run ingress rate limit exceeded before action run/);
+      assert.match(commandStderr(error), /enforcement_stage=before_supervisor_handoff/);
+      assert.equal(commandStdout(error), "");
+      return true;
+    }
+  );
+
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBeforeOverflow);
+  assert.deepEqual(await readdir(runsPath), runsBeforeOverflow);
+  await assert.rejects(access(join(workspace, ".aetherion", "RATE_LIMIT.md")), /ENOENT/);
+  assert.deepEqual(await readdir(slotDir), ["slot_0.json"]);
+  const idempotencyReservations = await readdir(join(workspace, ".aetherion", "ingress", "idempotency"));
+  assert.deepEqual(idempotencyReservations.length, 1);
+});
+
 test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   const help = await execFileAsync(process.execPath, [cliPath, "help"]);
 
@@ -378,7 +480,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /store\s+Post-V1 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
-  assert.match(help.stdout, /ingress\s+Read-only local ingress envelope\/idempotency readiness audit/);
+  assert.match(help.stdout, /ingress\s+Read-only local ingress envelope\/rate-limit\/idempotency readiness audit/);
   assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--idempotency-key <key>\s+Optional caller-supplied run idempotency key/);
@@ -857,7 +959,8 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
-  assert.ok(report.remaining_gaps.some((gap) => gap.includes("local ingress readiness now has TUI run duplicate-key reservation")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("local ingress readiness now has TUI run local rate-limit and duplicate-key reservation")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("durable/distributed/session/remote rate limiting")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production daemon start/stop")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
@@ -1022,7 +1125,14 @@ test("Ether ingress audit reports local envelope readiness without initializing 
     };
     summary: { fail: number };
     checks: Array<{ id: string; status: string; evidence: string[] }>;
-    ingress_profile: { envelope_fields: string[]; current_duplicate_detection: string; idempotency_reservation_schema: string; policy_handoff: string };
+    ingress_profile: {
+      envelope_fields: string[];
+      current_rate_limit_enforcement: string;
+      rate_limit_reservation_schema: string;
+      current_duplicate_detection: string;
+      idempotency_reservation_schema: string;
+      policy_handoff: string;
+    };
     deferred_surfaces: string[];
     remaining_gaps: string[];
   };
@@ -1040,13 +1150,18 @@ test("Ether ingress audit reports local envelope readiness without initializing 
   assert.equal(report.summary.fail, 0);
   const ingressCheck = report.checks.find((check) => check.id === "local_ingress_readiness_contract");
   assert.equal(ingressCheck?.status, "pass");
+  assert.match(ingressCheck?.evidence.join("\n") ?? "", /runtime_rate_limit_ready=true/);
   assert.match(ingressCheck?.evidence.join("\n") ?? "", /policy_handoff_safe=true/);
   assert.ok(report.ingress_profile.envelope_fields.includes("idempotency_key"));
+  assert.equal(report.ingress_profile.current_rate_limit_enforcement, "tui_run_local_atomic_window_before_supervisor_handoff");
+  assert.equal(report.ingress_profile.rate_limit_reservation_schema, "local-ingress-rate-limit-reservation.schema.json");
   assert.equal(report.ingress_profile.current_duplicate_detection, "tui_run_local_atomic_reservation_before_supervisor_handoff");
   assert.equal(report.ingress_profile.idempotency_reservation_schema, "local-ingress-idempotency-reservation.schema.json");
   assert.match(report.ingress_profile.policy_handoff, /fresh_policy/);
   assert.ok(report.deferred_surfaces.some((surface) => surface.includes("browser extension")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("durable/distributed/session/remote rate limiting")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("cached replay")));
+  assert.equal(report.remaining_gaps.some((gap) => gap.includes("no runtime rate limiter")), false);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
