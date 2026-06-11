@@ -1300,6 +1300,38 @@ Corrections and remaining boundary:
 - This still does not add streaming, multimodal payloads, provider tool execution, browser OAuth, token refresh, vault storage, connector grants, or live-provider CI probes.
 - Remaining provider hardening gaps include optional live contract probes, richer provider refusal taxonomy, and explicit CI guards against accidental `--print-output` use in workflows.
 
+## Phase 50 Review Notes
+
+This pass closes the next narrow release-evidence gap: `doctor` and `security audit` were already machine-readable, but operators still lacked one local snapshot that showed git state, CI configuration, dependency reproducibility, governance/docs posture, runtime readiness, security posture, source-doc grounding, and remaining release gaps together.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): release/readiness claims should be grounded in durable, reviewable evidence instead of one-off local memory.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): workflow, lockfile, governance, and Ledger state remain human-readable or rebuildable evidence, not opaque generated authority.
+- [Roadmap](06-roadmap.md): the increment stays inside the TUI-first kernel loop and does not enter GUI, IM, browser, MCP/OAuth connector, cloud, marketplace, or release-packaging scope.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): evidence aggregation does not become runtime authority, a lease, policy approval, or a new trust root.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): this implements the planned local/configured release-evidence snapshot.
+
+Implemented correspondence:
+
+- Added `npm run ether -- release evidence --workspace <path>`.
+- The report includes git branch/head/dirty state, configured CI gate drift, Node 24 action-runtime evidence, Ubuntu/macOS platform-smoke configuration, dependency lockfile evidence, governance-file evidence, bilingual-doc evidence, `doctor` summary, `security audit` summary, workspace runtime/Ledger state, source-document links, and explicit remaining release gaps.
+- The report distinguishes local/configured evidence from remote/executed proof with `checks_remote_ci=false`, `remote_ci_checked=false`, `packaged=false`, `signed=false`, and `published=false`.
+- CI now runs `release evidence` beside `doctor` and `security audit`; the CI gate checks require all three operator snapshots.
+- README, CONTRIBUTING, TUI README, and Chinese companions link the new command and its boundaries.
+
+Verification evidence:
+
+- Targeted TUI tests cover help text, empty-workspace read-only behavior, initialized-workspace no-mutation behavior, and existing doctor/security snapshots.
+- The release report records dirty worktree state without treating unrelated local files as a remote release failure.
+
+Corrections and remaining boundary:
+
+- Corrects the single-snapshot release-evidence gap without adding release packaging, artifact signing, public docs deployment, package publication, installer/updater infrastructure, remote CI querying, or a release evidence repository.
+- `release evidence` is local/configured source evidence only; it must not be described as proof that the latest GitHub Actions run succeeded unless an external remote check is separately performed.
+- This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+- Remaining strict-review gaps include install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

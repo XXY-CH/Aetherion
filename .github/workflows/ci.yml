@@ -75,6 +75,7 @@ jobs:
         run: |
           npm run ether -- doctor --workspace .
           npm run ether -- security audit --workspace .
+          npm run ether -- release evidence --workspace .
 
   platform-smoke:
     name: Platform smoke (${{ matrix.os }})
@@ -110,3 +111,4 @@ jobs:
         run: |
           npm run ether -- doctor --workspace .
           npm run ether -- security audit --workspace .
+          npm run ether -- release evidence --workspace .

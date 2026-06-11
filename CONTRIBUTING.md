@@ -42,11 +42,12 @@ cargo fmt --check
 git diff --check
 npm run ether -- doctor --workspace .
 npm run ether -- security audit --workspace .
+npm run ether -- release evidence --workspace .
 npm run ether -- run --workspace . --input README.md --output .aetherion/SUMMARY.md --approve-write
 ```
 
 Runtime output under `.aetherion/` is local state and should not be committed.
-GitHub Actions runs lockfile installs, dependency audits, TypeScript tests, locked Rust tests, Rust lint/format gates, whitespace diff check, tracked runtime/build artifact guard, operator readiness snapshots, Node 24 JavaScript action-runtime opt-in, and a Ubuntu/macOS platform-smoke job for pull requests and pushes to `main`.
+GitHub Actions runs lockfile installs, dependency audits, TypeScript tests, locked Rust tests, Rust lint/format gates, whitespace diff check, tracked runtime/build artifact guard, operator readiness/release-evidence snapshots, Node 24 JavaScript action-runtime opt-in, and a Ubuntu/macOS platform-smoke job for pull requests and pushes to `main`.
 
 The root JavaScript surface currently has no npm dependencies, but `package-lock.json` is committed and must be updated in the same change as any future dependency addition. `Cargo.lock` is committed and Rust verification should use `--locked`. The ignored `promo/` subtree is local/generated promotional material and is not release evidence.
 

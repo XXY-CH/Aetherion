@@ -658,3 +658,28 @@ Remaining boundary:
 - This is not provider tool execution, a tool-call proposal parser, streaming support, multimodal support, browser OAuth, token refresh, vault storage, connector grants, or live-provider CI probing.
 - OpenAI support remains OpenAI Responses and OpenAI Chat Completions; legacy `/v1/completions` is not implemented.
 - OAuth remains limited to externally acquired bearer-token env vars for provider paths that support them.
+
+## Completed Increment: Release Evidence Snapshot
+
+Target: turn the existing `doctor`, `security audit`, CI, dependency-lock, platform-smoke, and governance evidence into one read-only local release-evidence report without adding release packaging, signing, publishing, public docs deployment, or remote CI queries.
+
+Acceptance:
+
+- `release evidence --workspace <path>` prints a single JSON report with git head/dirty state, configured CI gate status, Node 24 action-runtime evidence, Ubuntu/macOS platform-smoke configuration, dependency lockfile evidence, governance file checks, bilingual-doc checks, `doctor` summary, `security audit` summary, workspace runtime/Ledger status, source-document links, and remaining release gaps.
+- The command is strictly read-only: it does not initialize `.aetherion`, append Ledger events, mutate registries, write artifacts, call providers, issue leases, repair state, package artifacts, sign releases, publish releases, deploy docs, or query GitHub/remote CI.
+- CI runs the report alongside `doctor` and `security audit`; `doctor`, `security audit`, and `release evidence` all detect drift if the workflow stops running the configured release-evidence snapshot.
+- Empty-workspace and initialized-workspace tests prove the command does not create runtime state or mutate Ledger/run evidence.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): release posture remains grounded in durable, reviewable evidence rather than an operator's local memory.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): the report treats human-readable governance docs and committed workflow/lockfile state as evidence, while keeping indexes and runtime projections rebuildable.
+- [Roadmap](06-roadmap.md): this strengthens the V1 TUI/Rust kernel loop before GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or broader release packaging.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): the report is evidence aggregation only; it grants no runtime authority and introduces no new trust root.
+- [Phase Implementation Review](12-phase-implementation-review.md): this closes the previously recorded "deeper release artifact evidence" gap only for local/configured source snapshots.
+
+Remaining boundary:
+
+- This is a local/configured source snapshot, not executed remote CI proof, release packaging, artifact signing, installer/updater infrastructure, public docs deployment, package registry publication, or a release evidence repository.
+- A dirty worktree is reported as `draft`; it does not block local inspection because unrelated operator files may be present, but it is not a clean release claim.
+- Remaining production gaps are install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.

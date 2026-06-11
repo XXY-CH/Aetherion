@@ -293,6 +293,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不增加 streaming、多模态 payload、provider tool execution、browser OAuth、token refresh、vault storage、connector grant 或 live-provider CI probe。
 - 剩余 provider hardening gap 包括 optional live contract probes、更细 provider refusal taxonomy，以及禁止 workflow 意外使用 `--print-output` 的显式 CI guard。
 
+## Phase 50 复核：Release Evidence Snapshot
+
+本轮关闭下一层窄 release-evidence gap：`doctor` 和 `security audit` 已经是 machine-readable，但 operator 仍缺少一个本地 snapshot，把 git state、CI configuration、dependency reproducibility、governance/docs posture、runtime readiness、security posture、source-doc grounding 和剩余 release gaps 汇总到一起。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：release/readiness claim 应建立在 durable、可 review evidence 上，而不是一次性本地记忆。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：workflow、lockfile、governance 和 Ledger state 继续是 human-readable 或可重建 evidence，不是 opaque generated authority。
+- [路线图](06-roadmap.zh-CN.md)：本轮仍在 TUI-first kernel loop 内，不进入 GUI、IM、browser、MCP/OAuth connector、cloud、marketplace 或 release-packaging 范围。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：evidence aggregation 不会变成 runtime authority、lease、policy approval 或新 trust root。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：本轮实现计划中的 local/configured release-evidence snapshot。
+
+本轮修正：
+
+- 新增 `npm run ether -- release evidence --workspace <path>`。
+- 报告包含 git branch/head/dirty state、configured CI gate drift、Node 24 action-runtime evidence、Ubuntu/macOS platform-smoke configuration、dependency lockfile evidence、governance-file evidence、bilingual-doc evidence、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger state、source-document links 和明确的剩余 release gaps。
+- 报告用 `checks_remote_ci=false`、`remote_ci_checked=false`、`packaged=false`、`signed=false`、`published=false` 区分 local/configured evidence 与 remote/executed proof。
+- CI 现在把 `release evidence` 与 `doctor`、`security audit` 一起运行；CI gate checks 要求三项 operator snapshots 都保留。
+- README、CONTRIBUTING、TUI README 和中文伴读文档都链接了新命令和边界。
+
+验证：
+
+- 目标 TUI tests 覆盖 help text、空 workspace 只读行为、已初始化 workspace 不变更行为，以及既有 doctor/security snapshots。
+- release report 会记录 dirty worktree state，但不把 unrelated local files 当成 remote release failure。
+
+修正与剩余边界：
+
+- 修正单一 release-evidence snapshot 缺口，但不新增 release packaging、artifact signing、public docs deployment、package publication、installer/updater infrastructure、remote CI querying 或 release evidence repository。
+- `release evidence` 只是 local/configured source evidence；除非另行执行 external remote check，不能描述为 latest GitHub Actions 已成功的证明。
+- 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+- 剩余严格复查差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
+
 ## 验证要求
 
 每轮结束应至少检查：

@@ -290,6 +290,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /V1 core:/);
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- release evidence --workspace <path>/);
   assert.match(help.stdout, /Trace-backed local runtime:/);
   assert.match(help.stdout, /npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> \[--print-output\]/);
   assert.match(help.stdout, /Post-V1 contract surfaces \(no real delivery, automation, or package-code execution\):/);
@@ -297,6 +298,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /surface\s+Phase 12 contract surface: hash-only browser\/IM ingress and queued outbox/);
   assert.match(help.stdout, /store\s+Phase 12 contract surface: trusted-publisher signed Capsule declaration install, no code execution/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
+  assert.match(help.stdout, /release\s+Read-only local\/configured release evidence snapshot/);
   assert.match(help.stdout, /security\s+Phase 11 taint denial plus read-only security audit/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
@@ -383,6 +385,175 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.match(dependencyCheck?.evidence.join("\n") ?? "", /cargo_lock=present/);
   assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
   assert.deepEqual(await readdir(runsPath), runsBefore);
+});
+
+test("Ether release evidence reports a read-only local snapshot without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-release-empty-"));
+
+  const release = await execFileAsync(process.execPath, [
+    cliPath,
+    "release",
+    "evidence",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(release.stdout) as {
+    id: string;
+    status: string;
+    evidence_kind: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      mutates_registries: boolean;
+      writes_artifacts: boolean;
+      calls_model_provider: boolean;
+      issues_lease: boolean;
+      repairs_state: boolean;
+      publishes_release: boolean;
+      signs_artifacts: boolean;
+      checks_remote_ci: boolean;
+    };
+    summary: {
+      doctor_status: string;
+      security_audit_status: string;
+      git_dirty: boolean;
+      configured_ci_gate: string;
+      dependency_lockfiles: string;
+      workspace_runtime: string;
+      remote_ci_checked: boolean;
+      packaged: boolean;
+      signed: boolean;
+      published: boolean;
+    };
+    git: { dirty: boolean; changed_file_count: number; head: string | null; changed_files: string[] };
+    configured_evidence: {
+      ci_workflow_gate: { status: string; missing_gates: string[] };
+      platform_smoke_matrix: { configured: boolean; runners: string[]; evidence: string[] };
+      action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
+      dependency_lockfiles: { status: string; evidence: string[] };
+    };
+    local_reports: {
+      doctor: { status: string; check_status: string };
+      security_audit: { status: string; summary: { findings: number; high: number; critical: number } };
+    };
+    workspace_runtime: { status: string; ledger_status: string; evidence: string[] };
+    release_artifacts: {
+      packaged: boolean;
+      signed: boolean;
+      published: boolean;
+      remote_ci_checked: boolean;
+      evidence_repository: boolean;
+      public_docs_deployed: boolean;
+      installer_available: boolean;
+      updater_available: boolean;
+    };
+    source_documents: Array<{ path: string; role: string }>;
+    remaining_gaps: string[];
+  };
+  assert.equal(report.id, "aetherion_release_evidence_report");
+  assert.equal(report.evidence_kind, "local_configured_release_snapshot");
+  assert.match(report.status, /^(ready|draft)$/);
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.mutates_registries, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.calls_model_provider, false);
+  assert.equal(report.scope.issues_lease, false);
+  assert.equal(report.scope.repairs_state, false);
+  assert.equal(report.scope.publishes_release, false);
+  assert.equal(report.scope.signs_artifacts, false);
+  assert.equal(report.scope.checks_remote_ci, false);
+  assert.equal(report.summary.doctor_status, "ready");
+  assert.equal(report.summary.security_audit_status, "pass");
+  assert.equal(report.summary.configured_ci_gate, "pass");
+  assert.equal(report.summary.dependency_lockfiles, "pass");
+  assert.equal(report.summary.workspace_runtime, "not_initialized");
+  assert.equal(report.summary.remote_ci_checked, false);
+  assert.equal(report.summary.packaged, false);
+  assert.equal(report.summary.signed, false);
+  assert.equal(report.summary.published, false);
+  assert.equal(report.git.dirty, report.git.changed_file_count > 0);
+  assert.equal(report.summary.git_dirty, report.git.dirty);
+  assert.ok(report.git.head);
+  assert.equal(report.configured_evidence.ci_workflow_gate.status, "pass");
+  assert.deepEqual(report.configured_evidence.ci_workflow_gate.missing_gates, []);
+  assert.equal(report.configured_evidence.platform_smoke_matrix.configured, true);
+  assert.deepEqual(report.configured_evidence.platform_smoke_matrix.runners, ["ubuntu-latest", "macos-latest"]);
+  assert.match(report.configured_evidence.platform_smoke_matrix.evidence.join("\n"), /remote_execution_checked=false/);
+  assert.equal(report.configured_evidence.action_runtime.node24_forced, true);
+  assert.equal(report.configured_evidence.action_runtime.checkout_v5, true);
+  assert.equal(report.configured_evidence.action_runtime.setup_node_v5, true);
+  assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
+  assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
+  assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
+  assert.equal(report.local_reports.doctor.status, "ready");
+  assert.equal(report.local_reports.doctor.check_status, "pass");
+  assert.equal(report.local_reports.security_audit.status, "pass");
+  assert.equal(report.local_reports.security_audit.summary.findings, 0);
+  assert.equal(report.local_reports.security_audit.summary.high, 0);
+  assert.equal(report.local_reports.security_audit.summary.critical, 0);
+  assert.equal(report.workspace_runtime.status, "not_initialized");
+  assert.equal(report.workspace_runtime.ledger_status, "not_applicable");
+  assert.match(report.workspace_runtime.evidence.join("\n"), /runtime_state=not_initialized/);
+  assert.equal(report.release_artifacts.packaged, false);
+  assert.equal(report.release_artifacts.signed, false);
+  assert.equal(report.release_artifacts.published, false);
+  assert.equal(report.release_artifacts.remote_ci_checked, false);
+  assert.equal(report.release_artifacts.evidence_repository, false);
+  assert.equal(report.release_artifacts.public_docs_deployed, false);
+  assert.equal(report.release_artifacts.installer_available, false);
+  assert.equal(report.release_artifacts.updater_available, false);
+  assert.ok(report.source_documents.some((doc) => doc.path === "docs/00-product-brief.md"));
+  assert.ok(report.source_documents.some((doc) => doc.path === "docs/14-runtime-loop-plan.md"));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("remote CI")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("release packages")));
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Ether release evidence is read-only for initialized workspace evidence", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-release-ready-"));
+  await writeFile(join(workspace, "README.md"), "Release evidence fixture\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const ledgerBefore = await readFile(ledgerPath, "utf8");
+  const runsBefore = await readdir(runsPath);
+
+  const release = await execFileAsync(process.execPath, [
+    cliPath,
+    "release",
+    "evidence",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(release.stdout) as {
+    status: string;
+    workspace_runtime: { status: string; ledger_status: string; evidence: string[] };
+    local_reports: { doctor: { status: string }; security_audit: { status: string } };
+    release_artifacts: { packaged: boolean; signed: boolean; published: boolean };
+  };
+  assert.match(report.status, /^(ready|draft)$/);
+  assert.equal(report.workspace_runtime.status, "initialized");
+  assert.equal(report.workspace_runtime.ledger_status, "pass");
+  assert.match(report.workspace_runtime.evidence.join("\n"), /event_count=/);
+  assert.equal(report.local_reports.doctor.status, "ready");
+  assert.equal(report.local_reports.security_audit.status, "pass");
+  assert.equal(report.release_artifacts.packaged, false);
+  assert.equal(report.release_artifacts.signed, false);
+  assert.equal(report.release_artifacts.published, false);
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
+  assert.deepEqual(await readdir(runsPath), runsBefore);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "release")), /ENOENT/);
 });
 
 test("Ether security audit reports read-only status without initializing a workspace", async () => {

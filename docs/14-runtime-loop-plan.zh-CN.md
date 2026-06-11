@@ -283,3 +283,28 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 - 本轮不是 provider tool execution、tool-call proposal parser、streaming support、多模态 support、browser OAuth、token refresh、vault storage、connector grant 或 live-provider CI probing。
 - OpenAI support 仍是 OpenAI Responses 和 OpenAI Chat Completions；未实现 legacy `/v1/completions`。
 - OAuth 仍仅限 provider 支持路径上的外部 bearer-token env var。
+
+## 已完成增量：Release Evidence Snapshot
+
+目标：把已有 `doctor`、`security audit`、CI、dependency lock、platform-smoke 和 governance evidence 收束成一个只读本地 release-evidence 报告，同时不新增 release packaging、签名、发布、public docs deployment 或远端 CI 查询。
+
+验收：
+
+- `release evidence --workspace <path>` 输出单个 JSON 报告，包含 git head/dirty state、已配置 CI gate 状态、Node 24 action-runtime evidence、Ubuntu/macOS platform-smoke configuration、dependency lockfile evidence、governance file checks、双语文档 checks、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger 状态、source-document links 和剩余 release gaps。
+- 命令严格只读：不初始化 `.aetherion`、不追加 Ledger event、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state、不打包、不签名、不发布 release、不部署 docs，也不查询 GitHub/remote CI。
+- CI 将该报告与 `doctor`、`security audit` 一起运行；如果 workflow 不再运行 configured release-evidence snapshot，`doctor`、`security audit` 和 `release evidence` 都会暴露漂移。
+- 空 workspace 与已初始化 workspace tests 证明该命令不会创建 runtime state，也不会修改 Ledger/run evidence。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：release posture 继续建立在 durable、可 review evidence 上，而不是 operator 的本地记忆。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：报告把 human-readable governance docs 与已提交 workflow/lockfile state 作为 evidence，同时保持 indexes 与 runtime projections 可重建。
+- [路线图](06-roadmap.zh-CN.md)：先强化 V1 TUI/Rust kernel loop，再进入 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或更广 release packaging。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：报告只是 evidence aggregation，不授予 runtime authority，也不新增 trust root。
+- [阶段实现复核](12-phase-implementation-review.zh-CN.md)：本轮只把此前记录的 “deeper release artifact evidence” gap 关闭到 local/configured source snapshot 这一层。
+
+剩余边界：
+
+- 这是 local/configured source snapshot，不是 executed remote CI proof、release packaging、artifact signing、installer/updater infrastructure、public docs deployment、package registry publication 或 release evidence repository。
+- dirty worktree 会报告为 `draft`；它不阻止本地检查，因为可能存在 unrelated operator files，但它不是 clean release claim。
+- 剩余生产差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。

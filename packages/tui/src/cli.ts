@@ -393,6 +393,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "doctor":
       await runDoctor(options);
       return true;
+    case "release":
+      await runRelease(options);
+      return true;
     case "supervisor":
       await runSupervisorCommand(options);
       return true;
@@ -580,8 +583,43 @@ type DoctorCheck = {
   remediation: string | null;
 };
 
+type DoctorReport = {
+  id: "aetherion_doctor_report";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  status: "ready" | "degraded" | "blocked";
+  check_status: "pass" | "warn" | "fail";
+  scope: ReadOnlyCommandScope;
+  summary: {
+    pass: number;
+    warn: number;
+    fail: number;
+    not_applicable: number;
+  };
+  checks: DoctorCheck[];
+};
+
+type ReadOnlyCommandScope = {
+  read_only: true;
+  mutates_ledger: false;
+  mutates_registries: false;
+  writes_artifacts: false;
+  calls_model_provider: false;
+  issues_lease: false;
+  repairs_state: false;
+};
+
 async function runDoctor(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
+  const report = await buildDoctorReport(workspaceRoot);
+  if (report.status === "blocked") {
+    process.exitCode = 1;
+  }
+  printRawJson(report);
+}
+
+async function buildDoctorReport(workspaceRoot: string): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [
     ...repoDoctorChecks(),
     ...(await workspaceDoctorChecks(workspaceRoot))
@@ -596,10 +634,7 @@ async function runDoctor(options: CliOptions): Promise<void> {
     : checkStatus === "warn"
       ? "degraded"
       : "ready";
-  if (operatorStatus === "blocked") {
-    process.exitCode = 1;
-  }
-  printRawJson({
+  return {
     id: "aetherion_doctor_report",
     generated_at: new Date().toISOString(),
     repo_root: repoRoot,
@@ -622,7 +657,315 @@ async function runDoctor(options: CliOptions): Promise<void> {
       not_applicable: checks.filter((check) => check.status === "not_applicable").length
     },
     checks
-  });
+  };
+}
+
+type GitReleaseEvidence = {
+  is_git_repo: boolean;
+  branch: string | null;
+  head: string | null;
+  head_short: string | null;
+  dirty: boolean;
+  changed_file_count: number;
+  tracked_change_count: number;
+  untracked_file_count: number;
+  changed_files: string[];
+};
+
+type ReleaseEvidenceReport = {
+  id: "aetherion_release_evidence_report";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  status: "ready" | "draft" | "blocked";
+  evidence_kind: "local_configured_release_snapshot";
+  scope: ReadOnlyCommandScope & {
+    publishes_release: false;
+    signs_artifacts: false;
+    checks_remote_ci: false;
+  };
+  summary: {
+    doctor_status: DoctorReport["status"];
+    security_audit_status: SecurityAuditReport["status"];
+    git_dirty: boolean;
+    configured_ci_gate: DoctorCheckStatus;
+    dependency_lockfiles: DoctorCheckStatus;
+    workspace_runtime: string;
+    remote_ci_checked: false;
+    packaged: false;
+    signed: false;
+    published: false;
+  };
+  git: GitReleaseEvidence;
+  configured_evidence: {
+    ci_workflow_gate: {
+      status: DoctorCheckStatus;
+      missing_gates: string[];
+      evidence: string[];
+    };
+    platform_smoke_matrix: {
+      configured: boolean;
+      runners: string[];
+      evidence: string[];
+    };
+    action_runtime: {
+      node24_forced: boolean;
+      checkout_v5: boolean;
+      setup_node_v5: boolean;
+      package_manager_cache_disabled: boolean;
+      evidence: string[];
+    };
+    dependency_lockfiles: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
+    governance_files: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
+    bilingual_main_docs: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
+  };
+  local_reports: {
+    doctor: Pick<DoctorReport, "status" | "check_status" | "summary">;
+    security_audit: Pick<SecurityAuditReport, "status" | "summary">;
+  };
+  workspace_runtime: {
+    status: "not_initialized" | "initialized" | "invalid";
+    ledger_status: DoctorCheckStatus | SecurityAuditCheckStatus;
+    evidence: string[];
+  };
+  release_artifacts: {
+    packaged: false;
+    signed: false;
+    published: false;
+    remote_ci_checked: false;
+    evidence_repository: false;
+    public_docs_deployed: false;
+    installer_available: false;
+    updater_available: false;
+  };
+  source_documents: Array<{ path: string; role: string }>;
+  remaining_gaps: string[];
+};
+
+async function runRelease(options: CliOptions): Promise<void> {
+  if (options.topic !== "evidence") {
+    throw new Error("release supports evidence");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const report = await buildReleaseEvidenceReport(workspaceRoot);
+  if (report.status === "blocked") {
+    process.exitCode = 1;
+  }
+  printRawJson(report);
+}
+
+async function buildReleaseEvidenceReport(workspaceRoot: string): Promise<ReleaseEvidenceReport> {
+  const doctor = await buildDoctorReport(workspaceRoot);
+  const securityAudit = await buildSecurityAuditReport(workspaceRoot);
+  const git = gitReleaseEvidence();
+  const doctorChecks = new Map(doctor.checks.map((checkItem) => [checkItem.id, checkItem]));
+  const ciWorkflow = readRepoText(".github/workflows/ci.yml") ?? "";
+  const ciWorkflowGate = doctorChecks.get("ci_workflow_gate");
+  const dependencyLockfiles = doctorChecks.get("dependency_lockfiles");
+  const governanceFiles = doctorChecks.get("governance_files");
+  const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
+  const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
+  const blocked = doctor.status === "blocked" || securityAudit.status === "fail";
+  const status = blocked ? "blocked" : git.dirty ? "draft" : "ready";
+
+  return {
+    id: "aetherion_release_evidence_report",
+    generated_at: new Date().toISOString(),
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    status,
+    evidence_kind: "local_configured_release_snapshot",
+    scope: {
+      ...readOnlyCommandScope(),
+      publishes_release: false,
+      signs_artifacts: false,
+      checks_remote_ci: false
+    },
+    summary: {
+      doctor_status: doctor.status,
+      security_audit_status: securityAudit.status,
+      git_dirty: git.dirty,
+      configured_ci_gate: ciWorkflowGate?.status ?? "fail",
+      dependency_lockfiles: dependencyLockfiles?.status ?? "fail",
+      workspace_runtime: workspaceRuntime.status,
+      remote_ci_checked: false,
+      packaged: false,
+      signed: false,
+      published: false
+    },
+    git,
+    configured_evidence: {
+      ci_workflow_gate: {
+        status: ciWorkflowGate?.status ?? "fail",
+        missing_gates: ciGateNeedles().filter((needle) => !ciWorkflow.includes(needle)),
+        evidence: ciWorkflowGate?.evidence ?? [".github/workflows/ci.yml=missing"]
+      },
+      platform_smoke_matrix: {
+        configured: ciWorkflow.includes("platform-smoke:") && ciWorkflow.includes("ubuntu-latest") && ciWorkflow.includes("macos-latest"),
+        runners: ["ubuntu-latest", "macos-latest"].filter((runner) => ciWorkflow.includes(runner)),
+        evidence: [
+          `workflow_job=${ciWorkflow.includes("platform-smoke:") ? "platform-smoke" : "missing"}`,
+          `ubuntu_latest=${String(ciWorkflow.includes("ubuntu-latest"))}`,
+          `macos_latest=${String(ciWorkflow.includes("macos-latest"))}`,
+          "remote_execution_checked=false"
+        ]
+      },
+      action_runtime: {
+        node24_forced: ciWorkflow.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"),
+        checkout_v5: ciWorkflow.includes("actions/checkout@v5"),
+        setup_node_v5: ciWorkflow.includes("actions/setup-node@v5"),
+        package_manager_cache_disabled: ciWorkflow.includes("package-manager-cache: false"),
+        evidence: [
+          `node24_forced=${String(ciWorkflow.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"))}`,
+          `checkout_v5=${String(ciWorkflow.includes("actions/checkout@v5"))}`,
+          `setup_node_v5=${String(ciWorkflow.includes("actions/setup-node@v5"))}`,
+          `package_manager_cache_disabled=${String(ciWorkflow.includes("package-manager-cache: false"))}`
+        ]
+      },
+      dependency_lockfiles: {
+        status: dependencyLockfiles?.status ?? "fail",
+        evidence: dependencyLockfiles?.evidence ?? ["dependency_lockfiles=missing"]
+      },
+      governance_files: {
+        status: governanceFiles?.status ?? "fail",
+        evidence: governanceFiles?.evidence ?? ["governance_files=missing"]
+      },
+      bilingual_main_docs: {
+        status: bilingualMainDocs?.status ?? "fail",
+        evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
+      }
+    },
+    local_reports: {
+      doctor: {
+        status: doctor.status,
+        check_status: doctor.check_status,
+        summary: doctor.summary
+      },
+      security_audit: {
+        status: securityAudit.status,
+        summary: securityAudit.summary
+      }
+    },
+    workspace_runtime: workspaceRuntime,
+    release_artifacts: {
+      packaged: false,
+      signed: false,
+      published: false,
+      remote_ci_checked: false,
+      evidence_repository: false,
+      public_docs_deployed: false,
+      installer_available: false,
+      updater_available: false
+    },
+    source_documents: [
+      { path: "docs/00-product-brief.md", role: "local-first authority and reviewable evidence intent" },
+      { path: "docs/05-audit-and-data-contracts.md", role: "Event Ledger and rebuildable projection source of truth" },
+      { path: "docs/06-roadmap.md", role: "TUI-first V1 scope and deferred connector surfaces" },
+      { path: "docs/13-schema-runtime-governance.md", role: "schema and governance source constraints" },
+      { path: "docs/14-runtime-loop-plan.md", role: "current production-hardening loop" }
+    ],
+    remaining_gaps: [
+      "remote CI execution is not queried by this local report",
+      "release packages are not built",
+      "release artifacts are not signed",
+      "public docs are not deployed",
+      "installer and updater infrastructure are not implemented",
+      "broader platform/release matrix artifacts are not produced",
+      "GUI, browser automation, IM delivery, MCP/OAuth connectors, cloud workers, and package-code execution remain deferred"
+    ]
+  };
+}
+
+function readOnlyCommandScope(): ReadOnlyCommandScope {
+  return {
+    read_only: true,
+    mutates_ledger: false,
+    mutates_registries: false,
+    writes_artifacts: false,
+    calls_model_provider: false,
+    issues_lease: false,
+    repairs_state: false
+  };
+}
+
+function gitReleaseEvidence(): GitReleaseEvidence {
+  const head = gitOutput(["rev-parse", "HEAD"]);
+  const changedFiles = gitOutputRaw(["status", "--porcelain=v1", "--untracked-files=all"])
+    .split("\n")
+    .filter(Boolean);
+  return {
+    is_git_repo: Boolean(head),
+    branch: gitOutput(["rev-parse", "--abbrev-ref", "HEAD"]),
+    head,
+    head_short: gitOutput(["rev-parse", "--short", "HEAD"]),
+    dirty: changedFiles.length > 0,
+    changed_file_count: changedFiles.length,
+    tracked_change_count: changedFiles.filter((line) => !line.startsWith("??")).length,
+    untracked_file_count: changedFiles.filter((line) => line.startsWith("??")).length,
+    changed_files: changedFiles
+  };
+}
+
+function gitOutput(args: string[]): string | null {
+  try {
+    const output = execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+    return output.length > 0 ? output : null;
+  } catch {
+    return null;
+  }
+}
+
+function gitOutputRaw(args: string[]): string {
+  try {
+    return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  } catch {
+    return "";
+  }
+}
+
+function releaseWorkspaceRuntime(
+  doctor: DoctorReport,
+  securityAudit: SecurityAuditReport
+): ReleaseEvidenceReport["workspace_runtime"] {
+  const workspaceChecks = doctor.checks.filter((checkItem) => checkItem.id.startsWith("workspace_"));
+  const ledgerCheck = securityAudit.checks.find((checkItem) => checkItem.id === "workspace.ledger_hash_chain");
+  if (workspaceChecks.some((checkItem) => checkItem.status === "fail") || ledgerCheck?.status === "fail") {
+    return {
+      status: "invalid",
+      ledger_status: ledgerCheck?.status ?? "fail",
+      evidence: [
+        ...workspaceChecks.flatMap((checkItem) => checkItem.evidence),
+        ...(ledgerCheck?.evidence ?? [])
+      ]
+    };
+  }
+  if (workspaceChecks.some((checkItem) => checkItem.id === "workspace_runtime_state" && checkItem.status === "not_applicable")) {
+    return {
+      status: "not_initialized",
+      ledger_status: ledgerCheck?.status ?? "not_applicable",
+      evidence: [
+        ...workspaceChecks.flatMap((checkItem) => checkItem.evidence),
+        ...(ledgerCheck?.evidence ?? [])
+      ]
+    };
+  }
+  return {
+    status: "initialized",
+    ledger_status: ledgerCheck?.status ?? "pass",
+    evidence: [
+      ...workspaceChecks.flatMap((checkItem) => checkItem.evidence),
+      ...(ledgerCheck?.evidence ?? [])
+    ]
+  };
 }
 
 async function readVerifiedLedgerForReadOnlyCommand(workspaceRoot: string, commandName: string): Promise<{
@@ -680,10 +1023,10 @@ function repoDoctorChecks(): DoctorCheck[] {
     "ci_workflow_gate",
     ciWorkflow && ciGateNeedles().every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
     ciWorkflow ? "info" : "error",
-    "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, and the Node 24 action-runtime baseline.",
+    "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, release evidence, and the Node 24 action-runtime baseline.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit,ubuntu/macos platform smoke"
+      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,doctor,security audit,release evidence,ubuntu/macos platform smoke"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
   ));
@@ -759,6 +1102,7 @@ function ciGateNeedles(): string[] {
     "tools/forbidden-tracked-roots.txt",
     "npm run ether -- doctor --workspace .",
     "npm run ether -- security audit --workspace .",
+    "npm run ether -- release evidence --workspace .",
     "platform-smoke:",
     "fail-fast: false",
     "ubuntu-latest",
@@ -3390,7 +3734,7 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
     checkForFindings(
       "ci.dependency_audit_guard",
       findings,
-      "CI enforces lockfile install, dependency audit, platform smoke, Node 24 action runtime, and operator readiness snapshots.",
+    "CI enforces lockfile install, dependency audit, platform smoke, Node 24 action runtime, and operator readiness/release-evidence snapshots.",
       [`required_gates=${ciGateNeedles().join(",")}`]
     ),
     modelStdout.check
@@ -3592,7 +3936,7 @@ function ciDependencyAuditGuardFindings(): SecurityAuditFinding[] {
         "ci.dependency_audit_guard",
         "medium",
         "CI dependency and readiness guard is incomplete",
-        "GitHub Actions does not run every dependency reproducibility, dependency audit, platform smoke, action-runtime, and operator readiness gate.",
+        "GitHub Actions does not run every dependency reproducibility, dependency audit, platform smoke, action-runtime, and operator readiness/release-evidence gate.",
         [`missing_gates=${missing.join(",")}`],
         "Update .github/workflows/ci.yml to run npm ci, npm audit, cargo audit, doctor, security audit, Node 24 JavaScript actions, and the platform smoke matrix."
       )];
@@ -4629,6 +4973,7 @@ Usage:
   npm run ether -- supervisor preflight --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
   npm run ether -- doctor --workspace <path>
+  npm run ether -- release evidence --workspace <path>
 
   Trace-backed local runtime:
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -4698,6 +5043,7 @@ Commands:
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
   doctor                 Read-only production readiness report for repo and workspace invariants
+  release                Read-only local/configured release evidence snapshot; no packaging, signing, publishing, or remote CI query
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Source-backed Memory OS surfaces plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Phase 5 sandbox and time-travel surfaces
