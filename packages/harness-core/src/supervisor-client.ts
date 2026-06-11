@@ -56,7 +56,22 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
     stderr += chunk;
   });
 
-  child.stdin.end(`${JSON.stringify(request)}\n`);
+  let stdinError: Error | null = null;
+  let stdinSettled = false;
+  const stdinFinished = new Promise<void>((resolve) => {
+    const settle = () => {
+      if (!stdinSettled) {
+        stdinSettled = true;
+        resolve();
+      }
+    };
+    child.stdin.once("error", (error) => {
+      stdinError = error instanceof Error ? error : new Error(String(error));
+      settle();
+    });
+    child.stdin.once("close", settle);
+    child.stdin.end(`${JSON.stringify(request)}\n`, settle);
+  });
 
   let timedOut = false;
   const timeout = options?.timeoutMs
@@ -74,8 +89,12 @@ export async function callSupervisorRpc(repoRoot: string, request: SupervisorRpc
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+  await stdinFinished;
   if (exitCode !== 0) {
     throw new Error(formatSupervisorProcessFailure(request, command, args, exitCode, timedOut, stderr, stdout));
+  }
+  if (stdinError) {
+    throw new Error(`supervisor rpc ${request.method} failed: stdin write failed: ${stdinError.message}`);
   }
   const line = singleSupervisorResponseLine(request, stdout);
   const response = parseSupervisorResponseEnvelope(request, line);

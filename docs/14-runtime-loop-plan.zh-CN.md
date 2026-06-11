@@ -356,3 +356,23 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 private vulnerability-reporting backend、release automation、documentation deployment、issue triage automation 或 maintainer workflow bot。
 - 它不启用 GUI、browser automation、IM delivery、MCP/OAuth connectors、package-code execution、cloud workers 或 remote marketplace。
+
+## 已完成增量：Supervisor RPC Stdin Failure Normalization
+
+目标：捕获早到的 stdin write error，让 supervisor process failure 在 CI 平台间保持确定性，并继续通过 sanitized supervisor process-failure summary 报告非零 subprocess exit。
+
+验收：
+
+- `callSupervisorRpc` 在写 JSON-RPC request 前先安装 stdin error/close listeners。
+- 早到的 `EPIPE` 或同类 stdin write failure 不会绕过 supervisor process-failure formatter。
+- 非零 supervisor exit 继续报告 exit code、command、stderr 和 stdout line count，但不泄露 stdout contents。
+
+与原始文档对照和修正：
+
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 仍是 client/orchestrator surface，但 supervisor RPC boundary 必须 fail closed，并避免接受 ambiguous process evidence。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：stdout 可被计数用于诊断，但 raw payload 不能进入 failure message。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：本轮 harden 既有 P0/P1 runtime boundary，不授予新 authority。
+
+剩余边界：
+
+- 这不是 supervisor daemon lifecycle feature、repair command、socket protocol change、policy change 或新的 runtime action family。

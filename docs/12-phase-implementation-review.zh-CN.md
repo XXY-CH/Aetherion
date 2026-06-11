@@ -385,6 +385,32 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
 - 剩余严格复查差距包括 installer/updater automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
 
+## Phase 53 复核：Supervisor RPC Stdin Failure Normalization
+
+本轮修复 CI 暴露的 supervisor RPC client failure mode。process-failure test 期望非零退出的 supervisor subprocess 通过安全的 process-failure summary 报告，但 GitHub Actions 上可能先暴露 stdin `EPIPE`，早于 close handler 生成该 summary。
+
+与原始文档对照：
+
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript supervisor client 必须只通过结构化 RPC 边界接收 evidence，并在 malformed 或 failed supervisor process 上 fail closed。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：failure report 应可重建，但不能泄露 raw stdout payload。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：supervisor/client failure handling 是 runtime-boundary hardening，不是新 feature 或 authority path。
+
+本轮修正：
+
+- `callSupervisorRpc` 现在在写 request 前先挂 stdin `error` 和 `close` listener。
+- 早到的 stdin write error 会被捕获，不再作为裸 stream error 泄出。
+- 非零 supervisor exit 仍使用现有 sanitized process-failure summary，包括 stdout line count，但不包含 stdout contents。
+
+验证：
+
+- 目标 Node test 覆盖 `supervisor RPC client reports process failures without raw stdout leakage`。
+- 提交前需要完整本地 verification。
+
+修正与剩余边界：
+
+- 修正 cross-platform/race-sensitive RPC client error-normalization gap；不改变 supervisor policy、lease、action execution、raw stdout persistence 或 socket RPC semantics。
+- 本轮仍不启用 GUI、browser automation、IM delivery、MCP/OAuth connector、package-code execution、cloud worker 或 remote marketplace。
+
 ## 验证要求
 
 每轮结束应至少检查：

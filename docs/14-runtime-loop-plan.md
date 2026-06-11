@@ -731,3 +731,23 @@ Remaining boundary:
 
 - This is not a private vulnerability-reporting backend, release automation, documentation deployment, issue triage automation, or maintainer workflow bot.
 - It does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+
+## Completed Increment: Supervisor RPC Stdin Failure Normalization
+
+Target: make supervisor process failures deterministic across CI platforms by capturing early stdin write errors and still reporting non-zero subprocess exits through the sanitized supervisor process-failure summary.
+
+Acceptance:
+
+- `callSupervisorRpc` installs stdin error/close listeners before writing the JSON-RPC request.
+- Early `EPIPE` or equivalent stdin write failures do not bypass the supervisor process-failure formatter.
+- Non-zero supervisor exits continue to report exit code, command, stderr, and stdout line count without leaking stdout contents.
+
+Matched source docs and corrections:
+
+- [Technical Strategy](10-technical-strategy.md): TypeScript remains the client/orchestrator surface, but the supervisor RPC boundary must fail closed and avoid accepting ambiguous process evidence.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): stdout can be counted for diagnostics but raw payloads must not enter failure messages.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): this hardens an existing P0/P1 runtime boundary and grants no new authority.
+
+Remaining boundary:
+
+- This is not a supervisor daemon lifecycle feature, repair command, socket protocol change, policy change, or new runtime action family.

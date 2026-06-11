@@ -1392,6 +1392,32 @@ Corrections and remaining boundary:
 - This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
 - Remaining strict-review gaps include installer/updater automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
 
+## Phase 53 Review Notes
+
+This pass fixes a CI-discovered supervisor RPC client failure mode. The process-failure test expected a non-zero supervisor subprocess exit to be reported through the safe process-failure summary, but GitHub Actions could surface an early stdin `EPIPE` before the close handler produced that summary.
+
+Matched source docs:
+
+- [Technical Strategy](10-technical-strategy.md): the TypeScript supervisor client must accept evidence only through the structured RPC boundary and fail closed on malformed or failed supervisor processes.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): failure reports must remain reconstructable without leaking raw stdout payloads.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): supervisor/client failure handling is runtime-boundary hardening, not a new feature or authority path.
+
+Implemented correspondence:
+
+- `callSupervisorRpc` now attaches stdin `error` and `close` listeners before writing the request.
+- Early stdin write errors are captured instead of escaping as raw stream errors.
+- Non-zero supervisor exits still use the existing sanitized process-failure summary, including stdout line count but not stdout contents.
+
+Verification evidence:
+
+- Targeted Node test covers `supervisor RPC client reports process failures without raw stdout leakage`.
+- Full local verification is required before committing this fix.
+
+Corrections and remaining boundary:
+
+- Corrects a cross-platform/race-sensitive RPC client error-normalization gap; it does not change supervisor policy, leases, action execution, raw stdout persistence, or socket RPC semantics.
+- This still does not enable GUI, browser automation, IM delivery, MCP/OAuth connectors, package-code execution, cloud workers, or a remote marketplace.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:
