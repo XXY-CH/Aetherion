@@ -90,6 +90,32 @@
     "raw_model_output_persisted": false,
     "provider_error_body_persisted": false
   },
+  "error_taxonomy": {
+    "error_type": "ModelProviderError",
+    "codes": [
+      "provider_unknown",
+      "provider_missing_credential",
+      "provider_invalid_timeout",
+      "provider_network_failure",
+      "provider_timeout",
+      "provider_http_error",
+      "provider_malformed_json",
+      "provider_tool_call_rejected"
+    ],
+    "categories": [
+      "configuration",
+      "credential",
+      "network",
+      "upstream_http",
+      "upstream_payload",
+      "no_tools_guard"
+    ],
+    "retryable_metadata_present": true,
+    "http_status_metadata_present": true,
+    "credential_values_in_errors": false,
+    "raw_provider_error_body_persisted": false,
+    "tool_call_outputs_persisted_on_error": false
+  },
   "authority": {
     "model_output_can_authorize_actions": false,
     "provider_credential_can_grant_tool_authority": false,

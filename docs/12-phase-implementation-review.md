@@ -1764,6 +1764,38 @@ Corrections and remaining boundary:
 - Local idempotency completion is a replay-safe evidence cache, not a source of authorization.
 - Remaining strict-review gaps include explicit supervisor lifecycle command contracts, provider error/credential-source productionization, durable/session ingress identity, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 64 Review Notes
+
+This pass advances PGC-4 by turning provider failures from free-text errors into a stable no-tools provider error taxonomy, without adding provider tools, OAuth flows, connector grants, or vault-backed credential resolution.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): provider calls remain Agent Orchestrator evidence; Tool Access & Action Policy Proxy still gates actions and egress.
+- [User Boundary Layer](02-user-boundary-layer.md): provider credentials and model/provider errors cannot authorize reads, writes, leases, exports, or side effects.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): Model Provider Readiness stays P1 metadata and now rejects raw provider error-body persistence in addition to raw prompt/model/provider payload overclaims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-4 explicitly calls for stable error taxonomy, retry/refusal metadata, and credential-source clarity while keeping OAuth as a future governed flow.
+
+Implemented correspondence:
+
+- Added `ModelProviderError`, `ModelProviderErrorCode`, `ModelProviderErrorCategory`, `MODEL_PROVIDER_ERROR_CODES`, and `isModelProviderError` to `packages/harness-core/src/model-provider.ts`.
+- Stabilized provider error codes for unknown provider, missing credential, invalid timeout, network failure, timeout, HTTP error, malformed JSON, and no-tools tool-call rejection.
+- Error instances now carry provider ref, category, retryability, and HTTP status metadata where applicable; HTTP error handling still avoids reading or echoing upstream response bodies.
+- Extended `schemas/model-provider-readiness.schema.json` and `examples/contracts/model-provider-readiness.json` with the error taxonomy, including negative evidence that raw provider error bodies, credentials, and tool-call outputs are not persisted on failure.
+- Updated `doctor`, `onboarding check`, and `release evidence` readiness checks to require the error taxonomy and supporting tests.
+- Added harness tests that assert stable taxonomy metadata for unknown provider, missing credential, invalid timeout, malformed JSON, HTTP 429, network failure, timeout, and tool-call rejection.
+
+Drift review:
+
+- Corrects the Phase 63 remaining-gap item that still listed provider error productionization as open.
+- Corrects readiness drift: Model Provider Readiness now proves error classification, not only provider list and credential-source boundaries.
+- Keeps provider support inside the no-tools/hash-only runtime path; provider errors do not write model-response or response-audit artifacts and do not become policy approval.
+- Does not implement vault-backed provider credential resolution, browser OAuth, token refresh/revocation, connector grants, streaming, multimodal payloads, provider tool execution, or live-provider CI probes.
+
+Corrections and remaining boundary:
+
+- Provider error taxonomy is diagnostic evidence only. It is not a retry executor, OAuth account-linking system, vault resolver, connector grant, egress permission, policy decision, or lease.
+- Remaining strict-review gaps include explicit supervisor lifecycle command contracts, durable/session ingress identity, richer refusal taxonomy, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

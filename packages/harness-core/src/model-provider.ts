@@ -49,6 +49,68 @@ export type ModelInvocationResult = {
   };
 };
 
+export type ModelProviderErrorCode =
+  | "provider_unknown"
+  | "provider_missing_credential"
+  | "provider_invalid_timeout"
+  | "provider_network_failure"
+  | "provider_timeout"
+  | "provider_http_error"
+  | "provider_malformed_json"
+  | "provider_tool_call_rejected";
+
+export type ModelProviderErrorCategory =
+  | "configuration"
+  | "credential"
+  | "network"
+  | "upstream_http"
+  | "upstream_payload"
+  | "no_tools_guard";
+
+export const MODEL_PROVIDER_ERROR_CODES: ModelProviderErrorCode[] = [
+  "provider_unknown",
+  "provider_missing_credential",
+  "provider_invalid_timeout",
+  "provider_network_failure",
+  "provider_timeout",
+  "provider_http_error",
+  "provider_malformed_json",
+  "provider_tool_call_rejected"
+];
+
+export class ModelProviderError extends Error {
+  code: ModelProviderErrorCode;
+  category: ModelProviderErrorCategory;
+  provider_ref: string | null;
+  retryable: boolean;
+  http_status?: number;
+
+  constructor(input: {
+    code: ModelProviderErrorCode;
+    category: ModelProviderErrorCategory;
+    provider_ref: string | null;
+    retryable: boolean;
+    message: string;
+    http_status?: number;
+  }) {
+    super(input.message);
+    this.name = "ModelProviderError";
+    this.code = input.code;
+    this.category = input.category;
+    this.provider_ref = input.provider_ref;
+    this.retryable = input.retryable;
+    this.http_status = input.http_status;
+  }
+}
+
+export function isModelProviderError(error: unknown): error is ModelProviderError {
+  return error instanceof ModelProviderError;
+}
+
+function modelProviderError(input: ConstructorParameters<typeof ModelProviderError>[0]): ModelProviderError {
+  return new ModelProviderError(input);
+}
+
 export type ModelProvider = {
   provider_ref: string;
   model_ref: string;
@@ -59,7 +121,13 @@ export type ModelProvider = {
 
 export function assertNoProviderToolCalls(result: ModelInvocationResult, providerRef: string): void {
   if (result.tool_calls_present || result.finish_reason === "tool_call") {
-    throw new Error(`${providerRef} returned a tool/function call in no-tools mode; refusing to persist model response evidence.`);
+    throw modelProviderError({
+      code: "provider_tool_call_rejected",
+      category: "no_tools_guard",
+      provider_ref: providerRef,
+      retryable: false,
+      message: `${providerRef} returned a tool/function call in no-tools mode; refusing to persist model response evidence.`
+    });
   }
 }
 
@@ -97,9 +165,13 @@ export function resolveModelProvider(options: ResolveModelProviderOptions = {}):
   if (providerName === "gemini") {
     return createGeminiProvider(options.modelRef ?? env.AETHERION_MODEL_REF ?? DEFAULT_GEMINI_MODEL, env);
   }
-  throw new Error(
-    `Unknown model provider '${providerName}'. Set AETHERION_MODEL_PROVIDER to 'stub', 'openai_responses', 'openai_chat_completions', 'anthropic', or 'gemini'.`
-  );
+  throw modelProviderError({
+    code: "provider_unknown",
+    category: "configuration",
+    provider_ref: null,
+    retryable: false,
+    message: `Unknown model provider '${providerName}'. Set AETHERION_MODEL_PROVIDER to 'stub', 'openai_responses', 'openai_chat_completions', 'anthropic', or 'gemini'.`
+  });
 }
 
 // Deterministic, offline provider. It never touches the network and produces a
@@ -134,13 +206,14 @@ export function createStubProvider(modelRef: string): ModelProvider {
 // platform credential. OPENAI_OAUTH_ACCESS_TOKEN is accepted only as an
 // externally obtained bearer token; Aetherion does not run an OAuth flow here.
 export function createOpenAIResponsesProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
-  const timeoutMs = resolveProviderTimeoutMs(env);
+  const providerRef = "provider_openai_responses";
+  const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
   return {
-    provider_ref: "provider_openai_responses",
+    provider_ref: providerRef,
     model_ref: modelRef,
     network_capable: true,
     async invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult> {
-      const credential = resolveBearerCredential(env, ["OPENAI_API_KEY"], ["OPENAI_OAUTH_ACCESS_TOKEN"], "openai_responses");
+      const credential = resolveBearerCredential(env, ["OPENAI_API_KEY"], ["OPENAI_OAUTH_ACCESS_TOKEN"], "openai_responses", providerRef);
       const instructions = systemAndDeveloperText(request.messages);
       const userContent = userText(request.messages);
       const body: Record<string, unknown> = {
@@ -155,7 +228,7 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
       const payload = await postJson<OpenAIResponsesResponse>(OPENAI_RESPONSES_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_responses", timeoutMs);
+      }, body, "openai_responses", providerRef, timeoutMs);
       const result = mapOpenAIResponsesResponse(payload);
       assertNoProviderToolCalls(result, "provider_openai_responses");
       return result;
@@ -167,13 +240,14 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
 // message-array surface available for models and deployments that still expect
 // chat completions instead of Responses.
 export function createOpenAIChatCompletionsProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
-  const timeoutMs = resolveProviderTimeoutMs(env);
+  const providerRef = "provider_openai_chat_completions";
+  const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
   return {
-    provider_ref: "provider_openai_chat_completions",
+    provider_ref: providerRef,
     model_ref: modelRef,
     network_capable: true,
     async invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult> {
-      const credential = resolveBearerCredential(env, ["OPENAI_API_KEY"], ["OPENAI_OAUTH_ACCESS_TOKEN"], "openai_chat_completions");
+      const credential = resolveBearerCredential(env, ["OPENAI_API_KEY"], ["OPENAI_OAUTH_ACCESS_TOKEN"], "openai_chat_completions", providerRef);
       const body = {
         model: modelRef,
         messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
@@ -183,7 +257,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
       const payload = await postJson<OpenAIChatCompletionResponse>(OPENAI_CHAT_COMPLETIONS_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_chat_completions", timeoutMs);
+      }, body, "openai_chat_completions", providerRef, timeoutMs);
       const result = mapOpenAIChatCompletionResponse(payload);
       assertNoProviderToolCalls(result, "provider_openai_chat_completions");
       return result;
@@ -195,15 +269,22 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
 // The key is read at call time and never stored on the provider object or
 // returned to the caller.
 export function createAnthropicProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
-  const timeoutMs = resolveProviderTimeoutMs(env);
+  const providerRef = "provider_anthropic";
+  const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
   return {
-    provider_ref: "provider_anthropic",
+    provider_ref: providerRef,
     model_ref: modelRef,
     network_capable: true,
     async invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult> {
       const apiKey = firstEnvValue(env, ["ANTHROPIC_API_KEY"]);
       if (!apiKey) {
-        throw new Error("anthropic provider requires ANTHROPIC_API_KEY; direct Anthropic Messages API OAuth is not implemented.");
+        throw modelProviderError({
+          code: "provider_missing_credential",
+          category: "credential",
+          provider_ref: providerRef,
+          retryable: false,
+          message: "anthropic provider requires ANTHROPIC_API_KEY; direct Anthropic Messages API OAuth is not implemented."
+        });
       }
       const system = systemAndDeveloperText(request.messages);
       const userContent = userText(request.messages);
@@ -218,7 +299,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
         "anthropic-version": ANTHROPIC_API_VERSION,
         "x-api-key": apiKey.value
       };
-      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", timeoutMs);
+      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", providerRef, timeoutMs);
       const result = mapAnthropicResponse(payload);
       assertNoProviderToolCalls(result, "provider_anthropic");
       return result;
@@ -230,13 +311,14 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
 // path. GEMINI_OAUTH_ACCESS_TOKEN or GOOGLE_OAUTH_ACCESS_TOKEN may be supplied
 // when an external Google OAuth flow already produced a bearer token.
 export function createGeminiProvider(modelRef: string, env: Record<string, string | undefined>): ModelProvider {
-  const timeoutMs = resolveProviderTimeoutMs(env);
+  const providerRef = "provider_gemini";
+  const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
   return {
-    provider_ref: "provider_gemini",
+    provider_ref: providerRef,
     model_ref: modelRef,
     network_capable: true,
     async invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult> {
-      const credential = resolveGeminiCredential(env);
+      const credential = resolveGeminiCredential(env, providerRef);
       const system = systemAndDeveloperText(request.messages);
       const userContent = userText(request.messages) || allMessageText(request.messages);
       const body: Record<string, unknown> = {
@@ -257,6 +339,7 @@ export function createGeminiProvider(modelRef: string, env: Record<string, strin
         headers,
         body,
         "gemini",
+        providerRef,
         timeoutMs
       );
       const result = mapGeminiResponse(payload);
@@ -513,7 +596,8 @@ function resolveBearerCredential(
   env: Record<string, string | undefined>,
   apiKeyEnvNames: string[],
   oauthEnvNames: string[],
-  providerName: string
+  providerName: string,
+  providerRef: string
 ): ProviderCredential {
   const apiKey = firstEnvValue(env, apiKeyEnvNames);
   if (apiKey) {
@@ -523,10 +607,16 @@ function resolveBearerCredential(
   if (oauth) {
     return { kind: "oauth_bearer", value: oauth.value, source_env: oauth.name };
   }
-  throw new Error(`${providerName} provider requires one of ${[...apiKeyEnvNames, ...oauthEnvNames].join(", ")}.`);
+  throw modelProviderError({
+    code: "provider_missing_credential",
+    category: "credential",
+    provider_ref: providerRef,
+    retryable: false,
+    message: `${providerName} provider requires one of ${[...apiKeyEnvNames, ...oauthEnvNames].join(", ")}.`
+  });
 }
 
-function resolveGeminiCredential(env: Record<string, string | undefined>): ProviderCredential {
+function resolveGeminiCredential(env: Record<string, string | undefined>, providerRef: string): ProviderCredential {
   const apiKey = firstEnvValue(env, ["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
   if (apiKey) {
     return { kind: "api_key", value: apiKey.value, source_env: apiKey.name };
@@ -535,7 +625,13 @@ function resolveGeminiCredential(env: Record<string, string | undefined>): Provi
   if (oauth) {
     return { kind: "oauth_bearer", value: oauth.value, source_env: oauth.name };
   }
-  throw new Error("gemini provider requires one of GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_OAUTH_ACCESS_TOKEN, GOOGLE_OAUTH_ACCESS_TOKEN.");
+  throw modelProviderError({
+    code: "provider_missing_credential",
+    category: "credential",
+    provider_ref: providerRef,
+    retryable: false,
+    message: "gemini provider requires one of GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_OAUTH_ACCESS_TOKEN, GOOGLE_OAUTH_ACCESS_TOKEN."
+  });
 }
 
 function firstEnvValue(env: Record<string, string | undefined>, names: string[]): { name: string; value: string } | null {
@@ -553,6 +649,7 @@ async function postJson<T>(
   headers: Record<string, string>,
   body: unknown,
   providerName: string,
+  providerRef: string,
   timeoutMs: number
 ): Promise<T> {
   let response: Response;
@@ -580,7 +677,13 @@ async function postJson<T>(
     const message = timedOut
       ? `timed out after ${timeoutMs}ms`
       : error instanceof Error ? error.message : String(error);
-    throw new Error(`${providerName} provider network call failed: ${message}`);
+    throw modelProviderError({
+      code: timedOut ? "provider_timeout" : "provider_network_failure",
+      category: "network",
+      provider_ref: providerRef,
+      retryable: true,
+      message: `${providerName} provider network call failed: ${message}`
+    });
   } finally {
     if (timeout) {
       clearTimeout(timeout);
@@ -588,25 +691,48 @@ async function postJson<T>(
   }
   if (!response.ok) {
     // Do not echo the response body; it may contain request context.
-    throw new Error(`${providerName} provider returned HTTP ${response.status}`);
+    throw modelProviderError({
+      code: "provider_http_error",
+      category: "upstream_http",
+      provider_ref: providerRef,
+      retryable: retryableHttpStatus(response.status),
+      http_status: response.status,
+      message: `${providerName} provider returned HTTP ${response.status}`
+    });
   }
   try {
     return (await response.json()) as T;
   } catch {
-    throw new Error(`${providerName} provider returned malformed JSON`);
+    throw modelProviderError({
+      code: "provider_malformed_json",
+      category: "upstream_payload",
+      provider_ref: providerRef,
+      retryable: false,
+      message: `${providerName} provider returned malformed JSON`
+    });
   }
 }
 
-function resolveProviderTimeoutMs(env: Record<string, string | undefined>): number {
+function resolveProviderTimeoutMs(env: Record<string, string | undefined>, providerRef: string): number {
   const raw = env.AETHERION_MODEL_TIMEOUT_MS;
   if (!raw) {
     return DEFAULT_PROVIDER_TIMEOUT_MS;
   }
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error("AETHERION_MODEL_TIMEOUT_MS must be a positive number of milliseconds");
+    throw modelProviderError({
+      code: "provider_invalid_timeout",
+      category: "configuration",
+      provider_ref: providerRef,
+      retryable: false,
+      message: "AETHERION_MODEL_TIMEOUT_MS must be a positive number of milliseconds"
+    });
   }
   return Math.trunc(parsed);
+}
+
+function retryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
 }
 
 function geminiModelPath(modelRef: string): string {

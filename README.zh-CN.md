@@ -147,6 +147,8 @@ provider 凭据只从环境变量内存读取。Aetherion 不运行浏览器 OAu
 
 如果 live provider 返回 tool/function call（OpenAI `tool_calls`、Responses call-type output、Anthropic `tool_use`、Gemini `functionCall` 或 executable code），no-tools 路径会在写入 model response 或 response-audit evidence 前 fail closed。
 
+provider 失败现在使用 `ModelProviderError` 稳定分类，包含 code、category、retryable 和 HTTP status metadata；raw provider error body 和 credential value 不会持久化，也不会回显给 operator。
+
 `prompt invoke-model` 默认 stdout 只输出 hash/metadata。只有显式传 `--print-output` 时才会把 raw model output 回显给本地 operator；即便如此，raw output 仍不会写入 artifact、Ledger、registry 或日志。
 
 `doctor` 是只读 operator surface，输出 `ready`、`degraded` 或 `blocked`，并保留每个检查的 `pass`/`warn`/`fail`/`not_applicable` 细节。它不追加 Ledger、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state，也不会为未初始化 workspace 创建 `.aetherion`。

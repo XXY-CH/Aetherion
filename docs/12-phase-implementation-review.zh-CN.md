@@ -757,6 +757,38 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Local idempotency completion 是 replay-safe evidence cache，不是 authorization source。
 - 剩余严格复查差距包括显式 supervisor lifecycle command contracts、provider error/credential-source productionization、durable/session ingress identity、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 64 复核：Provider Stable Error Taxonomy
+
+本轮推进 PGC-4，把 provider failure 从自由文本错误推进为稳定的 no-tools provider error taxonomy，但不添加 provider tools、OAuth flow、connector grant 或 vault-backed credential resolution。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：provider call 仍是 Agent Orchestrator evidence；Tool Access & Action Policy Proxy 仍负责 gate action 和 egress。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：provider credential 和 model/provider error 都不能授权 read、write、lease、export 或 side effect。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：Model Provider Readiness 仍是 P1 metadata，现在除 raw prompt/model/provider payload overclaim 外，也拒绝 raw provider error body persistence。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-4 明确要求 stable error taxonomy、retry/refusal metadata 和 credential-source clarity，同时 OAuth 仍是未来 governed flow。
+
+本轮修正：
+
+- 在 `packages/harness-core/src/model-provider.ts` 新增 `ModelProviderError`、`ModelProviderErrorCode`、`ModelProviderErrorCategory`、`MODEL_PROVIDER_ERROR_CODES` 和 `isModelProviderError`。
+- 固化 unknown provider、missing credential、invalid timeout、network failure、timeout、HTTP error、malformed JSON 和 no-tools tool-call rejection 的 provider error code。
+- error instance 现在携带 provider ref、category、retryability，以及适用时的 HTTP status metadata；HTTP error handling 仍不读取或回显 upstream response body。
+- 扩展 `schemas/model-provider-readiness.schema.json` 与 `examples/contracts/model-provider-readiness.json`，加入 error taxonomy，并明确 failure 时不会持久化 raw provider error body、credential 或 tool-call output。
+- `doctor`、`onboarding check` 和 `release evidence` 的 readiness check 现在要求 error taxonomy 和对应测试存在。
+- 新增 harness 测试，覆盖 unknown provider、missing credential、invalid timeout、malformed JSON、HTTP 429、network failure、timeout 和 tool-call rejection 的稳定 taxonomy metadata。
+
+偏差复核：
+
+- 修正 Phase 63 剩余差距中 provider error productionization 仍未完成的部分。
+- 修正 readiness 偏差：Model Provider Readiness 现在不仅证明 provider list 和 credential-source boundary，也证明 error classification。
+- 保持 provider support 在 no-tools/hash-only runtime path 内；provider error 不写 model-response 或 response-audit artifact，也不会成为 policy approval。
+- 未实现 vault-backed provider credential resolution、browser OAuth、token refresh/revocation、connector grant、streaming、多模态 payload、provider tool execution 或 live-provider CI probe。
+
+修正与剩余边界：
+
+- Provider error taxonomy 只是 diagnostic evidence；它不是 retry executor、OAuth account-linking system、vault resolver、connector grant、egress permission、policy decision 或 lease。
+- 剩余严格复查差距包括显式 supervisor lifecycle command contracts、durable/session ingress identity、更细 refusal taxonomy、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

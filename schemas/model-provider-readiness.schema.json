@@ -11,6 +11,7 @@
     "credential_boundary",
     "no_tools_guard",
     "persistence",
+    "error_taxonomy",
     "authority",
     "limits",
     "source_files"
@@ -95,6 +96,64 @@
         "raw_response_payload_persisted": { "type": "boolean", "enum": [false] },
         "raw_model_output_persisted": { "type": "boolean", "enum": [false] },
         "provider_error_body_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "error_taxonomy": {
+      "type": "object",
+      "required": [
+        "error_type",
+        "codes",
+        "categories",
+        "retryable_metadata_present",
+        "http_status_metadata_present",
+        "credential_values_in_errors",
+        "raw_provider_error_body_persisted",
+        "tool_call_outputs_persisted_on_error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "error_type": { "type": "string", "enum": ["ModelProviderError"] },
+        "codes": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "provider_unknown",
+              "provider_missing_credential",
+              "provider_invalid_timeout",
+              "provider_network_failure",
+              "provider_timeout",
+              "provider_http_error",
+              "provider_malformed_json",
+              "provider_tool_call_rejected"
+            ]
+          }
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "configuration",
+              "credential",
+              "network",
+              "upstream_http",
+              "upstream_payload",
+              "no_tools_guard"
+            ]
+          }
+        },
+        "retryable_metadata_present": { "type": "boolean", "enum": [true] },
+        "http_status_metadata_present": { "type": "boolean", "enum": [true] },
+        "credential_values_in_errors": { "type": "boolean", "enum": [false] },
+        "raw_provider_error_body_persisted": { "type": "boolean", "enum": [false] },
+        "tool_call_outputs_persisted_on_error": { "type": "boolean", "enum": [false] }
       }
     },
     "authority": {

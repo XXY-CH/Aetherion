@@ -15,7 +15,7 @@ Aetherion kernel 的最小 contract-first seed。
 - 运行本地文件 read/write、policy、scoped lease、approval、observation、verification 和 replay 的最小 harness。
 - 读写 Agent Runtime Invocation、Agent Model Request、Agent Model Response、Agent Response Audit 和 Agent Tool Request Proposal metadata artifacts。
 - 在 no-tools、hash-only response boundary 下解析 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini` model provider；`openai_chat_completions` 是当前支持的 OpenAI completion-style surface，不是 legacy `/v1/completions`。
-- provider credential 只从 env 内存读取；provider layer 不运行 OAuth、不刷新 token、不持久化 credential、不配置 connector、不授予 runtime authority。
+- provider credential 只从 env 内存读取；provider layer 不运行 OAuth、不刷新 token、不持久化 credential、不配置 connector、不授予 runtime authority。provider failure 使用 `ModelProviderError` code/category/retryable/HTTP status metadata，不用自由文本作为唯一分类；raw upstream error body 和 credential 不进入 durable evidence。
 - 验证 Local Ingress Readiness、Local Ingress Rate Limit Reservation、Local Ingress Idempotency Reservation、Local Ingress Idempotency Completion、metadata-only Vault Reference、Vault Policy Binding、Model Provider Readiness 与 Supervisor Lifecycle Readiness contract，并用 schema 测试拒绝 remote-surface ingress overclaim、unauthenticated authority、rate-limit authority/session/queue overclaim、idempotency authority reuse、raw rate-limit 或 idempotency key/intent persistence、late rate-limit enforcement、late duplicate detection、mismatched 或 live idempotency replay claim、raw external payload storage、raw secret、secret resolution、egress、raw prompt/model payload、OAuth flow、token refresh、connector grant、provider tool call、model-output authority、production daemon、stale-lock repair、socket-auth authority、vault backend 和 supervisor lease authority 已实现的声明。
 
 重要边界：

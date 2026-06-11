@@ -2079,6 +2079,16 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
       raw_model_output_persisted?: unknown;
       provider_error_body_persisted?: unknown;
     };
+    error_taxonomy?: {
+      error_type?: unknown;
+      codes?: unknown;
+      categories?: unknown;
+      retryable_metadata_present?: unknown;
+      http_status_metadata_present?: unknown;
+      credential_values_in_errors?: unknown;
+      raw_provider_error_body_persisted?: unknown;
+      tool_call_outputs_persisted_on_error?: unknown;
+    };
     authority?: {
       model_output_can_authorize_actions?: unknown;
       provider_credential_can_grant_tool_authority?: unknown;
@@ -2153,6 +2163,38 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
     && example.authority.provider_call_can_issue_lease === false
     && example.authority.requires_local_supervisor_for_actions === true
     && example.authority.requires_scoped_lease_for_actions === true;
+  const taxonomyCodes = Array.isArray(example?.error_taxonomy?.codes)
+    ? example.error_taxonomy.codes.filter((value): value is string => typeof value === "string")
+    : [];
+  const taxonomyCategories = Array.isArray(example?.error_taxonomy?.categories)
+    ? example.error_taxonomy.categories.filter((value): value is string => typeof value === "string")
+    : [];
+  const requiredErrorCodes = [
+    "provider_unknown",
+    "provider_missing_credential",
+    "provider_invalid_timeout",
+    "provider_network_failure",
+    "provider_timeout",
+    "provider_http_error",
+    "provider_malformed_json",
+    "provider_tool_call_rejected"
+  ];
+  const requiredErrorCategories = [
+    "configuration",
+    "credential",
+    "network",
+    "upstream_http",
+    "upstream_payload",
+    "no_tools_guard"
+  ];
+  const errorTaxonomySafe = example?.error_taxonomy?.error_type === "ModelProviderError"
+    && requiredErrorCodes.every((code) => taxonomyCodes.includes(code))
+    && requiredErrorCategories.every((category) => taxonomyCategories.includes(category))
+    && example.error_taxonomy.retryable_metadata_present === true
+    && example.error_taxonomy.http_status_metadata_present === true
+    && example.error_taxonomy.credential_values_in_errors === false
+    && example.error_taxonomy.raw_provider_error_body_persisted === false
+    && example.error_taxonomy.tool_call_outputs_persisted_on_error === false;
   const limitsSafe = example?.limits?.oauth_flows_implemented === false
     && example.limits.token_refresh_implemented === false
     && example.limits.connector_grants_implemented === false
@@ -2164,9 +2206,12 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
     && source.includes("OPENAI_CHAT_COMPLETIONS_URL")
     && source.includes("ANTHROPIC_MESSAGES_URL")
     && source.includes("GEMINI_GENERATE_CONTENT_BASE_URL")
-    && source.includes("assertNoProviderToolCalls");
+    && source.includes("assertNoProviderToolCalls")
+    && source.includes("class ModelProviderError")
+    && source.includes("MODEL_PROVIDER_ERROR_CODES");
   const testsReady = tests.includes("live model providers map official API surfaces")
     && tests.includes("live model providers reject tool calls in no-tools mode")
+    && tests.includes("live model provider errors expose stable taxonomy")
     && tests.includes("OPENAI_OAUTH_ACCESS_TOKEN")
     && tests.includes("GOOGLE_OAUTH_ACCESS_TOKEN");
   const ok = schemaPresent
@@ -2177,6 +2222,7 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
     && geminiOAuthNamed
     && anthropicBoundaryNamed
     && boundarySafe
+    && errorTaxonomySafe
     && limitsSafe
     && sourceReady
     && testsReady;
@@ -2185,8 +2231,8 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
     ok ? "pass" : "fail",
     ok ? "info" : "error",
     ok
-      ? "Model provider readiness contract covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent without OAuth-flow or connector-grant overclaiming."
-      : "Model provider readiness contract is missing or overclaims provider, OAuth, persistence, tool-call, or authority behavior.",
+      ? "Model provider readiness contract covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, Gemini generateContent, and stable provider error taxonomy without OAuth-flow or connector-grant overclaiming."
+      : "Model provider readiness contract is missing or overclaims provider, OAuth, persistence, tool-call, error-taxonomy, or authority behavior.",
     [
       `schema=${schemaPresent ? "present" : "missing"}`,
       `example=${examplePresent ? "present" : "missing"}`,
@@ -2197,11 +2243,12 @@ function modelProviderReadinessContractCheck(): DoctorCheck {
       `gemini_external_bearer_env=${String(geminiOAuthNamed)}`,
       `anthropic_direct_api_key_only=${String(anthropicBoundaryNamed)}`,
       `credential_boundary_safe=${String(boundarySafe)}`,
+      `error_taxonomy_safe=${String(errorTaxonomySafe)}`,
       `limits_safe=${String(limitsSafe)}`,
       `source_ready=${String(sourceReady)}`,
       `tests_ready=${String(testsReady)}`
     ],
-    "Restore schemas/model-provider-readiness.schema.json, examples/contracts/model-provider-readiness.json, and the no-tools provider boundary without raw credential persistence, OAuth-flow claims, connector grants, or model-output authority."
+    "Restore schemas/model-provider-readiness.schema.json, examples/contracts/model-provider-readiness.json, and the no-tools provider boundary without raw credential persistence, OAuth-flow claims, connector grants, raw provider error bodies, or model-output authority."
   );
 }
 

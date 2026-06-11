@@ -114,6 +114,12 @@
 - OAuth 在 vault storage、refresh policy、revocation 和 connector grants 可测试前，只能作为未来 governed credential flow 文档化。
 - tool/function-call response 继续在写 response-audit 或 tool-request proposal evidence 前 fail closed。
 
+当前部分状态：
+
+- OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Gemini `generateContent` 已有 provider capability metadata 与 credential-source readiness。
+- live provider call 走 no-tools/hash-only path，只在内存中读取 API key 或受支持的外部 bearer token，并已有 timeout/HTTP/malformed-JSON fail-closed handling、usage normalization、tool-call rejection，以及 `ModelProviderError` stable code/category/retryability/HTTP-status metadata。
+- 未来 vault-backed provider credential resolution、browser OAuth flow、token refresh/revocation、connector grant、streaming、多模态 payload、live CI provider probe、更细 refusal taxonomy 和 provider-tool execution 仍未完成。
+
 ### PGC-5：Proposal-To-Policy Bridge
 
 交付物：

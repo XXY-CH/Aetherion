@@ -114,6 +114,12 @@ Acceptance criteria:
 - OAuth remains documented as future governed credential flow until vault storage, refresh policy, revocation, and connector grants exist.
 - Tool/function-call responses still fail closed before response-audit or tool-request proposal evidence is written.
 
+Current partial status:
+
+- Provider capability metadata and credential-source readiness exist for OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini `generateContent`.
+- Live provider calls use the no-tools/hash-only path, in-memory API keys or externally supplied bearer tokens where supported, timeout/HTTP/malformed-JSON fail-closed handling, usage normalization, tool-call rejection, and `ModelProviderError` stable codes/categories/retryability/HTTP-status metadata.
+- Future vault-backed provider credential resolution, browser OAuth flows, token refresh/revocation, connector grants, streaming, multimodal payloads, live CI provider probes, richer refusal taxonomy, and provider-tool execution remain open.
+
 ### PGC-5: Proposal-To-Policy Bridge
 
 Deliverables:

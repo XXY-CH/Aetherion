@@ -625,3 +625,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production ingress gateway、public API listener、browser extension ingress、IM/mobile ingress、connector OAuth ingress、cloud worker ingress、durable idempotency store、session manager、distributed limiter、policy lease 或 side-effect authorization path。
 - 下一高价值切片是显式 supervisor lifecycle command contracts、provider error/credential-source productionization、durable/session ingress identity，或 remote CI/release hardening。
+
+## 已完成增量：Provider Stable Error Taxonomy
+
+目标：继续推进 PGC-4，让 no-tools provider failure 可机器分类，同时不持久化 raw provider error body，也不扩大 provider authority。
+
+验收：
+
+- `ModelProviderError` 成为 provider boundary 中 unknown provider、missing credential、invalid timeout、network failure、timeout、HTTP error、malformed JSON 和 provider tool-call rejection 的统一错误类型。
+- error 暴露稳定 code/category/retryability metadata，并在适用时携带 HTTP status。
+- HTTP error handling 仍不读取或回显 upstream error body；credential value 只停留在内存中。
+- Model Provider Readiness 现在包含 error taxonomy，并拒绝 failure 时持久化 raw provider error body、credential 或 tool-call output。
+- `doctor`、`onboarding check` 和 `release evidence` 现在要求 error taxonomy evidence。
+
+与原始文档对照和修正：
+
+- [架构](01-architecture.zh-CN.md)：provider call 仍是 Agent Orchestrator 内的 evidence，不是 Connector Adapter grant 或 Tool Policy Proxy bypass。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：provider readiness metadata 现在有 failure-path raw payload persistence 的 executable negative test。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮关闭 PGC-4 的 stable error taxonomy 部分，同时未来 vault/OAuth/connector work 仍位于 policy 后面。
+
+剩余边界：
+
+- 这不是 browser OAuth、token refresh、vault-backed provider credential resolution、connector account linking、retry executor、provider tool execution、streaming、多模态 payload support 或 live-provider CI probing。
+- 下一批高价值切片是显式 supervisor lifecycle command contracts、durable/session ingress identity、更细 refusal taxonomy，或 remote CI/release hardening。

@@ -1019,3 +1019,26 @@ Remaining boundary:
 
 - This is not a production ingress gateway, public API listener, browser extension ingress, IM/mobile ingress, connector OAuth ingress, cloud worker ingress, durable idempotency store, session manager, distributed limiter, policy lease, or side-effect authorization path.
 - The next high-value slices are explicit supervisor lifecycle command contracts, provider error/credential-source productionization, durable/session ingress identity, or remote CI/release hardening.
+
+## Completed Increment: Provider Stable Error Taxonomy
+
+Target: continue PGC-4 by making no-tools provider failures machine-classifiable without persisting raw provider error bodies or widening provider authority.
+
+Acceptance:
+
+- `ModelProviderError` is the single provider-boundary error type for unknown provider, missing credential, invalid timeout, network failure, timeout, HTTP error, malformed JSON, and provider tool-call rejection.
+- Errors expose stable code/category/retryability metadata and HTTP status when applicable.
+- HTTP error handling still avoids reading or echoing upstream error bodies; credential values remain in memory only.
+- Model Provider Readiness now includes the error taxonomy and rejects raw provider error body, credential, or tool-call output persistence on failure.
+- `doctor`, `onboarding check`, and `release evidence` require the error taxonomy evidence.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): provider calls remain evidence inside the Agent Orchestrator, not a Connector Adapter grant or Tool Policy Proxy bypass.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): provider readiness metadata now has executable negative tests for failure-path raw payload persistence.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this closes the stable error taxonomy part of PGC-4 while leaving future vault/OAuth/connector work behind policy.
+
+Remaining boundary:
+
+- This is not browser OAuth, token refresh, vault-backed provider credential resolution, connector account linking, a retry executor, provider tool execution, streaming, multimodal payload support, or live-provider CI probing.
+- The next high-value slices are explicit supervisor lifecycle command contracts, durable/session ingress identity, richer refusal taxonomy, or remote CI/release hardening.

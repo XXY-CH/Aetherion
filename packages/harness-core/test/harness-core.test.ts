@@ -64,6 +64,9 @@ import {
   replayRecordRunEventSequence,
   resolveModelProvider,
   createStubProvider,
+  isModelProviderError,
+  MODEL_PROVIDER_ERROR_CODES,
+  ModelProviderError,
   securityScanBlockedEventSequence,
   validateAgainstSchema,
   verifyEventHashChain,
@@ -125,6 +128,42 @@ async function withCustomFetch(mockFetch: typeof fetch, run: () => Promise<void>
   } finally {
     globalThis.fetch = originalFetch;
   }
+}
+
+async function captureAsyncError(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await run();
+  } catch (error) {
+    return error;
+  }
+  assert.fail("Expected operation to reject");
+}
+
+function captureSyncError(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  assert.fail("Expected operation to throw");
+}
+
+function assertModelProviderError(error: unknown, expected: {
+  code: ModelProviderError["code"];
+  category: ModelProviderError["category"];
+  provider_ref: string | null;
+  retryable: boolean;
+  http_status?: number;
+}): ModelProviderError {
+  assert.ok(error instanceof ModelProviderError, String(error));
+  assert.equal(isModelProviderError(error), true);
+  assert.equal(error.name, "ModelProviderError");
+  assert.equal(error.code, expected.code);
+  assert.equal(error.category, expected.category);
+  assert.equal(error.provider_ref, expected.provider_ref);
+  assert.equal(error.retryable, expected.retryable);
+  assert.equal(error.http_status, expected.http_status);
+  return error;
 }
 
 const schemaExamplePairs = [
@@ -1201,6 +1240,147 @@ test("live model providers fail closed on timeout, HTTP errors, and malformed JS
       provider.invoke(request),
       /openai_responses provider network call failed: timed out after 5ms/
     );
+  });
+});
+
+test("live model provider errors expose stable taxonomy without leaking provider bodies", async () => {
+  assert.deepEqual(MODEL_PROVIDER_ERROR_CODES, [
+    "provider_unknown",
+    "provider_missing_credential",
+    "provider_invalid_timeout",
+    "provider_network_failure",
+    "provider_timeout",
+    "provider_http_error",
+    "provider_malformed_json",
+    "provider_tool_call_rejected"
+  ]);
+  const messages = [{ role: "user" as const, content: "Answer from evidence." }];
+  const request = {
+    provider_ref: "provider_openai_responses",
+    model_ref: "gpt-test",
+    output_mode: "answer" as const,
+    messages,
+    max_output_tokens: 10
+  };
+
+  assertModelProviderError(captureSyncError(() => resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "mystery" } })), {
+    code: "provider_unknown",
+    category: "configuration",
+    provider_ref: null,
+    retryable: false
+  });
+
+  const missingCredentialProvider = resolveModelProvider({ env: { AETHERION_MODEL_PROVIDER: "openai_responses" } });
+  assertModelProviderError(await captureAsyncError(() => missingCredentialProvider.invoke(request)), {
+    code: "provider_missing_credential",
+    category: "credential",
+    provider_ref: "provider_openai_responses",
+    retryable: false
+  });
+
+  assertModelProviderError(captureSyncError(() => resolveModelProvider({
+    env: {
+      AETHERION_MODEL_PROVIDER: "openai_responses",
+      AETHERION_MODEL_TIMEOUT_MS: "0"
+    }
+  })), {
+    code: "provider_invalid_timeout",
+    category: "configuration",
+    provider_ref: "provider_openai_responses",
+    retryable: false
+  });
+
+  await withCustomFetch((async () => new Response("{not json", {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    assertModelProviderError(await captureAsyncError(() => provider.invoke(request)), {
+      code: "provider_malformed_json",
+      category: "upstream_payload",
+      provider_ref: "provider_openai_responses",
+      retryable: false
+    });
+  });
+
+  await withCustomFetch((async () => new Response(JSON.stringify({ error: { message: "provider secret body" } }), {
+    status: 429,
+    headers: { "content-type": "application/json" }
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    const error = assertModelProviderError(await captureAsyncError(() => provider.invoke(request)), {
+      code: "provider_http_error",
+      category: "upstream_http",
+      provider_ref: "provider_openai_responses",
+      retryable: true,
+      http_status: 429
+    });
+    assert.match(error.message, /openai_responses provider returned HTTP 429/);
+    assert.doesNotMatch(error.message, /provider secret body/);
+  });
+
+  await withCustomFetch((async () => {
+    throw new Error("socket closed");
+  }) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    assertModelProviderError(await captureAsyncError(() => provider.invoke(request)), {
+      code: "provider_network_failure",
+      category: "network",
+      provider_ref: "provider_openai_responses",
+      retryable: true
+    });
+  });
+
+  await withCustomFetch((async (_input, init) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new Error("aborted by signal")));
+  })) as typeof fetch, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key",
+        AETHERION_MODEL_TIMEOUT_MS: "5"
+      }
+    });
+    assertModelProviderError(await captureAsyncError(() => provider.invoke(request)), {
+      code: "provider_timeout",
+      category: "network",
+      provider_ref: "provider_openai_responses",
+      retryable: true
+    });
+  });
+
+  await withMockFetch({
+    status: "completed",
+    output: [{ type: "function_call", name: "read_file", arguments: "{}" }],
+    usage: { input_tokens: 3, output_tokens: 0, total_tokens: 3 }
+  }, async () => {
+    const provider = resolveModelProvider({
+      env: {
+        AETHERION_MODEL_PROVIDER: "openai_responses",
+        OPENAI_API_KEY: "openai-api-key"
+      }
+    });
+    assertModelProviderError(await captureAsyncError(() => provider.invoke(request)), {
+      code: "provider_tool_call_rejected",
+      category: "no_tools_guard",
+      provider_ref: "provider_openai_responses",
+      retryable: false
+    });
   });
 });
 
