@@ -533,6 +533,37 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 这不是 production vault、OS keychain integration、secret retrieval API、OAuth flow、token refresh path、connector grant lifecycle、policy lease 或 runtime authority grant。
 - 剩余严格复查差距包括 supervisor lifecycle/vault binding design、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation 和更广 projection parity coverage。
 
+## Phase 57 复核：Model Provider Readiness Contract
+
+本轮跟进用户明确提出的 provider-support gap，但不扩大 connector authority。runtime code 已经有 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Gemini `generateContent` 的 no-tools provider，但 release/readiness evidence 还没有把这个边界表示成 schema-checked contract。
+
+与原始文档对照：
+
+- [架构](01-architecture.zh-CN.md)：model provider call 留在 Agent Orchestrator evidence path；Connector Adapter 与 Tool Access & Action Policy Proxy 仍是独立 authority surface。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：readiness schema 必须对 raw payload、provider tool-call authority 和 OAuth/connector overclaiming 加负向测试。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 需要在真实 OAuth 或 connector grant 前锁住 credential/provider boundary。
+- [路线图](06-roadmap.zh-CN.md)：OpenAI/Anthropic/Gemini provider portability 仍在 TUI-first evidence loop 内，MCP/OAuth/SaaS connector 继续 deferred from V1。
+
+本轮修正：
+
+- 新增 `schemas/model-provider-readiness.schema.json` 和 `examples/contracts/model-provider-readiness.json`。
+- contract 命名 `openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`，并列出当前 provider code 支持的 API-key env vars 与外部已获取 bearer-token env vars。
+- contract 明确把 OAuth flow、token refresh、connector grant、streaming、多模态 payload 和 legacy OpenAI `/v1/completions` 标为未实现。
+- 新增负向 schema 测试，拒绝 OAuth-flow、connector-grant、raw prompt/model payload、provider tool declaration、tool-call response persistence 和 model-output authority drift。
+- `doctor`、`onboarding check` 和 `release evidence` 现在输出 `model_provider_readiness_contract` evidence，与 Vault Reference evidence 并列。
+- README、TUI README、harness-core README、schema governance 和 runtime-loop docs 都澄清 OpenAI completion 支持指 Chat Completions，不是 legacy text completions。
+
+偏差复核：
+
+- 修正 readiness-evidence drift：provider support 已存在于 code 和 tests，但还没有 machine-readable release/readiness contract。
+- 修正 “OpenAI completion” 的术语漂移风险：当前支持 surface 被命名为 OpenAI Chat Completions。
+- 未实现 browser OAuth、provider auth wizard、token refresh、connector account linking、MCP/OAuth/SaaS connector、streaming、多模态 provider payload、provider tool execution 或 runtime authority grant。
+
+修正与剩余边界：
+
+- Model Provider Readiness 是 P1 readiness/credential-boundary metadata contract，不是 credential store、OAuth client、connector grant 或 policy lease。
+- 剩余严格复查差距包括 supervisor lifecycle/vault reference binding design、local ingress、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

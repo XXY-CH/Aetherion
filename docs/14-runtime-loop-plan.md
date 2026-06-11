@@ -850,3 +850,27 @@ Remaining boundary:
 
 - This is not a production vault backend, OS keychain integration, token refresh system, OAuth authorization flow, connector grant lifecycle, secret retrieval API, policy lease, or runtime authority grant.
 - The next slice can either continue PGC-2 with supervisor lifecycle/vault reference binding design or return to PGC-1 live remote observation if release evidence becomes the higher risk.
+
+## Completed Increment: Model Provider Readiness Contract
+
+Target: make the existing no-tools provider support release-checkable without expanding OAuth or connector scope.
+
+Acceptance:
+
+- `model-provider-readiness.schema.json` and its example validate with the existing contract example suite.
+- The schema locks the supported API surfaces to OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini `generateContent`.
+- The schema rejects OAuth-flow, token-refresh, connector-grant, raw prompt/model/provider payload, provider tool-call persistence, and model-output authority overclaims.
+- `doctor`, `onboarding check`, and `release evidence` surface `model_provider_readiness_contract` evidence.
+- Release evidence keeps remaining provider gaps explicit: OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI `/v1/completions` are still unimplemented.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): model provider invocation remains Agent Orchestrator evidence; Tool Access & Action Policy Proxy still gates actions.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): provider readiness is P1 metadata with negative tests for raw payloads, provider tool calls, and OAuth/connector overclaiming.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this continues PGC-2 by naming provider/credential boundaries before true OAuth or connector grants.
+- [Roadmap](06-roadmap.md): provider portability stays inside TUI-first readiness; MCP/OAuth/SaaS connectors remain deferred.
+
+Remaining boundary:
+
+- This is not an OAuth client, provider-auth wizard, token refresh system, connector grant lifecycle, streaming/multimodal provider path, provider tool executor, or runtime authority grant.
+- The next high-value PGC-2 slice is still supervisor lifecycle/vault reference binding design, unless release evidence or CI becomes the sharper blocker.

@@ -149,6 +149,7 @@ const schemaExamplePairs = [
   ["replay-record.schema.json", "replay-record.json"],
   ["migration-report.schema.json", "migration-report.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
+  ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -224,6 +225,35 @@ test("vault references reject raw secret and implemented OAuth or connector gran
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "vault-reference.schema.json", draft);
     assert.equal(result.valid, false, "vault-reference schema accepted authority or raw-secret drift");
+  }
+});
+
+test("model provider readiness rejects OAuth, persistence, tool-call, and authority overclaims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "model-provider-readiness.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.interfaces[0].oauth_flow_implemented = true; },
+    (draft: typeof valid) => { draft.interfaces[1].connector_grant_implemented = true; },
+    (draft: typeof valid) => { draft.interfaces[2].no_tools_mode = false; },
+    (draft: typeof valid) => { draft.interfaces[3].tool_call_outputs_rejected = false; },
+    (draft: typeof valid) => { draft.credential_boundary.credential_values_persisted = true; },
+    (draft: typeof valid) => { draft.no_tools_guard.declares_provider_tools = true; },
+    (draft: typeof valid) => { draft.no_tools_guard.tool_choice = "auto"; },
+    (draft: typeof valid) => { draft.no_tools_guard.response_written_after_tool_call = true; },
+    (draft: typeof valid) => { draft.persistence.raw_prompt_persisted = true; },
+    (draft: typeof valid) => { draft.persistence.raw_model_output_persisted = true; },
+    (draft: typeof valid) => { draft.authority.model_output_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.authority.provider_call_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.limits.oauth_flows_implemented = true; },
+    (draft: typeof valid) => { draft.limits.token_refresh_implemented = true; },
+    (draft: typeof valid) => { draft.limits.legacy_openai_text_completions_implemented = true; },
+    (draft: typeof valid) => { draft.raw_provider_secret = "sk-do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "model-provider-readiness.schema.json", draft);
+    assert.equal(result.valid, false, "model-provider-readiness schema accepted provider authority or raw-payload drift");
   }
 });
 

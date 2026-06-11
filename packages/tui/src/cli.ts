@@ -691,6 +691,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("bilingual_main_docs") ?? missingRepoCheck("bilingual_main_docs"),
     repoCheckById.get("runtime_artifact_ignore_rules") ?? missingRepoCheck("runtime_artifact_ignore_rules"),
     repoCheckById.get("schema_example_manifest") ?? missingRepoCheck("schema_example_manifest"),
+    repoCheckById.get("model_provider_readiness_contract") ?? missingRepoCheck("model_provider_readiness_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
@@ -719,6 +720,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "bilingual_main_docs",
     "runtime_artifact_ignore_rules",
     "schema_example_manifest",
+    "model_provider_readiness_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
@@ -949,6 +951,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    model_provider_readiness_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     vault_reference_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1002,6 +1008,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const dependencyLockfiles = doctorChecks.get("dependency_lockfiles");
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
+  const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
@@ -1084,6 +1091,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: bilingualMainDocs?.status ?? "fail",
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
       },
+      model_provider_readiness_contract: {
+        status: modelProviderReadinessContract?.status ?? "fail",
+        evidence: modelProviderReadinessContract?.evidence ?? ["model_provider_readiness_contract=missing"]
+      },
       vault_reference_contract: {
         status: vaultReferenceContract?.status ?? "fail",
         evidence: vaultReferenceContract?.evidence ?? ["vault_reference_contract=missing"]
@@ -1127,6 +1138,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       "release packages are not built",
       "release artifacts are not signed",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
+      "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
       "public docs are not deployed",
       "installer and updater infrastructure are not implemented",
       "broader platform/release matrix artifacts are not produced",
@@ -1674,8 +1686,171 @@ function repoDoctorChecks(): DoctorCheck[] {
     ],
     "Restore schemas/ and examples/contracts/ before changing contracts."
   ));
+  checks.push(modelProviderReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
+}
+
+function modelProviderReadinessContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/model-provider-readiness.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/model-provider-readiness.json");
+  const source = readRepoText("packages/harness-core/src/model-provider.ts") ?? "";
+  const tests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const example = readRepoJson("examples/contracts/model-provider-readiness.json") as {
+    interfaces?: Array<{
+      provider_ref?: unknown;
+      api_surface?: unknown;
+      credential_env_vars?: unknown;
+      externally_supplied_oauth_bearer_allowed?: unknown;
+      oauth_flow_implemented?: unknown;
+      connector_grant_implemented?: unknown;
+      no_tools_mode?: unknown;
+      tool_call_outputs_rejected?: unknown;
+    }>;
+    credential_boundary?: {
+      credential_values_in_examples?: unknown;
+      credential_values_persisted?: unknown;
+      credential_refs_persisted?: unknown;
+      credential_resolution_recorded_as_authority?: unknown;
+    };
+    no_tools_guard?: {
+      declares_provider_tools?: unknown;
+      tool_choice?: unknown;
+      tool_calls_fail_closed?: unknown;
+      executable_code_fail_closed?: unknown;
+      response_written_after_tool_call?: unknown;
+    };
+    persistence?: {
+      raw_prompt_persisted?: unknown;
+      raw_request_payload_persisted?: unknown;
+      raw_response_payload_persisted?: unknown;
+      raw_model_output_persisted?: unknown;
+      provider_error_body_persisted?: unknown;
+    };
+    authority?: {
+      model_output_can_authorize_actions?: unknown;
+      provider_credential_can_grant_tool_authority?: unknown;
+      provider_call_can_issue_lease?: unknown;
+      requires_local_supervisor_for_actions?: unknown;
+      requires_scoped_lease_for_actions?: unknown;
+    };
+    limits?: {
+      oauth_flows_implemented?: unknown;
+      token_refresh_implemented?: unknown;
+      connector_grants_implemented?: unknown;
+      streaming_implemented?: unknown;
+      multimodal_payloads_implemented?: unknown;
+      legacy_openai_text_completions_implemented?: unknown;
+    };
+  } | null;
+  const interfaces = Array.isArray(example?.interfaces) ? example.interfaces : [];
+  const providerRefs = new Set(interfaces.map((entry) => entry.provider_ref).filter((value): value is string => typeof value === "string"));
+  const apiSurfaces = new Set(interfaces.map((entry) => entry.api_surface).filter((value): value is string => typeof value === "string"));
+  const requiredProviderRefs = [
+    "provider_openai_responses",
+    "provider_openai_chat_completions",
+    "provider_anthropic",
+    "provider_gemini"
+  ];
+  const requiredApiSurfaces = [
+    "openai_responses_api",
+    "openai_chat_completions_api",
+    "anthropic_messages_api",
+    "gemini_generate_content_api"
+  ];
+  const providersDeclared = requiredProviderRefs.every((ref) => providerRefs.has(ref))
+    && requiredApiSurfaces.every((surface) => apiSurfaces.has(surface));
+  const providerFlagsSafe = interfaces.length === 4 && interfaces.every((entry) =>
+    entry.oauth_flow_implemented === false
+    && entry.connector_grant_implemented === false
+    && entry.no_tools_mode === true
+    && entry.tool_call_outputs_rejected === true
+  );
+  const openAiOAuthNamed = interfaces
+    .filter((entry) => entry.provider_ref === "provider_openai_responses" || entry.provider_ref === "provider_openai_chat_completions")
+    .every((entry) => Array.isArray(entry.credential_env_vars) && entry.credential_env_vars.includes("OPENAI_OAUTH_ACCESS_TOKEN") && entry.externally_supplied_oauth_bearer_allowed === true);
+  const geminiOAuthNamed = interfaces.some((entry) =>
+    entry.provider_ref === "provider_gemini"
+    && Array.isArray(entry.credential_env_vars)
+    && entry.credential_env_vars.includes("GEMINI_OAUTH_ACCESS_TOKEN")
+    && entry.credential_env_vars.includes("GOOGLE_OAUTH_ACCESS_TOKEN")
+    && entry.externally_supplied_oauth_bearer_allowed === true
+  );
+  const anthropicBoundaryNamed = interfaces.some((entry) =>
+    entry.provider_ref === "provider_anthropic"
+    && Array.isArray(entry.credential_env_vars)
+    && entry.credential_env_vars.includes("ANTHROPIC_API_KEY")
+    && entry.externally_supplied_oauth_bearer_allowed === false
+  );
+  const boundarySafe = example?.credential_boundary?.credential_values_in_examples === false
+    && example.credential_boundary.credential_values_persisted === false
+    && example.credential_boundary.credential_refs_persisted === false
+    && example.credential_boundary.credential_resolution_recorded_as_authority === false
+    && example.no_tools_guard?.declares_provider_tools === false
+    && example.no_tools_guard.tool_choice === "none"
+    && example.no_tools_guard.tool_calls_fail_closed === true
+    && example.no_tools_guard.executable_code_fail_closed === true
+    && example.no_tools_guard.response_written_after_tool_call === false
+    && example.persistence?.raw_prompt_persisted === false
+    && example.persistence.raw_request_payload_persisted === false
+    && example.persistence.raw_response_payload_persisted === false
+    && example.persistence.raw_model_output_persisted === false
+    && example.persistence.provider_error_body_persisted === false
+    && example.authority?.model_output_can_authorize_actions === false
+    && example.authority.provider_credential_can_grant_tool_authority === false
+    && example.authority.provider_call_can_issue_lease === false
+    && example.authority.requires_local_supervisor_for_actions === true
+    && example.authority.requires_scoped_lease_for_actions === true;
+  const limitsSafe = example?.limits?.oauth_flows_implemented === false
+    && example.limits.token_refresh_implemented === false
+    && example.limits.connector_grants_implemented === false
+    && example.limits.streaming_implemented === false
+    && example.limits.multimodal_payloads_implemented === false
+    && example.limits.legacy_openai_text_completions_implemented === false;
+  const sourceReady = requiredProviderRefs.every((ref) => source.includes(ref))
+    && source.includes("OPENAI_RESPONSES_URL")
+    && source.includes("OPENAI_CHAT_COMPLETIONS_URL")
+    && source.includes("ANTHROPIC_MESSAGES_URL")
+    && source.includes("GEMINI_GENERATE_CONTENT_BASE_URL")
+    && source.includes("assertNoProviderToolCalls");
+  const testsReady = tests.includes("live model providers map official API surfaces")
+    && tests.includes("live model providers reject tool calls in no-tools mode")
+    && tests.includes("OPENAI_OAUTH_ACCESS_TOKEN")
+    && tests.includes("GOOGLE_OAUTH_ACCESS_TOKEN");
+  const ok = schemaPresent
+    && examplePresent
+    && providersDeclared
+    && providerFlagsSafe
+    && openAiOAuthNamed
+    && geminiOAuthNamed
+    && anthropicBoundaryNamed
+    && boundarySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "model_provider_readiness_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Model provider readiness contract covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent without OAuth-flow or connector-grant overclaiming."
+      : "Model provider readiness contract is missing or overclaims provider, OAuth, persistence, tool-call, or authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `provider_refs=${[...providerRefs].sort().join(",") || "missing"}`,
+      `api_surfaces=${[...apiSurfaces].sort().join(",") || "missing"}`,
+      `provider_flags_safe=${String(providerFlagsSafe)}`,
+      `openai_external_bearer_env=${String(openAiOAuthNamed)}`,
+      `gemini_external_bearer_env=${String(geminiOAuthNamed)}`,
+      `anthropic_direct_api_key_only=${String(anthropicBoundaryNamed)}`,
+      `credential_boundary_safe=${String(boundarySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore schemas/model-provider-readiness.schema.json, examples/contracts/model-provider-readiness.json, and the no-tools provider boundary without raw credential persistence, OAuth-flow claims, connector grants, or model-output authority."
+  );
 }
 
 function vaultReferenceContractCheck(): DoctorCheck {

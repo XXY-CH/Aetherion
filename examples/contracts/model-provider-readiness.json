@@ -1,0 +1,114 @@
+{
+  "id": "model_provider_readiness_no_tools_v1",
+  "schema_version": "aetherion-model-provider-readiness-v1",
+  "status": "declared",
+  "interfaces": [
+    {
+      "provider_ref": "provider_openai_responses",
+      "provider_family": "openai",
+      "api_surface": "openai_responses_api",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "credential_env_vars": ["OPENAI_API_KEY", "OPENAI_OAUTH_ACCESS_TOKEN"],
+      "credential_kinds": ["api_key", "externally_supplied_oauth_bearer"],
+      "externally_supplied_oauth_bearer_allowed": true,
+      "oauth_flow_implemented": false,
+      "connector_grant_implemented": false,
+      "no_tools_mode": true,
+      "tool_call_outputs_rejected": true
+    },
+    {
+      "provider_ref": "provider_openai_chat_completions",
+      "provider_family": "openai",
+      "api_surface": "openai_chat_completions_api",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "credential_env_vars": ["OPENAI_API_KEY", "OPENAI_OAUTH_ACCESS_TOKEN"],
+      "credential_kinds": ["api_key", "externally_supplied_oauth_bearer"],
+      "externally_supplied_oauth_bearer_allowed": true,
+      "oauth_flow_implemented": false,
+      "connector_grant_implemented": false,
+      "no_tools_mode": true,
+      "tool_call_outputs_rejected": true
+    },
+    {
+      "provider_ref": "provider_anthropic",
+      "provider_family": "anthropic",
+      "api_surface": "anthropic_messages_api",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "credential_env_vars": ["ANTHROPIC_API_KEY"],
+      "credential_kinds": ["api_key"],
+      "externally_supplied_oauth_bearer_allowed": false,
+      "oauth_flow_implemented": false,
+      "connector_grant_implemented": false,
+      "no_tools_mode": true,
+      "tool_call_outputs_rejected": true
+    },
+    {
+      "provider_ref": "provider_gemini",
+      "provider_family": "google_gemini",
+      "api_surface": "gemini_generate_content_api",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent",
+      "credential_env_vars": [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_OAUTH_ACCESS_TOKEN",
+        "GOOGLE_OAUTH_ACCESS_TOKEN"
+      ],
+      "credential_kinds": ["api_key", "externally_supplied_oauth_bearer"],
+      "externally_supplied_oauth_bearer_allowed": true,
+      "oauth_flow_implemented": false,
+      "connector_grant_implemented": false,
+      "no_tools_mode": true,
+      "tool_call_outputs_rejected": true
+    }
+  ],
+  "credential_boundary": {
+    "credential_values_in_examples": false,
+    "credential_values_persisted": false,
+    "credential_refs_persisted": false,
+    "credential_resolution_recorded_as_authority": false,
+    "allowed_material": [
+      "provider_ref",
+      "model_ref",
+      "credential_env_var_name",
+      "endpoint_name",
+      "request_hash",
+      "response_hash",
+      "usage_metadata"
+    ]
+  },
+  "no_tools_guard": {
+    "declares_provider_tools": false,
+    "tool_choice": "none",
+    "tool_calls_fail_closed": true,
+    "executable_code_fail_closed": true,
+    "response_written_after_tool_call": false
+  },
+  "persistence": {
+    "raw_prompt_persisted": false,
+    "raw_request_payload_persisted": false,
+    "raw_response_payload_persisted": false,
+    "raw_model_output_persisted": false,
+    "provider_error_body_persisted": false
+  },
+  "authority": {
+    "model_output_can_authorize_actions": false,
+    "provider_credential_can_grant_tool_authority": false,
+    "provider_call_can_issue_lease": false,
+    "requires_local_supervisor_for_actions": true,
+    "requires_scoped_lease_for_actions": true
+  },
+  "limits": {
+    "oauth_flows_implemented": false,
+    "token_refresh_implemented": false,
+    "connector_grants_implemented": false,
+    "streaming_implemented": false,
+    "multimodal_payloads_implemented": false,
+    "legacy_openai_text_completions_implemented": false
+  },
+  "source_files": [
+    "packages/harness-core/src/model-provider.ts",
+    "packages/harness-core/test/harness-core.test.ts",
+    "schemas/agent-model-request.schema.json",
+    "schemas/agent-model-response.schema.json"
+  ]
+}

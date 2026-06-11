@@ -38,12 +38,12 @@ P0 gate：
 
 P1 支持已经实现但刻意窄化的本地 runtime slices。变更必须引用 source Ledger events 或通过 provenance audit 的 persisted registry evidence，不能合成缺失 evidence。
 
-包括 Memory OS/prompt assembly、Capability OS、Sandbox/branching、causal reports、hibernation、security/surface slices、release manifest、vault reference，以及 agent runtime/model request/model response/response audit/tool request proposal metadata。release manifest 和 vault reference 可以被 `doctor`、`onboarding check`、`release evidence` 验证，但它们不打包 release、不签名 artifact、不持久化 raw secret、不实现 OAuth、不刷新 token、不创建 connector grant。
+包括 Memory OS/prompt assembly、Capability OS、Sandbox/branching、causal reports、hibernation、security/surface slices、release manifest、vault reference、model provider readiness，以及 agent runtime/model request/model response/response audit/tool request proposal metadata。release manifest、vault reference 和 model provider readiness 可以被 `doctor`、`onboarding check`、`release evidence` 验证，但它们不打包 release、不签名 artifact、不持久化 raw secret、不实现 OAuth、不刷新 token、不创建 connector grant、不 streaming provider output、不处理 multimodal provider payload，也不实现 legacy OpenAI text completions。
 
 P1 gate：
 
 - 指出 command 或 module path 如何从真实 Ledger evidence 生产合同。
-- 对 missing source events、inherited authority、raw secrets 或 live side-effect replay 加负向测试。vault-reference 变更必须证明 raw secret material、OAuth flow 完成、connector grant 和可复用 credential authority 会被拒绝，而不是被表示成已实现 runtime behavior。
+- 对 missing source events、inherited authority、raw secrets 或 live side-effect replay 加负向测试。vault-reference 变更必须证明 raw secret material、OAuth flow 完成、connector grant 和可复用 credential authority 会被拒绝，而不是被表示成已实现 runtime behavior。model-provider-readiness 变更必须证明 provider coverage 仍限于 `openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`；OpenAI completion 支持指 Chat Completions 而不是 legacy `/v1/completions`；OAuth flow、token refresh、connector grant、raw provider payload persistence、provider tool call、executable-code response 和 model-output authority 都继续 fail closed。
 - 高级行为保持 report-only 或 sandbox-only，直到 Rust supervisor authority 存在。
 - Store install 必须把 package signature 绑定到 package 外部的 trust anchor，解析本地 Replay Record evidence，并校验 sandbox artifact hash。package 内自带 public key、自报 replay status 或 fixture-only sandbox metadata 都不够。
 - registry row 存在不等于可重建。read-only audits 只能报告，不修复、不授权。
@@ -79,7 +79,7 @@ computer-use schemas 当前是 P2 contracts，带 P1 风格 validation tests。�
 
 `prompt plan`、`prompt audit`、`prompt bind-runtime`、`prompt prepare-model-request`、`prompt invoke-model` 和 `prompt propose-tool-request` 都是 P1 Agent Orchestrator evidence path，不是权限路径。它们可以产生 metadata artifact 和 governance event，但不能请求工具、发行 lease、读 raw payload、授权动作或声称 runtime verification。
 
-`prompt invoke-model` 当前支持 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`。live provider credential 只从 env 内存读取。Aetherion 不运行 browser OAuth flow、不创建 connector grant、不把 provider credential 当 tool authority。Anthropic direct Messages API 使用 `ANTHROPIC_API_KEY`，这里不实现 Anthropic OAuth。默认 stdout 只输出 hash/metadata；只有本地 operator 显式传 `--print-output` 时才回显 raw model output，且该 opt-in 不持久化 raw output、不授权动作。
+`prompt invoke-model` 当前支持 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini`。`openai_chat_completions` 是当前支持的 OpenAI completion-style surface，不是 legacy `/v1/completions`。live provider credential 只从 env 内存读取。Aetherion 不运行 browser OAuth flow、不刷新 token、不创建 connector grant、不把 provider credential 当 tool authority。Anthropic direct Messages API 使用 `ANTHROPIC_API_KEY`，这里不实现 Anthropic OAuth。默认 stdout 只输出 hash/metadata；只有本地 operator 显式传 `--print-output` 时才回显 raw model output，且该 opt-in 不持久化 raw output、不授权动作。
 
 `ether security audit` 是只读 security findings report。它可以检查 tracked text file 中的高置信 secret material、`tools/forbidden-tracked-roots.txt` 中 forbidden root 是否被 tracking、现有 `.aetherion` artifacts 是否含 raw prompt/model/provider payload fields、workspace Ledger hash chain、CI guard wiring，以及 `prompt invoke-model` 默认 stdout 边界。它不能初始化 `.aetherion`、追加 Ledger event、修改 registry、写 artifact、调用 provider、发 lease、repair state、quarantine Capsule、运行 package code，或启用 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 等延后表面。
 

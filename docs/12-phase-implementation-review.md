@@ -1540,6 +1540,37 @@ Corrections and remaining boundary:
 - This is not a production vault, OS keychain integration, secret retrieval API, OAuth flow, token refresh path, connector grant lifecycle, policy lease, or runtime authority grant.
 - Remaining strict-review gaps include supervisor lifecycle/vault binding design, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, and broader projection parity coverage.
 
+## Phase 57 Review Notes
+
+This pass follows the user-requested provider-support gap without expanding connector authority. The runtime code already had no-tools providers for OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini `generateContent`, but release/readiness evidence did not yet expose that boundary as a schema-checked contract.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): model provider calls stay inside the Agent Orchestrator evidence path; Connector Adapters and the Tool Access & Action Policy Proxy remain separate authority surfaces.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): readiness schemas must have negative tests for raw payloads, provider tool-call authority, and OAuth/connector overclaiming.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 needs credential/provider boundaries before real OAuth or connector grants.
+- [Roadmap](06-roadmap.md): OpenAI/Anthropic/Gemini provider portability stays in the TUI-first evidence loop; MCP/OAuth/SaaS connectors remain deferred from V1.
+
+Implemented correspondence:
+
+- Added `schemas/model-provider-readiness.schema.json` and `examples/contracts/model-provider-readiness.json`.
+- The contract names `openai_responses`, `openai_chat_completions`, `anthropic`, and `gemini`, including allowed API-key env vars and externally supplied bearer-token env vars where current provider code supports them.
+- The contract explicitly marks OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI `/v1/completions` as unimplemented.
+- Added a negative schema test rejecting OAuth-flow, connector-grant, raw prompt/model payload, provider tool declaration, tool-call response persistence, and model-output authority drift.
+- `doctor`, `onboarding check`, and `release evidence` now include `model_provider_readiness_contract` evidence alongside Vault Reference evidence.
+- README, TUI README, harness-core README, schema governance, and runtime-loop docs now clarify that OpenAI completion support means Chat Completions, not legacy text completions.
+
+Drift review:
+
+- Corrects a readiness-evidence drift: provider support was implemented in code and tests but not represented as a machine-readable release/readiness contract.
+- Corrects a terminology drift risk from "OpenAI completion" by naming the supported surface as OpenAI Chat Completions.
+- Does not implement browser OAuth, provider auth wizards, token refresh, connector account linking, MCP/OAuth/SaaS connectors, streaming, multimodal provider payloads, provider tool execution, or runtime authority grants.
+
+Corrections and remaining boundary:
+
+- Model Provider Readiness is a P1 readiness/credential-boundary metadata contract, not a credential store, OAuth client, connector grant, or policy lease.
+- Remaining strict-review gaps include supervisor lifecycle/vault reference binding design, local ingress, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

@@ -456,3 +456,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production vault backend、OS keychain integration、token refresh system、OAuth authorization flow、connector grant lifecycle、secret retrieval API、policy lease 或 runtime authority grant。
 - 下一切片可以继续 PGC-2 supervisor lifecycle/vault reference binding design，或在 release evidence 风险更高时回到 PGC-1 live remote observation。
+
+## 已完成增量：Model Provider Readiness Contract
+
+目标：把已有 no-tools provider support 变成 release-checkable evidence，同时不扩大 OAuth 或 connector 范围。
+
+验收：
+
+- `model-provider-readiness.schema.json` 及其 example 通过现有 contract example suite。
+- schema 将支持的 API surface 锁定为 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Gemini `generateContent`。
+- schema 拒绝 OAuth-flow、token-refresh、connector-grant、raw prompt/model/provider payload、provider tool-call persistence 和 model-output authority overclaim。
+- `doctor`、`onboarding check` 和 `release evidence` 输出 `model_provider_readiness_contract` evidence。
+- release evidence 继续明确 provider 剩余缺口：OAuth flows、token refresh、connector grants、streaming、多模态 payload 和 legacy OpenAI `/v1/completions` 仍未实现。
+
+与原始文档对照和修正：
+
+- [架构](01-architecture.zh-CN.md)：model provider invocation 仍是 Agent Orchestrator evidence；Tool Access & Action Policy Proxy 继续 gate actions。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：provider readiness 是 P1 metadata，并用负向测试覆盖 raw payload、provider tool call 和 OAuth/connector overclaiming。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮继续 PGC-2，在真实 OAuth 或 connector grant 前命名 provider/credential boundary。
+- [路线图](06-roadmap.zh-CN.md)：provider portability 仍在 TUI-first readiness 内；MCP/OAuth/SaaS connector 继续 deferred。
+
+剩余边界：
+
+- 这不是 OAuth client、provider-auth wizard、token refresh system、connector grant lifecycle、streaming/multimodal provider path、provider tool executor 或 runtime authority grant。
+- 下一高价值 PGC-2 切片仍是 supervisor lifecycle/vault reference binding design，除非 release evidence 或 CI 先成为更尖锐 blocker。

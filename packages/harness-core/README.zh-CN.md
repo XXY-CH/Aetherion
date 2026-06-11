@@ -14,9 +14,9 @@ Aetherion kernel 的最小 contract-first seed。
 - 验证 Rust supervisor events 和 TypeScript test seed 的 parent pointers 与 cross-author hash pointers。
 - 运行本地文件 read/write、policy、scoped lease、approval、observation、verification 和 replay 的最小 harness。
 - 读写 Agent Runtime Invocation、Agent Model Request、Agent Model Response、Agent Response Audit 和 Agent Tool Request Proposal metadata artifacts。
-- 在 no-tools、hash-only response boundary 下解析 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini` model provider。
-- provider credential 只从 env 内存读取；provider layer 不运行 OAuth、不持久化 credential、不配置 connector、不授予 runtime authority。
-- 验证 metadata-only Vault Reference contract，并用 schema 测试拒绝 raw secret、OAuth flow 或 connector grant 已实现的声明。
+- 在 no-tools、hash-only response boundary 下解析 `stub`、`openai_responses`、`openai_chat_completions`、`anthropic` 和 `gemini` model provider；`openai_chat_completions` 是当前支持的 OpenAI completion-style surface，不是 legacy `/v1/completions`。
+- provider credential 只从 env 内存读取；provider layer 不运行 OAuth、不刷新 token、不持久化 credential、不配置 connector、不授予 runtime authority。
+- 验证 metadata-only Vault Reference 与 Model Provider Readiness contract，并用 schema 测试拒绝 raw secret、raw prompt/model payload、OAuth flow、token refresh、connector grant、provider tool call 和 model-output authority 已实现的声明。
 
 重要边界：
 

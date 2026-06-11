@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/model-provider-readiness.schema.json",
+  "title": "ModelProviderReadiness",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "interfaces",
+    "credential_boundary",
+    "no_tools_guard",
+    "persistence",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^model_provider_readiness_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-model-provider-readiness-v1"] },
+    "status": { "type": "string", "enum": ["declared"] },
+    "interfaces": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/providerInterface" }
+    },
+    "credential_boundary": {
+      "type": "object",
+      "required": [
+        "credential_values_in_examples",
+        "credential_values_persisted",
+        "credential_refs_persisted",
+        "credential_resolution_recorded_as_authority",
+        "allowed_material"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "credential_values_in_examples": { "type": "boolean", "enum": [false] },
+        "credential_values_persisted": { "type": "boolean", "enum": [false] },
+        "credential_refs_persisted": { "type": "boolean", "enum": [false] },
+        "credential_resolution_recorded_as_authority": { "type": "boolean", "enum": [false] },
+        "allowed_material": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "enum": [
+              "provider_ref",
+              "model_ref",
+              "credential_env_var_name",
+              "endpoint_name",
+              "request_hash",
+              "response_hash",
+              "usage_metadata"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "no_tools_guard": {
+      "type": "object",
+      "required": [
+        "declares_provider_tools",
+        "tool_choice",
+        "tool_calls_fail_closed",
+        "executable_code_fail_closed",
+        "response_written_after_tool_call"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "declares_provider_tools": { "type": "boolean", "enum": [false] },
+        "tool_choice": { "type": "string", "enum": ["none"] },
+        "tool_calls_fail_closed": { "type": "boolean", "enum": [true] },
+        "executable_code_fail_closed": { "type": "boolean", "enum": [true] },
+        "response_written_after_tool_call": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "required": [
+        "raw_prompt_persisted",
+        "raw_request_payload_persisted",
+        "raw_response_payload_persisted",
+        "raw_model_output_persisted",
+        "provider_error_body_persisted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
+        "raw_request_payload_persisted": { "type": "boolean", "enum": [false] },
+        "raw_response_payload_persisted": { "type": "boolean", "enum": [false] },
+        "raw_model_output_persisted": { "type": "boolean", "enum": [false] },
+        "provider_error_body_persisted": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "model_output_can_authorize_actions",
+        "provider_credential_can_grant_tool_authority",
+        "provider_call_can_issue_lease",
+        "requires_local_supervisor_for_actions",
+        "requires_scoped_lease_for_actions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model_output_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "provider_credential_can_grant_tool_authority": { "type": "boolean", "enum": [false] },
+        "provider_call_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "requires_local_supervisor_for_actions": { "type": "boolean", "enum": [true] },
+        "requires_scoped_lease_for_actions": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "oauth_flows_implemented",
+        "token_refresh_implemented",
+        "connector_grants_implemented",
+        "streaming_implemented",
+        "multimodal_payloads_implemented",
+        "legacy_openai_text_completions_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "oauth_flows_implemented": { "type": "boolean", "enum": [false] },
+        "token_refresh_implemented": { "type": "boolean", "enum": [false] },
+        "connector_grants_implemented": { "type": "boolean", "enum": [false] },
+        "streaming_implemented": { "type": "boolean", "enum": [false] },
+        "multimodal_payloads_implemented": { "type": "boolean", "enum": [false] },
+        "legacy_openai_text_completions_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "providerInterface": {
+      "type": "object",
+      "required": [
+        "provider_ref",
+        "provider_family",
+        "api_surface",
+        "endpoint",
+        "credential_env_vars",
+        "credential_kinds",
+        "externally_supplied_oauth_bearer_allowed",
+        "oauth_flow_implemented",
+        "connector_grant_implemented",
+        "no_tools_mode",
+        "tool_call_outputs_rejected"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider_ref": {
+          "type": "string",
+          "enum": [
+            "provider_openai_responses",
+            "provider_openai_chat_completions",
+            "provider_anthropic",
+            "provider_gemini"
+          ]
+        },
+        "provider_family": { "type": "string", "enum": ["openai", "anthropic", "google_gemini"] },
+        "api_surface": {
+          "type": "string",
+          "enum": [
+            "openai_responses_api",
+            "openai_chat_completions_api",
+            "anthropic_messages_api",
+            "gemini_generate_content_api"
+          ]
+        },
+        "endpoint": {
+          "type": "string",
+          "enum": [
+            "https://api.openai.com/v1/responses",
+            "https://api.openai.com/v1/chat/completions",
+            "https://api.anthropic.com/v1/messages",
+            "https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent"
+          ]
+        },
+        "credential_env_vars": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "OPENAI_API_KEY",
+              "OPENAI_OAUTH_ACCESS_TOKEN",
+              "ANTHROPIC_API_KEY",
+              "GEMINI_API_KEY",
+              "GOOGLE_API_KEY",
+              "GEMINI_OAUTH_ACCESS_TOKEN",
+              "GOOGLE_OAUTH_ACCESS_TOKEN"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "credential_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["api_key", "externally_supplied_oauth_bearer"] },
+          "uniqueItems": true
+        },
+        "externally_supplied_oauth_bearer_allowed": { "type": "boolean" },
+        "oauth_flow_implemented": { "type": "boolean", "enum": [false] },
+        "connector_grant_implemented": { "type": "boolean", "enum": [false] },
+        "no_tools_mode": { "type": "boolean", "enum": [true] },
+        "tool_call_outputs_rejected": { "type": "boolean", "enum": [true] }
+      }
+    }
+  }
+}
