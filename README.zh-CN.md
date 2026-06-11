@@ -55,6 +55,7 @@ Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent �
 - [阶段实现复核](docs/12-phase-implementation-review.zh-CN.md) / [Phase Implementation Review](docs/12-phase-implementation-review.md)
 - [Schema 运行时治理](docs/13-schema-runtime-governance.zh-CN.md) / [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
 - [运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md) / [Runtime Loop Plan](docs/14-runtime-loop-plan.md)
+- [生产缺口补全计划](docs/15-production-gap-closure-plan.zh-CN.md) / [Production Gap Closure Plan](docs/15-production-gap-closure-plan.md)
 
 ## 治理与协作
 

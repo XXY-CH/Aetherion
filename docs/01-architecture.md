@@ -2,7 +2,7 @@
 
 [中文版本](01-architecture.zh-CN.md)
 
-Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md).
+Implementation tracking: [Phase Implementation Review](12-phase-implementation-review.md), [Runtime Loop Plan](14-runtime-loop-plan.md), [Production Gap Closure Plan](15-production-gap-closure-plan.md).
 
 ## Orthogonal Planes
 

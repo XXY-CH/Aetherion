@@ -18,6 +18,31 @@ This is the working loop for moving Aetherion from contract-backed slices toward
 3. Verify with the smallest test set that proves the slice plus the broader guardrails.
 4. Review the result against the source docs and record any remaining boundary.
 
+## Completed Increment: Production Gap Closure Plan
+
+Target: create an architecture-layered production gap-closure plan that keeps OpenClaw-level completeness pressure inside Aetherion's current trust boundaries.
+
+Why this slice:
+
+- It turns the broad production-readiness target into ordered milestones without beginning GUI, mobile, IM, browser automation, real OAuth connector, MCP connector, package-code execution, or cloud-worker work.
+- It maps the requested architecture stack to current evidence and remaining gaps, so future rounds can choose narrow runtime-closing slices instead of widening surfaces by impulse.
+- It records the execution protocol for future rounds: at most two child/subagent lanes, source-doc drift review, verification, Lore commit, and push.
+
+Acceptance:
+
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md) and its [Chinese companion](15-production-gap-closure-plan.zh-CN.md) exist as tracked docs.
+- README and source intent documents link to the plan.
+- The plan explicitly separates current provider support from future OAuth connector/account-linking work.
+- The plan leaves Local Supervisor, Event Ledger, and Tool Access & Action Policy Proxy as the authority/fact/action boundaries.
+
+Remaining boundary:
+
+- This is a planning increment, not implementation of a release packager, remote CI attestation reader, daemon lifecycle manager, vault backend, ingress gateway, real OAuth connector, GUI, browser extension, IM delivery, mobile app, cloud worker, or package-code runtime.
+
+Next likely increment after this one:
+
+- Start PGC-1 from the production plan: remote CI/CodeQL evidence reader plus release manifest/readiness hardening, unless a current CI/release evidence bug appears first.
+
 ## Completed Increment: Runtime Lock Liveness
 
 Target: supervisor runtime status should expose whether a foreground supervisor runtime lock points at a live, missing, unknown, or invalid owner process.

@@ -16,6 +16,12 @@
 
 ## 已完成增量摘要
 
+### Production Gap Closure Plan
+
+新增 [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md) / [Production Gap Closure Plan](15-production-gap-closure-plan.md)，把当前 OpenClaw-level 生产完整度目标拆成 architecture-layered milestones。
+
+本轮性质是计划，不是 runtime 扩面：没有新增 GUI、mobile、IM、browser automation、真实 OAuth connector、MCP connector、package-code execution 或 cloud worker。计划明确继续保留 Local Supervisor、Event Ledger 和 Tool Access & Action Policy Proxy 的 authority/fact/action 边界，并规定后续每轮最多两个 child/subagent lane、每轮结束 source-doc drift review、verification、Lore commit 和 push。
+
 ### Runtime Lock Liveness
 
 加固 runtime lock 生命周期，防止 stale lock 或并发写破坏 workspace state。

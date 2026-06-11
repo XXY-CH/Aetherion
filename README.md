@@ -99,6 +99,7 @@ Memory OS       Capability OS        Proactive Engine
 - [Phase Implementation Review](docs/12-phase-implementation-review.md)
 - [Schema Runtime Governance](docs/13-schema-runtime-governance.md)
 - [Runtime Loop Plan](docs/14-runtime-loop-plan.md)
+- [Production Gap Closure Plan](docs/15-production-gap-closure-plan.md)
 
 ## Governance And Collaboration
 

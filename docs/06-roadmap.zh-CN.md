@@ -2,7 +2,7 @@
 
 [English](06-roadmap.md)
 
-实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)。
+实现跟踪：[阶段实现复核](12-phase-implementation-review.zh-CN.md)，[运行时闭环计划](14-runtime-loop-plan.zh-CN.md)，[生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)。
 
 仓库治理链接：[行为准则](../CODE_OF_CONDUCT.zh-CN.md) / [Code of Conduct](../CODE_OF_CONDUCT.md)、[贡献指南](../CONTRIBUTING.zh-CN.md) / [Contributing](../CONTRIBUTING.md)、[安全政策](../SECURITY.zh-CN.md) / [Security Policy](../SECURITY.md)、[MIT 许可证](../LICENSE) / [中文说明](../LICENSE.zh-CN.md)、[issue templates](../.github/ISSUE_TEMPLATE/bug_report.yml) 和 [pull request template](../.github/pull_request_template.md)。
 

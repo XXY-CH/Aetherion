@@ -8,6 +8,29 @@
 
 schema 增长现在由 `docs/13-schema-runtime-governance.md` 治理：P0 kernel contracts 需要 executable/replay evidence，P1 product-runtime contracts 需要 source-backed command paths，P2 innovation contracts 除非被低层 runtime loop 需要，否则应冻结。
 
+## 计划轮：生产缺口补全计划
+
+与原始文档对照：
+
+- `docs/00-product-brief.md`：计划继续把 Aetherion 定义为 local-first Agent Harness Kernel，不变成 chatbot 或 replacement OS。
+- `docs/01-architecture.md`：计划按用户给定 architecture stack 建 gap matrix，并保留 Local Supervisor、Event Ledger、Tool Access & Action Policy Proxy 的 authority/fact/action 边界。
+- `docs/06-roadmap.md`：计划保持 V1 TUI-first；GUI、mobile、IM、browser automation、MCP/OAuth/SaaS connector 和 cloud worker 仍等待明确 gate。
+- `docs/10-technical-strategy.md`：计划保留 TypeScript 做 contract/orchestrator iteration，Rust 做 authority、policy、vault、ledger、sandbox 和 native execution。
+- `docs/13-schema-runtime-governance.md`：计划继续把 schema、fixture、projection 和 client surface 视为 non-authority，并优先关闭 executable runtime loops。
+- `docs/14-runtime-loop-plan.md`：计划把现有 runtime loop discipline 扩展成生产缺口补全索引和每轮 drift protocol。
+
+本轮落地：
+
+- 新增[生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md) / [Production Gap Closure Plan](15-production-gap-closure-plan.md)。
+- README 与原始源文档的 implementation-tracking 行都链接到该计划。
+- 新计划按 Client Surfaces、Ingress Gateways、Local Supervisor、Agent Orchestrator、Memory OS、Capability OS、Proactive Engine、Tool Access & Action Policy Proxy、Connector/Execution Adapters、Observations/Results/Artifacts、Event Ledger/Projections 逐层列出现状、缺口和补全方向。
+- 明确区分当前 no-tools provider support 与未来 OAuth connector/account-linking：外部提供 bearer token 仍可用于支持的 provider，但 browser OAuth flow、token refresh、vault persistence 和 connector grant 仍是 future gated work。
+
+修正与剩余边界：
+
+- 本轮只是计划，不实现 release packaging、remote CI attestation、daemon lifecycle management、vault storage、ingress gateway、真实 OAuth connector、GUI、browser extension、IM delivery、mobile app、cloud worker execution 或 package-code runtime。
+- 下一实现轮优先从 PGC-1 release/readiness evidence hardening 开始，除非当前出现更紧急的 production-readiness bug。
+
 ## 当前复核快照
 
 最近一轮重点：

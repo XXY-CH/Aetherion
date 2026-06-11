@@ -8,6 +8,29 @@ The invariant is unchanged: V1 is TUI-first. Later GUI, IM, browser, connector, 
 
 Schema growth is now governed by `docs/13-schema-runtime-governance.md`: P0 kernel contracts need executable/replay evidence, P1 product-runtime contracts need source-backed command paths, and P2 innovation contracts should stay frozen unless a lower-tier runtime loop requires a change.
 
+## Planning Round: Production Gap Closure Plan
+
+Matched source docs:
+
+- `docs/00-product-brief.md`: the plan preserves Aetherion as a local-first Agent Harness Kernel, not a chatbot or replacement OS.
+- `docs/01-architecture.md`: the plan uses the requested architecture stack as the gap matrix and keeps Local Supervisor, Event Ledger, and Tool Access & Action Policy Proxy as authority/fact/action boundaries.
+- `docs/06-roadmap.md`: the plan keeps V1 TUI-first and defers GUI, mobile, IM, browser automation, MCP/OAuth/SaaS connectors, and cloud workers until explicit gates exist.
+- `docs/10-technical-strategy.md`: the plan preserves TypeScript for contract/orchestrator iteration and Rust for authority, policy, vault, ledger, sandbox, and native execution.
+- `docs/13-schema-runtime-governance.md`: the plan treats schema, fixture, projection, and client surface as non-authority and prioritizes executable runtime loops.
+- `docs/14-runtime-loop-plan.md`: the plan extends the existing loop discipline with an explicit production-gap closure index and round-end drift protocol.
+
+Implemented correspondence:
+
+- Added [Production Gap Closure Plan](15-production-gap-closure-plan.md) and [Chinese companion](15-production-gap-closure-plan.zh-CN.md).
+- Linked the plan from README plus the original source documents' implementation-tracking lines.
+- Recorded an architecture-layered matrix covering Client Surfaces, Ingress Gateways, Local Supervisor, Agent Orchestrator, Memory OS, Capability OS, Proactive Engine, Tool Access & Action Policy Proxy, Connector/Execution Adapters, Observations/Results/Artifacts, and Event Ledger/Projections.
+- Separated current no-tools provider support from future OAuth connector/account-linking work: externally supplied bearer tokens remain allowed where supported, but browser OAuth flow, token refresh, vault persistence, and connector grants remain future gated work.
+
+Correction and remaining boundary:
+
+- This planning round does not implement release packaging, remote CI attestation, daemon lifecycle management, vault storage, ingress gateways, real OAuth connectors, GUI, browser extension, IM delivery, mobile app, cloud worker execution, or package-code runtime.
+- The next implementation round should start with PGC-1 release/readiness evidence hardening unless a current production-readiness bug takes priority.
+
 ## Current Review Snapshot
 
 Verification from the latest pass:
