@@ -195,6 +195,7 @@ const schemaExamplePairs = [
   ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
   ["supervisor-lifecycle-readiness.schema.json", "supervisor-lifecycle-readiness.json"],
+  ["supervisor-lifecycle-command.schema.json", "supervisor-lifecycle-command.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -474,6 +475,31 @@ test("supervisor lifecycle readiness rejects daemon, repair, auth, vault, and au
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "supervisor-lifecycle-readiness.schema.json", draft);
     assert.equal(result.valid, false, "supervisor-lifecycle-readiness schema accepted lifecycle authority or raw-token drift");
+  }
+});
+
+test("supervisor lifecycle command reports reject daemon side effects and authority", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "supervisor-lifecycle-command.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.status = "started"; },
+    (draft: typeof valid) => { draft.implemented = true; },
+    (draft: typeof valid) => { draft.fail_closed = false; },
+    (draft: typeof valid) => { draft.status_observation.mutates_ledger = true; },
+    (draft: typeof valid) => { draft.status_observation.repairs_state = true; },
+    (draft: typeof valid) => { draft.effects.starts_daemon = true; },
+    (draft: typeof valid) => { draft.effects.stops_daemon = true; },
+    (draft: typeof valid) => { draft.effects.repairs_stale_lock = true; },
+    (draft: typeof valid) => { draft.effects.issues_lease = true; },
+    (draft: typeof valid) => { draft.effects.resolves_vault_secret = true; },
+    (draft: typeof valid) => { draft.authority.can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.raw_socket_auth_token = "do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "supervisor-lifecycle-command.schema.json", draft);
+    assert.equal(result.valid, false, "supervisor-lifecycle-command schema accepted daemon side effects or authority drift");
   }
 });
 

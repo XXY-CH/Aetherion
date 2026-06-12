@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/supervisor-lifecycle-command.schema.json",
+  "title": "SupervisorLifecycleCommand",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "requested_command",
+    "status",
+    "command_surface_supported",
+    "implemented",
+    "fail_closed",
+    "reason_code",
+    "workspace",
+    "status_observation",
+    "effects",
+    "authority",
+    "operator_next_step"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^supervisor_lifecycle_command_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-supervisor-lifecycle-command-v1"] },
+    "requested_command": {
+      "type": "string",
+      "enum": [
+        "supervisor start",
+        "supervisor stop",
+        "supervisor recover-stale-lock"
+      ]
+    },
+    "status": { "type": "string", "enum": ["unsupported_fail_closed"] },
+    "command_surface_supported": { "type": "boolean", "enum": [true] },
+    "implemented": { "type": "boolean", "enum": [false] },
+    "fail_closed": { "type": "boolean", "enum": [true] },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "production_daemon_lifecycle_unimplemented",
+        "stale_lock_repair_unimplemented"
+      ]
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["workspace_id", "workspace_root_hash", "workspace_id_derived_from_root"],
+      "additionalProperties": false,
+      "properties": {
+        "workspace_id": { "type": "string", "pattern": "^ws_[a-f0-9]{16}$" },
+        "workspace_root_hash": { "$ref": "#/$defs/sha256" },
+        "workspace_id_derived_from_root": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "status_observation": {
+      "type": "object",
+      "required": [
+        "performed",
+        "source",
+        "may_initialize_workspace_registry",
+        "mutates_ledger",
+        "writes_artifacts",
+        "repairs_state",
+        "runtime_lock_present",
+        "runtime_lock_stale",
+        "daemon_running"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "performed": { "type": "boolean", "enum": [true] },
+        "source": { "type": "string", "enum": ["supervisor.status"] },
+        "may_initialize_workspace_registry": { "type": "boolean", "enum": [true] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "writes_artifacts": { "type": "boolean", "enum": [false] },
+        "repairs_state": { "type": "boolean", "enum": [false] },
+        "runtime_lock_present": { "type": "boolean" },
+        "runtime_lock_stale": { "type": "boolean" },
+        "daemon_running": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "required": [
+        "starts_daemon",
+        "stops_daemon",
+        "kills_process",
+        "repairs_stale_lock",
+        "mutates_ledger",
+        "writes_artifacts",
+        "issues_session",
+        "issues_lease",
+        "resolves_vault_secret"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "starts_daemon": { "type": "boolean", "enum": [false] },
+        "stops_daemon": { "type": "boolean", "enum": [false] },
+        "kills_process": { "type": "boolean", "enum": [false] },
+        "repairs_stale_lock": { "type": "boolean", "enum": [false] },
+        "mutates_ledger": { "type": "boolean", "enum": [false] },
+        "writes_artifacts": { "type": "boolean", "enum": [false] },
+        "issues_session": { "type": "boolean", "enum": [false] },
+        "issues_lease": { "type": "boolean", "enum": [false] },
+        "resolves_vault_secret": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "can_authorize_actions",
+        "can_grant_tool_access",
+        "can_override_policy",
+        "local_supervisor_required_for_actions",
+        "tool_policy_proxy_required_for_actions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "can_grant_tool_access": { "type": "boolean", "enum": [false] },
+        "can_override_policy": { "type": "boolean", "enum": [false] },
+        "local_supervisor_required_for_actions": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_required_for_actions": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "operator_next_step": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

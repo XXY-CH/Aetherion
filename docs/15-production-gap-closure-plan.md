@@ -15,7 +15,7 @@ The plan is grounded in these source documents and current implementation summar
 - [Roadmap](06-roadmap.md): Phase 1/2 must prove the TUI plus Rust supervisor loop before post-V1 computer, connector, proactive, GUI, or broader surface work.
 - [Technical Strategy](10-technical-strategy.md): TypeScript owns fast contract/orchestrator iteration; Rust owns authority, policy, vault, ledger, sandbox, and native execution.
 - [Schema Runtime Governance](13-schema-runtime-governance.md): schemas, fixtures, projections, and client surfaces are not runtime authority; P0/P1 work must close executable loops.
-- [Runtime Loop Plan](14-runtime-loop-plan.md): recent increments already hardened no-tools model provider evidence, supervisor lifecycle readiness evidence, read-only doctor/security/release evidence, dependency reproducibility, CI platform smoke, onboarding checks, and supervisor failure diagnostics.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): recent increments already hardened no-tools model provider evidence, supervisor lifecycle readiness and fail-closed command evidence, read-only doctor/security/release evidence, dependency reproducibility, CI platform smoke, onboarding checks, and supervisor failure diagnostics.
 
 ## Requirements Summary
 
@@ -32,7 +32,7 @@ The plan is grounded in these source documents and current implementation summar
 | --- | --- | --- | --- |
 | Client Surfaces | Ether TUI exists; GUI/mobile/IM/browser/API are documented as deferred; README lists governed post-V1 scaffolds. | No productized desktop/mobile/browser/IM/API clients, and no surface identity/pairing lifecycle. | Keep V1 TUI as the only runnable client. Add API/GUI/browser/IM/mobile only as post-gate clients after ingress identity and supervisor policy gateways exist. |
 | Ingress Gateways | Local command invocation has workspace identity checks; Local Ingress Readiness now defines the envelope/idempotency/auth-state/rate-limit/policy-handoff boundary; TUI `run` creates hash-only local rate-limit window-slots, idempotency reservations, and same-key same-intent completion caches before supervisor handoff; IM/browser/store observations are hash-only or queue-only slices. | No durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, durable auth/session lifecycle, public API listener, IM/browser/mobile ingress gateway, or real remote-surface request execution. | Promote the local ingress contract into a runtime gateway in small steps: caller/session identity, durable or remote idempotency and rate-limit semantics, and fresh supervisor policy handoff before any real remote surface. |
-| Local Supervisor | Rust POC owns workspace identity, hash-chained ledger append, traced file reads/writes, scoped leases, status/preflight, foreground socket lock observation, supervisor lifecycle readiness evidence, metadata-only vault references, vault policy binding readiness evidence, and process-failure hardening. | No long-running production daemon, vault backend, signing, process sandbox, socket auth lifecycle, start/stop/recover commands, stale-lock recovery command, or secret retrieval path. | Promote lifecycle semantics in small steps: explicit start/stop/status/recover behavior, auth token boundary, vault metadata binding, signer plan, and daemon health evidence. |
+| Local Supervisor | Rust POC owns workspace identity, hash-chained ledger append, traced file reads/writes, scoped leases, status/preflight, foreground socket lock observation, supervisor lifecycle readiness evidence, explicit fail-closed `start`/`stop`/`recover-stale-lock` command reports, metadata-only vault references, vault policy binding readiness evidence, and process-failure hardening. | No long-running production daemon, vault backend, signing, process sandbox, socket auth lifecycle, implemented start/stop/recover behavior, stale-lock repair, or secret retrieval path. | Promote lifecycle semantics in small steps: keep fail-closed command contracts, then add auth token boundary, vault metadata binding, signer plan, and daemon health evidence before real start/stop/recovery. |
 | Agent Orchestrator | Prompt assembly, runtime binding, model request/response metadata, live no-tools invocation, response audit, and tool-request proposal are implemented as non-authorizing evidence. | No full agent loop, planner/verifier runtime, streaming, retry policy, semantic verification, tool-call translation, or durable queue integration. | Keep no-tools provider lane; then bridge operator-restated proposals into fresh supervisor policy requests before adding model-driven tool loops. |
 | Memory OS | Source-backed Memory Candidate/Card/Tombstone lifecycle, context assembly, tombstone exclusion, conflict projection, and parity previews exist. | No full deterministic rebuild/repair, redaction lifecycle, semantic retrieval, vector/graph indexes, or memory quality dashboards. | Expand parity coverage and redaction/rebuild tooling before semantic/vector retrieval. |
 | Capability OS | Document-only Capsule lifecycle, proposal from passing traces, local trust-publisher store install, sandbox/replay evidence checks, and rollback exist. | No remote marketplace, transparency log, revocation feed, package-code execution sandbox, route scoring, or permission-diff UX. | Finish local integrity/revocation evidence first; keep package code quarantined until a supervisor-governed execution sandbox exists. |
@@ -74,7 +74,7 @@ Acceptance criteria:
 
 Deliverables:
 
-- Typed lifecycle contract for `supervisor start`, `status`, `stop`, and explicit `recover-stale-lock` preflight.
+- Typed lifecycle contract for `supervisor start`, `status`, `stop`, and explicit `recover-stale-lock` preflight. The first command slice exists as structured `unsupported_fail_closed` reports for `start`, `stop`, and `recover-stale-lock`.
 - Socket/auth-token lifecycle boundaries for local clients.
 - Vault reference contract plus vault policy binding contract with metadata-only secret refs, redaction rules, policy-decision citation boundaries, and no raw secret persistence.
 
@@ -82,6 +82,12 @@ Acceptance criteria:
 
 - Lifecycle commands are deterministic, idempotency-aware, and fail closed on workspace mismatch or stale lock ambiguity.
 - Vault refs can be cited by policy decisions as reference-and-fingerprint metadata without storing raw secret values in examples, artifacts, Ledger events, run manifests, stdout, or docs, and without granting egress, provider calls, connector grants, or leases.
+
+Current partial status:
+
+- `supervisor status` and `supervisor preflight` remain read-only lifecycle evidence.
+- `supervisor start`, `supervisor stop`, and `supervisor recover-stale-lock` are known command surfaces that emit schema-valid `unsupported_fail_closed` reports after read-only status observation.
+- Real daemon start/stop, stale-lock repair, socket-auth lifecycle, vault backend, process sandboxing, signing, secret retrieval, session issuance, and supervisor lease authority remain open.
 
 ### PGC-3: Local Ingress Gateway MVP
 

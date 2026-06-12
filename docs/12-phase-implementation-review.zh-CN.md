@@ -789,6 +789,55 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Provider error taxonomy 只是 diagnostic evidence；它不是 retry executor、OAuth account-linking system、vault resolver、connector grant、egress permission、policy decision 或 lease。
 - 剩余严格复查差距包括显式 supervisor lifecycle command contracts、durable/session ingress identity、更细 refusal taxonomy、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 65 复核：Supervisor Lifecycle Command Fail-Closed Contracts
+
+本轮回到 PGC-2，把缺失的 supervisor lifecycle command surface 显式化，但不实现 daemon lifecycle management。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：V1 仍是 TUI-only，必须先证明本地 kernel loop，再进入 GUI/mobile/IM/browser/connector。
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority；命令被识别、status report 和 runtime-lock observation 都不能授权 tool 或 side effect。
+- [路线图](06-roadmap.zh-CN.md)：Phase 1/2 可以 harden TUI/Rust supervisor semantics，但真实 daemon lifecycle、vault、socket auth 和 broader connector surface 仍是独立实现步骤。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 readiness metadata 必须拒绝 lifecycle side effect、stale-lock repair、vault secret resolution、lease issuance 和 authority overclaim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 要求在 production daemon behavior 前先有 typed lifecycle contract。
+
+本轮修正：
+
+- 新增 `schemas/supervisor-lifecycle-command.schema.json` 和 `examples/contracts/supervisor-lifecycle-command.json`。
+- `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 现在是已识别 command surface，不再是普通 unknown command。
+- 这些命令会先调用 `supervisor.status` 做只读 workspace/runtime-lock observation，再校验 structured `supervisor-lifecycle-command` report，输出 `unsupported_fail_closed`，并以 exit code 2 退出。
+- report 记录 `implemented=false`、`fail_closed=true`、不启动/停止 daemon、不 kill process、不修 stale lock、不改 Ledger、不写 artifact、不发 session、不发 lease、不解析 vault secret、不覆盖 policy。
+- `recover-stale-lock` 可以报告 `runtime_lock_stale=true`，但保持既有 lock file 不变。
+- `doctor`、`onboarding check` 和 `release evidence` 现在要求 lifecycle readiness contract 以及 command schema/example evidence。
+- README、TUI README、harness-core README、schema governance、runtime-loop plan 和 production-gap plan 都已同步中英文说明。
+
+偏差复核：
+
+- 修正 Phase 64 剩余缺口里“显式 supervisor lifecycle command contracts 完全未完成”的状态。
+- 修正 operator UX 偏差：`start`/`stop`/`recover-stale-lock` 现在是有 machine-classifiable unsupported report 的已知命令，不是含糊的 CLI 错误。
+- 保持原始 authority boundary：command report 是 diagnostic evidence，不是 daemon manager、stale-lock repair path、vault、session issuer、lease issuer 或 tool authority。
+- 未实现 production daemon start/stop、stale-lock recovery、socket-auth lifecycle、vault backend、process sandbox、signer、cloud worker、secret retrieval、connector grant 或 lifecycle command 发起 policy execution。
+
+修正与剩余边界：
+
+- Supervisor Lifecycle Command 是 fail-closed command contract。它比完整 PGC-2 验收项更窄，因为 daemon lifecycle 和 recovery 的真实 Rust authority path 仍刻意不存在。
+- 剩余严格复查差距包括 durable/session ingress identity、更细 refusal taxonomy、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
+## Phase 65.1 复核：Node 24.9 Verified Baseline
+
+验证时，`doctor` 和 `release evidence` 正确地因为本地 Node runtime 阻塞：仓库仍要求 Node `>=25`，但当前完整验证环境是 Node 24.9.0。与此同时，完整 `npm test` 已经在 Node 24.9.0 上通过，CI evidence model 也已经记录 Node 24 JavaScript action-runtime baseline。
+
+本轮修正：
+
+- 将 package engine 和 lockfile root engine 从 `>=25` 降到 `>=24.9.0`。
+- 将 readiness check 从只看 Node 25 major version 改成显式 `>=24.9.0` 比较。
+- 更新中英文 Node baseline 文档，说明 Node 24.9 是已验证最低基线；继续下探必须先有完整测试或明确 TypeScript runner/build path 证据。
+
+偏差复核：
+
+- 修正 local reproducible verification 已通过但 readiness report 仍因过时 engine floor 阻塞的偏差。
+- 不声称支持 Node 22/23，不新增 dependency，也不改变 test runner 或 authority path。
+
 ## 验证要求
 
 每轮结束应至少检查：

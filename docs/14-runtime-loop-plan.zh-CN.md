@@ -648,3 +648,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 browser OAuth、token refresh、vault-backed provider credential resolution、connector account linking、retry executor、provider tool execution、streaming、多模态 payload support 或 live-provider CI probing。
 - 下一批高价值切片是显式 supervisor lifecycle command contracts、durable/session ingress identity、更细 refusal taxonomy，或 remote CI/release hardening。
+
+## 已完成增量：Supervisor Lifecycle Command Fail-Closed Contracts
+
+目标：继续推进 PGC-2，把 `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 变成显式可调用 surface，但在 Rust supervisor 拥有真实 daemon lifecycle/recovery 语义前仍 fail closed。
+
+验收：
+
+- `supervisor-lifecycle-command.schema.json` 及其 example 进入 contract example validation suite。
+- `ether supervisor start`、`ether supervisor stop` 和 `ether supervisor recover-stale-lock` 会先调用 `supervisor.status` 做只读 observation，再校验 structured report，输出 `unsupported_fail_closed`，并以 exit code 2 退出。
+- command report 证明 command surface 已识别，但 `implemented=false`、`fail_closed=true`，且所有 lifecycle side effect、authority grant、session issuance、lease issuance、artifact write、Ledger mutation 和 vault-secret resolution 都保持 false。
+- `recover-stale-lock` 可以报告 stale-lock observation，但不会修改 lock file。
+- `doctor`、`onboarding check` 和 `release evidence` 现在要求 Supervisor Lifecycle Readiness contract 以及 Supervisor Lifecycle Command schema/example 同时存在。
+
+匹配源文档与修正：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority；命令表面被识别不等于获得 authority。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 仍负责未来 daemon/vault/authority 行为；本切片只围绕当前 status evidence 增加 TypeScript command report。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：supervisor lifecycle command 是 P1 readiness metadata，必须拒绝 daemon、stale-lock repair、vault、lease 和 tool-authority overclaim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮推进 PGC-2 typed lifecycle contract，但真实 production daemon lifecycle、socket-auth lifecycle、vault backend 和 stale-lock recovery 仍未实现。
+
+剩余边界：
+
+- 这不是 production daemon manager、service installer、crash-recovery system、stale-lock repair implementation、socket-auth lifecycle、process sandbox、signer、vault backend、secret retrieval path、policy gateway、session issuer 或 lease issuer。
+- 下一批高价值切片是 durable/session ingress identity、更细 refusal taxonomy、live remote CI/CodeQL observation，或下一段 vault/supervisor authority contract。

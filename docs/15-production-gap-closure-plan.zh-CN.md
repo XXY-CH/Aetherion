@@ -15,7 +15,7 @@
 - [路线图](06-roadmap.zh-CN.md)：Phase 1/2 必须先证明 TUI + Rust supervisor loop，再进入 post-V1 computer、connector、proactive、GUI 或 broader surface。
 - [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 负责快速 contract/orchestrator iteration；Rust 负责 authority、policy、vault、ledger、sandbox 和 native execution。
 - [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：schema、fixture、projection 和 client surface 都不是 runtime authority；P0/P1 工作必须关闭 executable loops。
-- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：近期增量已经硬化 no-tools model provider evidence、supervisor lifecycle readiness evidence、只读 doctor/security/release evidence、dependency reproducibility、CI platform smoke、onboarding checks 和 supervisor failure diagnostics。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：近期增量已经硬化 no-tools model provider evidence、supervisor lifecycle readiness 与 fail-closed command evidence、只读 doctor/security/release evidence、dependency reproducibility、CI platform smoke、onboarding checks 和 supervisor failure diagnostics。
 
 ## 需求摘要
 
@@ -32,7 +32,7 @@
 | --- | --- | --- | --- |
 | Client Surfaces | 已有 Ether TUI；GUI/mobile/IM/browser/API 都标为 deferred；README 列出受治理的 post-V1 scaffold。 | 没有产品化 desktop/mobile/browser/IM/API client，也没有 surface identity/pairing lifecycle。 | 保持 V1 只有 TUI 可运行。API/GUI/browser/IM/mobile 必须等 ingress identity 和 supervisor policy gateway 后再实现。 |
 | Ingress Gateways | 本地 command invocation 有 workspace identity checks；Local Ingress Readiness 已定义 envelope/idempotency/auth-state/rate-limit/policy-handoff 边界；TUI `run` 会在 supervisor handoff 前创建 hash-only local rate-limit window-slot、idempotency reservation 和同 key 同 intent completion cache；IM/browser/store observation 是 hash-only 或 queue-only slice。 | 没有 durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、durable auth/session lifecycle、public API listener、IM/browser/mobile ingress gateway 或真实 remote-surface request execution。 | 小步把 local ingress contract 推进为 runtime gateway：caller/session identity、durable 或 remote idempotency/rate-limit semantics，以及真实 remote surface 前的 fresh supervisor policy handoff。 |
-| Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence、metadata-only vault reference、vault policy binding readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、start/stop/recover commands、stale-lock recovery command 或 secret retrieval path。 | 小步推进 lifecycle：显式 start/stop/status/recover behavior、auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
+| Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence、显式 fail-closed `start`/`stop`/`recover-stale-lock` command report、metadata-only vault reference、vault policy binding readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、已实现 start/stop/recover behavior、stale-lock repair 或 secret retrieval path。 | 小步推进 lifecycle：先保持 fail-closed command contract，再在真实 start/stop/recovery 前补 auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
 | Agent Orchestrator | prompt assembly、runtime binding、model request/response metadata、live no-tools invocation、response audit 和 tool-request proposal 都作为 non-authorizing evidence 实现。 | 没有 full agent loop、planner/verifier runtime、streaming、retry policy、semantic verification、tool-call translation 或 durable queue integration。 | 保持 no-tools provider lane；先把 operator-restated proposal 转成 fresh supervisor policy request，再考虑 model-driven tool loop。 |
 | Memory OS | 已有 source-backed Memory Candidate/Card/Tombstone lifecycle、context assembly、tombstone exclusion、conflict projection 和 parity preview。 | 没有 full deterministic rebuild/repair、redaction lifecycle、semantic retrieval、vector/graph index 或 memory quality dashboard。 | 先扩展 parity coverage 与 redaction/rebuild tooling，再做 semantic/vector retrieval。 |
 | Capability OS | 已有 document-only Capsule lifecycle、passing traces proposal、local trust-publisher store install、sandbox/replay evidence checks 和 rollback。 | 没有 remote marketplace、transparency log、revocation feed、package-code execution sandbox、route scoring 或 permission-diff UX。 | 先补 local integrity/revocation evidence；package code 继续 quarantine，直到有 supervisor-governed execution sandbox。 |
@@ -74,7 +74,7 @@
 
 交付物：
 
-- `supervisor start/status/stop/recover-stale-lock` 的 typed lifecycle contract。
+- `supervisor start/status/stop/recover-stale-lock` 的 typed lifecycle contract。第一段 command slice 已以 `start`、`stop` 和 `recover-stale-lock` 的 structured `unsupported_fail_closed` report 存在。
 - local client 的 socket/auth-token lifecycle boundary。
 - metadata-only secret ref、redaction rules、policy-decision citation boundary 和 no raw secret persistence 的 vault reference contract 与 vault policy binding contract。
 
@@ -82,6 +82,12 @@
 
 - lifecycle command deterministic、idempotency-aware，并在 workspace mismatch 或 stale lock ambiguity 时 fail closed。
 - vault ref 可以作为 reference-and-fingerprint metadata 被 policy decision 引用，但 raw secret value 不进入 example、artifact、Ledger、run manifest、stdout 或 docs，也不能授予 egress、provider call、connector grant 或 lease。
+
+当前部分状态：
+
+- `supervisor status` 和 `supervisor preflight` 仍是只读 lifecycle evidence。
+- `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 已是已知 command surface，会在只读 status observation 后输出 schema-valid `unsupported_fail_closed` report。
+- 真实 daemon start/stop、stale-lock repair、socket-auth lifecycle、vault backend、process sandboxing、signing、secret retrieval、session issuance 和 supervisor lease authority 仍未完成。
 
 ### PGC-3：Local Ingress Gateway MVP
 

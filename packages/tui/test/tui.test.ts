@@ -784,7 +784,7 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
     check_status: string;
     scope: { read_only: boolean; mutates_ledger: boolean; repairs_state: boolean };
     summary: { not_applicable: number; fail: number };
-    checks: Array<{ id: string; status: string; summary: string }>;
+    checks: Array<{ id: string; status: string; summary: string; evidence?: string[] }>;
   };
   assert.equal(report.id, "aetherion_doctor_report");
   assert.equal(report.status, "ready");
@@ -797,6 +797,12 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const workspaceCheck = report.checks.find((check) => check.id === "workspace_runtime_state");
   assert.equal(workspaceCheck?.status, "not_applicable");
   assert.match(workspaceCheck?.summary ?? "", /not initialized/);
+  const nodeRuntimeCheck = report.checks.find((check) => check.id === "node_runtime_version");
+  assert.equal(nodeRuntimeCheck?.status, "pass");
+  assert.match(nodeRuntimeCheck?.evidence?.join("\n") ?? "", /required=>=24\.9\.0/);
+  const packageMetadataCheck = report.checks.find((check) => check.id === "package_metadata");
+  assert.equal(packageMetadataCheck?.status, "pass");
+  assert.match(packageMetadataCheck?.evidence?.join("\n") ?? "", /node_engine=>=24\.9\.0/);
   assert.equal(report.checks.find((check) => check.id === "dependency_lockfiles")?.status, "pass");
   const vaultReferenceCheck = report.checks.find((check) => check.id === "vault_reference_contract");
   assert.equal(vaultReferenceCheck?.status, "pass");
@@ -862,6 +868,7 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   const dependencyCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
   assert.equal(dependencyCheck?.status, "pass");
   assert.match(dependencyCheck?.evidence.join("\n") ?? "", /package_lock_version=3/);
+  assert.match(dependencyCheck?.evidence.join("\n") ?? "", /package_node_engine=>=24\.9\.0/);
   assert.match(dependencyCheck?.evidence.join("\n") ?? "", /cargo_lock=present/);
   assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
   assert.deepEqual(await readdir(runsPath), runsBefore);
@@ -992,6 +999,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
+  assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_node_engine=>=24\.9\.0/);
   assert.equal(report.configured_evidence.local_ingress_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /envelope_safe=true/);
   assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /remote_surface_safe=true/);
@@ -1802,6 +1810,83 @@ test("TUI supervisor status reports Rust runtime health without appending events
   assert.equal(stdoutValue(runStatus.stdout, "ledger_head_event_id"), headEventId);
   assert.match(stdoutValue(runStatus.stdout, "ledger_head_event_hash"), /^sha256:/);
   assert.equal(await readFile(emptyLedgerPath, "utf8"), ledgerBeforeStatus);
+});
+
+test("supervisor lifecycle unsupported commands fail closed with structured reports", async () => {
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-supervisor-unsupported-"));
+
+  for (const topic of ["start", "stop"] as const) {
+    let error: unknown;
+    try {
+      await execFileAsync(process.execPath, [
+        cliPath,
+        "supervisor",
+        topic,
+        "--workspace",
+        workspace
+      ]);
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error, `${topic} should fail closed`);
+    assert.equal((error as { code?: unknown }).code, 2);
+    const stdout = commandStdout(error);
+    assert.equal(stdoutValue(stdout, "requested_command"), `supervisor ${topic}`);
+    assert.equal(stdoutValue(stdout, "status"), "unsupported_fail_closed");
+    assert.equal(stdoutValue(stdout, "command_surface_supported"), "true");
+    assert.equal(stdoutValue(stdout, "implemented"), "false");
+    assert.equal(stdoutValue(stdout, "fail_closed"), "true");
+    assert.equal(stdoutValue(stdout, "reason_code"), "production_daemon_lifecycle_unimplemented");
+    assert.match(stdoutValue(stdout, "workspace_id"), /^ws_[a-f0-9]{16}$/);
+    assert.match(stdoutValue(stdout, "workspace_root_hash"), /^sha256:[a-f0-9]{64}$/);
+    assert.equal(stdoutValue(stdout, "status_observation_source"), "supervisor.status");
+    assert.equal(stdoutValue(stdout, "status_mutates_ledger"), "false");
+    assert.equal(stdoutValue(stdout, "status_writes_artifacts"), "false");
+    assert.equal(stdoutValue(stdout, "status_repairs_state"), "false");
+    assert.equal(stdoutValue(stdout, "starts_daemon"), "false");
+    assert.equal(stdoutValue(stdout, "stops_daemon"), "false");
+    assert.equal(stdoutValue(stdout, "kills_process"), "false");
+    assert.equal(stdoutValue(stdout, "repairs_stale_lock"), "false");
+    assert.equal(stdoutValue(stdout, "mutates_ledger"), "false");
+    assert.equal(stdoutValue(stdout, "issues_session"), "false");
+    assert.equal(stdoutValue(stdout, "issues_lease"), "false");
+    assert.equal(stdoutValue(stdout, "resolves_vault_secret"), "false");
+    assert.equal(stdoutValue(stdout, "can_authorize_actions"), "false");
+    assert.equal(stdoutValue(stdout, "can_grant_tool_access"), "false");
+    assert.equal(stdoutValue(stdout, "can_override_policy"), "false");
+  }
+
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  assert.equal(await readFile(ledgerPath, "utf8"), "");
+
+  const lockPath = join(workspace, ".aetherion", "supervisor.lock");
+  const staleLock = `pid=999999999\ntransport=unix-socket\nworkspace_id=${workspaceIdForRoot(workspace)}\nsocket_path=/tmp/aeth-unsupported-stale.sock\n`;
+  await writeFile(lockPath, staleLock);
+  let recoverError: unknown;
+  try {
+    await execFileAsync(process.execPath, [
+      cliPath,
+      "supervisor",
+      "recover-stale-lock",
+      "--workspace",
+      workspace
+    ]);
+  } catch (caught) {
+    recoverError = caught;
+  }
+  assert.ok(recoverError, "recover-stale-lock should fail closed");
+  assert.equal((recoverError as { code?: unknown }).code, 2);
+  const recoverStdout = commandStdout(recoverError);
+  assert.equal(stdoutValue(recoverStdout, "requested_command"), "supervisor recover-stale-lock");
+  assert.equal(stdoutValue(recoverStdout, "status"), "unsupported_fail_closed");
+  assert.equal(stdoutValue(recoverStdout, "reason_code"), "stale_lock_repair_unimplemented");
+  assert.equal(stdoutValue(recoverStdout, "runtime_lock_present"), "true");
+  assert.equal(stdoutValue(recoverStdout, "runtime_lock_stale"), "true");
+  assert.equal(stdoutValue(recoverStdout, "repairs_stale_lock"), "false");
+  assert.match(stdoutValue(recoverStdout, "operator_next_step"), /automatic stale-lock repair is not implemented/);
+  assert.equal(await readFile(lockPath, "utf8"), staleLock);
+  assert.equal(await readFile(ledgerPath, "utf8"), "");
 });
 
 test("supervisor socket RPC reports status through the explicit local transport", async () => {

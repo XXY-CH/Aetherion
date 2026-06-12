@@ -1796,6 +1796,55 @@ Corrections and remaining boundary:
 - Provider error taxonomy is diagnostic evidence only. It is not a retry executor, OAuth account-linking system, vault resolver, connector grant, egress permission, policy decision, or lease.
 - Remaining strict-review gaps include explicit supervisor lifecycle command contracts, durable/session ingress identity, richer refusal taxonomy, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 65 Review Notes
+
+This pass returns to PGC-2 and makes the missing supervisor lifecycle command surface explicit without implementing daemon lifecycle management.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): V1 remains TUI-only and must prove a local kernel loop before GUI/mobile/IM/browser/connectors.
+- [Architecture](01-architecture.md): Local Supervisor remains root authority; command recognition, status reports, and runtime-lock observations cannot authorize tools or side effects.
+- [Roadmap](06-roadmap.md): Phase 1/2 can harden TUI/Rust supervisor semantics, but real daemon lifecycle, vault, socket auth, and broader connector surfaces remain separate implementation steps.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 readiness metadata must reject lifecycle side effects, stale-lock repair, vault secret resolution, lease issuance, and authority overclaims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 calls for typed lifecycle contracts before production daemon behavior.
+
+Implemented correspondence:
+
+- Added `schemas/supervisor-lifecycle-command.schema.json` and `examples/contracts/supervisor-lifecycle-command.json`.
+- `supervisor start`, `supervisor stop`, and `supervisor recover-stale-lock` are now recognized command surfaces rather than ordinary unknown commands.
+- The commands call `supervisor.status` for read-only workspace/runtime-lock observation, validate a structured `supervisor-lifecycle-command` report, print `unsupported_fail_closed`, and exit with code 2.
+- The report records `implemented=false`, `fail_closed=true`, no daemon start/stop, no process kill, no stale-lock repair, no Ledger mutation, no artifact write, no session, no lease, no vault-secret resolution, and no policy override.
+- `recover-stale-lock` can report `runtime_lock_stale=true` while preserving the existing lock file.
+- `doctor`, `onboarding check`, and `release evidence` now require the lifecycle readiness contract plus command schema/example evidence.
+- README, TUI README, harness-core README, schema governance, runtime-loop plan, and production-gap plan were updated in English and Chinese.
+
+Drift review:
+
+- Corrects the Phase 64 remaining-gap item that still listed explicit supervisor lifecycle command contracts as entirely open.
+- Corrects operator UX drift: `start`/`stop`/`recover-stale-lock` are now known commands with machine-classifiable unsupported reports, not ambiguous CLI errors.
+- Keeps the original authority boundary intact: the command report is diagnostic evidence, not a daemon manager, stale-lock repair path, vault, session issuer, lease issuer, or tool authority.
+- Does not implement production daemon start/stop, stale-lock recovery, socket-auth lifecycle, vault backend, process sandbox, signer, cloud worker, secret retrieval, connector grants, or policy execution from lifecycle commands.
+
+Corrections and remaining boundary:
+
+- Supervisor Lifecycle Command is a fail-closed command contract. It is narrower than the full PGC-2 acceptance item because the real Rust authority path for daemon lifecycle and recovery is still intentionally absent.
+- Remaining strict-review gaps include durable/session ingress identity, richer refusal taxonomy, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
+## Phase 65.1 Review Notes
+
+During verification, `doctor` and `release evidence` correctly failed on the local Node runtime because the repository still required Node `>=25` while the current full verification host runs Node 24.9.0. The full `npm test` suite had already passed on Node 24.9.0, and the CI evidence model already records a Node 24 JavaScript action-runtime baseline.
+
+Correction:
+
+- Lowered the package engine and lockfile root engine from `>=25` to `>=24.9.0`.
+- Changed the readiness check from major-version-only Node 25 gating to an explicit `>=24.9.0` comparison.
+- Updated English and Chinese Node baseline docs to name Node 24.9 as the verified floor, while keeping any further lowering behind full-suite verification or an explicit TypeScript runner/build path.
+
+Drift review:
+
+- This corrects a readiness drift where local reproducible verification passed but readiness reports remained blocked by an outdated engine floor.
+- It does not claim Node 22/23 support, does not add a dependency, and does not change the test runner or authority path.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

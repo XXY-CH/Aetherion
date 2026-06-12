@@ -175,7 +175,7 @@ The first evaluator should be deterministic and small. OPA/Rego or Cedar can bec
 
 ## Node Baseline
 
-The current zero-dependency seed runs directly on the local Node version. Do not treat Node 25 as a permanent ecosystem baseline.
+The current zero-dependency seed runs directly on the local Node version. The verified floor is Node.js `>=24.9.0`; do not treat Node 25 as a permanent ecosystem baseline.
 
 Before broader contribution or CI hardening:
 

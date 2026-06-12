@@ -10,6 +10,6 @@
     "ether": "node packages/tui/src/cli.ts"
   },
   "engines": {
-    "node": ">=25"
+    "node": ">=24.9.0"
   }
 }

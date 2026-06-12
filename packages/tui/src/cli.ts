@@ -436,8 +436,8 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
 }
 
 async function runSupervisorCommand(options: CliOptions): Promise<void> {
-  if (options.topic !== "status" && options.topic !== "preflight") {
-    throw new Error("supervisor supports status and preflight");
+  if (!options.topic || !["status", "preflight", "start", "stop", "recover-stale-lock"].includes(options.topic)) {
+    throw new Error("supervisor supports status, preflight, start, stop, and recover-stale-lock");
   }
   const workspaceRoot = resolve(options.workspace);
   const result = rpcResult(await callSupervisorRpc(repoRoot, {
@@ -450,6 +450,11 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     socketPath: options.socketPath,
     authToken: options.socketAuthToken
   } : undefined));
+  if (options.topic === "start" || options.topic === "stop" || options.topic === "recover-stale-lock") {
+    await printUnsupportedSupervisorLifecycleCommand(options.topic, workspaceRoot, result);
+    process.exitCode = 2;
+    return;
+  }
   if (options.topic === "preflight") {
     printKeyValueRecord(supervisorLifecyclePreflight(result), [
       "workspace_id",
@@ -493,6 +498,204 @@ async function runSupervisorCommand(options: CliOptions): Promise<void> {
     "runtime_lock_stale",
     "runtime_lock_parse_error"
   ]);
+}
+
+type SupervisorLifecycleCommandReport = {
+  id: string;
+  schema_version: "aetherion-supervisor-lifecycle-command-v1";
+  requested_command: "supervisor start" | "supervisor stop" | "supervisor recover-stale-lock";
+  status: "unsupported_fail_closed";
+  command_surface_supported: true;
+  implemented: false;
+  fail_closed: true;
+  reason_code: "production_daemon_lifecycle_unimplemented" | "stale_lock_repair_unimplemented";
+  workspace: {
+    workspace_id: string;
+    workspace_root_hash: string;
+    workspace_id_derived_from_root: true;
+  };
+  status_observation: {
+    performed: true;
+    source: "supervisor.status";
+    may_initialize_workspace_registry: true;
+    mutates_ledger: false;
+    writes_artifacts: false;
+    repairs_state: false;
+    runtime_lock_present: boolean;
+    runtime_lock_stale: boolean;
+    daemon_running: false;
+  };
+  effects: {
+    starts_daemon: false;
+    stops_daemon: false;
+    kills_process: false;
+    repairs_stale_lock: false;
+    mutates_ledger: false;
+    writes_artifacts: false;
+    issues_session: false;
+    issues_lease: false;
+    resolves_vault_secret: false;
+  };
+  authority: {
+    can_authorize_actions: false;
+    can_grant_tool_access: false;
+    can_override_policy: false;
+    local_supervisor_required_for_actions: true;
+    tool_policy_proxy_required_for_actions: true;
+  };
+  operator_next_step: string;
+};
+
+async function printUnsupportedSupervisorLifecycleCommand(
+  topic: "start" | "stop" | "recover-stale-lock",
+  workspaceRoot: string,
+  status: Record<string, unknown>
+): Promise<void> {
+  const report = supervisorUnsupportedLifecycleCommandReport(topic, workspaceRoot, status);
+  const validation = await validateAgainstSchema(repoRoot, "supervisor-lifecycle-command.schema.json", report);
+  if (!validation.valid) {
+    throw new Error(`supervisor-lifecycle-command.schema.json validation failed: ${validation.errors.join("; ")}`);
+  }
+  printKeyValueRecord(flattenSupervisorLifecycleCommandReport(report), [
+    "id",
+    "schema_version",
+    "requested_command",
+    "status",
+    "command_surface_supported",
+    "implemented",
+    "fail_closed",
+    "reason_code",
+    "workspace_id",
+    "workspace_root_hash",
+    "workspace_id_derived_from_root",
+    "status_observation_performed",
+    "status_observation_source",
+    "status_may_initialize_workspace_registry",
+    "status_mutates_ledger",
+    "status_writes_artifacts",
+    "status_repairs_state",
+    "daemon_running",
+    "runtime_lock_present",
+    "runtime_lock_stale",
+    "starts_daemon",
+    "stops_daemon",
+    "kills_process",
+    "repairs_stale_lock",
+    "mutates_ledger",
+    "writes_artifacts",
+    "issues_session",
+    "issues_lease",
+    "resolves_vault_secret",
+    "can_authorize_actions",
+    "can_grant_tool_access",
+    "can_override_policy",
+    "local_supervisor_required_for_actions",
+    "tool_policy_proxy_required_for_actions",
+    "operator_next_step"
+  ]);
+}
+
+function supervisorUnsupportedLifecycleCommandReport(
+  topic: "start" | "stop" | "recover-stale-lock",
+  workspaceRoot: string,
+  status: Record<string, unknown>
+): SupervisorLifecycleCommandReport {
+  const requestedCommand = `supervisor ${topic}` as SupervisorLifecycleCommandReport["requested_command"];
+  const reasonCode = topic === "recover-stale-lock"
+    ? "stale_lock_repair_unimplemented"
+    : "production_daemon_lifecycle_unimplemented";
+  return {
+    id: `supervisor_lifecycle_command_${topic.replace(/-/g, "_")}_unsupported_${hashDigest(sha256Hex(workspaceRoot)).slice(0, 16)}`,
+    schema_version: "aetherion-supervisor-lifecycle-command-v1",
+    requested_command: requestedCommand,
+    status: "unsupported_fail_closed",
+    command_surface_supported: true,
+    implemented: false,
+    fail_closed: true,
+    reason_code: reasonCode,
+    workspace: {
+      workspace_id: workspaceIdForRoot(workspaceRoot),
+      workspace_root_hash: sha256Hex(workspaceRoot),
+      workspace_id_derived_from_root: true
+    },
+    status_observation: {
+      performed: true,
+      source: "supervisor.status",
+      may_initialize_workspace_registry: true,
+      mutates_ledger: false,
+      writes_artifacts: false,
+      repairs_state: false,
+      runtime_lock_present: status.runtime_lock_present === true,
+      runtime_lock_stale: status.runtime_lock_stale === true,
+      daemon_running: false
+    },
+    effects: {
+      starts_daemon: false,
+      stops_daemon: false,
+      kills_process: false,
+      repairs_stale_lock: false,
+      mutates_ledger: false,
+      writes_artifacts: false,
+      issues_session: false,
+      issues_lease: false,
+      resolves_vault_secret: false
+    },
+    authority: {
+      can_authorize_actions: false,
+      can_grant_tool_access: false,
+      can_override_policy: false,
+      local_supervisor_required_for_actions: true,
+      tool_policy_proxy_required_for_actions: true
+    },
+    operator_next_step: supervisorUnsupportedLifecycleNextStep(topic)
+  };
+}
+
+function flattenSupervisorLifecycleCommandReport(report: SupervisorLifecycleCommandReport): Record<string, unknown> {
+  return {
+    id: report.id,
+    schema_version: report.schema_version,
+    requested_command: report.requested_command,
+    status: report.status,
+    command_surface_supported: report.command_surface_supported,
+    implemented: report.implemented,
+    fail_closed: report.fail_closed,
+    reason_code: report.reason_code,
+    workspace_id: report.workspace.workspace_id,
+    workspace_root_hash: report.workspace.workspace_root_hash,
+    workspace_id_derived_from_root: report.workspace.workspace_id_derived_from_root,
+    status_observation_performed: report.status_observation.performed,
+    status_observation_source: report.status_observation.source,
+    status_may_initialize_workspace_registry: report.status_observation.may_initialize_workspace_registry,
+    status_mutates_ledger: report.status_observation.mutates_ledger,
+    status_writes_artifacts: report.status_observation.writes_artifacts,
+    status_repairs_state: report.status_observation.repairs_state,
+    daemon_running: report.status_observation.daemon_running,
+    runtime_lock_present: report.status_observation.runtime_lock_present,
+    runtime_lock_stale: report.status_observation.runtime_lock_stale,
+    starts_daemon: report.effects.starts_daemon,
+    stops_daemon: report.effects.stops_daemon,
+    kills_process: report.effects.kills_process,
+    repairs_stale_lock: report.effects.repairs_stale_lock,
+    mutates_ledger: report.effects.mutates_ledger,
+    writes_artifacts: report.effects.writes_artifacts,
+    issues_session: report.effects.issues_session,
+    issues_lease: report.effects.issues_lease,
+    resolves_vault_secret: report.effects.resolves_vault_secret,
+    can_authorize_actions: report.authority.can_authorize_actions,
+    can_grant_tool_access: report.authority.can_grant_tool_access,
+    can_override_policy: report.authority.can_override_policy,
+    local_supervisor_required_for_actions: report.authority.local_supervisor_required_for_actions,
+    tool_policy_proxy_required_for_actions: report.authority.tool_policy_proxy_required_for_actions,
+    operator_next_step: report.operator_next_step
+  };
+}
+
+function supervisorUnsupportedLifecycleNextStep(topic: "start" | "stop" | "recover-stale-lock"): string {
+  if (topic === "recover-stale-lock") {
+    return "Use supervisor status or supervisor preflight for read-only evidence; automatic stale-lock repair is not implemented.";
+  }
+  return "Use supervisor status or supervisor preflight for read-only evidence; production daemon lifecycle commands are not implemented.";
 }
 
 function supervisorLifecyclePreflight(status: Record<string, unknown>): Record<string, unknown> {
@@ -696,9 +899,9 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
       "error",
       "Node.js runtime check could not be built.",
       [],
-      "Run Ether with Node.js 25 or newer."
+      "Run Ether with Node.js 24.9.0 or newer."
     ),
-    commandVersionCheck("npm_available", "npm", ["--version"], "npm is available for lockfile install and audit commands.", "Install npm with Node.js 25 or newer."),
+    commandVersionCheck("npm_available", "npm", ["--version"], "npm is available for lockfile install and audit commands.", "Install npm with Node.js 24.9.0 or newer."),
     commandVersionCheck("git_available", "git", ["--version"], "git is available for source checkout and evidence snapshots.", "Install git before using from-source onboarding."),
     commandVersionCheck("rustc_available", "rustc", ["--version"], "rustc is available for Rust supervisor builds and checks.", "Install the Rust toolchain before running supervisor tests."),
     commandVersionCheck("cargo_available", "cargo", ["--version"], "cargo is available for Rust supervisor tests, clippy, and audit commands.", "Install Cargo with the Rust toolchain."),
@@ -1650,23 +1853,23 @@ function repoDoctorChecks(): DoctorCheck[] {
 
   checks.push(check(
     "node_runtime_version",
-    nodeMajorVersion() >= 25 ? "pass" : "fail",
-    nodeMajorVersion() >= 25 ? "info" : "error",
+    nodeVersionAtLeast("24.9.0") ? "pass" : "fail",
+    nodeVersionAtLeast("24.9.0") ? "info" : "error",
     `Current Node.js runtime is ${process.versions.node}.`,
-    [`process.versions.node=${process.versions.node}`, "required=>=25"],
-    "Run Ether with Node.js 25 or newer."
+    [`process.versions.node=${process.versions.node}`, "required=>=24.9.0"],
+    "Run Ether with Node.js 24.9.0 or newer."
   ));
   checks.push(check(
     "package_metadata",
-    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=25" ? "pass" : "fail",
-    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=25" ? "info" : "error",
-    "Package metadata preserves the current private MIT Node 25 baseline.",
+    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=24.9.0" ? "pass" : "fail",
+    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=24.9.0" ? "info" : "error",
+    "Package metadata preserves the current private MIT Node 24.9 baseline.",
     [
       `license=${packageJson?.license ?? "missing"}`,
       `private=${String(packageJson?.private ?? "missing")}`,
       `node_engine=${packageJson?.engines?.node ?? "missing"}`
     ],
-    "Keep package.json license=MIT, private=true, and engines.node=>=25 unless the release policy changes."
+    "Keep package.json license=MIT, private=true, and engines.node=>=24.9.0 unless the release policy changes."
   ));
   checks.push(check(
     "package_scripts",
@@ -2412,6 +2615,8 @@ function vaultPolicyBindingContractCheck(): DoctorCheck {
 function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
   const schemaPresent = existsRepoFile("schemas/supervisor-lifecycle-readiness.schema.json");
   const examplePresent = existsRepoFile("examples/contracts/supervisor-lifecycle-readiness.json");
+  const commandSchemaPresent = existsRepoFile("schemas/supervisor-lifecycle-command.schema.json");
+  const commandExamplePresent = existsRepoFile("examples/contracts/supervisor-lifecycle-command.json");
   const source = readRepoText("packages/tui/src/cli.ts") ?? "";
   const tests = readRepoText("packages/tui/test/tui.test.ts") ?? "";
   const supervisorReadme = readRepoText("crates/supervisor/README.md") ?? "";
@@ -2555,8 +2760,11 @@ function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
     && example.limits.signer_implemented === false
     && example.limits.process_sandbox_implemented === false
     && example.limits.cloud_worker_implemented === false;
-  const sourceReady = source.includes("supervisor supports status and preflight")
+  const sourceReady = source.includes("supervisor supports status, preflight, start, stop, and recover-stale-lock")
     && source.includes("function supervisorLifecyclePreflight")
+    && source.includes("function supervisorUnsupportedLifecycleCommandReport")
+    && source.includes("supervisor-lifecycle-command.schema.json")
+    && source.includes("unsupported_fail_closed")
     && source.includes("start_supported: false")
     && source.includes("repair_supported: false")
     && source.includes("runtime_lock_stale")
@@ -2565,12 +2773,15 @@ function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
     && supervisorReadme.includes("stale supervisor runtime-lock recovery")
     && supervisorReadme.includes("Real vault backend");
   const testsReady = tests.includes("TUI supervisor status reports Rust runtime health without appending events")
+    && tests.includes("supervisor lifecycle unsupported commands fail closed")
     && tests.includes("foreground_socket_running")
     && tests.includes("stale_runtime_lock")
     && tests.includes("start_supported")
     && tests.includes("repair_supported");
   const ok = schemaPresent
     && examplePresent
+    && commandSchemaPresent
+    && commandExamplePresent
     && commands.length === 5
     && readOnlyCommandSafe
     && unsupportedLifecycleSafe
@@ -2592,6 +2803,8 @@ function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
     [
       `schema=${schemaPresent ? "present" : "missing"}`,
       `example=${examplePresent ? "present" : "missing"}`,
+      `command_schema=${commandSchemaPresent ? "present" : "missing"}`,
+      `command_example=${commandExamplePresent ? "present" : "missing"}`,
       `commands=${[...commandByName.keys()].sort().join(",") || "missing"}`,
       `read_only_status_preflight=${String(readOnlyCommandSafe)}`,
       `start_stop_recover_unsupported=${String(unsupportedLifecycleSafe)}`,
@@ -2604,7 +2817,7 @@ function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
       `source_ready=${String(sourceReady)}`,
       `tests_ready=${String(testsReady)}`
     ],
-    "Restore schemas/supervisor-lifecycle-readiness.schema.json, examples/contracts/supervisor-lifecycle-readiness.json, and the status/preflight boundary without claiming production daemon lifecycle, socket-auth lifecycle, stale-lock repair, vault backend, or lease authority."
+    "Restore supervisor lifecycle readiness and command schemas/examples plus the status/preflight/unsupported-command boundary without claiming production daemon lifecycle, socket-auth lifecycle, stale-lock repair, vault backend, or lease authority."
   );
 }
 
@@ -2792,8 +3005,20 @@ function check(
   return { id, status, severity, summary, evidence, remediation };
 }
 
-function nodeMajorVersion(): number {
-  return Number(process.versions.node.split(".")[0] ?? "0");
+function nodeVersionAtLeast(minimum: string): boolean {
+  const currentParts = process.versions.node.split(".").map((part) => Number(part));
+  const minimumParts = minimum.split(".").map((part) => Number(part));
+  for (let index = 0; index < Math.max(currentParts.length, minimumParts.length); index += 1) {
+    const current = currentParts[index] ?? 0;
+    const required = minimumParts[index] ?? 0;
+    if (current > required) {
+      return true;
+    }
+    if (current < required) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function readRepoText(relativePath: string): string | null {
@@ -7194,6 +7419,9 @@ Usage:
   npm run ether -- boundary <run_id> --workspace <path>
   npm run ether -- supervisor status --workspace <path>
   npm run ether -- supervisor preflight --workspace <path>
+  npm run ether -- supervisor start --workspace <path>
+  npm run ether -- supervisor stop --workspace <path>
+  npm run ether -- supervisor recover-stale-lock --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
   npm run ether -- onboarding check --workspace <path>
   npm run ether -- doctor --workspace <path>
@@ -7267,7 +7495,7 @@ Usage:
 Commands:
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
-  supervisor             Read-only Rust supervisor workspace status and lifecycle preflight
+  supervisor             Read-only Rust supervisor status/preflight plus fail-closed unsupported lifecycle command reports
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
   ingress                Read-only local ingress envelope/rate-limit/idempotency readiness audit; no listener, session, remote connection, or action authority

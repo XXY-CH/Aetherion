@@ -1,0 +1,45 @@
+{
+  "id": "supervisor_lifecycle_command_start_unsupported_v1",
+  "schema_version": "aetherion-supervisor-lifecycle-command-v1",
+  "requested_command": "supervisor start",
+  "status": "unsupported_fail_closed",
+  "command_surface_supported": true,
+  "implemented": false,
+  "fail_closed": true,
+  "reason_code": "production_daemon_lifecycle_unimplemented",
+  "workspace": {
+    "workspace_id": "ws_1111222233334444",
+    "workspace_root_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "workspace_id_derived_from_root": true
+  },
+  "status_observation": {
+    "performed": true,
+    "source": "supervisor.status",
+    "may_initialize_workspace_registry": true,
+    "mutates_ledger": false,
+    "writes_artifacts": false,
+    "repairs_state": false,
+    "runtime_lock_present": false,
+    "runtime_lock_stale": false,
+    "daemon_running": false
+  },
+  "effects": {
+    "starts_daemon": false,
+    "stops_daemon": false,
+    "kills_process": false,
+    "repairs_stale_lock": false,
+    "mutates_ledger": false,
+    "writes_artifacts": false,
+    "issues_session": false,
+    "issues_lease": false,
+    "resolves_vault_secret": false
+  },
+  "authority": {
+    "can_authorize_actions": false,
+    "can_grant_tool_access": false,
+    "can_override_policy": false,
+    "local_supervisor_required_for_actions": true,
+    "tool_policy_proxy_required_for_actions": true
+  },
+  "operator_next_step": "Use supervisor status or supervisor preflight for read-only evidence; production daemon lifecycle commands are not implemented."
+}

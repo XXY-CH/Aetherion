@@ -58,4 +58,4 @@ Policy 应先证明少量本地文件动作，再扩展到 browser、connector�
 
 ## Node Baseline
 
-当前 TypeScript 测试和 CLI 以 Node.js 25+ 为基线。
+当前 TypeScript 测试和 CLI 已验证的最低基线是 Node.js `>=24.9.0`。不要把 Node 25 当成永久生态基线。

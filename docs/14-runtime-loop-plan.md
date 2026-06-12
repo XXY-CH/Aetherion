@@ -1042,3 +1042,27 @@ Remaining boundary:
 
 - This is not browser OAuth, token refresh, vault-backed provider credential resolution, connector account linking, a retry executor, provider tool execution, streaming, multimodal payload support, or live-provider CI probing.
 - The next high-value slices are explicit supervisor lifecycle command contracts, durable/session ingress identity, richer refusal taxonomy, or remote CI/release hardening.
+
+## Completed Increment: Supervisor Lifecycle Command Fail-Closed Contracts
+
+Target: continue PGC-2 by making `supervisor start`, `supervisor stop`, and `supervisor recover-stale-lock` explicit callable surfaces while still failing closed until the Rust supervisor owns real daemon lifecycle and recovery semantics.
+
+Acceptance:
+
+- `supervisor-lifecycle-command.schema.json` and its example validate with the contract example suite.
+- `ether supervisor start`, `ether supervisor stop`, and `ether supervisor recover-stale-lock` call `supervisor.status` for read-only observation, validate a structured report, print `unsupported_fail_closed`, and exit with code 2.
+- The command report proves the command surface is known while `implemented=false`, `fail_closed=true`, and all lifecycle side effects, authority grants, session issuance, lease issuance, artifact writes, Ledger mutation, and vault-secret resolution remain false.
+- `recover-stale-lock` reports stale-lock observation when present but leaves the lock file untouched.
+- `doctor`, `onboarding check`, and `release evidence` require both the Supervisor Lifecycle Readiness contract and the Supervisor Lifecycle Command schema/example.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Local Supervisor remains root authority; a command surface cannot become authority by being recognized.
+- [Technical Strategy](10-technical-strategy.md): Rust still owns future daemon/vault/authority behavior; this slice only adds TypeScript command reporting around current status evidence.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): supervisor lifecycle command is P1 readiness metadata and must reject daemon, stale-lock repair, vault, lease, and tool-authority overclaims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this advances PGC-2's typed lifecycle contract while leaving real production daemon lifecycle, socket-auth lifecycle, vault backend, and stale-lock recovery open.
+
+Remaining boundary:
+
+- This is not a production daemon manager, service installer, crash-recovery system, stale-lock repair implementation, socket-auth lifecycle, process sandbox, signer, vault backend, secret retrieval path, policy gateway, session issuer, or lease issuer.
+- The next high-value slices are durable/session ingress identity, richer refusal taxonomy, live remote CI/CodeQL observation, or the next vault/supervisor authority contract.
