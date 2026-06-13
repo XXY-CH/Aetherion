@@ -1296,11 +1296,23 @@ fn error_response(id: &str, message: &str) -> String {
 }
 
 fn escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\u{000c}' => escaped.push_str("\\f"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{0000}'..='\u{001f}' => {
+                escaped.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -2284,5 +2296,56 @@ mod tests {
         assert!(ledger.contains("Composed L5 risk for supervisor workspace file read"));
         assert!(ledger.contains("Target is outside workspace boundary"));
         assert!(!ledger.contains("\"event_type\":\"lease.issued\""));
+    }
+
+    #[test]
+    fn escape_produces_valid_json_for_control_characters_and_tabs() {
+        // Regression: the escape helper used to embed file contents into RPC JSON
+        // responses only handled backslash, quote, newline, and carriage return.
+        // Tabs and other control characters (0x00-0x1f) were emitted raw, producing
+        // invalid JSON that the TypeScript client could not parse.
+        assert_eq!(escape("\t"), "\\t");
+        assert_eq!(escape("\u{0008}"), "\\b");
+        assert_eq!(escape("\u{000c}"), "\\f");
+        assert_eq!(escape("\u{0007}"), "\\u0007");
+        assert_eq!(escape("\u{001b}"), "\\u001b");
+        assert_eq!(escape("plain"), "plain");
+        assert_eq!(escape("\""), "\\\"");
+        assert_eq!(escape("\\"), "\\\\");
+    }
+
+    #[test]
+    fn rpc_traced_read_returns_valid_json_for_content_with_control_characters() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("aetherion-rpc-ctrl-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("with_control.md");
+        // Content mixes a tab, a bell control char, a newline, and a quote. Before the
+        // escape fix, the tab and bell were emitted raw, producing invalid JSON that the
+        // TypeScript client could not parse.
+        let raw = "field\tvalue\u{0007}end\nquoted\"text";
+        fs::write(&input, raw).unwrap();
+        let workspace_id = derived_workspace_id(&root);
+        let request = format!(
+            "{{\"id\":\"rpc_read_ctrl\",\"method\":\"file.read.traced\",\"workspace_root\":\"{}\",\"workspace_id\":\"{}\",\"run_id\":\"run_ctrl\",\"path\":\"{}\"}}",
+            escape(&root.display().to_string()),
+            workspace_id,
+            escape(&input.display().to_string())
+        );
+        let response = handle_rpc_line(&request, "stdio");
+        // The full RPC envelope must be a complete, parseable JSON object. The raw file
+        // contents are embedded in the inner result object, so the response is only
+        // valid JSON when every control character is correctly escaped.
+        assert!(
+            aetherion_supervisor::parse_json_object(&response).is_ok(),
+            "RPC response must be valid JSON: {response}"
+        );
+        assert!(response.contains("\"decision\":\"allow\""));
+        // The escaped contents must round-trip back to the original bytes.
+        assert!(response.contains("\\t"));
+        assert!(response.contains("\\u0007"));
     }
 }

@@ -921,6 +921,34 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、release artifact retention、release repository publication、code-scanning alert review 或 generated release manifest artifact。
 
+## Phase 70 复核：Supervisor RPC JSON Control-Character Escaping
+
+本轮关闭 V1 authority path 中一个很窄的 Rust supervisor JSON-RPC 稳定性缺口。traced file read 会把 workspace file content 放进 JSON-RPC response。修复前，tab 和其他 control characters 可能以 raw byte 形式输出，让 TypeScript TUI client 在读取 supervisor evidence 前就遇到 invalid JSON。
+
+匹配源文档：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 是 root authority，因此它的 JSON-RPC evidence envelope 必须能承载普通 workspace file content 并保持 parseable。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 拥有 authority-boundary behavior；JSON response escaping 应该在 Rust supervisor 边界修复，而不是由 client workaround 掩盖。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：tool-result evidence 必须保持 structured/reviewable，malformed envelope 不能成为隐藏 side channel。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-2 supervisor lifecycle determinism/boundary hardening，但不实现 daemon lifecycle、vault 或 connector behavior。
+
+本轮变化：
+
+- Rust `escape()` 现在处理 quote、backslash、newline、carriage return、tab、backspace、form feed，以及 U+0000 到 U+001F 的全部剩余 control characters。
+- 新增 Rust regression tests，覆盖 escape helper，以及含 tab、bell、newline、quote content 时 `file.read.traced` 仍返回 parseable JSON。
+- 新增 TUI regression test，用 Rust supervisor path 读取含 control characters 的文件，并证明 client 能完成正常 run。
+- supervisor 与 production-gap docs 已同步英文和中文说明。
+
+偏差复核：
+
+- 修正 supervisor boundary robustness gap：合法 workspace content 不应表现为 transport failure。
+- 修复保持在 serialization 与 tests 内；不改变 policy decision、lease、workspace identity、event semantics 或 file-action authority。
+- 未新增 production daemon start/stop、stale-lock repair、socket-auth lifecycle、vault backend、process sandboxing、signing、session issuance、connector OAuth、cloud worker 或新的 side-effect authority。
+
+剩余边界：
+
+- 这只是 serialization hardening。PGC-2 中关于 daemon lifecycle、vault-backed secrets、socket-auth lifecycle、signer、process sandbox 和 recovery semantics 的更广缺口仍然 open。
+
 ## Phase 67 复核：GitHub Remote Evidence Reader
 
 本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。

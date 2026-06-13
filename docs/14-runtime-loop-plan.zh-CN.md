@@ -745,3 +745,24 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、release artifact retention、release repository publication 或 generated manifest file。
 - candidate readiness 仍取决于 clean worktree 与 operator-supplied remote evidence；dirty 或缺 remote evidence 会让 preview 保持 `draft`。
+
+## 已完成增量：Supervisor RPC JSON Control-Character Escaping
+
+目标：继续推进 PGC-2 supervisor boundary hardening，确保 workspace file 含 tab 或其他 control character 时，traced read RPC response 仍然是合法 JSON。
+
+验收：
+
+- Rust supervisor JSON response escape helper 现在处理 quote、backslash、newline、carriage return、tab、backspace、form feed，以及 U+0000 到 U+001F 的全部剩余 control characters。
+- 当被读取文件包含 tab、bell control character、newline 和 quote 时，`file.read.traced` 仍返回可 parse 的 JSON-RPC envelope。
+- TUI Rust supervisor path 可以对这类文件完成正常 `run`，证明 TypeScript client 能 parse supervisor response，不会退回 test-only TypeScript authority path。
+
+匹配 source docs 与修正：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority；authority evidence 必须能跨 JSON-RPC boundary 传递，不能产生 malformed response ambiguity。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 拥有 authority path，因此 Rust response serialization bug 必须在该边界修复，而不是由 client 掩盖。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-2 lifecycle determinism 和 supervisor boundary hardening，但不实现 daemon lifecycle 或 vault behavior。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：workspace file content 可作为 tool-result evidence 被观察，但不能破坏 JSON evidence envelope。
+
+剩余边界：
+
+- 这不是新的 daemon lifecycle feature、socket-auth lifecycle、vault backend、stale-lock repair、process sandbox、signer、session issuer、lease authority expansion、connector OAuth、cloud worker 或更广 adapter execution surface。

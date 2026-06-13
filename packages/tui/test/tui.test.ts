@@ -1749,6 +1749,35 @@ test("TUI run can use Rust supervisor over stdio for the Phase 1 loop", async ()
   assert.equal(rustEventValidation.valid, true, rustEventValidation.errors.join("; "));
 });
 
+test("TUI Rust supervisor run parses traced reads with control characters", async () => {
+  await execFileAsync("cargo", ["build", "--quiet", "--bin", "aetherion-supervisor"], { cwd: repoRoot });
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-rust-control-"));
+  await writeFile(join(workspace, "README.md"), "field\tvalue\u0007end\nquoted\"text\n");
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--supervisor",
+    "stdio",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+
+  assert.match(stdout, /supervisor=stdio/);
+  assert.match(stdout, /verification=passed/);
+  assert.match(stdout, /chain_valid=true/);
+  const summary = await readFile(join(workspace, ".aetherion", "SUMMARY.md"), "utf8");
+  assert.equal(summary, "Summary: Workspace file read completed; source content was not copied by default.\n");
+  const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  assert.match(ledger, /tool.result/);
+  assert.doesNotMatch(ledger, /\u0007/);
+});
+
 test("TUI run can use explicit supervisor socket for the Phase 1 loop", async () => {
   if (process.platform === "win32") {
     return;

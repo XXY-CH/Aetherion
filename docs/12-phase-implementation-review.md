@@ -1964,6 +1964,34 @@ Remaining boundary:
 
 - This is not release packaging, artifact signing, public docs deployment, installer/updater automation, release artifact retention, release repository publication, code-scanning alert review, or a generated release manifest artifact.
 
+## Phase 70 Review Notes
+
+This pass closes a narrow Rust supervisor JSON-RPC stability gap in the V1 authority path. Traced file reads embed workspace file content inside a JSON-RPC response. Before this fix, tabs and other control characters could be emitted raw, making the response invalid JSON before the TypeScript TUI client could read the supervisor evidence.
+
+Matched source docs:
+
+- [Architecture](01-architecture.md): Local Supervisor is the root authority, so its JSON-RPC evidence envelope must remain parseable across ordinary workspace file contents.
+- [Technical Strategy](10-technical-strategy.md): Rust owns authority-boundary behavior; JSON response escaping belongs in the Rust supervisor, not as a client-side workaround.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): tool-result evidence must stay structured and reviewable, and malformed envelopes cannot become a hidden side channel.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this advances PGC-2 supervisor lifecycle determinism/boundary hardening without implementing daemon lifecycle, vault, or connector behavior.
+
+Implemented correspondence:
+
+- Rust `escape()` now handles quote, backslash, newline, carriage return, tab, backspace, form feed, and all remaining U+0000 through U+001F control characters.
+- Added Rust regression tests for the escape helper and for `file.read.traced` returning parseable JSON with tab, bell, newline, and quote content.
+- Added a TUI regression test that runs the Rust supervisor path against a file containing control characters and proves the client can complete the normal run.
+- Updated supervisor and production-gap docs in English and Chinese.
+
+Drift review:
+
+- Corrects a supervisor boundary robustness gap that could make valid workspace content look like a transport failure.
+- Keeps the fix inside serialization and tests; it does not change policy decisions, leases, workspace identity, event semantics, or file-action authority.
+- Does not add production daemon start/stop, stale-lock repair, socket-auth lifecycle, vault backend, process sandboxing, signing, session issuance, connector OAuth, cloud workers, or new side-effect authority.
+
+Remaining boundary:
+
+- This is serialization hardening only. Broader PGC-2 gaps around daemon lifecycle, vault-backed secrets, socket-auth lifecycle, signer, process sandbox, and recovery semantics remain open.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

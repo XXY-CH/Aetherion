@@ -96,6 +96,7 @@ Current partial status:
 - `supervisor status` and `supervisor preflight` remain read-only lifecycle evidence.
 - `supervisor start`, `supervisor stop`, and `supervisor recover-stale-lock` are known command surfaces that emit schema-valid `unsupported_fail_closed` reports after read-only status observation.
 - Supervisor socket auth boundary evidence now proves missing/wrong token rejection, workspace binding rejection, no token echo or persistence, and no session, lease, tool, vault, or policy authority from the socket token.
+- Rust supervisor RPC responses now escape all JSON control characters in traced read content, so workspace files containing tabs or other control bytes cannot break the TypeScript client parse boundary during the TUI/Rust authority path.
 - Real daemon start/stop, stale-lock repair, socket-auth lifecycle, vault backend, process sandboxing, signing, secret retrieval, session issuance, and supervisor lease authority remain open.
 
 ### PGC-3: Local Ingress Gateway MVP

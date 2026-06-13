@@ -15,6 +15,7 @@
 - 评估最小 deterministic local file policy。
 - 颁发 scoped lease。
 - 用 lease-gated read 和 traced write prepare/commit 证明本地文件 action lifecycle。
+- stdio/socket RPC response 会转义 traced read content 中的全部 JSON control characters，避免 workspace 文件中的 tab 或其他控制字符破坏 TypeScript client 的 JSON parse 边界。
 - 仓库级 Supervisor Lifecycle Readiness contract 只把 status/preflight 作为 observable readiness evidence；它不声明 production daemon start/stop、socket-auth lifecycle、stale-lock recovery、vault-backed supervisor secret 或 lease authority 已实现。
 
 重要边界：

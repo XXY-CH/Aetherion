@@ -96,6 +96,7 @@
 - `supervisor status` 和 `supervisor preflight` 仍是只读 lifecycle evidence。
 - `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 已是已知 command surface，会在只读 status observation 后输出 schema-valid `unsupported_fail_closed` report。
 - Supervisor Socket Auth Boundary evidence 现在证明 missing/wrong token rejection、workspace binding rejection、无 token echo/persistence，以及 socket token 不产生 session、lease、tool、vault 或 policy authority。
+- Rust supervisor RPC response 现在会转义 traced read content 中的全部 JSON control characters，因此 workspace file 含 tab 或其他 control bytes 时不会破坏 TUI/Rust authority path 的 TypeScript client parse boundary。
 - 真实 daemon start/stop、stale-lock repair、socket-auth lifecycle、vault backend、process sandboxing、signing、secret retrieval、session issuance 和 supervisor lease authority 仍未完成。
 
 ### PGC-3：Local Ingress Gateway MVP

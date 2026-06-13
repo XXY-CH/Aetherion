@@ -1139,3 +1139,24 @@ Remaining boundary:
 
 - This is not release packaging, artifact signing, public docs deployment, installer/updater automation, release artifact retention, release repository publication, or a generated manifest file.
 - Candidate readiness still depends on a clean worktree plus operator-supplied remote evidence; dirty or missing remote evidence keeps the preview in `draft`.
+
+## Completed Increment: Supervisor RPC JSON Control-Character Escaping
+
+Target: continue PGC-2 supervisor boundary hardening by ensuring traced read RPC responses remain valid JSON even when workspace files contain tabs or other control characters.
+
+Acceptance:
+
+- The Rust supervisor JSON response escape helper handles quotes, backslashes, newline, carriage return, tab, backspace, form feed, and every remaining U+0000 through U+001F control character.
+- `file.read.traced` returns a parseable JSON-RPC envelope when the read file contains a tab, bell control character, newline, and quote.
+- The TUI Rust supervisor path can complete a normal `run` against such a file, proving the TypeScript client can parse the supervisor response without falling back to the test-only TypeScript authority path.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Local Supervisor remains the root authority; authority evidence must cross the JSON-RPC boundary without malformed response ambiguity.
+- [Technical Strategy](10-technical-strategy.md): Rust owns the authority path, so response serialization bugs in Rust must be fixed at that boundary rather than hidden in the client.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-2 lifecycle determinism and supervisor boundary hardening without implementing daemon lifecycle or vault behavior.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): workspace file contents can be observed as tool-result evidence without corrupting the JSON evidence envelope.
+
+Remaining boundary:
+
+- This is not a new daemon lifecycle feature, socket-auth lifecycle, vault backend, stale-lock repair, process sandbox, signer, session issuer, lease authority expansion, connector OAuth, cloud worker, or broader adapter execution surface.
