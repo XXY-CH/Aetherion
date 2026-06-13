@@ -891,6 +891,36 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 这仍然只是 readiness evidence，不是 public docs deployment system、site generator 或 publishing pipeline。
 - 后续 production gap 可以继续推进 packaging、signing、artifact retention，或者真正的 docs deployment 机制。
 
+## Phase 69 复核：Release Manifest Preview In Release Evidence
+
+本轮关闭下一条 PGC-1 release manifest 漂移线，但不假装 Aetherion 已经能产出 signed release artifacts。`release evidence` 现在会输出 schema-aligned `release_manifest_preview`，由当前本地 evidence、可选 operator-supplied remote CI/CodeQL observations、source-evidence hashes 和 known gaps 派生。
+
+匹配源文档：
+
+- [产品简报](00-product-brief.zh-CN.md)：增强可 review release evidence，没有新增 client surface 或 authority root。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：preview 仍是 human-readable governance/evidence metadata；Event Ledger 仍是 runtime fact layer。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：复用 `schemas/release-manifest.schema.json` 与 `examples/contracts/release-manifest.json`，没有新增 ad hoc report contract。
+- [路线图](06-roadmap.zh-CN.md)：保持在 V1 TUI-first release readiness 内，没有启用 GUI、IM、browser automation、MCP/OAuth connectors、cloud workers 或 package-code execution。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-1 release manifest/readiness hardening，同时让 packaging、signing、public docs deployment、release artifact retention、release repository publication 和 installer/updater automation 继续 open。
+
+本轮变化：
+
+- `release evidence` 现在输出 top-level `release_manifest_preview`。
+- focused tests 会用已有 Release Manifest schema 校验该 preview。
+- preview 包含 git source revision、dependency lockfile evidence、configured test gates、source evidence hashes、governance docs、bilingual docs、可选 remote observed evidence 和 known gaps。
+- test gates 明确是 configured evidence，不声称 `release evidence` 执行了测试套件。
+- README 与 TUI README 已同步英文和中文说明。
+
+偏差复核：
+
+- 修正 PGC-1 偏差：Release Manifest contract 已存在，但 operator release-evidence surface 看不到它。
+- 保持 preview 为 stdout-only/read-only；它不写 generated manifest file，也不 build、sign、publish、deploy docs、query live CI 或修改 `.aetherion`。
+- candidate readiness 仍取决于 clean worktree 与 operator-supplied remote evidence；dirty 或缺 remote evidence 会让 preview 保持 `draft`。
+
+剩余边界：
+
+- 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、release artifact retention、release repository publication、code-scanning alert review 或 generated release manifest artifact。
+
 ## Phase 67 复核：GitHub Remote Evidence Reader
 
 本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。

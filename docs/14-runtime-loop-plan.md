@@ -692,6 +692,7 @@ Acceptance:
 
 - `release evidence --workspace <path>` prints a single JSON report with git head/dirty state, configured CI gate status, Node 24 action-runtime evidence, Ubuntu/macOS platform-smoke configuration, dependency lockfile evidence, governance file checks, bilingual-doc checks, `doctor` summary, `security audit` summary, workspace runtime/Ledger status, source-document links, and remaining release gaps.
 - The report now also carries docs deployment readiness inputs from local Markdown entrypoints, relative link resolution, and source-document links, while `public_docs_deployed` remains `false`.
+- The report now also carries a schema-aligned `release_manifest_preview` derived from existing local and optional remote evidence. The preview is stdout-only; it does not write a generated manifest file, sign artifacts, package releases, publish releases, or deploy docs.
 - The command is strictly read-only: it does not initialize `.aetherion`, append Ledger events, mutate registries, write artifacts, call providers, issue leases, repair state, package artifacts, sign releases, publish releases, deploy docs, or query GitHub/remote CI.
 - CI runs the report alongside `doctor` and `security audit`; `doctor`, `security audit`, and `release evidence` all detect drift if the workflow stops running the configured release-evidence snapshot.
 - Empty-workspace and initialized-workspace tests prove the command does not create runtime state or mutate Ledger/run evidence.
@@ -708,6 +709,7 @@ Remaining boundary:
 
 - This is a local/configured source snapshot, not executed remote CI proof, release packaging, artifact signing, installer/updater infrastructure, public docs deployment, package registry publication, or a release evidence repository.
 - Docs deployment readiness is a read-only input check, not a publishing pipeline.
+- The release manifest preview is derived evidence only, not the signed release manifest artifact or release repository that PGC-1 still calls for later.
 - A dirty worktree is reported as `draft`; it does not block local inspection because unrelated operator files may be present, but it is not a clean release claim.
 - Remaining production gaps are install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
 
@@ -1114,3 +1116,26 @@ Remaining boundary:
 
 - This is not release packaging, artifact signing, public docs deployment, installer/updater automation, GitHub code-scanning alert triage, release repository publication, or a long-running CI monitor.
 - The operator still reviews and stores the snapshot path explicitly before `release evidence --remote-evidence` includes it.
+
+## Completed Increment: Release Manifest Preview In Release Evidence
+
+Target: continue PGC-1 by making the existing Release Manifest contract visible in the read-only `release evidence` report without generating a signed manifest artifact, package, or release repository.
+
+Acceptance:
+
+- `release evidence --workspace <path>` now includes `release_manifest_preview`, a schema-aligned object shaped like `schemas/release-manifest.schema.json`.
+- The preview is derived from existing evidence only: git revision, configured lockfile/test/governance/doc checks, source evidence hashes, optional operator-supplied remote CI/CodeQL observations, and known release gaps.
+- Test gate entries are explicitly configured evidence. They do not claim that `release evidence` executed the test suite.
+- The command remains read-only and stdout-only for this preview: no manifest file is written, no package is built, no artifact is signed, no release is published, no docs are deployed, and no live remote CI query is added.
+
+Matched source docs and corrections:
+
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-1 release manifest/readiness hardening while leaving packaging, signing, docs deployment, artifact retention, and release repository publication open.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): keeps the manifest preview as reviewable evidence metadata, not the Event Ledger fact layer or a new authority source.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): reuses the existing schema/example contract rather than inventing a separate report shape.
+- [Roadmap](06-roadmap.md): stays inside V1 TUI release-readiness evidence and does not enable GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+
+Remaining boundary:
+
+- This is not release packaging, artifact signing, public docs deployment, installer/updater automation, release artifact retention, release repository publication, or a generated manifest file.
+- Candidate readiness still depends on a clean worktree plus operator-supplied remote evidence; dirty or missing remote evidence keeps the preview in `draft`.

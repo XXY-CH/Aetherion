@@ -1119,6 +1119,47 @@ type RemoteObservedEvidence = {
   warnings: string[];
 };
 
+type ReleaseManifestPreviewStatus = "candidate" | "blocked" | "draft";
+
+type ReleaseManifestEvidenceItem = {
+  name: string;
+  status: DoctorCheckStatus;
+  evidence: string[];
+};
+
+type ReleaseManifestPreview = {
+  id: string;
+  repository: string;
+  source_revision: {
+    git_head: string;
+    git_head_short: string;
+    branch: string;
+    dirty: boolean;
+  };
+  generated_at: string;
+  status: ReleaseManifestPreviewStatus;
+  dependency_lockfiles: ReleaseManifestEvidenceItem[];
+  test_gates: Array<{
+    name: string;
+    command: string;
+    status: DoctorCheckStatus;
+    evidence: string[];
+  }>;
+  artifact_hashes: Array<{
+    path: string;
+    sha256: string;
+  }>;
+  governance_docs: ReleaseManifestEvidenceItem[];
+  bilingual_docs: ReleaseManifestEvidenceItem[];
+  remote_observed_evidence: {
+    ci_status: RemoteObservedEvidence["ci"]["status"];
+    codeql_status: RemoteCodeqlEvidence["status"];
+    snapshot_ref: string | null;
+    observed_at: string | null;
+  };
+  known_gaps: string[];
+};
+
 type RemoteEvidenceSnapshot = {
   id: "aetherion_remote_ci_evidence_snapshot";
   generated_at: string;
@@ -1260,6 +1301,7 @@ type ReleaseEvidenceReport = {
     doctor: Pick<DoctorReport, "status" | "check_status" | "summary">;
     security_audit: Pick<SecurityAuditReport, "status" | "summary">;
   };
+  release_manifest_preview: ReleaseManifestPreview;
   workspace_runtime: {
     status: "not_initialized" | "initialized" | "invalid";
     ledger_status: DoctorCheckStatus | SecurityAuditCheckStatus;
@@ -1328,10 +1370,12 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
     : git.dirty || remoteEvidence.status !== "observed" || remoteEvidence.warnings.length > 0
       ? "draft"
       : "ready";
+  const generatedAt = new Date().toISOString();
+  const remainingGaps = releaseRemainingGaps(remoteEvidence, docsDeploymentReadiness);
 
   return {
     id: "aetherion_release_evidence_report",
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     repo_root: repoRoot,
     workspace_root: workspaceRoot,
     status,
@@ -1443,6 +1487,17 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         summary: securityAudit.summary
       }
     },
+    release_manifest_preview: releaseManifestPreview({
+      generatedAt,
+      releaseStatus: status,
+      git,
+      remoteEvidence,
+      ciWorkflow,
+      ciWorkflowGate,
+      dependencyLockfiles,
+      governanceFiles,
+      remainingGaps
+    }),
     workspace_runtime: workspaceRuntime,
     release_artifacts: {
       packaged: false,
@@ -1462,25 +1517,158 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       { path: "docs/13-schema-runtime-governance.md", role: "schema and governance source constraints" },
       { path: "docs/14-runtime-loop-plan.md", role: "current production-hardening loop" }
     ],
-    remaining_gaps: [
-      remoteEvidence.status === "observed"
-        ? "remote CI/CodeQL evidence is read from an operator-supplied snapshot, not queried live"
-        : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
-      "release packages are not built",
-      "release artifacts are not signed",
-      "local ingress readiness now has TUI run local rate-limit, duplicate-key reservation, and same-intent cached replay before supervisor handoff, but durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
-      "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, and supervisor socket auth boundary evidence covers caller-supplied local socket token gating, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, vault-backed supervisor secrets, session issuance, and lease authority are not implemented",
-      "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
-      "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
-      "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
-      docsDeploymentReadiness?.status === "pass"
-        ? "docs deployment readiness is checked locally, but public docs are not deployed"
-        : "docs deployment readiness is missing or failing, and public docs are not deployed",
-      "installer and updater infrastructure are not implemented",
-      "broader platform/release matrix artifacts are not produced",
-      "GUI, browser automation, IM delivery, MCP/OAuth connectors, cloud workers, and package-code execution remain deferred"
-    ]
+    remaining_gaps: remainingGaps
   };
+}
+
+function releaseManifestPreview(input: {
+  generatedAt: string;
+  releaseStatus: ReleaseEvidenceReport["status"];
+  git: GitReleaseEvidence;
+  remoteEvidence: RemoteObservedEvidence;
+  ciWorkflow: string;
+  ciWorkflowGate?: DoctorCheck;
+  dependencyLockfiles?: DoctorCheck;
+  governanceFiles?: DoctorCheck;
+  remainingGaps: string[];
+}): ReleaseManifestPreview {
+  return {
+    id: "release_manifest_preview",
+    repository: input.remoteEvidence.repository ?? gitRemoteRepository() ?? "local-aetherion",
+    source_revision: {
+      git_head: input.git.head ?? "unknown",
+      git_head_short: input.git.head_short ?? "unknown",
+      branch: input.git.branch ?? "unknown",
+      dirty: input.git.dirty
+    },
+    generated_at: input.generatedAt,
+    status: releaseManifestStatus(input.releaseStatus),
+    dependency_lockfiles: releaseManifestDependencyLockfiles(input.dependencyLockfiles),
+    test_gates: releaseManifestTestGates(input.ciWorkflow, input.ciWorkflowGate),
+    artifact_hashes: releaseManifestArtifactHashes(),
+    governance_docs: releaseManifestGovernanceDocs(input.governanceFiles),
+    bilingual_docs: releaseManifestBilingualDocs(),
+    remote_observed_evidence: {
+      ci_status: input.remoteEvidence.ci.status,
+      codeql_status: input.remoteEvidence.codeql.status,
+      snapshot_ref: input.remoteEvidence.evidence_path,
+      observed_at: input.remoteEvidence.observed_at
+    },
+    known_gaps: uniqueStrings([
+      ...input.remainingGaps,
+      "release manifest preview is not written as a generated, signed, or published manifest artifact"
+    ])
+  };
+}
+
+function releaseManifestStatus(status: ReleaseEvidenceReport["status"]): ReleaseManifestPreviewStatus {
+  if (status === "ready") {
+    return "candidate";
+  }
+  if (status === "blocked") {
+    return "blocked";
+  }
+  return "draft";
+}
+
+function releaseManifestDependencyLockfiles(checkItem?: DoctorCheck): ReleaseManifestEvidenceItem[] {
+  const status = checkItem?.status ?? "fail";
+  const evidence = checkItem?.evidence ?? ["dependency_lockfiles=missing"];
+  const packageEvidence = evidence.filter((line) => line.startsWith("package_"));
+  const cargoEvidence = evidence.filter((line) => line.startsWith("cargo_"));
+  return [
+    {
+      name: "package-lock.json",
+      status,
+      evidence: packageEvidence.length > 0 ? packageEvidence : evidence
+    },
+    {
+      name: "Cargo.lock",
+      status,
+      evidence: cargoEvidence.length > 0 ? cargoEvidence : evidence
+    }
+  ];
+}
+
+function releaseManifestTestGates(ciWorkflow: string, ciWorkflowGate?: DoctorCheck): ReleaseManifestPreview["test_gates"] {
+  const gates = [
+    ["npm_test_configured", "npm test"],
+    ["cargo_test_locked_configured", "cargo test --locked"],
+    ["cargo_clippy_configured", "cargo clippy --all-targets --all-features --locked -- -D warnings"],
+    ["cargo_fmt_configured", "cargo fmt --check"],
+    ["security_audit_configured", "npm run ether -- security audit --workspace ."],
+    ["doctor_configured", "npm run ether -- doctor --workspace ."],
+    ["release_evidence_configured", "npm run ether -- release evidence --workspace ."]
+  ] as const;
+  return gates.map(([name, command]) => {
+    const configured = Boolean(ciWorkflow.includes(command));
+    return {
+      name,
+      command,
+      status: configured ? (ciWorkflowGate?.status ?? "pass") : "fail",
+      evidence: [
+        `ci_workflow_contains_command=${String(configured)}`,
+        "configured_not_executed_by_release_evidence=true"
+      ]
+    };
+  });
+}
+
+function releaseManifestArtifactHashes(): ReleaseManifestPreview["artifact_hashes"] {
+  return [
+    "package-lock.json",
+    "Cargo.lock",
+    "schemas/release-manifest.schema.json",
+    "examples/contracts/release-manifest.json"
+  ].flatMap((path) => {
+    const sha256 = sha256RepoFile(path);
+    return sha256 ? [{ path, sha256 }] : [];
+  });
+}
+
+function releaseManifestGovernanceDocs(checkItem?: DoctorCheck): ReleaseManifestEvidenceItem[] {
+  return requiredGovernanceFiles().map((file) => ({
+    name: file,
+    status: existsRepoFile(file) ? "pass" : (checkItem?.status ?? "fail"),
+    evidence: [`${file}=${existsRepoFile(file) ? "present" : "missing"}`]
+  }));
+}
+
+function releaseManifestBilingualDocs(): ReleaseManifestEvidenceItem[] {
+  return bilingualDocsEvidence().map((line) => {
+    const [name] = line.split("=");
+    return {
+      name: name ?? "bilingual_doc_link",
+      status: line.endsWith("=ok") ? "pass" : "fail",
+      evidence: [line]
+    };
+  });
+}
+
+function releaseRemainingGaps(remoteEvidence: RemoteObservedEvidence, docsDeploymentReadiness?: DoctorCheck): string[] {
+  return [
+    remoteEvidence.status === "observed"
+      ? "remote CI/CodeQL evidence is read from an operator-supplied snapshot, not queried live"
+      : "remote CI/CodeQL execution evidence is missing; pass --remote-evidence <snapshot.json> to include observed CI and CodeQL status",
+    "release packages are not built",
+    "release artifacts are not signed",
+    "local ingress readiness now has TUI run local rate-limit, duplicate-key reservation, and same-intent cached replay before supervisor handoff, but durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
+    "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, and supervisor socket auth boundary evidence covers caller-supplied local socket token gating, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, vault-backed supervisor secrets, session issuance, and lease authority are not implemented",
+    "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
+    "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
+    "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
+    docsDeploymentReadiness?.status === "pass"
+      ? "docs deployment readiness is checked locally, but public docs are not deployed"
+      : "docs deployment readiness is missing or failing, and public docs are not deployed",
+    "installer and updater infrastructure are not implemented",
+    "broader platform/release matrix artifacts are not produced",
+    "GUI, browser automation, IM delivery, MCP/OAuth connectors, cloud workers, and package-code execution remain deferred"
+  ];
+}
+
+function sha256RepoFile(relativePath: string): string | null {
+  const path = join(repoRoot, relativePath);
+  return existsSync(path) ? `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}` : null;
 }
 
 function readOnlyCommandScope(): ReadOnlyCommandScope {

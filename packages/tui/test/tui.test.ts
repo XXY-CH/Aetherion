@@ -969,6 +969,20 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       doctor: { status: string; check_status: string };
       security_audit: { status: string; summary: { findings: number; high: number; critical: number } };
     };
+    release_manifest_preview: {
+      id: string;
+      repository: string;
+      source_revision: { git_head: string; git_head_short: string; branch: string; dirty: boolean };
+      generated_at: string;
+      status: string;
+      dependency_lockfiles: Array<{ name: string; status: string; evidence: string[] }>;
+      test_gates: Array<{ name: string; command: string; status: string; evidence: string[] }>;
+      artifact_hashes: Array<{ path: string; sha256: string }>;
+      governance_docs: Array<{ name: string; status: string; evidence: string[] }>;
+      bilingual_docs: Array<{ name: string; status: string; evidence: string[] }>;
+      remote_observed_evidence: { ci_status: string; codeql_status: string; snapshot_ref: string | null; observed_at: string | null };
+      known_gaps: string[];
+    };
     workspace_runtime: { status: string; ledger_status: string; evidence: string[] };
     release_artifacts: {
       packaged: boolean;
@@ -1075,6 +1089,28 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.local_reports.security_audit.summary.findings, 0);
   assert.equal(report.local_reports.security_audit.summary.high, 0);
   assert.equal(report.local_reports.security_audit.summary.critical, 0);
+  assert.equal(report.release_manifest_preview.id, "release_manifest_preview");
+  assert.ok(report.release_manifest_preview.repository.length > 0);
+  assert.equal(report.release_manifest_preview.source_revision.git_head, report.git.head);
+  assert.equal(report.release_manifest_preview.source_revision.dirty, report.git.dirty);
+  assert.equal(report.release_manifest_preview.status, "draft");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.ci_status, "not_checked");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.codeql_status, "unknown");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.snapshot_ref, null);
+  assert.ok(report.release_manifest_preview.dependency_lockfiles.some((item) => item.name === "package-lock.json" && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.dependency_lockfiles.some((item) => item.name === "Cargo.lock" && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.test_gates.some((item) => item.name === "npm_test_configured" && item.command === "npm test" && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.test_gates.every((item) => item.evidence.includes("configured_not_executed_by_release_evidence=true")));
+  assert.match(report.release_manifest_preview.artifact_hashes.find((item) => item.path === "package-lock.json")?.sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.match(report.release_manifest_preview.artifact_hashes.find((item) => item.path === "schemas/release-manifest.schema.json")?.sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.ok(report.release_manifest_preview.governance_docs.some((item) => item.name === "SECURITY.md" && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.bilingual_docs.some((item) => item.name.includes("docs/00-product-brief.md") && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.known_gaps.some((gap) => gap.includes("release packages are not built")));
+  assert.ok(report.release_manifest_preview.known_gaps.some((gap) => gap.includes("release artifacts are not signed")));
+  assert.ok(report.release_manifest_preview.known_gaps.some((gap) => gap.includes("public docs are not deployed")));
+  assert.ok(report.release_manifest_preview.known_gaps.some((gap) => gap.includes("not written as a generated, signed, or published manifest artifact")));
+  const manifestValidation = await validateAgainstSchema(repoRoot, "release-manifest.schema.json", report.release_manifest_preview);
+  assert.equal(manifestValidation.valid, true, manifestValidation.errors.join("; "));
   assert.equal(report.workspace_runtime.status, "not_initialized");
   assert.equal(report.workspace_runtime.ledger_status, "not_applicable");
   assert.match(report.workspace_runtime.evidence.join("\n"), /runtime_state=not_initialized/);
@@ -1157,6 +1193,11 @@ test("Ether release evidence reads operator-supplied remote CI and CodeQL snapsh
       warnings: string[];
     };
     release_artifacts: { remote_ci_checked: boolean; packaged: boolean; signed: boolean; published: boolean };
+    release_manifest_preview: {
+      status: string;
+      remote_observed_evidence: { ci_status: string; codeql_status: string; snapshot_ref: string | null; observed_at: string | null };
+      known_gaps: string[];
+    };
     remaining_gaps: string[];
   };
   assert.equal(report.scope.read_only, true);
@@ -1182,6 +1223,14 @@ test("Ether release evidence reads operator-supplied remote CI and CodeQL snapsh
   assert.equal(report.release_artifacts.packaged, false);
   assert.equal(report.release_artifacts.signed, false);
   assert.equal(report.release_artifacts.published, false);
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.ci_status, "pass");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.codeql_status, "pass");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.snapshot_ref, "remote-ci-evidence.json");
+  assert.equal(report.release_manifest_preview.remote_observed_evidence.observed_at, "2026-06-11T12:00:00.000Z");
+  assert.ok(["candidate", "draft"].includes(report.release_manifest_preview.status));
+  assert.ok(report.release_manifest_preview.known_gaps.some((gap) => gap.includes("operator-supplied snapshot")));
+  const manifestValidation = await validateAgainstSchema(repoRoot, "release-manifest.schema.json", report.release_manifest_preview);
+  assert.equal(manifestValidation.valid, true, manifestValidation.errors.join("; "));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("operator-supplied snapshot")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });

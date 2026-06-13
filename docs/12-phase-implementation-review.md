@@ -1934,6 +1934,36 @@ Remaining boundary:
 - This is readiness evidence only, not a public docs deployment system, site generator, or publishing pipeline.
 - The next production gap slices can continue with packaging, signing, artifact retention, or the eventual docs deployment mechanism.
 
+## Phase 69 Review Notes
+
+This pass closes the next PGC-1 release manifest drift without pretending Aetherion can already produce signed release artifacts. `release evidence` now surfaces a schema-aligned `release_manifest_preview` built from current local evidence, optional operator-supplied remote CI/CodeQL observations, source-evidence hashes, and known gaps.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): strengthens reviewable release evidence without adding a new client surface or authority root.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): keeps the preview as human-readable governance/evidence metadata; the Event Ledger remains the runtime fact layer.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): reuses `schemas/release-manifest.schema.json` and `examples/contracts/release-manifest.json` rather than creating a separate ad hoc report contract.
+- [Roadmap](06-roadmap.md): stays inside V1 TUI-first release readiness and does not enable GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-1 release manifest/readiness hardening while keeping packaging, signing, public docs deployment, release artifact retention, release repository publication, and installer/updater automation open.
+
+Implemented correspondence:
+
+- `release evidence` now emits top-level `release_manifest_preview`.
+- The preview validates against the existing Release Manifest schema in focused tests.
+- The preview includes git source revision, dependency lockfile evidence, configured test gates, source evidence hashes, governance docs, bilingual docs, optional remote observed evidence, and known gaps.
+- Test gates are labeled as configured evidence and do not claim that `release evidence` executed the suite.
+- README and TUI README document the preview in English and Chinese.
+
+Drift review:
+
+- Corrects the PGC-1 drift where the Release Manifest contract existed but was not visible from the operator release-evidence surface.
+- Keeps the preview stdout-only and read-only; it writes no generated manifest file and does not build, sign, publish, deploy docs, query live CI, or mutate `.aetherion`.
+- Candidate readiness still depends on a clean worktree plus operator-supplied remote evidence; dirty or missing remote evidence keeps the preview in `draft`.
+
+Remaining boundary:
+
+- This is not release packaging, artifact signing, public docs deployment, installer/updater automation, release artifact retention, release repository publication, code-scanning alert review, or a generated release manifest artifact.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

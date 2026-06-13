@@ -298,6 +298,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - `release evidence --workspace <path>` 输出单个 JSON 报告，包含 git head/dirty state、已配置 CI gate 状态、Node 24 action-runtime evidence、Ubuntu/macOS platform-smoke configuration、dependency lockfile evidence、governance file checks、双语文档 checks、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger 状态、source-document links 和剩余 release gaps。
 - 报告现在也包含 docs deployment readiness inputs：本地 Markdown 入口、相对链接解析和 source-document links，同时保持 `public_docs_deployed=false`。
+- 报告现在也包含由现有 local/optional remote evidence 派生的 schema-aligned `release_manifest_preview`。该 preview 只写 stdout；不会写 generated manifest file、签名 artifact、打包 release、发布 release 或部署 docs。
 - 命令严格只读：不初始化 `.aetherion`、不追加 Ledger event、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state、不打包、不签名、不发布 release、不部署 docs，也不查询 GitHub/remote CI。
 - CI 将该报告与 `doctor`、`security audit` 一起运行；如果 workflow 不再运行 configured release-evidence snapshot，`doctor`、`security audit` 和 `release evidence` 都会暴露漂移。
 - 空 workspace 与已初始化 workspace tests 证明该命令不会创建 runtime state，也不会修改 Ledger/run evidence。
@@ -314,6 +315,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这是 local/configured source snapshot，不是 executed remote CI proof、release packaging、artifact signing、installer/updater infrastructure、public docs deployment、package registry publication 或 release evidence repository。
 - Docs deployment readiness 是只读 input check，不是 publishing pipeline。
+- release manifest preview 只是 derived evidence，不是 PGC-1 后续仍需要的 signed release manifest artifact 或 release repository。
 - dirty worktree 会报告为 `draft`；它不阻止本地检查，因为可能存在 unrelated operator files，但它不是 clean release claim。
 - 剩余生产差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
 
@@ -720,3 +722,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、GitHub code-scanning alert triage、release repository publication 或 long-running CI monitor。
 - Operator 仍需要显式 review 并保存 snapshot path，之后 `release evidence --remote-evidence` 才会纳入该证据。
+
+## 已完成增量：Release Manifest Preview In Release Evidence
+
+目标：继续推进 PGC-1，把已有 Release Manifest 合同显式暴露到只读 `release evidence` 报告中，但不生成 signed manifest artifact、package 或 release repository。
+
+验收：
+
+- `release evidence --workspace <path>` 现在包含 `release_manifest_preview`，其对象形状与 `schemas/release-manifest.schema.json` 对齐。
+- preview 只从现有证据派生：git revision、configured lockfile/test/governance/doc checks、source evidence hashes、可选 operator-supplied remote CI/CodeQL observations，以及已知 release gaps。
+- test gate 条目明确是 configured evidence，不声称 `release evidence` 已执行测试套件。
+- 该命令对 preview 仍是 read-only/stdout-only：不写 manifest file、不构建 package、不签名 artifact、不发布 release、不部署 docs，也不新增 live remote CI query。
+
+匹配 source docs 与修正：
+
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-1 release manifest/readiness hardening，同时让 packaging、signing、docs deployment、artifact retention 和 release repository publication 继续 open。
+- [Audit and Data Contracts](05-audit-and-data-contracts.zh-CN.md)：manifest preview 仍是可 review evidence metadata，不是 Event Ledger fact layer，也不是新 authority source。
+- [Schema Runtime Governance](13-schema-runtime-governance.zh-CN.md)：复用已有 schema/example contract，而不是发明另一套 report shape。
+- [Roadmap](06-roadmap.zh-CN.md)：保持在 V1 TUI release-readiness evidence 内，没有启用 GUI、IM、browser automation、MCP/OAuth connectors、cloud workers 或 package-code execution。
+
+剩余边界：
+
+- 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、release artifact retention、release repository publication 或 generated manifest file。
+- candidate readiness 仍取决于 clean worktree 与 operator-supplied remote evidence；dirty 或缺 remote evidence 会让 preview 保持 `draft`。
