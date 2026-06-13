@@ -1,0 +1,67 @@
+{
+  "id": "supervisor_socket_auth_boundary_local_foreground_v1",
+  "schema_version": "aetherion-supervisor-socket-auth-boundary-v1",
+  "status": "declared",
+  "transport_gate": {
+    "foreground_unix_socket_supported": true,
+    "stdio_requires_auth_token": false,
+    "public_network_listener": false,
+    "remote_client_supported": false
+  },
+  "request_auth": {
+    "caller_supplied_token_supported": true,
+    "missing_token_rejected": true,
+    "wrong_token_rejected": true,
+    "correct_token_allows_rpc_dispatch": true,
+    "token_value_echoed": false,
+    "token_value_persisted": false,
+    "token_hash_persisted": false,
+    "auth_failure_writes_ledger": false,
+    "auth_failure_writes_artifact": false
+  },
+  "workspace_binding": {
+    "workspace_root_binding_supported": true,
+    "workspace_id_derived_from_root": true,
+    "workspace_mismatch_rejected": true,
+    "mismatch_initializes_other_workspace": false,
+    "mismatch_writes_ledger": false
+  },
+  "runtime_lock_boundary": {
+    "foreground_lock_workspace_bound": true,
+    "runtime_lock_observable": true,
+    "runtime_lock_can_authorize_actions": false,
+    "stale_lock_repair_by_auth_token": false
+  },
+  "vault_boundary": {
+    "vault_reference_secret_family": "local_socket_token",
+    "vault_storage_implemented": false,
+    "token_rotation_implemented": false,
+    "token_refresh_implemented": false,
+    "secret_retrieval_api_implemented": false
+  },
+  "authority": {
+    "local_supervisor_required_for_actions": true,
+    "tool_policy_proxy_required_for_actions": true,
+    "socket_token_can_authorize_tools": false,
+    "socket_token_can_issue_lease": false,
+    "socket_token_can_issue_session": false,
+    "socket_token_can_override_policy": false
+  },
+  "limits": {
+    "socket_auth_lifecycle_implemented": false,
+    "device_identity_implemented": false,
+    "user_identity_implemented": false,
+    "pairing_implemented": false,
+    "production_daemon_implemented": false,
+    "public_api_listener_implemented": false,
+    "connector_oauth_implemented": false,
+    "cloud_worker_implemented": false
+  },
+  "source_files": [
+    "crates/supervisor/src/main.rs",
+    "crates/supervisor/README.md",
+    "packages/tui/src/cli.ts",
+    "packages/tui/test/tui.test.ts",
+    "schemas/vault-reference.schema.json"
+  ]
+}

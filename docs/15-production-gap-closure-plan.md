@@ -75,7 +75,7 @@ Acceptance criteria:
 Deliverables:
 
 - Typed lifecycle contract for `supervisor start`, `status`, `stop`, and explicit `recover-stale-lock` preflight. The first command slice exists as structured `unsupported_fail_closed` reports for `start`, `stop`, and `recover-stale-lock`.
-- Socket/auth-token lifecycle boundaries for local clients.
+- Socket/auth-token lifecycle boundaries for local clients. The first boundary slice exists as a `supervisor-socket-auth-boundary` contract that treats caller-supplied foreground socket tokens as local RPC dispatch gates only.
 - Vault reference contract plus vault policy binding contract with metadata-only secret refs, redaction rules, policy-decision citation boundaries, and no raw secret persistence.
 
 Acceptance criteria:
@@ -87,6 +87,7 @@ Current partial status:
 
 - `supervisor status` and `supervisor preflight` remain read-only lifecycle evidence.
 - `supervisor start`, `supervisor stop`, and `supervisor recover-stale-lock` are known command surfaces that emit schema-valid `unsupported_fail_closed` reports after read-only status observation.
+- Supervisor socket auth boundary evidence now proves missing/wrong token rejection, workspace binding rejection, no token echo or persistence, and no session, lease, tool, vault, or policy authority from the socket token.
 - Real daemon start/stop, stale-lock repair, socket-auth lifecycle, vault backend, process sandboxing, signing, secret retrieval, session issuance, and supervisor lease authority remain open.
 
 ### PGC-3: Local Ingress Gateway MVP

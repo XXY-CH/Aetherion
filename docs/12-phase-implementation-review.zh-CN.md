@@ -838,6 +838,37 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - 修正 local reproducible verification 已通过但 readiness report 仍因过时 engine floor 阻塞的偏差。
 - 不声称支持 Node 22/23，不新增 dependency，也不改变 test runner 或 authority path。
 
+## Phase 66 复核：Supervisor Socket Auth Boundary Contract
+
+本轮继续推进 PGC-2，把既有 foreground socket auth-token 行为变成可审计的窄边界合同。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：V1 仍保持 TUI-first 和 local-first；没有新增 GUI/mobile/IM/browser/API surface。
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority；socket token 可以 gate transport dispatch，但不能授权 tool 或 side effect。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 仍是未来 authority/vault boundary；本轮只围绕当前 Rust foreground socket 行为增加 readiness metadata。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：P1 readiness metadata 必须拒绝 raw secret、token persistence、remote client、session、lease 和 authority overclaim。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-2 要求在真实 daemon/vault work 前先补 local client socket/auth-token lifecycle boundary。
+
+本轮修正：
+
+- 新增 `schemas/supervisor-socket-auth-boundary.schema.json` 和 `examples/contracts/supervisor-socket-auth-boundary.json`。
+- schema/example 证明 caller-supplied foreground socket token 只是 local RPC dispatch gate。
+- 负向测试拒绝 public network listener、remote client、token echo/persistence、auth-failure Ledger/artifact write、workspace-mismatch initialization、stale-lock repair by token、vault-backed token storage、token rotation/refresh、session/lease issuance、tool authorization、policy override 和真实 socket-auth lifecycle claim。
+- `doctor`、`onboarding check` 和 `release evidence` 现在会独立报告 `supervisor_socket_auth_boundary_contract`，不再只隐含在更宽的 lifecycle readiness evidence 中。
+- README、schema governance、runtime-loop plan 和 production-gap plan 已同步中英文说明。
+
+偏差复核：
+
+- 修正 PGC-2 偏差：socket auth 行为已经存在于 Rust/TUI 测试，但 release/readiness evidence 不能独立命名它。
+- 保持当前 token 只是 local transport gate，而不是 user identity、device identity、pairing mechanism、session issuer、vault secret、lease issuer 或 policy authority。
+- 未新增 remote client、public listener、真实 socket-auth lifecycle、vault storage、token rotation/refresh、production daemon lifecycle、stale-lock repair、connector OAuth、cloud worker 或新的 side-effect authority。
+
+修正与剩余边界：
+
+- Supervisor Socket Auth Boundary 是 readiness evidence，不是 lifecycle manager 或 identity system。
+- 剩余严格复查差距包括 durable/session ingress identity、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
+
 ## 验证要求
 
 每轮结束应至少检查：

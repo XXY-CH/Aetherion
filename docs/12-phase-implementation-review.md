@@ -1845,6 +1845,37 @@ Drift review:
 - This corrects a readiness drift where local reproducible verification passed but readiness reports remained blocked by an outdated engine floor.
 - It does not claim Node 22/23 support, does not add a dependency, and does not change the test runner or authority path.
 
+## Phase 66 Review Notes
+
+This pass continues PGC-2 by making the existing foreground socket auth-token behavior auditable as a narrow boundary contract.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): V1 stays TUI-first and local-first; no GUI/mobile/IM/browser/API surface is added.
+- [Architecture](01-architecture.md): Local Supervisor remains root authority; a socket token can gate transport dispatch but cannot authorize tools or side effects.
+- [Technical Strategy](10-technical-strategy.md): Rust remains the future authority/vault boundary; this pass adds readiness metadata around current Rust foreground socket behavior.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): P1 readiness metadata must reject raw secrets, token persistence, remote clients, sessions, leases, and authority overclaims.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-2 calls for local client socket/auth-token lifecycle boundaries before real daemon/vault work.
+
+Implemented correspondence:
+
+- Added `schemas/supervisor-socket-auth-boundary.schema.json` and `examples/contracts/supervisor-socket-auth-boundary.json`.
+- The schema/example prove caller-supplied foreground socket tokens are local RPC dispatch gates only.
+- Negative tests reject public network listeners, remote clients, token echo/persistence, auth-failure Ledger/artifact writes, workspace-mismatch initialization, stale-lock repair by token, vault-backed token storage, token rotation/refresh, session/lease issuance, tool authorization, policy override, and real socket-auth lifecycle claims.
+- `doctor`, `onboarding check`, and `release evidence` now report `supervisor_socket_auth_boundary_contract` separately from broader lifecycle readiness evidence.
+- README, schema governance, runtime-loop plan, and production-gap plan were updated in English and Chinese.
+
+Drift review:
+
+- Corrects the PGC-2 drift where socket auth behavior existed in Rust/TUI tests but release/readiness evidence could not name it independently.
+- Keeps the current token as a local transport gate rather than a user identity, device identity, pairing mechanism, session issuer, vault secret, lease issuer, or policy authority.
+- Does not add remote clients, public listeners, real socket-auth lifecycle, vault storage, token rotation/refresh, production daemon lifecycle, stale-lock repair, connector OAuth, cloud worker, or new side-effect authority.
+
+Corrections and remaining boundary:
+
+- Supervisor Socket Auth Boundary is readiness evidence, not a lifecycle manager or identity system.
+- Remaining strict-review gaps include durable/session ingress identity, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

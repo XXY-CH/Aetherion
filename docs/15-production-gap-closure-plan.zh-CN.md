@@ -75,7 +75,7 @@
 交付物：
 
 - `supervisor start/status/stop/recover-stale-lock` 的 typed lifecycle contract。第一段 command slice 已以 `start`、`stop` 和 `recover-stale-lock` 的 structured `unsupported_fail_closed` report 存在。
-- local client 的 socket/auth-token lifecycle boundary。
+- local client 的 socket/auth-token lifecycle boundary。第一段边界切片已作为 `supervisor-socket-auth-boundary` contract 存在，并把 caller-supplied foreground socket token 限定为本地 RPC dispatch gate。
 - metadata-only secret ref、redaction rules、policy-decision citation boundary 和 no raw secret persistence 的 vault reference contract 与 vault policy binding contract。
 
 验收：
@@ -87,6 +87,7 @@
 
 - `supervisor status` 和 `supervisor preflight` 仍是只读 lifecycle evidence。
 - `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 已是已知 command surface，会在只读 status observation 后输出 schema-valid `unsupported_fail_closed` report。
+- Supervisor Socket Auth Boundary evidence 现在证明 missing/wrong token rejection、workspace binding rejection、无 token echo/persistence，以及 socket token 不产生 session、lease、tool、vault 或 policy authority。
 - 真实 daemon start/stop、stale-lock repair、socket-auth lifecycle、vault backend、process sandboxing、signing、secret retrieval、session issuance 和 supervisor lease authority 仍未完成。
 
 ### PGC-3：Local Ingress Gateway MVP

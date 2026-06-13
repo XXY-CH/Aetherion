@@ -683,6 +683,10 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   const supervisorLifecycleReadiness = report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract");
   assert.equal(supervisorLifecycleReadiness?.status, "pass");
   assert.match(supervisorLifecycleReadiness?.evidence.join("\n") ?? "", /start_stop_recover_unsupported=true/);
+  const supervisorSocketAuthBoundary = report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract");
+  assert.equal(supervisorSocketAuthBoundary?.status, "pass");
+  assert.match(supervisorSocketAuthBoundary?.evidence.join("\n") ?? "", /request_auth_safe=true/);
+  assert.match(supervisorSocketAuthBoundary?.evidence.join("\n") ?? "", /authority_safe=true/);
   assert.ok(report.next_steps.includes("npm ci --ignore-scripts"));
   assert.ok(report.next_steps.includes("npm run ether -- release evidence --workspace ."));
   assert.ok(report.deferred_surfaces.some((surface) => surface.includes("release packaging")));
@@ -819,6 +823,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const supervisorLifecycleReadinessCheck = report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract");
   assert.equal(supervisorLifecycleReadinessCheck?.status, "pass");
   assert.match(supervisorLifecycleReadinessCheck?.summary ?? "", /read-only status\/preflight/);
+  const supervisorSocketAuthBoundaryCheck = report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract");
+  assert.equal(supervisorSocketAuthBoundaryCheck?.status, "pass");
+  assert.match(supervisorSocketAuthBoundaryCheck?.summary ?? "", /caller-supplied foreground socket tokens/);
   const ciWorkflowCheck = report.checks.find((check) => check.id === "ci_workflow_gate");
   assert.equal(ciWorkflowCheck?.status, "pass");
   assert.match(ciWorkflowCheck?.summary ?? "", /platform smoke/);
@@ -864,6 +871,7 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "model_provider_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_policy_binding_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_reference_contract")?.status, "pass");
   const dependencyCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
   assert.equal(dependencyCheck?.status, "pass");
@@ -924,6 +932,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       model_provider_readiness_contract: { status: string; evidence: string[] };
       vault_policy_binding_contract: { status: string; evidence: string[] };
       supervisor_lifecycle_readiness_contract: { status: string; evidence: string[] };
+      supervisor_socket_auth_boundary_contract: { status: string; evidence: string[] };
       vault_reference_contract: { status: string; evidence: string[] };
     };
     v1_core_profile: {
@@ -1012,6 +1021,10 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.supervisor_lifecycle_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.supervisor_lifecycle_readiness_contract.evidence.join("\n"), /start_stop_recover_unsupported=true/);
   assert.match(report.configured_evidence.supervisor_lifecycle_readiness_contract.evidence.join("\n"), /runtime_lock_observable_only=true/);
+  assert.equal(report.configured_evidence.supervisor_socket_auth_boundary_contract.status, "pass");
+  assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /request_auth_safe=true/);
+  assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /workspace_binding_safe=true/);
+  assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /authority_safe=true/);
   assert.equal(report.configured_evidence.vault_reference_contract.status, "pass");
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /raw_secret_persisted=false/);
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /ledger_material=reference_and_fingerprint_only/);

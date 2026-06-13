@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/supervisor-socket-auth-boundary.schema.json",
+  "title": "SupervisorSocketAuthBoundary",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "transport_gate",
+    "request_auth",
+    "workspace_binding",
+    "runtime_lock_boundary",
+    "vault_boundary",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^supervisor_socket_auth_boundary_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-supervisor-socket-auth-boundary-v1"] },
+    "status": { "type": "string", "enum": ["declared"] },
+    "transport_gate": {
+      "type": "object",
+      "required": [
+        "foreground_unix_socket_supported",
+        "stdio_requires_auth_token",
+        "public_network_listener",
+        "remote_client_supported"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "foreground_unix_socket_supported": { "type": "boolean", "enum": [true] },
+        "stdio_requires_auth_token": { "type": "boolean", "enum": [false] },
+        "public_network_listener": { "type": "boolean", "enum": [false] },
+        "remote_client_supported": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "request_auth": {
+      "type": "object",
+      "required": [
+        "caller_supplied_token_supported",
+        "missing_token_rejected",
+        "wrong_token_rejected",
+        "correct_token_allows_rpc_dispatch",
+        "token_value_echoed",
+        "token_value_persisted",
+        "token_hash_persisted",
+        "auth_failure_writes_ledger",
+        "auth_failure_writes_artifact"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caller_supplied_token_supported": { "type": "boolean", "enum": [true] },
+        "missing_token_rejected": { "type": "boolean", "enum": [true] },
+        "wrong_token_rejected": { "type": "boolean", "enum": [true] },
+        "correct_token_allows_rpc_dispatch": { "type": "boolean", "enum": [true] },
+        "token_value_echoed": { "type": "boolean", "enum": [false] },
+        "token_value_persisted": { "type": "boolean", "enum": [false] },
+        "token_hash_persisted": { "type": "boolean", "enum": [false] },
+        "auth_failure_writes_ledger": { "type": "boolean", "enum": [false] },
+        "auth_failure_writes_artifact": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "workspace_binding": {
+      "type": "object",
+      "required": [
+        "workspace_root_binding_supported",
+        "workspace_id_derived_from_root",
+        "workspace_mismatch_rejected",
+        "mismatch_initializes_other_workspace",
+        "mismatch_writes_ledger"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "workspace_root_binding_supported": { "type": "boolean", "enum": [true] },
+        "workspace_id_derived_from_root": { "type": "boolean", "enum": [true] },
+        "workspace_mismatch_rejected": { "type": "boolean", "enum": [true] },
+        "mismatch_initializes_other_workspace": { "type": "boolean", "enum": [false] },
+        "mismatch_writes_ledger": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "runtime_lock_boundary": {
+      "type": "object",
+      "required": [
+        "foreground_lock_workspace_bound",
+        "runtime_lock_observable",
+        "runtime_lock_can_authorize_actions",
+        "stale_lock_repair_by_auth_token"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "foreground_lock_workspace_bound": { "type": "boolean", "enum": [true] },
+        "runtime_lock_observable": { "type": "boolean", "enum": [true] },
+        "runtime_lock_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "stale_lock_repair_by_auth_token": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "vault_boundary": {
+      "type": "object",
+      "required": [
+        "vault_reference_secret_family",
+        "vault_storage_implemented",
+        "token_rotation_implemented",
+        "token_refresh_implemented",
+        "secret_retrieval_api_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "vault_reference_secret_family": { "type": "string", "enum": ["local_socket_token"] },
+        "vault_storage_implemented": { "type": "boolean", "enum": [false] },
+        "token_rotation_implemented": { "type": "boolean", "enum": [false] },
+        "token_refresh_implemented": { "type": "boolean", "enum": [false] },
+        "secret_retrieval_api_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "local_supervisor_required_for_actions",
+        "tool_policy_proxy_required_for_actions",
+        "socket_token_can_authorize_tools",
+        "socket_token_can_issue_lease",
+        "socket_token_can_issue_session",
+        "socket_token_can_override_policy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_required_for_actions": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_required_for_actions": { "type": "boolean", "enum": [true] },
+        "socket_token_can_authorize_tools": { "type": "boolean", "enum": [false] },
+        "socket_token_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "socket_token_can_issue_session": { "type": "boolean", "enum": [false] },
+        "socket_token_can_override_policy": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "socket_auth_lifecycle_implemented",
+        "device_identity_implemented",
+        "user_identity_implemented",
+        "pairing_implemented",
+        "production_daemon_implemented",
+        "public_api_listener_implemented",
+        "connector_oauth_implemented",
+        "cloud_worker_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "socket_auth_lifecycle_implemented": { "type": "boolean", "enum": [false] },
+        "device_identity_implemented": { "type": "boolean", "enum": [false] },
+        "user_identity_implemented": { "type": "boolean", "enum": [false] },
+        "pairing_implemented": { "type": "boolean", "enum": [false] },
+        "production_daemon_implemented": { "type": "boolean", "enum": [false] },
+        "public_api_listener_implemented": { "type": "boolean", "enum": [false] },
+        "connector_oauth_implemented": { "type": "boolean", "enum": [false] },
+        "cloud_worker_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}

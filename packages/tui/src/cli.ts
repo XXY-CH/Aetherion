@@ -918,6 +918,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("model_provider_readiness_contract") ?? missingRepoCheck("model_provider_readiness_contract"),
     repoCheckById.get("vault_policy_binding_contract") ?? missingRepoCheck("vault_policy_binding_contract"),
     repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
+    repoCheckById.get("supervisor_socket_auth_boundary_contract") ?? missingRepoCheck("supervisor_socket_auth_boundary_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
@@ -950,6 +951,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "model_provider_readiness_contract",
     "vault_policy_binding_contract",
     "supervisor_lifecycle_readiness_contract",
+    "supervisor_socket_auth_boundary_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
@@ -1196,6 +1198,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    supervisor_socket_auth_boundary_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     vault_reference_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1253,6 +1259,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
   const vaultPolicyBindingContract = doctorChecks.get("vault_policy_binding_contract");
   const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
+  const supervisorSocketAuthBoundaryContract = doctorChecks.get("supervisor_socket_auth_boundary_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
@@ -1351,6 +1358,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: supervisorLifecycleReadinessContract?.status ?? "fail",
         evidence: supervisorLifecycleReadinessContract?.evidence ?? ["supervisor_lifecycle_readiness_contract=missing"]
       },
+      supervisor_socket_auth_boundary_contract: {
+        status: supervisorSocketAuthBoundaryContract?.status ?? "fail",
+        evidence: supervisorSocketAuthBoundaryContract?.evidence ?? ["supervisor_socket_auth_boundary_contract=missing"]
+      },
       vault_reference_contract: {
         status: vaultReferenceContract?.status ?? "fail",
         evidence: vaultReferenceContract?.evidence ?? ["vault_reference_contract=missing"]
@@ -1394,7 +1405,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       "release packages are not built",
       "release artifacts are not signed",
       "local ingress readiness now has TUI run local rate-limit, duplicate-key reservation, and same-intent cached replay before supervisor handoff, but durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, public API listener, browser extension ingress, IM delivery, mobile pairing, or cloud worker ingress is not implemented",
-      "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, and vault-backed supervisor secrets are not implemented",
+      "supervisor lifecycle readiness covers read-only status/preflight plus foreground socket lock observation, and supervisor socket auth boundary evidence covers caller-supplied local socket token gating, but production daemon start/stop, socket auth lifecycle, stale-lock recovery, process sandboxing, vault-backed supervisor secrets, session issuance, and lease authority are not implemented",
       "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
       "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
@@ -1949,6 +1960,7 @@ function repoDoctorChecks(): DoctorCheck[] {
   checks.push(modelProviderReadinessContractCheck());
   checks.push(vaultPolicyBindingContractCheck());
   checks.push(supervisorLifecycleReadinessContractCheck());
+  checks.push(supervisorSocketAuthBoundaryContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
 }
@@ -2818,6 +2830,160 @@ function supervisorLifecycleReadinessContractCheck(): DoctorCheck {
       `tests_ready=${String(testsReady)}`
     ],
     "Restore supervisor lifecycle readiness and command schemas/examples plus the status/preflight/unsupported-command boundary without claiming production daemon lifecycle, socket-auth lifecycle, stale-lock repair, vault backend, or lease authority."
+  );
+}
+
+function supervisorSocketAuthBoundaryContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/supervisor-socket-auth-boundary.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/supervisor-socket-auth-boundary.json");
+  const supervisorSource = readRepoText("crates/supervisor/src/main.rs") ?? "";
+  const supervisorReadme = readRepoText("crates/supervisor/README.md") ?? "";
+  const tuiSource = readRepoText("packages/tui/src/cli.ts") ?? "";
+  const tuiTests = readRepoText("packages/tui/test/tui.test.ts") ?? "";
+  const contractTests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const example = readRepoJson("examples/contracts/supervisor-socket-auth-boundary.json") as {
+    transport_gate?: {
+      foreground_unix_socket_supported?: unknown;
+      stdio_requires_auth_token?: unknown;
+      public_network_listener?: unknown;
+      remote_client_supported?: unknown;
+    };
+    request_auth?: {
+      caller_supplied_token_supported?: unknown;
+      missing_token_rejected?: unknown;
+      wrong_token_rejected?: unknown;
+      correct_token_allows_rpc_dispatch?: unknown;
+      token_value_echoed?: unknown;
+      token_value_persisted?: unknown;
+      token_hash_persisted?: unknown;
+      auth_failure_writes_ledger?: unknown;
+      auth_failure_writes_artifact?: unknown;
+    };
+    workspace_binding?: {
+      workspace_root_binding_supported?: unknown;
+      workspace_id_derived_from_root?: unknown;
+      workspace_mismatch_rejected?: unknown;
+      mismatch_initializes_other_workspace?: unknown;
+      mismatch_writes_ledger?: unknown;
+    };
+    runtime_lock_boundary?: {
+      foreground_lock_workspace_bound?: unknown;
+      runtime_lock_observable?: unknown;
+      runtime_lock_can_authorize_actions?: unknown;
+      stale_lock_repair_by_auth_token?: unknown;
+    };
+    vault_boundary?: {
+      vault_reference_secret_family?: unknown;
+      vault_storage_implemented?: unknown;
+      token_rotation_implemented?: unknown;
+      token_refresh_implemented?: unknown;
+      secret_retrieval_api_implemented?: unknown;
+    };
+    authority?: {
+      local_supervisor_required_for_actions?: unknown;
+      tool_policy_proxy_required_for_actions?: unknown;
+      socket_token_can_authorize_tools?: unknown;
+      socket_token_can_issue_lease?: unknown;
+      socket_token_can_issue_session?: unknown;
+      socket_token_can_override_policy?: unknown;
+    };
+    limits?: {
+      socket_auth_lifecycle_implemented?: unknown;
+      device_identity_implemented?: unknown;
+      user_identity_implemented?: unknown;
+      pairing_implemented?: unknown;
+      production_daemon_implemented?: unknown;
+      public_api_listener_implemented?: unknown;
+      connector_oauth_implemented?: unknown;
+      cloud_worker_implemented?: unknown;
+    };
+  } | null;
+  const transportSafe = example?.transport_gate?.foreground_unix_socket_supported === true
+    && example.transport_gate.stdio_requires_auth_token === false
+    && example.transport_gate.public_network_listener === false
+    && example.transport_gate.remote_client_supported === false;
+  const requestAuthSafe = example?.request_auth?.caller_supplied_token_supported === true
+    && example.request_auth.missing_token_rejected === true
+    && example.request_auth.wrong_token_rejected === true
+    && example.request_auth.correct_token_allows_rpc_dispatch === true
+    && example.request_auth.token_value_echoed === false
+    && example.request_auth.token_value_persisted === false
+    && example.request_auth.token_hash_persisted === false
+    && example.request_auth.auth_failure_writes_ledger === false
+    && example.request_auth.auth_failure_writes_artifact === false;
+  const workspaceBindingSafe = example?.workspace_binding?.workspace_root_binding_supported === true
+    && example.workspace_binding.workspace_id_derived_from_root === true
+    && example.workspace_binding.workspace_mismatch_rejected === true
+    && example.workspace_binding.mismatch_initializes_other_workspace === false
+    && example.workspace_binding.mismatch_writes_ledger === false;
+  const runtimeLockSafe = example?.runtime_lock_boundary?.foreground_lock_workspace_bound === true
+    && example.runtime_lock_boundary.runtime_lock_observable === true
+    && example.runtime_lock_boundary.runtime_lock_can_authorize_actions === false
+    && example.runtime_lock_boundary.stale_lock_repair_by_auth_token === false;
+  const vaultBoundarySafe = example?.vault_boundary?.vault_reference_secret_family === "local_socket_token"
+    && example.vault_boundary.vault_storage_implemented === false
+    && example.vault_boundary.token_rotation_implemented === false
+    && example.vault_boundary.token_refresh_implemented === false
+    && example.vault_boundary.secret_retrieval_api_implemented === false;
+  const authoritySafe = example?.authority?.local_supervisor_required_for_actions === true
+    && example.authority.tool_policy_proxy_required_for_actions === true
+    && example.authority.socket_token_can_authorize_tools === false
+    && example.authority.socket_token_can_issue_lease === false
+    && example.authority.socket_token_can_issue_session === false
+    && example.authority.socket_token_can_override_policy === false;
+  const limitsSafe = example?.limits?.socket_auth_lifecycle_implemented === false
+    && example.limits.device_identity_implemented === false
+    && example.limits.user_identity_implemented === false
+    && example.limits.pairing_implemented === false
+    && example.limits.production_daemon_implemented === false
+    && example.limits.public_api_listener_implemented === false
+    && example.limits.connector_oauth_implemented === false
+    && example.limits.cloud_worker_implemented === false;
+  const sourceReady = supervisorSource.includes("socket RPC auth failed")
+    && supervisorSource.includes("socket RPC workspace binding mismatch")
+    && supervisorSource.includes("auth_token")
+    && supervisorReadme.includes("caller-supplied socket `auth_token`")
+    && supervisorReadme.includes("not device identity, user identity, pairing, or a vault")
+    && tuiSource.includes("socketAuthToken")
+    && tuiSource.includes("--socket-auth-token");
+  const testsReady = contractTests.includes("supervisor-socket-auth-boundary.schema.json")
+    && contractTests.includes("supervisor socket auth boundary rejects token persistence, remote clients, and authority")
+    && tuiTests.includes("TUI run over supervisor socket honors auth and workspace binding")
+    && tuiTests.includes("supervisor socket RPC can require an explicit auth token")
+    && tuiTests.includes("socket RPC auth failed")
+    && tuiTests.includes("socket RPC workspace binding mismatch");
+  const ok = schemaPresent
+    && examplePresent
+    && transportSafe
+    && requestAuthSafe
+    && workspaceBindingSafe
+    && runtimeLockSafe
+    && vaultBoundarySafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "supervisor_socket_auth_boundary_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Supervisor socket auth boundary contract proves caller-supplied foreground socket tokens gate local RPC dispatch without becoming identity, vault storage, session, lease, or tool authority."
+      : "Supervisor socket auth boundary contract is missing or overclaims identity, token lifecycle, vault storage, remote clients, session, lease, or tool authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `transport_safe=${String(transportSafe)}`,
+      `request_auth_safe=${String(requestAuthSafe)}`,
+      `workspace_binding_safe=${String(workspaceBindingSafe)}`,
+      `runtime_lock_safe=${String(runtimeLockSafe)}`,
+      `vault_boundary_safe=${String(vaultBoundarySafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore schemas/supervisor-socket-auth-boundary.schema.json and examples/contracts/supervisor-socket-auth-boundary.json with caller-supplied local socket auth gating, missing/wrong token and workspace mismatch rejection, no token persistence or echo, no remote listener/client claim, no vault storage, and no session, lease, tool, or policy authority."
   );
 }
 

@@ -196,6 +196,7 @@ const schemaExamplePairs = [
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],
   ["supervisor-lifecycle-readiness.schema.json", "supervisor-lifecycle-readiness.json"],
   ["supervisor-lifecycle-command.schema.json", "supervisor-lifecycle-command.json"],
+  ["supervisor-socket-auth-boundary.schema.json", "supervisor-socket-auth-boundary.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -500,6 +501,39 @@ test("supervisor lifecycle command reports reject daemon side effects and author
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "supervisor-lifecycle-command.schema.json", draft);
     assert.equal(result.valid, false, "supervisor-lifecycle-command schema accepted daemon side effects or authority drift");
+  }
+});
+
+test("supervisor socket auth boundary rejects token persistence, remote clients, and authority", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "supervisor-socket-auth-boundary.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.transport_gate.public_network_listener = true; },
+    (draft: typeof valid) => { draft.transport_gate.remote_client_supported = true; },
+    (draft: typeof valid) => { draft.request_auth.missing_token_rejected = false; },
+    (draft: typeof valid) => { draft.request_auth.wrong_token_rejected = false; },
+    (draft: typeof valid) => { draft.request_auth.token_value_echoed = true; },
+    (draft: typeof valid) => { draft.request_auth.token_value_persisted = true; },
+    (draft: typeof valid) => { draft.request_auth.token_hash_persisted = true; },
+    (draft: typeof valid) => { draft.request_auth.auth_failure_writes_ledger = true; },
+    (draft: typeof valid) => { draft.workspace_binding.workspace_mismatch_rejected = false; },
+    (draft: typeof valid) => { draft.workspace_binding.mismatch_initializes_other_workspace = true; },
+    (draft: typeof valid) => { draft.runtime_lock_boundary.runtime_lock_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.runtime_lock_boundary.stale_lock_repair_by_auth_token = true; },
+    (draft: typeof valid) => { draft.vault_boundary.vault_storage_implemented = true; },
+    (draft: typeof valid) => { draft.vault_boundary.token_rotation_implemented = true; },
+    (draft: typeof valid) => { draft.authority.socket_token_can_authorize_tools = true; },
+    (draft: typeof valid) => { draft.authority.socket_token_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.authority.socket_token_can_issue_session = true; },
+    (draft: typeof valid) => { draft.limits.socket_auth_lifecycle_implemented = true; },
+    (draft: typeof valid) => { draft.limits.device_identity_implemented = true; },
+    (draft: typeof valid) => { draft.raw_socket_auth_token = "do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "supervisor-socket-auth-boundary.schema.json", draft);
+    assert.equal(result.valid, false, "supervisor-socket-auth-boundary schema accepted token persistence or authority drift");
   }
 });
 

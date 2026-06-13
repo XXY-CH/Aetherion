@@ -1066,3 +1066,26 @@ Remaining boundary:
 
 - This is not a production daemon manager, service installer, crash-recovery system, stale-lock repair implementation, socket-auth lifecycle, process sandbox, signer, vault backend, secret retrieval path, policy gateway, session issuer, or lease issuer.
 - The next high-value slices are durable/session ingress identity, richer refusal taxonomy, live remote CI/CodeQL observation, or the next vault/supervisor authority contract.
+
+## Completed Increment: Supervisor Socket Auth Boundary Contract
+
+Target: continue PGC-2 by turning the existing foreground Unix socket auth-token behavior into a release-checkable boundary contract without implementing a socket-auth lifecycle, user/device identity, vault-backed token storage, sessions, leases, or remote clients.
+
+Acceptance:
+
+- `supervisor-socket-auth-boundary.schema.json` and its example validate with the contract example suite.
+- The schema rejects public network listeners, remote clients, token echo/persistence, auth-failure Ledger/artifact writes, workspace-mismatch initialization, runtime-lock authority, stale-lock repair by token, vault-backed token storage, token rotation/refresh, session issuance, lease issuance, tool authorization, policy override, and real socket-auth lifecycle claims.
+- `doctor`, `onboarding check`, and `release evidence` report `supervisor_socket_auth_boundary_contract` separately from the broader Supervisor Lifecycle Readiness check.
+- Existing TUI/Rust tests continue to prove that missing or wrong socket tokens fail closed, correct tokens allow local `supervisor.status` dispatch, and workspace-root binding mismatches fail closed without initializing the wrong workspace.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Local Supervisor remains root authority; a socket token gates local transport dispatch only and cannot become action authority.
+- [Technical Strategy](10-technical-strategy.md): Rust owns future vault/authority behavior; this slice adds TypeScript readiness evidence around the current Rust foreground socket gate.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): supervisor socket auth boundary is P1 readiness metadata and must reject token persistence, identity, vault, session, lease, tool, remote-client, and policy-overclaim drift.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this advances PGC-2's local client socket/auth-token boundary while leaving real socket-auth lifecycle and vault-backed storage open.
+
+Remaining boundary:
+
+- This is not device identity, user identity, pairing, token rotation, vault storage, remote API ingress, public listener, connector OAuth, cloud worker, policy gateway, session issuer, lease issuer, or stale-lock repair.
+- The next high-value slices are durable/session ingress identity, live remote CI/CodeQL observation, release packaging/signing readiness, broader projection parity, or the next vault/supervisor authority contract.

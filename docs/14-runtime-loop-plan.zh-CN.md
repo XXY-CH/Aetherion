@@ -672,3 +672,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 production daemon manager、service installer、crash-recovery system、stale-lock repair implementation、socket-auth lifecycle、process sandbox、signer、vault backend、secret retrieval path、policy gateway、session issuer 或 lease issuer。
 - 下一批高价值切片是 durable/session ingress identity、更细 refusal taxonomy、live remote CI/CodeQL observation，或下一段 vault/supervisor authority contract。
+
+## 已完成增量：Supervisor Socket Auth Boundary Contract
+
+目标：继续推进 PGC-2，把既有 foreground Unix socket auth-token 行为变成 release-checkable boundary contract，但不实现 socket-auth lifecycle、user/device identity、vault-backed token storage、session、lease 或 remote client。
+
+验收：
+
+- `supervisor-socket-auth-boundary.schema.json` 及其 example 进入 contract example validation suite。
+- schema 拒绝 public network listener、remote client、token echo/persistence、auth-failure Ledger/artifact write、workspace-mismatch initialization、runtime-lock authority、stale-lock repair by token、vault-backed token storage、token rotation/refresh、session issuance、lease issuance、tool authorization、policy override 和真实 socket-auth lifecycle claim。
+- `doctor`、`onboarding check` 和 `release evidence` 会把 `supervisor_socket_auth_boundary_contract` 作为独立 evidence 报告，而不是混在更宽的 Supervisor Lifecycle Readiness check 中。
+- 既有 TUI/Rust 测试继续证明 missing/wrong socket token 会 fail closed，正确 token 可允许本地 `supervisor.status` dispatch，workspace-root binding mismatch 会 fail closed 且不初始化错误 workspace。
+
+匹配源文档与修正：
+
+- [架构](01-architecture.zh-CN.md)：Local Supervisor 仍是 root authority；socket token 只 gate 本地 transport dispatch，不能成为 action authority。
+- [技术策略](10-technical-strategy.zh-CN.md)：Rust 负责未来 vault/authority 行为；本切片只围绕当前 Rust foreground socket gate 增加 TypeScript readiness evidence。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：supervisor socket auth boundary 是 P1 readiness metadata，必须拒绝 token persistence、identity、vault、session、lease、tool、remote-client 和 policy overclaim drift。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本轮推进 PGC-2 的 local client socket/auth-token boundary，但真实 socket-auth lifecycle 和 vault-backed storage 仍未实现。
+
+剩余边界：
+
+- 这不是 device identity、user identity、pairing、token rotation、vault storage、remote API ingress、public listener、connector OAuth、cloud worker、policy gateway、session issuer、lease issuer 或 stale-lock repair。
+- 下一批高价值切片是 durable/session ingress identity、live remote CI/CodeQL observation、release packaging/signing readiness、更广 projection parity，或下一段 vault/supervisor authority contract。
