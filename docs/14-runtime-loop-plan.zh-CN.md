@@ -297,6 +297,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 验收：
 
 - `release evidence --workspace <path>` 输出单个 JSON 报告，包含 git head/dirty state、已配置 CI gate 状态、Node 24 action-runtime evidence、Ubuntu/macOS platform-smoke configuration、dependency lockfile evidence、governance file checks、双语文档 checks、`doctor` 摘要、`security audit` 摘要、workspace runtime/Ledger 状态、source-document links 和剩余 release gaps。
+- 报告现在也包含 docs deployment readiness inputs：本地 Markdown 入口、相对链接解析和 source-document links，同时保持 `public_docs_deployed=false`。
 - 命令严格只读：不初始化 `.aetherion`、不追加 Ledger event、不修改 registry、不写 artifact、不调用 provider、不发 lease、不 repair state、不打包、不签名、不发布 release、不部署 docs，也不查询 GitHub/remote CI。
 - CI 将该报告与 `doctor`、`security audit` 一起运行；如果 workflow 不再运行 configured release-evidence snapshot，`doctor`、`security audit` 和 `release evidence` 都会暴露漂移。
 - 空 workspace 与已初始化 workspace tests 证明该命令不会创建 runtime state，也不会修改 Ledger/run evidence。
@@ -312,6 +313,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这是 local/configured source snapshot，不是 executed remote CI proof、release packaging、artifact signing、installer/updater infrastructure、public docs deployment、package registry publication 或 release evidence repository。
+- Docs deployment readiness 是只读 input check，不是 publishing pipeline。
 - dirty worktree 会报告为 `draft`；它不阻止本地检查，因为可能存在 unrelated operator files，但它不是 clean release claim。
 - 剩余生产差距包括 install/onboarding automation、release packaging、artifact signing、public docs deployment、更广 platform/release matrix artifacts，以及 remote/executed release evidence。
 

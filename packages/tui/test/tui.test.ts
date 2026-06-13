@@ -874,6 +874,10 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_reference_contract")?.status, "pass");
+  const docsDeploymentReadiness = report.checks.find((check) => check.id === "docs_deployment_readiness");
+  assert.equal(docsDeploymentReadiness?.status, "pass");
+  assert.match(docsDeploymentReadiness?.evidence.join("\n") ?? "", /deploys_public_docs=false/);
+  assert.match(docsDeploymentReadiness?.evidence.join("\n") ?? "", /unresolved_relative_links=0/);
   const dependencyCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
   assert.equal(dependencyCheck?.status, "pass");
   assert.match(dependencyCheck?.evidence.join("\n") ?? "", /package_lock_version=3/);
@@ -915,6 +919,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       git_dirty: boolean;
       configured_ci_gate: string;
       dependency_lockfiles: string;
+      docs_deployment_readiness: string;
       workspace_runtime: string;
       remote_ci_checked: boolean;
       remote_ci_status: string;
@@ -929,6 +934,13 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       platform_smoke_matrix: { configured: boolean; runners: string[]; evidence: string[] };
       action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
+      docs_deployment_readiness: {
+        status: string;
+        public_docs_deployed: boolean;
+        markdown_files_checked: number;
+        unresolved_relative_links: string[];
+        evidence: string[];
+      };
       local_ingress_readiness_contract: { status: string; evidence: string[] };
       model_provider_readiness_contract: { status: string; evidence: string[] };
       vault_policy_binding_contract: { status: string; evidence: string[] };
@@ -965,6 +977,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       remote_ci_checked: boolean;
       evidence_repository: boolean;
       public_docs_deployed: boolean;
+      docs_deployment_readiness_checked: boolean;
       installer_available: boolean;
       updater_available: boolean;
     };
@@ -988,6 +1001,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.summary.security_audit_status, "pass");
   assert.equal(report.summary.configured_ci_gate, "pass");
   assert.equal(report.summary.dependency_lockfiles, "pass");
+  assert.equal(report.summary.docs_deployment_readiness, "pass");
   assert.equal(report.summary.workspace_runtime, "not_initialized");
   assert.equal(report.summary.remote_ci_checked, false);
   assert.equal(report.summary.remote_ci_status, "not_checked");
@@ -1010,6 +1024,14 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_node_engine=>=24\.9\.0/);
+  assert.equal(report.configured_evidence.docs_deployment_readiness.status, "pass");
+  assert.equal(report.configured_evidence.docs_deployment_readiness.public_docs_deployed, false);
+  assert.ok(report.configured_evidence.docs_deployment_readiness.markdown_files_checked >= 50);
+  assert.deepEqual(report.configured_evidence.docs_deployment_readiness.unresolved_relative_links, []);
+  assert.match(report.configured_evidence.docs_deployment_readiness.evidence.join("\n"), /deploys_public_docs=false/);
+  assert.match(report.configured_evidence.docs_deployment_readiness.evidence.join("\n"), /docs_site_config=not_required_for_static_markdown_readiness/);
+  assert.match(report.configured_evidence.docs_deployment_readiness.evidence.join("\n"), /source_doc_links=pass/);
+  assert.match(report.configured_evidence.docs_deployment_readiness.evidence.join("\n"), /docs\/15-production-gap-closure-plan\.md=present/);
   assert.equal(report.configured_evidence.local_ingress_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /envelope_safe=true/);
   assert.match(report.configured_evidence.local_ingress_readiness_contract.evidence.join("\n"), /remote_surface_safe=true/);
@@ -1062,6 +1084,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.release_artifacts.remote_ci_checked, false);
   assert.equal(report.release_artifacts.evidence_repository, false);
   assert.equal(report.release_artifacts.public_docs_deployed, false);
+  assert.equal(report.release_artifacts.docs_deployment_readiness_checked, true);
   assert.equal(report.release_artifacts.installer_available, false);
   assert.equal(report.release_artifacts.updater_available, false);
   assert.ok(report.source_documents.some((doc) => doc.path === "docs/00-product-brief.md"));
@@ -1074,6 +1097,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("OAuth flows")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("docs deployment readiness is checked locally")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 

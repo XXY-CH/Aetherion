@@ -814,6 +814,12 @@ type DoctorCheck = {
   remediation: string | null;
 };
 
+type MarkdownRelativeLinkEvidence = {
+  markdownFilesChecked: number;
+  relativeLinksChecked: number;
+  unresolvedRelativeLinks: string[];
+};
+
 type DoctorReport = {
   id: "aetherion_doctor_report";
   generated_at: string;
@@ -1176,6 +1182,7 @@ type ReleaseEvidenceReport = {
     git_dirty: boolean;
     configured_ci_gate: DoctorCheckStatus;
     dependency_lockfiles: DoctorCheckStatus;
+    docs_deployment_readiness: DoctorCheckStatus;
     workspace_runtime: string;
     remote_ci_checked: boolean;
     remote_ci_status: RemoteObservedEvidence["ci"]["status"];
@@ -1213,6 +1220,13 @@ type ReleaseEvidenceReport = {
     };
     bilingual_main_docs: {
       status: DoctorCheckStatus;
+      evidence: string[];
+    };
+    docs_deployment_readiness: {
+      status: DoctorCheckStatus;
+      public_docs_deployed: false;
+      markdown_files_checked: number;
+      unresolved_relative_links: string[];
       evidence: string[];
     };
     local_ingress_readiness_contract: {
@@ -1258,6 +1272,7 @@ type ReleaseEvidenceReport = {
     remote_ci_checked: boolean;
     evidence_repository: false;
     public_docs_deployed: false;
+    docs_deployment_readiness_checked: boolean;
     installer_available: false;
     updater_available: false;
   };
@@ -1293,6 +1308,8 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const dependencyLockfiles = doctorChecks.get("dependency_lockfiles");
   const governanceFiles = doctorChecks.get("governance_files");
   const bilingualMainDocs = doctorChecks.get("bilingual_main_docs");
+  const docsDeploymentReadiness = doctorChecks.get("docs_deployment_readiness");
+  const markdownRelativeLinks = markdownRelativeLinkEvidence();
   const localIngressReadinessContract = doctorChecks.get("local_ingress_readiness_contract");
   const modelProviderReadinessContract = doctorChecks.get("model_provider_readiness_contract");
   const vaultPolicyBindingContract = doctorChecks.get("vault_policy_binding_contract");
@@ -1331,6 +1348,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       git_dirty: git.dirty,
       configured_ci_gate: ciWorkflowGate?.status ?? "fail",
       dependency_lockfiles: dependencyLockfiles?.status ?? "fail",
+      docs_deployment_readiness: docsDeploymentReadiness?.status ?? "fail",
       workspace_runtime: workspaceRuntime.status,
       remote_ci_checked: remoteEvidence.status === "observed",
       remote_ci_status: remoteEvidence.ci.status,
@@ -1380,6 +1398,13 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         status: bilingualMainDocs?.status ?? "fail",
         evidence: bilingualMainDocs?.evidence ?? ["bilingual_main_docs=missing"]
       },
+      docs_deployment_readiness: {
+        status: docsDeploymentReadiness?.status ?? "fail",
+        public_docs_deployed: false,
+        markdown_files_checked: markdownRelativeLinks.markdownFilesChecked,
+        unresolved_relative_links: markdownRelativeLinks.unresolvedRelativeLinks,
+        evidence: docsDeploymentReadiness?.evidence ?? ["docs_deployment_readiness=missing"]
+      },
       local_ingress_readiness_contract: {
         status: localIngressReadinessContract?.status ?? "fail",
         evidence: localIngressReadinessContract?.evidence ?? ["local_ingress_readiness_contract=missing"]
@@ -1426,6 +1451,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       remote_ci_checked: remoteEvidence.status === "observed",
       evidence_repository: false,
       public_docs_deployed: false,
+      docs_deployment_readiness_checked: docsDeploymentReadiness?.status === "pass",
       installer_available: false,
       updater_available: false
     },
@@ -1447,7 +1473,9 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
       "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
       "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
-      "public docs are not deployed",
+      docsDeploymentReadiness?.status === "pass"
+        ? "docs deployment readiness is checked locally, but public docs are not deployed"
+        : "docs deployment readiness is missing or failing, and public docs are not deployed",
       "installer and updater infrastructure are not implemented",
       "broader platform/release matrix artifacts are not produced",
       "GUI, browser automation, IM delivery, MCP/OAuth connectors, cloud workers, and package-code execution remain deferred"
@@ -2115,6 +2143,7 @@ function repoDoctorChecks(): DoctorCheck[] {
     bilingualDocsEvidence(),
     "Add the missing companion file or reciprocal language link."
   ));
+  checks.push(docsDeploymentReadinessCheck());
   checks.push(check(
     "runtime_artifact_ignore_rules",
     Boolean(gitignore?.includes(".aetherion/") && gitignore.includes("target/")) ? "pass" : "fail",
@@ -3423,6 +3452,114 @@ function bilingualDocsEvidence(): string[] {
       && zhText.includes(`[English](${file})`);
     return `docs/${file}<->docs/${zh}=${ok ? "ok" : "missing_or_unlinked"}`;
   });
+}
+
+function docsDeploymentReadinessCheck(): DoctorCheck {
+  const markdownLinks = markdownRelativeLinkEvidence();
+  const requiredEntrypoints = [
+    "README.md",
+    "README.zh-CN.md",
+    "docs/14-runtime-loop-plan.md",
+    "docs/14-runtime-loop-plan.zh-CN.md",
+    "docs/15-production-gap-closure-plan.md",
+    "docs/15-production-gap-closure-plan.zh-CN.md"
+  ];
+  const requiredEntryEvidence = requiredEntrypoints.map((file) => `${file}=${existsRepoFile(file) ? "present" : "missing"}`);
+  const readme = readRepoText("README.md") ?? "";
+  const readmeZh = readRepoText("README.zh-CN.md") ?? "";
+  const governanceOk = requiredGovernanceFiles().every((file) => existsRepoFile(file));
+  const bilingualOk = bilingualDocsOk();
+  const sourceLinksOk = readme.includes("docs/14-runtime-loop-plan.md")
+    && readme.includes("docs/15-production-gap-closure-plan.md")
+    && readmeZh.includes("docs/14-runtime-loop-plan.zh-CN.md")
+    && readmeZh.includes("docs/15-production-gap-closure-plan.zh-CN.md");
+  const requiredEntrypointsOk = requiredEntrypoints.every((file) => existsRepoFile(file));
+  const markdownLinksOk = markdownLinks.unresolvedRelativeLinks.length === 0;
+  const ready = governanceOk && bilingualOk && sourceLinksOk && requiredEntrypointsOk && markdownLinksOk;
+
+  return check(
+    "docs_deployment_readiness",
+    ready ? "pass" : "fail",
+    ready ? "info" : "error",
+    ready
+      ? "Docs deployment inputs are locally checkable without deploying public docs."
+      : "Docs deployment readiness inputs are missing or contain unresolved local links.",
+    [
+      "read_only=true",
+      "deploys_public_docs=false",
+      "public_docs_deployed=false",
+      "docs_site_config=not_required_for_static_markdown_readiness",
+      `governance_files=${governanceOk ? "pass" : "fail"}`,
+      `bilingual_main_docs=${bilingualOk ? "pass" : "fail"}`,
+      `source_doc_links=${sourceLinksOk ? "pass" : "fail"}`,
+      `markdown_files_checked=${markdownLinks.markdownFilesChecked}`,
+      `relative_links_checked=${markdownLinks.relativeLinksChecked}`,
+      `unresolved_relative_links=${markdownLinks.unresolvedRelativeLinks.length}`,
+      ...requiredEntryEvidence,
+      ...markdownLinks.unresolvedRelativeLinks.slice(0, 20).map((link) => `unresolved=${link}`)
+    ],
+    "Restore governance files, bilingual doc links, source-document links, or broken relative Markdown targets before publishing docs."
+  );
+}
+
+function markdownRelativeLinkEvidence(): MarkdownRelativeLinkEvidence {
+  const trackedMarkdownFiles = (gitOutputRaw(["ls-files"]) || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.endsWith(".md") && line !== "AGENTS.md");
+  const unresolvedRelativeLinks: string[] = [];
+  let relativeLinksChecked = 0;
+  const inlineLinkPattern = /!?\[[^\]]*]\(([^)]+)\)/g;
+  const referenceLinkPattern = /^\s*\[[^\]]+]:\s*(\S+)/gm;
+
+  for (const file of trackedMarkdownFiles) {
+    const text = readRepoText(file) ?? "";
+    const candidates = [
+      ...Array.from(text.matchAll(inlineLinkPattern), (match) => match[1]),
+      ...Array.from(text.matchAll(referenceLinkPattern), (match) => match[1])
+    ];
+    for (const rawHref of candidates) {
+      const href = markdownLinkTarget(rawHref);
+      if (!href || !isRelativeMarkdownLink(href)) {
+        continue;
+      }
+      relativeLinksChecked += 1;
+      const pathOnly = href.split("#", 1)[0];
+      if (!pathOnly) {
+        continue;
+      }
+      const decodedPath = safeDecodeURIComponent(pathOnly);
+      const targetPath = resolve(dirname(join(repoRoot, file)), decodedPath);
+      const repoRelativeTarget = relative(repoRoot, targetPath);
+      if (repoRelativeTarget.startsWith("..") || isAbsolute(repoRelativeTarget) || !existsSync(targetPath)) {
+        unresolvedRelativeLinks.push(`${file}->${href}`);
+      }
+    }
+  }
+
+  return {
+    markdownFilesChecked: trackedMarkdownFiles.length,
+    relativeLinksChecked,
+    unresolvedRelativeLinks
+  };
+}
+
+function markdownLinkTarget(rawHref: string): string {
+  return rawHref.trim().replace(/^<(.+)>$/, "$1");
+}
+
+function isRelativeMarkdownLink(href: string): boolean {
+  return !href.startsWith("#")
+    && !href.startsWith("/")
+    && !/^[a-z][a-z0-9+.-]*:/i.test(href);
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function schemaExampleFilesPresent(): boolean {

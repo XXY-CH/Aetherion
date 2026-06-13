@@ -869,6 +869,28 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Supervisor Socket Auth Boundary 是 readiness evidence，不是 lifecycle manager 或 identity system。
 - 剩余严格复查差距包括 durable/session ingress identity、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 68 复核：Docs Deployment Readiness Evidence
+
+本轮关闭下一条 PGC-1 漂移线，但并不假装 public docs 已经部署。`doctor` 和 `release evidence` 现在会把 docs deployment readiness 作为本地只读 evidence 暴露出来：tracked Markdown 入口、双语伴读链接、根 README 的 source-document links，以及 tracked docs 的相对 Markdown 链接解析。这样项目就能在任何未来部署机制存在之前，先证明 docs 输入本身是可 review 的。
+
+匹配源文档：
+
+- [产品简报](00-product-brief.zh-CN.md)：治理与文档仍然是 human-readable source truth。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：release evidence 必须保持 evidence view，而不是部署 authority。
+- [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：当前闭环优先硬化本地证据，再考虑更广泛的发布表面。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-1 明确要求在 packaging 或 signing 之前先补 docs deployment readiness。
+
+本轮变化：
+
+- `doctor` 和 `release evidence` 现在带有 `docs_deployment_readiness` / `docs_deployment_readiness_checked` evidence。
+- 这些 evidence 仍然只读，不会部署 public docs、不会发布站点，也不会修改 workspace state。
+- `public_docs_deployed` 仍然是 `false`；这个缺口是刻意保留的。
+
+剩余边界：
+
+- 这仍然只是 readiness evidence，不是 public docs deployment system、site generator 或 publishing pipeline。
+- 后续 production gap 可以继续推进 packaging、signing、artifact retention，或者真正的 docs deployment 机制。
+
 ## Phase 67 复核：GitHub Remote Evidence Reader
 
 本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。

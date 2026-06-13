@@ -74,6 +74,7 @@ Current partial status:
 
 - `release evidence --remote-evidence <snapshot.json>` consumes a workspace-local CI/CodeQL snapshot and keeps remote observed evidence separate from configured evidence.
 - `release remote-evidence --workspace <path> [--branch <name>]` now generates a stdout-only GitHub Actions snapshot through `gh run list`, keeps the latest run per workflow name, infers CodeQL status from the latest CodeQL workflow, and writes no workspace state.
+- `doctor` and `release evidence` now include docs deployment readiness inputs: local Markdown entrypoints, relative link resolution, bilingual companion links, and explicit `public_docs_deployed=false` evidence.
 - Release packaging, artifact signing, public docs deployment evidence, artifact retention policy, release evidence repository, installer/updater automation, and code-scanning alert review remain open.
 
 ### PGC-2: Supervisor Lifecycle And Vault Reference MVP

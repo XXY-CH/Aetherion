@@ -691,6 +691,7 @@ Target: turn the existing `doctor`, `security audit`, CI, dependency-lock, platf
 Acceptance:
 
 - `release evidence --workspace <path>` prints a single JSON report with git head/dirty state, configured CI gate status, Node 24 action-runtime evidence, Ubuntu/macOS platform-smoke configuration, dependency lockfile evidence, governance file checks, bilingual-doc checks, `doctor` summary, `security audit` summary, workspace runtime/Ledger status, source-document links, and remaining release gaps.
+- The report now also carries docs deployment readiness inputs from local Markdown entrypoints, relative link resolution, and source-document links, while `public_docs_deployed` remains `false`.
 - The command is strictly read-only: it does not initialize `.aetherion`, append Ledger events, mutate registries, write artifacts, call providers, issue leases, repair state, package artifacts, sign releases, publish releases, deploy docs, or query GitHub/remote CI.
 - CI runs the report alongside `doctor` and `security audit`; `doctor`, `security audit`, and `release evidence` all detect drift if the workflow stops running the configured release-evidence snapshot.
 - Empty-workspace and initialized-workspace tests prove the command does not create runtime state or mutate Ledger/run evidence.
@@ -706,6 +707,7 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is a local/configured source snapshot, not executed remote CI proof, release packaging, artifact signing, installer/updater infrastructure, public docs deployment, package registry publication, or a release evidence repository.
+- Docs deployment readiness is a read-only input check, not a publishing pipeline.
 - A dirty worktree is reported as `draft`; it does not block local inspection because unrelated operator files may be present, but it is not a clean release claim.
 - Remaining production gaps are install/onboarding automation, release packaging, artifact signing, public docs deployment, broader platform/release matrix artifacts, and remote/executed release evidence.
 

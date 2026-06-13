@@ -1906,6 +1906,34 @@ Remaining boundary:
 
 - Remote CI/CodeQL evidence is now observable through `gh run list`, but release packaging, signing, docs deployment, installer/updater automation, artifact retention, and code-scanning alert review remain open production gaps.
 
+## Phase 68 Review Notes
+
+This pass closes the next PGC-1 drift line without pretending public docs are already deployed. `doctor` and `release evidence` now surface docs deployment readiness as local-only evidence: tracked Markdown entrypoints, bilingual companion links, source-document links from the root README, and relative Markdown link resolution across tracked docs. That lets the project prove the docs inputs are reviewable before any future deployment mechanism exists.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): governance and documentation remain human-readable source truth.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): release evidence must remain an evidence view, not a deployment authority.
+- [Runtime Loop Plan](14-runtime-loop-plan.md): the current loop hardens local evidence before any broader publishing surface.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-1 explicitly calls for docs deployment readiness before packaging or signing.
+
+Implemented correspondence:
+
+- `doctor` and `release evidence` now carry `docs_deployment_readiness` / `docs_deployment_readiness_checked` evidence.
+- The evidence remains read-only and does not deploy public docs, publish a site, or mutate workspace state.
+- `public_docs_deployed` stays `false`; the gap is intentionally still open.
+
+Drift review:
+
+- Corrects the PGC-1 drift where docs deployment readiness was a named deliverable but not a machine-readable release/readiness check.
+- Keeps docs readiness inside local configured evidence rather than turning it into a publishing command.
+- Does not add release packaging, artifact signing, public docs deployment, installer/updater automation, site hosting, connector OAuth, cloud workers, or any new action authority.
+
+Remaining boundary:
+
+- This is readiness evidence only, not a public docs deployment system, site generator, or publishing pipeline.
+- The next production gap slices can continue with packaging, signing, artifact retention, or the eventual docs deployment mechanism.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:
