@@ -949,6 +949,34 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - 这只是 serialization hardening。PGC-2 中关于 daemon lifecycle、vault-backed secrets、socket-auth lifecycle、signer、process sandbox 和 recovery semantics 的更广缺口仍然 open。
 
+## Phase 71 复核：Store Replay Evidence Claim Binding
+
+本轮关闭 Store install 上一个很窄的 evidence-binding 缺口。Store package 已经必须声明 replay records，但现在测试会固定住：package 声明的 replay source events 必须确实包含在对应本地 Ledger-backed Replay Record evidence 里。
+
+匹配源文档：
+
+- [产品简报](00-product-brief.zh-CN.md)：Capability Capsule 仍是受治理单元，不能靠 package claim 自授信任、replay success 或权限。
+- [架构](01-architecture.zh-CN.md)：Store package 与 surface record 仍是 client/control-plane input；Event Ledger 和 Local Supervisor evidence 仍是事实边界。
+- [Capability and Scaffold OS](04-skill-and-scaffold-os.zh-CN.md)：generated/imported package 在 source trace、tests、permission diff、approval 和 rollback evidence 通过前仍需隔离。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：Replay Record 是绑定 Ledger event 的 evidence artifact；registry 仍是可重建 projection。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 的 Store evidence/parity 工作，同时保持 PGC-7 对 package-code execution 的禁用，直到有 supervisor-governed execution sandbox。
+
+本轮变化：
+
+- `createCapsuleInstallRecord` 使用共享的本地 replay-test claim 类型，避免 package replay claim 结构漂移。
+- Surface OS 测试现在会拒绝一个签名有效、integrity 有效，但 `replay_record_id`/`run_id` 存在而 `source_events` 不存在于本地 Replay Record 的 Store Package。
+- README 与 Surface OS package docs 说明 `replay_record_id`、`run_id` 和 `source_events` 必须绑定到本地 Ledger-backed Replay Record evidence。
+- PGC docs 已同步英文和中文。
+
+偏差复核：
+
+- 修正一个细微的 projection/package-claim 偏差：signed package metadata 可以描述 replay tests，但安装 authority 必须来自本地 Ledger-backed Replay Record evidence。
+- Store install 仍保持 local-only 和 declaration-only；没有新增 remote marketplace、transparency log、revocation feed、package-code execution、route scoring、connector OAuth、cloud worker 或更广 adapter action gateway。
+
+剩余边界：
+
+- Store publisher/install registry rebuild parity、transparency/revocation evidence、package execution sandboxing、route scoring、permission-diff UX 和 Store repair command 仍未完成。
+
 ## Phase 67 复核：GitHub Remote Evidence Reader
 
 本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。

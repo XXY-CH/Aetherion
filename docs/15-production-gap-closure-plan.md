@@ -160,6 +160,12 @@ Acceptance criteria:
 - `audit *` distinguishes missing, stale, mismatched, invalid, and unrebuildable states per registry family.
 - Repair remains explicit and operator-approved; audits stay read-only.
 
+Current partial status:
+
+- `store install` already avoids treating the `replay-records` registry projection as authority by resolving replay evidence from hash-chain-verified `replay.recorded` Ledger events and Replay Record artifacts.
+- Store install now also rejects package replay-test claims whose declared `replay_record_id`, `run_id`, or `source_events` do not match the local Replay Record evidence.
+- Deterministic rebuild/parity for Store publisher/install registries, child-agent budgets/results, security fixtures, surface records, prompt/model artifacts, event signatures, redaction, and explicit repair remain open.
+
 ### PGC-7: Adapter And Surface Gate Readiness
 
 Deliverables:

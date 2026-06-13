@@ -27,5 +27,6 @@ The package exists so future strong Computer Use can start from the right invari
 - Browser DOM and IM bodies are stored as hashes plus metadata, not raw payloads.
 - Outbound IM is an outbox item that needs one scoped approval and a Supervisor policy event before any future delivery adapter can run.
 - Store packages install declarations only after local publisher-key enrollment, schema validation, Ed25519 signature verification, replay evidence, sandbox evidence, and permission-diff approval.
+- Store replay claims must bind each package-declared `replay_record_id`, `run_id`, and `source_events` list to local Ledger-backed Replay Record evidence. Package-declared booleans or registry projection rows are not install authority.
 
 The authoritative facts must still be written through Ether and the Rust Local Supervisor into the Event Ledger.

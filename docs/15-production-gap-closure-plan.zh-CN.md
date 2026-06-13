@@ -160,6 +160,12 @@
 - `audit *` 能按 registry family 区分 missing、stale、mismatched、invalid 和 unrebuildable。
 - repair 必须显式且 operator-approved；audit 保持 read-only。
 
+当前部分状态：
+
+- `store install` 已经不会把 `replay-records` registry projection 当 authority，而是从 hash-chain-verified 的 `replay.recorded` Ledger events 与 Replay Record artifacts 解析 replay evidence。
+- Store install 现在也会拒绝 package replay-test claim 中声明的 `replay_record_id`、`run_id` 或 `source_events` 与本地 Replay Record evidence 不匹配的情况。
+- Store publisher/install registries、child-agent budgets/results、security fixtures、surface records、prompt/model artifacts 的 deterministic rebuild/parity，以及 event signatures、redaction 和显式 repair 仍未完成。
+
 ### PGC-7：Adapter 与 Surface Gate Readiness
 
 交付物：

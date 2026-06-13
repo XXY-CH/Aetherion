@@ -1160,3 +1160,24 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not a new daemon lifecycle feature, socket-auth lifecycle, vault backend, stale-lock repair, process sandbox, signer, session issuer, lease authority expansion, connector OAuth, cloud worker, or broader adapter execution surface.
+
+## Completed Increment: Store Replay Evidence Claim Binding
+
+Target: continue Capability OS and projection-integrity hardening by ensuring Store Package replay-test claims bind to local Ledger-backed Replay Record evidence, not package-declared metadata alone.
+
+Acceptance:
+
+- Store install rejects a signed, integrity-valid package when a replay test cites an existing `replay_record_id` and matching `run_id` but declares `source_events` that are absent from that local Replay Record.
+- The package replay-test claim structure is shared inside Surface OS so `run_id`, `replay_record_id`, `status`, and `source_events` do not drift between install prechecks and evidence resolution.
+- README, Surface OS docs, and PGC docs state that `replay_record_id`, `run_id`, and `source_events` must bind to local Ledger-backed Replay Record evidence.
+
+Matched source docs and corrections:
+
+- [Architecture](01-architecture.md): Store inputs remain control-plane data; Event Ledger and Local Supervisor evidence remain the fact boundary.
+- [Capability and Scaffold OS](04-skill-and-scaffold-os.md): package installation still requires evidence gates and cannot self-authorize trust, tests, or permissions.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): Replay Records are evidence artifacts tied to Ledger events; registries remain rebuildable projections.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 Store evidence/parity work while keeping package-code execution behind future supervisor-governed sandboxing.
+
+Remaining boundary:
+
+- This is not a remote marketplace, transparency log, revocation feed, Store registry rebuild/repair implementation, package execution sandbox, route scorer, permission-diff UX, connector OAuth, cloud worker, or broader adapter action gateway.

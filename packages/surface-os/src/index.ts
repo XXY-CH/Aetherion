@@ -123,6 +123,13 @@ export type StoreReplayEvidenceRecord = {
   };
 };
 
+type StorePackageReplayTestClaim = {
+  run_id?: string;
+  replay_record_id?: string;
+  status?: string;
+  source_events?: string[];
+};
+
 export type CapsuleInstallRecord = {
   id: string;
   package_id: string;
@@ -288,7 +295,7 @@ export function createCapsuleInstallRecord(pkg: StorePackage, input: {
     version?: string;
     lifecycle?: string;
     permission_diff?: { requires_approval?: boolean };
-    replay_tests?: Array<{ status?: string }>;
+    replay_tests?: StorePackageReplayTestClaim[];
     sandbox_trial?: { status?: string };
     rollback?: { previous_version?: string | null };
     integrity?: { algorithm?: string; digest?: string } | null;
@@ -366,7 +373,7 @@ function requireTrustedPublisher(pkg: StorePackage, trustedPublishers: StoreTrus
 function requireReplayEvidence(
   capsule: {
     id?: string;
-    replay_tests?: Array<{ run_id?: string; replay_record_id?: string; status?: string; source_events?: string[] }>;
+    replay_tests?: StorePackageReplayTestClaim[];
   },
   replayRecords: StoreReplayEvidenceRecord[]
 ): string[] {

@@ -766,3 +766,24 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是新的 daemon lifecycle feature、socket-auth lifecycle、vault backend、stale-lock repair、process sandbox、signer、session issuer、lease authority expansion、connector OAuth、cloud worker 或更广 adapter execution surface。
+
+## 已完成增量：Store Replay Evidence Claim Binding
+
+目标：继续推进 Capability OS 与 projection-integrity hardening，确保 Store Package 的 replay-test claim 绑定到本地 Ledger-backed Replay Record evidence，而不是只相信 package metadata。
+
+验收：
+
+- 当 replay test 引用已存在的 `replay_record_id` 和匹配的 `run_id`，但声明的 `source_events` 不存在于该本地 Replay Record 时，Store install 会拒绝这个签名有效、integrity 有效的 package。
+- Surface OS 内部共享 package replay-test claim 结构，使 `run_id`、`replay_record_id`、`status` 和 `source_events` 不会在 install precheck 与 evidence resolution 之间漂移。
+- README、Surface OS docs 和 PGC docs 说明 `replay_record_id`、`run_id` 和 `source_events` 必须绑定到本地 Ledger-backed Replay Record evidence。
+
+匹配 source docs 与修正：
+
+- [架构](01-architecture.zh-CN.md)：Store input 仍是 control-plane data；Event Ledger 与 Local Supervisor evidence 仍是事实边界。
+- [Capability and Scaffold OS](04-skill-and-scaffold-os.zh-CN.md)：package installation 仍需要 evidence gates，不能自授 trust、tests 或 permissions。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：Replay Record 是绑定 Ledger event 的 evidence artifact；registry 仍是可重建 projection。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 Store evidence/parity work，同时 package-code execution 仍必须等待未来 supervisor-governed sandbox。
+
+剩余边界：
+
+- 这不是 remote marketplace、transparency log、revocation feed、Store registry rebuild/repair implementation、package execution sandbox、route scorer、permission-diff UX、connector OAuth、cloud worker 或更广 adapter action gateway。

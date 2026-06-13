@@ -1992,6 +1992,34 @@ Remaining boundary:
 
 - This is serialization hardening only. Broader PGC-2 gaps around daemon lifecycle, vault-backed secrets, socket-auth lifecycle, signer, process sandbox, and recovery semantics remain open.
 
+## Phase 71 Review Notes
+
+This pass closes a narrow Store install evidence-binding gap. Store packages already had to cite replay records, but the install path now has regression coverage that the package-declared replay source events must be contained in the matching local Ledger-backed Replay Record evidence.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): Capability Capsules remain governed units that cannot self-authorize trust, replay success, or permissions from package claims alone.
+- [Architecture](01-architecture.md): Store packages and surface records remain client/control-plane inputs; Event Ledger and Local Supervisor evidence remain the fact boundary.
+- [Capability and Scaffold OS](04-skill-and-scaffold-os.md): generated/imported packages stay quarantined until deployment gates verify source traces, tests, permission diffs, approvals, and rollback evidence.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): replay records are evidence artifacts tied back to Ledger events, while registries remain rebuildable projections.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 Store evidence/parity work while preserving PGC-7's ban on package-code execution without a supervisor-governed execution sandbox.
+
+Implemented correspondence:
+
+- `createCapsuleInstallRecord` now uses a shared local replay-test claim type for package replay claims.
+- Surface OS tests now reject a signed, integrity-valid Store Package whose `replay_record_id` and `run_id` exist but whose declared `source_events` are not present in the local Replay Record.
+- README and Surface OS package docs now state that `replay_record_id`, `run_id`, and `source_events` must bind to local Ledger-backed Replay Record evidence.
+- PGC docs were updated in English and Chinese.
+
+Drift review:
+
+- Corrects a subtle projection/package-claim drift: signed package metadata can describe replay tests, but install authority comes from local Ledger-backed Replay Record evidence.
+- Keeps Store install local-only and declaration-only; it does not introduce a remote marketplace, transparency log, revocation feed, package-code execution, route scoring, connector OAuth, cloud worker, or broader adapter action gateway.
+
+Remaining boundary:
+
+- Store publisher/install registry rebuild parity, transparency/revocation evidence, package execution sandboxing, route scoring, permission-diff UX, and Store repair commands remain open.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

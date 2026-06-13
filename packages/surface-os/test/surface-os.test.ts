@@ -173,6 +173,37 @@ test("store package install verifies Ed25519 signature and approval-gates permis
     replayRecords: replayEvidence().slice(0, 1),
     sandboxTrialContentSha256: sandboxHash()
   }), /Replay Record replay_b not found/);
+  const sourceEventMismatch: StorePackage = {
+    ...pkg,
+    capsule: publishedCapsule({
+      replay_tests: [
+        {
+          run_id: "run_a",
+          replay_record_id: "replay_a",
+          status: "passed",
+          source_events: ["evt_missing_from_replay_a"]
+        },
+        {
+          run_id: "run_b",
+          replay_record_id: "replay_b",
+          status: "passed",
+          source_events: ["evt_b"]
+        }
+      ],
+      provenance: {
+        source_events: ["evt_missing_from_replay_a", "evt_b"],
+        source_tasks: ["run_a", "run_b"]
+      }
+    }),
+    signature: { ...pkg.signature, value_base64: "" }
+  };
+  sourceEventMismatch.signature.value_base64 = sign(null, Buffer.from(storeSignaturePayload(sourceEventMismatch)), privateKey).toString("base64");
+  assert.throws(() => createCapsuleInstallRecord(sourceEventMismatch, {
+    approvePermissions: true,
+    trustedPublishers: [trustedPublisher],
+    replayRecords: replayEvidence(),
+    sandboxTrialContentSha256: sandboxHash()
+  }), /Replay Record replay_a does not contain source event evt_missing_from_replay_a/);
   assert.throws(() => createCapsuleInstallRecord(pkg, {
     approvePermissions: true,
     trustedPublishers: [trustedPublisher],
@@ -198,7 +229,25 @@ test("store package install verifies Ed25519 signature and approval-gates permis
   }), /signing key is not trusted/);
 });
 
-function publishedCapsule(): Record<string, unknown> {
+function publishedCapsule(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+  const replayTests = overrides.replay_tests ?? [
+    {
+      run_id: "run_a",
+      replay_record_id: "replay_a",
+      status: "passed",
+      source_events: ["evt_a"]
+    },
+    {
+      run_id: "run_b",
+      replay_record_id: "replay_b",
+      status: "passed",
+      source_events: ["evt_b"]
+    }
+  ];
+  const provenance = overrides.provenance ?? {
+    source_events: ["evt_a", "evt_b"],
+    source_tasks: ["run_a", "run_b"]
+  };
   return {
     id: "cap_signed_read",
     version: "1.0.0",
@@ -219,20 +268,7 @@ function publishedCapsule(): Record<string, unknown> {
       removed_tools: [],
       requires_approval: true
     },
-    replay_tests: [
-      {
-        run_id: "run_a",
-        replay_record_id: "replay_a",
-        status: "passed",
-        source_events: ["evt_a"]
-      },
-      {
-        run_id: "run_b",
-        replay_record_id: "replay_b",
-        status: "passed",
-        source_events: ["evt_b"]
-      }
-    ],
+    replay_tests: replayTests,
     sandbox_trial: {
       status: "passed",
       sandbox_path: ".aetherion/capsules/trials/cap_signed_read/1.0.0/playbook.md",
@@ -246,16 +282,13 @@ function publishedCapsule(): Record<string, unknown> {
     },
     integrity: {
       algorithm: "sha256",
-      digest: publishedCapsuleIntegrityDigest()
+      digest: publishedCapsuleIntegrityDigest(replayTests, provenance)
     },
     publication_scope: "local_unsigned",
     rollback: {
       previous_version: null
     },
-    provenance: {
-      source_events: ["evt_a", "evt_b"],
-      source_tasks: ["run_a", "run_b"]
-    },
+    provenance,
     legacy_source: null,
     evals: ["signature", "sandbox"],
     scoring_summary: {
@@ -263,7 +296,8 @@ function publishedCapsule(): Record<string, unknown> {
       correction: 0,
       tool_error: 0,
       policy_denial: 0
-    }
+    },
+    ...overrides
   };
 }
 
@@ -290,7 +324,7 @@ function sandboxHash(): string {
   return `sha256:${"a".repeat(64)}`;
 }
 
-function publishedCapsuleIntegrityDigest(): string {
+function publishedCapsuleIntegrityDigest(replayTests: unknown, provenance: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify({
     id: "cap_signed_read",
     version: "1.0.0",
@@ -298,24 +332,8 @@ function publishedCapsuleIntegrityDigest(): string {
       required_tools: ["filesystem.read"],
       forbidden_tools: ["filesystem.write", "network.raw"]
     },
-    provenance: {
-      source_events: ["evt_a", "evt_b"],
-      source_tasks: ["run_a", "run_b"]
-    },
-    replay_tests: [
-      {
-        run_id: "run_a",
-        replay_record_id: "replay_a",
-        status: "passed",
-        source_events: ["evt_a"]
-      },
-      {
-        run_id: "run_b",
-        replay_record_id: "replay_b",
-        status: "passed",
-        source_events: ["evt_b"]
-      }
-    ],
+    provenance,
+    replay_tests: replayTests,
     sandbox_trial: {
       status: "passed",
       sandbox_path: ".aetherion/capsules/trials/cap_signed_read/1.0.0/playbook.md",

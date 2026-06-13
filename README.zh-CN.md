@@ -159,7 +159,7 @@ provider 失败现在使用 `ModelProviderError` 稳定分类，包含 code、ca
 
 `security audit` 是只读安全检查 surface，覆盖 secret leakage、tracked runtime/build artifact roots、runtime raw payload fields、Ledger hash-chain integrity、CI guard wiring 和 model stdout default。它不是 repair tool，也不是 connector、OAuth、package execution 或 cloud worker 启用路径。
 
-`store trust-publisher` 现在会把本地 operator 审核过的 publisher public key 登记到 `store-publishers` projection；`store install` 必须用该本地信任锚验证签名，并从 hash-chain-verified 的 `replay.recorded` Ledger events 及其 Replay Record artifacts 解析 replay evidence，再校验 sandbox file hash 后才安装 Capsule declaration。`replay-records` registry 仍是 projection，不是 Store install authority。Store package code 仍不会执行。
+`store trust-publisher` 现在会把本地 operator 审核过的 publisher public key 登记到 `store-publishers` projection；`store install` 必须用该本地信任锚验证签名，并从 hash-chain-verified 的 `replay.recorded` Ledger events 及其 Replay Record artifacts 解析 replay evidence，要求 package 声明的每个 `replay_record_id`、`run_id` 和 `source_events` 都匹配本地 Replay Record 证据，再校验 sandbox file hash 后才安装 Capsule declaration。`replay-records` registry 仍是 projection，不是 Store install authority。Store package code 仍不会执行。
 
 ## 许可证
 
