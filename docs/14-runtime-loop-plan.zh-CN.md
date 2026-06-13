@@ -695,3 +695,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 device identity、user identity、pairing、token rotation、vault storage、remote API ingress、public listener、connector OAuth、cloud worker、policy gateway、session issuer、lease issuer 或 stale-lock repair。
 - 下一批高价值切片是 durable/session ingress identity、live remote CI/CodeQL observation、release packaging/signing readiness、更广 projection parity，或下一段 vault/supervisor authority contract。
+
+## 已完成增量：GitHub Remote Evidence Reader
+
+目标：继续推进 PGC-1，增加 stdout-only 的 remote CI/CodeQL 快照读取器，让 operator 可以 review 后再喂给 `release evidence --remote-evidence`，同时不让 `release evidence` 自己隐式 live query GitHub。
+
+验收：
+
+- `release remote-evidence --workspace <path> [--branch <name>]` 会对指定 branch 调用 `gh run list`，并向 stdout 输出 `aetherion_remote_ci_evidence_snapshot` JSON 对象。
+- 快照只保留每个 workflow name 的最新 observed run，报告 CI summary counts，从最新 CodeQL workflow run 推断 CodeQL 状态，记录本地 git commit，并保持与 `release evidence --remote-evidence` 兼容。
+- 命令不会初始化 `.aetherion`、追加 Ledger event、修改 registry、写 artifact、打包 release、签名 artifact、发布 release、部署 docs、启动 daemon、查询 code-scanning alerts，或创建 connector/OAuth grant。
+- `release evidence` 仍是本地 report builder，只消费 workspace-local snapshot；它不会隐式查询 remote CI。
+
+匹配 source docs 与修正：
+
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：本增量推进 PGC-1 的 remote CI/CodeQL evidence reader/report，同时让 packaging、signing、docs deployment 和 release repository 继续保持 open。
+- [Audit and Data Contracts](05-audit-and-data-contracts.zh-CN.md)：remote CI observation 是可 review 的 evidence input，不是 authority，也不是 rebuildable projection。
+- [Roadmap](06-roadmap.zh-CN.md)：本切片保持在 V1 release-readiness evidence 内，没有启用 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [Schema Runtime Governance](13-schema-runtime-governance.zh-CN.md)：remote snapshot 只是 readiness metadata；它不能授权 action、session、lease、provider call 或 connector grant。
+
+剩余边界：
+
+- 这不是 release packaging、artifact signing、public docs deployment、installer/updater automation、GitHub code-scanning alert triage、release repository publication 或 long-running CI monitor。
+- Operator 仍需要显式 review 并保存 snapshot path，之后 `release evidence --remote-evidence` 才会纳入该证据。

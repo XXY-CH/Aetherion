@@ -1089,3 +1089,26 @@ Remaining boundary:
 
 - This is not device identity, user identity, pairing, token rotation, vault storage, remote API ingress, public listener, connector OAuth, cloud worker, policy gateway, session issuer, lease issuer, or stale-lock repair.
 - The next high-value slices are durable/session ingress identity, live remote CI/CodeQL observation, release packaging/signing readiness, broader projection parity, or the next vault/supervisor authority contract.
+
+## Completed Increment: GitHub Remote Evidence Reader
+
+Target: continue PGC-1 by adding a stdout-only remote CI/CodeQL snapshot reader that operators can review and feed into `release evidence --remote-evidence` without making release evidence itself live-query GitHub.
+
+Acceptance:
+
+- `release remote-evidence --workspace <path> [--branch <name>]` calls `gh run list` for the selected branch and prints an `aetherion_remote_ci_evidence_snapshot` JSON object to stdout.
+- The snapshot keeps only the latest observed run per workflow name, reports CI summary counts, infers CodeQL status from the latest CodeQL workflow run, records the local git commit, and remains compatible with `release evidence --remote-evidence`.
+- The command does not initialize `.aetherion`, append Ledger events, mutate registries, write artifacts, package releases, sign artifacts, publish releases, deploy docs, start daemons, query code-scanning alerts, or create connector/OAuth grants.
+- `release evidence` remains a local report builder that consumes a workspace-local snapshot; it does not implicitly query remote CI.
+
+Matched source docs and corrections:
+
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): this advances PGC-1's remote CI/CodeQL evidence reader/report while leaving packaging, signing, docs deployment, and release repositories open.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): remote CI observations are reviewable evidence inputs, not authority or rebuildable projections.
+- [Roadmap](06-roadmap.md): the slice stays inside V1 release-readiness evidence and does not enable GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): the remote snapshot is readiness metadata only; it cannot authorize actions, sessions, leases, provider calls, or connector grants.
+
+Remaining boundary:
+
+- This is not release packaging, artifact signing, public docs deployment, installer/updater automation, GitHub code-scanning alert triage, release repository publication, or a long-running CI monitor.
+- The operator still reviews and stores the snapshot path explicitly before `release evidence --remote-evidence` includes it.

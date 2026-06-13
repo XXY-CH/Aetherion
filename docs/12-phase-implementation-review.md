@@ -1876,6 +1876,36 @@ Corrections and remaining boundary:
 - Supervisor Socket Auth Boundary is readiness evidence, not a lifecycle manager or identity system.
 - Remaining strict-review gaps include durable/session ingress identity, live remote CI/CodeQL observation, release packaging, artifact signing, public docs deployment, installer/updater automation, broader projection parity coverage, and future connector OAuth work behind policy.
 
+## Phase 67 Review Notes
+
+This pass returns to PGC-1 and closes the next remote release-evidence gap by adding a stdout-only GitHub Actions snapshot reader.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): the work strengthens auditability and release evidence without adding a new product surface.
+- [Architecture](01-architecture.md): remote CI observations are evidence records, not Local Supervisor authority, connector grants, policy decisions, leases, or action results.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): the snapshot is a reviewable evidence input; the Event Ledger remains the product fact layer for runtime actions.
+- [Roadmap](06-roadmap.md): V1 stays TUI-first; no GUI, IM, browser automation, MCP/OAuth connector, cloud worker, or package-code execution is introduced.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): PGC-1 calls for a remote CI/CodeQL evidence reader/report before packaging or signing.
+
+Implemented correspondence:
+
+- Added `release remote-evidence --workspace <path> [--branch <name>]`.
+- The command calls `gh run list`, keeps the latest observed run for each workflow name, infers CodeQL status from the CodeQL workflow run, and prints an `aetherion_remote_ci_evidence_snapshot` to stdout.
+- The snapshot is compatible with `release evidence --remote-evidence <snapshot.json>`.
+- Focused tests use a fake `gh` executable to prove the command is stdout-only, does not initialize `.aetherion`, filters old workflow runs, and feeds back into release evidence.
+- README and TUI README now document the review flow in English and Chinese.
+
+Drift review:
+
+- Corrects the prior PGC-1 drift where release evidence could consume remote observations but Aetherion had no first-party way to generate the snapshot.
+- Keeps `release evidence` itself local: it still consumes only a workspace-local snapshot and does not implicitly query GitHub.
+- Does not add release packaging, artifact signing, public docs deployment, installer/updater automation, CodeQL alert triage, release repository publication, long-running CI monitoring, connector OAuth, cloud workers, or any new action authority.
+
+Remaining boundary:
+
+- Remote CI/CodeQL evidence is now observable through `gh run list`, but release packaging, signing, docs deployment, installer/updater automation, artifact retention, and code-scanning alert review remain open production gaps.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

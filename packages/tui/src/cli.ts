@@ -1113,6 +1113,39 @@ type RemoteObservedEvidence = {
   warnings: string[];
 };
 
+type RemoteEvidenceSnapshot = {
+  id: "aetherion_remote_ci_evidence_snapshot";
+  generated_at: string;
+  repo_root: string;
+  workspace_root: string;
+  source: "github_cli_run_list";
+  repository: string | null;
+  branch: string | null;
+  commit: string | null;
+  observed_at: string;
+  scope: ReadOnlyCommandScope & {
+    checks_remote_ci: true;
+    writes_workspace: false;
+    starts_daemon: false;
+    packages_release: false;
+    signs_artifacts: false;
+    publishes_release: false;
+    queries_code_scanning_alerts: false;
+  };
+  workflow_runs: RemoteCiWorkflowRunEvidence[];
+  codeql: RemoteCodeqlEvidence;
+  summary: {
+    workflow_runs: number;
+    workflow_success: number;
+    workflow_failure: number;
+    workflow_incomplete: number;
+    workflow_unknown: number;
+    codeql_status: RemoteCodeqlEvidence["status"];
+  };
+  evidence: string[];
+  warnings: string[];
+};
+
 type V1CoreProfile = {
   status: "pass" | "fail";
   release_critical_commands: string[];
@@ -1233,8 +1266,13 @@ type ReleaseEvidenceReport = {
 };
 
 async function runRelease(options: CliOptions): Promise<void> {
+  if (options.topic === "remote-evidence") {
+    const workspaceRoot = resolve(options.workspace);
+    printRawJson(buildRemoteEvidenceSnapshot(workspaceRoot, options.branch));
+    return;
+  }
   if (options.topic !== "evidence") {
-    throw new Error("release supports evidence");
+    throw new Error("release supports evidence and remote-evidence");
   }
   const workspaceRoot = resolve(options.workspace);
   const report = await buildReleaseEvidenceReport(workspaceRoot, options.remoteEvidence);
@@ -1663,6 +1701,7 @@ function readRemoteObservedEvidence(workspaceRoot: string, snapshotPath: string 
     const warnings = [
       ...(runs.length === 0 ? ["remote workflow run evidence is empty"] : []),
       ...(codeql.status === "unknown" ? ["remote CodeQL evidence is unknown"] : []),
+      ...(codeql.status === "not_configured" ? ["remote CodeQL evidence is not configured"] : []),
       ...(commit && gitHead && commit !== gitHead ? ["remote evidence commit does not match local git head"] : [])
     ];
     return {
@@ -1715,6 +1754,138 @@ function readRemoteObservedEvidence(workspaceRoot: string, snapshotPath: string 
       warnings: ["remote evidence snapshot could not be parsed"]
     };
   }
+}
+
+function buildRemoteEvidenceSnapshot(workspaceRoot: string, branchOverride?: string): RemoteEvidenceSnapshot {
+  const git = gitReleaseEvidence();
+  const branch = branchOverride ?? git.branch;
+  if (!branch) {
+    throw new Error("release remote-evidence requires a git branch; pass --branch <name>");
+  }
+  const observedAt = new Date().toISOString();
+  const rawRuns = execFileSync("gh", [
+    "run",
+    "list",
+    "--branch",
+    branch,
+    "--limit",
+    "20",
+    "--json",
+    "name,workflowName,status,conclusion,headSha,url,updatedAt"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 15000
+  });
+  const parsed = JSON.parse(rawRuns) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error("gh run list returned a non-array JSON payload");
+  }
+  const rawWorkflowRuns = parsed.map((run) => normalizeGhWorkflowRun(run, observedAt));
+  const workflowRuns = latestWorkflowRunsByName(rawWorkflowRuns);
+  const summary = {
+    workflow_runs: workflowRuns.length,
+    workflow_success: workflowRuns.filter((run) => run.status === "completed" && run.conclusion === "success").length,
+    workflow_failure: workflowRuns.filter((run) => run.status === "completed" && run.conclusion !== "success" && run.conclusion !== "neutral" && run.conclusion !== "skipped").length,
+    workflow_incomplete: workflowRuns.filter((run) => run.status === "queued" || run.status === "in_progress").length,
+    workflow_unknown: workflowRuns.filter((run) => run.status === "unknown" || run.conclusion === "unknown").length,
+    codeql_status: "unknown" as RemoteCodeqlEvidence["status"]
+  };
+  const codeqlRun = workflowRuns.find((run) => run.name.toLowerCase().includes("codeql"));
+  const codeql = codeqlRun
+    ? normalizeRemoteCodeqlEvidence({
+        status: codeqlRun.status === "completed" && codeqlRun.conclusion === "success" ? "pass" : undefined,
+        conclusion: codeqlRun.conclusion,
+        url: codeqlRun.url,
+        observed_at: codeqlRun.observed_at
+      })
+    : {
+        status: "not_configured" as const,
+        conclusion: null,
+        url: null,
+        observed_at: null
+      };
+  summary.codeql_status = codeql.status;
+  const warnings = [
+    ...(workflowRuns.length === 0 ? ["gh run list returned no workflow runs"] : []),
+    ...(codeql.status === "not_configured" ? ["no CodeQL workflow run was observed in the latest branch runs"] : []),
+    ...(workflowRuns.some((run) => run.head_sha && git.head && run.head_sha !== git.head) ? ["one or more observed workflow runs do not match local git head"] : [])
+  ];
+  return {
+    id: "aetherion_remote_ci_evidence_snapshot",
+    generated_at: observedAt,
+    repo_root: repoRoot,
+    workspace_root: workspaceRoot,
+    source: "github_cli_run_list",
+    repository: gitRemoteRepository(),
+    branch,
+    commit: git.head,
+    observed_at: observedAt,
+    scope: {
+      ...readOnlyCommandScope(),
+      checks_remote_ci: true,
+      writes_workspace: false,
+      starts_daemon: false,
+      packages_release: false,
+      signs_artifacts: false,
+      publishes_release: false,
+      queries_code_scanning_alerts: false
+    },
+    workflow_runs: workflowRuns,
+    codeql,
+    summary,
+    evidence: [
+      "remote_evidence_reader=gh_run_list",
+      `repository=${gitRemoteRepository() ?? "unknown"}`,
+      `branch=${branch}`,
+      `commit=${git.head ?? "unknown"}`,
+      `raw_workflow_runs=${rawWorkflowRuns.length}`,
+      `latest_workflow_runs=${workflowRuns.length}`,
+      `workflow_runs=${summary.workflow_runs}`,
+      `workflow_success=${summary.workflow_success}`,
+      `workflow_failure=${summary.workflow_failure}`,
+      `workflow_incomplete=${summary.workflow_incomplete}`,
+      `workflow_unknown=${summary.workflow_unknown}`,
+      `codeql_status=${codeql.status}`
+    ],
+    warnings
+  };
+}
+
+function latestWorkflowRunsByName(runs: RemoteCiWorkflowRunEvidence[]): RemoteCiWorkflowRunEvidence[] {
+  const latest = new Map<string, RemoteCiWorkflowRunEvidence>();
+  for (const run of runs.toSorted((left, right) => Date.parse(right.observed_at) - Date.parse(left.observed_at))) {
+    if (!latest.has(run.name)) {
+      latest.set(run.name, run);
+    }
+  }
+  return [...latest.values()];
+}
+
+function normalizeGhWorkflowRun(value: unknown, observedAt: string): RemoteCiWorkflowRunEvidence {
+  if (typeof value !== "object" || value === null) {
+    return {
+      name: "unknown",
+      status: "unknown",
+      conclusion: "unknown",
+      head_sha: null,
+      url: null,
+      observed_at: observedAt
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const workflowName = typeof record.workflowName === "string" && record.workflowName.length > 0 ? record.workflowName : null;
+  const name = typeof record.name === "string" && record.name.length > 0 ? record.name : null;
+  const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.length > 0 ? record.updatedAt : observedAt;
+  return {
+    name: workflowName ?? name ?? "unknown",
+    status: normalizeRemoteRunStatus(record.status),
+    conclusion: normalizeRemoteConclusion(record.conclusion),
+    head_sha: typeof record.headSha === "string" && record.headSha.length > 0 ? record.headSha : null,
+    url: typeof record.url === "string" && record.url.length > 0 ? record.url : null,
+    observed_at: updatedAt
+  };
 }
 
 function normalizeRemoteWorkflowRun(value: unknown): RemoteCiWorkflowRunEvidence | null {
@@ -1788,6 +1959,18 @@ function remoteCiStatus(summary: RemoteObservedEvidence["ci"]["summary"]): Remot
     return "warn";
   }
   return "pass";
+}
+
+function gitRemoteRepository(): string | null {
+  const origin = gitOutput(["config", "--get", "remote.origin.url"]);
+  if (!origin) {
+    return null;
+  }
+  const sshMatch = origin.match(/github\.com[:/]([^/]+\/[^/.]+)(?:\.git)?$/);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+  return null;
 }
 
 function gitOutput(args: string[]): string | null {
@@ -7593,6 +7776,7 @@ Usage:
   npm run ether -- doctor --workspace <path>
   npm run ether -- ingress audit --workspace <path>
   npm run ether -- release evidence --workspace <path> [--remote-evidence <snapshot.json>]
+  npm run ether -- release remote-evidence --workspace <path> [--branch <name>]
 
   Post-V1 / experimental local contract labs (not V1 release-critical):
   npm run ether -- import --from openclaw --path <dir> --dry-run
@@ -7665,7 +7849,7 @@ Commands:
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
   doctor                 Read-only production readiness report for repo and workspace invariants
   ingress                Read-only local ingress envelope/rate-limit/idempotency readiness audit; no listener, session, remote connection, or action authority
-  release                Read-only local/configured plus optional operator-supplied remote release evidence; no packaging, signing, publishing, or live CI query
+  release                Read-only local/configured release evidence plus a gh-backed remote snapshot reader; no packaging, signing, publishing, workspace writes, or code-scanning alert query
   import                 Phase 4 dry-run migration report
   memory/context/prompt  Post-V1 contract lab: source-backed Memory OS plus non-authorizing prompt plan/audit previews
   checkpoint/branch/rehearse Post-V1 contract lab: Phase 5 sandbox and time-travel surfaces
@@ -7690,7 +7874,7 @@ Options:
   --approve-sensitive  Explicitly approve sensitive fold, anchor, or history inheritance.
   --socket-path <path> Explicit foreground supervisor socket for supervisor status.
   --socket-auth-token <token> Caller-supplied token for an auth-gated supervisor socket.
-  --remote-evidence <path>  Workspace-local CI/CodeQL snapshot for release evidence; read-only and never queried live.
+  --remote-evidence <path>  Workspace-local CI/CodeQL snapshot for release evidence; read-only and never queried live by release evidence.
   --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
   --print-output     Explicitly include raw model output in prompt invoke-model stdout.
 `);

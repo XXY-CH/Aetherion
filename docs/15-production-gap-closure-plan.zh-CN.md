@@ -70,6 +70,12 @@
 - `doctor`、`security audit` 和 `release evidence` 能区分 local configured evidence 与 remote observed evidence。
 - release candidate 会因 stale CI、dirty tree、missing lockfile evidence、missing bilingual doc link、missing license/governance file 或 missing known-gap declaration 被拒绝。
 
+当前部分状态：
+
+- `release evidence --remote-evidence <snapshot.json>` 会消费 workspace-local CI/CodeQL snapshot，并把 remote observed evidence 与 configured evidence 分开。
+- `release remote-evidence --workspace <path> [--branch <name>]` 现在会通过 `gh run list` 生成 stdout-only GitHub Actions snapshot，只保留每个 workflow name 的最新 run，从最新 CodeQL workflow 推断 CodeQL 状态，并且不写 workspace state。
+- Release packaging、artifact signing、public docs deployment evidence、artifact retention policy、release evidence repository、installer/updater automation 和 code-scanning alert review 仍然 open。
+
 ### PGC-2：Supervisor Lifecycle 与 Vault Reference MVP
 
 交付物：

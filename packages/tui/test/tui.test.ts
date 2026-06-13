@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -568,7 +568,8 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /onboarding\s+Read-only from-source onboarding preflight/);
   assert.match(help.stdout, /doctor\s+Read-only production readiness report for repo and workspace invariants/);
   assert.match(help.stdout, /ingress\s+Read-only local ingress envelope\/rate-limit\/idempotency readiness audit/);
-  assert.match(help.stdout, /release\s+Read-only local\/configured plus optional operator-supplied remote release evidence/);
+  assert.match(help.stdout, /release\s+Read-only local\/configured release evidence plus a gh-backed remote snapshot reader/);
+  assert.match(help.stdout, /npm run ether -- release remote-evidence --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- security audit --workspace <path>/);
   assert.match(help.stdout, /--idempotency-key <key>\s+Optional caller-supplied run idempotency key/);
   assert.match(help.stdout, /--print-output\s+Explicitly include raw model output in prompt invoke-model stdout/);
@@ -1159,6 +1160,145 @@ test("Ether release evidence reads operator-supplied remote CI and CodeQL snapsh
   assert.equal(report.release_artifacts.published, false);
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("operator-supplied snapshot")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Ether release remote-evidence reads latest CI and CodeQL through gh without writing workspace state", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-release-gh-"));
+  const fakeBin = await mkdtemp(join(tmpdir(), "aetherion-fake-gh-"));
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim();
+  const ghPath = join(fakeBin, "gh");
+  await writeFile(ghPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+const logPath = process.env.AETHERION_FAKE_GH_LOG;
+if (logPath) fs.writeFileSync(logPath, process.argv.slice(2).join(" "));
+process.stdout.write(JSON.stringify([
+  {
+    workflowName: "CI",
+    name: "Old Build",
+    status: "completed",
+    conclusion: "failure",
+    headSha: "${head}",
+    url: "https://github.example/actions/runs/2",
+    updatedAt: "2026-06-12T01:00:00.000Z"
+  },
+  {
+    workflowName: "CI",
+    name: "Build",
+    status: "completed",
+    conclusion: "success",
+    headSha: "${head}",
+    url: "https://github.example/actions/runs/3",
+    updatedAt: "2026-06-13T01:00:00.000Z"
+  },
+  {
+    workflowName: "CodeQL",
+    name: "Analyze",
+    status: "completed",
+    conclusion: "success",
+    headSha: "${head}",
+    url: "https://github.example/actions/runs/4",
+    updatedAt: "2026-06-13T01:02:00.000Z"
+  }
+], null, 2));
+`);
+  await chmod(ghPath, 0o755);
+  const ghLog = join(workspace, "gh-args.log");
+  const env = {
+    ...process.env,
+    PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    AETHERION_FAKE_GH_LOG: ghLog
+  };
+
+  const remote = await execFileAsync(process.execPath, [
+    cliPath,
+    "release",
+    "remote-evidence",
+    "--workspace",
+    workspace,
+    "--branch",
+    "main"
+  ], { env });
+  const snapshot = JSON.parse(remote.stdout) as {
+    id: string;
+    source: string;
+    branch: string;
+    commit: string | null;
+    scope: {
+      read_only: boolean;
+      checks_remote_ci: boolean;
+      writes_workspace: boolean;
+      starts_daemon: boolean;
+      packages_release: boolean;
+      signs_artifacts: boolean;
+      publishes_release: boolean;
+      queries_code_scanning_alerts: boolean;
+    };
+    workflow_runs: Array<{ name: string; conclusion: string | null; head_sha: string | null }>;
+    codeql: { status: string; conclusion: string | null };
+    summary: {
+      workflow_runs: number;
+      workflow_success: number;
+      workflow_failure: number;
+      codeql_status: string;
+    };
+    warnings: string[];
+  };
+  assert.equal(snapshot.id, "aetherion_remote_ci_evidence_snapshot");
+  assert.equal(snapshot.source, "github_cli_run_list");
+  assert.equal(snapshot.branch, "main");
+  assert.equal(snapshot.commit, head);
+  assert.equal(snapshot.scope.read_only, true);
+  assert.equal(snapshot.scope.checks_remote_ci, true);
+  assert.equal(snapshot.scope.writes_workspace, false);
+  assert.equal(snapshot.scope.starts_daemon, false);
+  assert.equal(snapshot.scope.packages_release, false);
+  assert.equal(snapshot.scope.signs_artifacts, false);
+  assert.equal(snapshot.scope.publishes_release, false);
+  assert.equal(snapshot.scope.queries_code_scanning_alerts, false);
+  assert.equal(snapshot.workflow_runs.length, 2);
+  assert.equal(snapshot.workflow_runs.find((run) => run.name === "CI")?.conclusion, "success");
+  assert.equal(snapshot.workflow_runs.find((run) => run.name === "CodeQL")?.conclusion, "success");
+  assert.equal(snapshot.summary.workflow_runs, 2);
+  assert.equal(snapshot.summary.workflow_success, 2);
+  assert.equal(snapshot.summary.workflow_failure, 0);
+  assert.equal(snapshot.summary.codeql_status, "pass");
+  assert.equal(snapshot.codeql.status, "pass");
+  assert.equal(snapshot.codeql.conclusion, "success");
+  assert.deepEqual(snapshot.warnings, []);
+  assert.match(await readFile(ghLog, "utf8"), /run list --branch main --limit 20 --json/);
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+
+  await writeFile(join(workspace, "generated-remote-evidence.json"), remote.stdout);
+  const release = await execFileAsync(process.execPath, [
+    cliPath,
+    "release",
+    "evidence",
+    "--workspace",
+    workspace,
+    "--remote-evidence",
+    "generated-remote-evidence.json"
+  ]);
+  const report = JSON.parse(release.stdout) as {
+    summary: { remote_ci_checked: boolean; remote_ci_status: string; remote_codeql_status: string };
+    remote_observed_evidence: {
+      status: string;
+      source: string;
+      commit_matches_head: boolean | null;
+      ci: { status: string; summary: { total: number; success: number; failure: number } };
+      codeql: { status: string };
+    };
+  };
+  assert.equal(report.summary.remote_ci_checked, true);
+  assert.equal(report.summary.remote_ci_status, "pass");
+  assert.equal(report.summary.remote_codeql_status, "pass");
+  assert.equal(report.remote_observed_evidence.status, "observed");
+  assert.equal(report.remote_observed_evidence.source, "snapshot_file");
+  assert.equal(report.remote_observed_evidence.commit_matches_head, true);
+  assert.equal(report.remote_observed_evidence.ci.status, "pass");
+  assert.equal(report.remote_observed_evidence.ci.summary.total, 2);
+  assert.equal(report.remote_observed_evidence.ci.summary.success, 2);
+  assert.equal(report.remote_observed_evidence.ci.summary.failure, 0);
+  assert.equal(report.remote_observed_evidence.codeql.status, "pass");
 });
 
 test("Ether release evidence is read-only for initialized workspace evidence", async () => {

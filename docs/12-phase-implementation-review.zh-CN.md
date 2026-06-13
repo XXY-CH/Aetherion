@@ -869,6 +869,36 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Supervisor Socket Auth Boundary 是 readiness evidence，不是 lifecycle manager 或 identity system。
 - 剩余严格复查差距包括 durable/session ingress identity、live remote CI/CodeQL observation、release packaging、artifact signing、public docs deployment、installer/updater automation、更广 projection parity coverage，以及未来在 policy 后面的 connector OAuth work。
 
+## Phase 67 复核：GitHub Remote Evidence Reader
+
+本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。
+
+与原始文档对照：
+
+- [产品简报](00-product-brief.zh-CN.md)：本轮增强 auditability 与 release evidence，没有新增产品表面。
+- [架构](01-architecture.zh-CN.md)：remote CI observation 是 evidence record，不是 Local Supervisor authority、connector grant、policy decision、lease 或 action result。
+- [Audit and Data Contracts](05-audit-and-data-contracts.zh-CN.md)：snapshot 是可 review 的 evidence input；Event Ledger 仍是 runtime action 的产品事实层。
+- [路线图](06-roadmap.zh-CN.md)：V1 仍保持 TUI-first；没有引入 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：PGC-1 要求 remote CI/CodeQL evidence reader/report 先于 packaging 或 signing。
+
+本轮修正：
+
+- 新增 `release remote-evidence --workspace <path> [--branch <name>]`。
+- 命令调用 `gh run list`，只保留每个 workflow name 的最新 observed run，从 CodeQL workflow run 推断 CodeQL 状态，并向 stdout 输出 `aetherion_remote_ci_evidence_snapshot`。
+- 该 snapshot 与 `release evidence --remote-evidence <snapshot.json>` 兼容。
+- focused tests 使用 fake `gh` executable，证明命令只写 stdout、不初始化 `.aetherion`、会过滤旧 workflow run，并可回喂给 release evidence。
+- README 与 TUI README 已同步英文和中文 review flow。
+
+偏差复核：
+
+- 修正此前 PGC-1 的偏差：release evidence 已能消费 remote observation，但 Aetherion 没有 first-party snapshot 生成入口。
+- 保持 `release evidence` 本身为本地流程：它仍只消费 workspace-local snapshot，不会隐式查询 GitHub。
+- 没有新增 release packaging、artifact signing、public docs deployment、installer/updater automation、CodeQL alert triage、release repository publication、long-running CI monitoring、connector OAuth、cloud worker 或任何新的 action authority。
+
+修正与剩余边界：
+
+- 现在可以通过 `gh run list` 观测 remote CI/CodeQL evidence，但 release packaging、signing、docs deployment、installer/updater automation、artifact retention 和 code-scanning alert review 仍是 open production gaps。
+
 ## 验证要求
 
 每轮结束应至少检查：

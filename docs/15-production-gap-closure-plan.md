@@ -70,6 +70,12 @@ Acceptance criteria:
 - `doctor`, `security audit`, and `release evidence` can explain local configured evidence and remote observed evidence separately.
 - A release candidate can be rejected for stale CI, dirty tree, missing lockfile evidence, missing bilingual doc link, missing license/governance file, or missing known-gap declaration.
 
+Current partial status:
+
+- `release evidence --remote-evidence <snapshot.json>` consumes a workspace-local CI/CodeQL snapshot and keeps remote observed evidence separate from configured evidence.
+- `release remote-evidence --workspace <path> [--branch <name>]` now generates a stdout-only GitHub Actions snapshot through `gh run list`, keeps the latest run per workflow name, infers CodeQL status from the latest CodeQL workflow, and writes no workspace state.
+- Release packaging, artifact signing, public docs deployment evidence, artifact retention policy, release evidence repository, installer/updater automation, and code-scanning alert review remain open.
+
 ### PGC-2: Supervisor Lifecycle And Vault Reference MVP
 
 Deliverables:
