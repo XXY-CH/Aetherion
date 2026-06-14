@@ -1642,6 +1642,73 @@ test("Ether security audit reports read-only status without initializing a works
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
+test("Ether security audit is read-only for initialized workspace evidence", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-security-audit-ready-"));
+  await writeFile(join(workspace, "README.md"), "Security audit fixture\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const registryPath = join(workspace, ".aetherion", "workspace.json");
+  const ledgerBefore = await readFile(ledgerPath, "utf8");
+  const runsBefore = await readdir(runsPath);
+  const registryBefore = await readFile(registryPath, "utf8");
+
+  const audit = await execFileAsync(process.execPath, [
+    cliPath,
+    "security",
+    "audit",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(audit.stdout) as {
+    id: string;
+    status: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      mutates_registries: boolean;
+      writes_artifacts: boolean;
+      calls_model_provider: boolean;
+      issues_lease: boolean;
+      repairs_state: boolean;
+      deep_live_probe: boolean;
+    };
+    summary: { findings: number; high: number; critical: number };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+    findings: unknown[];
+  };
+  assert.equal(report.id, "aetherion_security_audit_report");
+  assert.equal(report.status, "pass");
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.mutates_registries, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.calls_model_provider, false);
+  assert.equal(report.scope.issues_lease, false);
+  assert.equal(report.scope.repairs_state, false);
+  assert.equal(report.scope.deep_live_probe, false);
+  assert.equal(report.summary.findings, 0);
+  assert.equal(report.summary.high, 0);
+  assert.equal(report.summary.critical, 0);
+  assert.equal(report.findings.length, 0);
+  assert.equal(report.checks.find((check) => check.id === "workspace.ledger_hash_chain")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "runtime.raw_sensitive_artifacts")?.status, "pass");
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
+  assert.deepEqual(await readdir(runsPath), runsBefore);
+  assert.equal(await readFile(registryPath, "utf8"), registryBefore);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "security-audit")), /ENOENT/);
+});
+
 test("Ether security audit fails closed on an invalid Ledger hash chain", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-security-audit-chain-"));
   await writeFile(join(workspace, "README.md"), "Security audit chain source\n");

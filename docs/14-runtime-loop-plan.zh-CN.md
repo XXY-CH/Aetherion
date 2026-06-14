@@ -1014,3 +1014,24 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 public API ingress、durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、persistent auth/session lifecycle、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress、cloud worker ingress、session issuance 或 supervisor bypass。
+
+## 已完成增量：Security Audit Initialized-Workspace No-Mutation
+
+目标：强化 release-support evidence，证明 `security audit` 在 workspace 已经有 Ledger、run manifest 和 registry state 之后仍保持只读。
+
+验收：
+
+- `security audit` 继续输出 read-only status，不初始化 workspace，也不修改 runtime state，更不是 repair 或 provider call surface。
+- 在 initialized workspace 上，该命令保持 `events.jsonl`、`.aetherion/runs/` 和 `.aetherion/workspace.json` 字节/list 完全不变。
+- invalid-hash-chain security 测试仍证明命令会对被篡改的 Ledger evidence fail closed。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；V1 仍是 TUI-only，没有新增 GUI、mobile、IM、browser extension、connector 或 cloud surface。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；这仍是 release-support evidence hardening，不是新的 runtime capability。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；security audit 仍是只读 evidence preview，不是 repair 或 authority path。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：无 drift；PGC-1 已把 `security audit` 视为 readiness evidence，本轮锁住它在 initialized workspace 上的 no-mutation 行为。
+
+剩余边界：
+
+- 这不是 dependency scanning、release signing、public docs deployment、provider probing、secret vault access、live content execution，或任何会修改 workspace state 的 runtime action。

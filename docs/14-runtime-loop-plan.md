@@ -1408,3 +1408,24 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not public API ingress, durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, cloud worker ingress, session issuance, or supervisor bypass.
+
+## Completed Increment: Security Audit Initialized-Workspace No-Mutation
+
+Target: harden release-support evidence by proving `security audit` stays read-only after a workspace already has Ledger, run manifest, and registry state.
+
+Acceptance:
+
+- `security audit` continues to report read-only status without initializing a workspace, mutating runtime state, or acting as a repair or provider call surface.
+- On an initialized workspace, the command leaves `events.jsonl`, `.aetherion/runs/`, and `.aetherion/workspace.json` byte/list-identical.
+- The invalid-hash-chain security test still proves the command fails closed on tampered Ledger evidence.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; V1 remains TUI-only and this adds no GUI, mobile, IM, browser extension, connector, or cloud surface.
+- [Roadmap](06-roadmap.md): no drift; this remains release-support evidence hardening rather than a new runtime capability.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; security audit stays a read-only evidence preview, not a repair or authority path.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): no drift; PGC-1 already treats `security audit` as readiness evidence, and this locks the initialized-workspace no-mutation behavior.
+
+Remaining boundary:
+
+- This is not dependency scanning, release signing, public docs deployment, provider probing, secret vault access, live content execution, or any runtime action that mutates workspace state.
