@@ -195,6 +195,7 @@ const schemaExamplePairs = [
   ["local-ingress-rate-limit-reservation.schema.json", "local-ingress-rate-limit-reservation.json"],
   ["local-ingress-idempotency-reservation.schema.json", "local-ingress-idempotency-reservation.json"],
   ["local-ingress-idempotency-completion.schema.json", "local-ingress-idempotency-completion.json"],
+  ["release-manifest.schema.json", "release-manifest.json"],
   ["vault-reference.schema.json", "vault-reference.json"],
   ["vault-policy-binding.schema.json", "vault-policy-binding.json"],
   ["model-provider-readiness.schema.json", "model-provider-readiness.json"],

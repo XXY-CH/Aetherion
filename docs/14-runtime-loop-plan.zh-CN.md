@@ -924,3 +924,27 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 browser extension runtime、browser/desktop automation、IM delivery、MCP connector runtime、OAuth/SaaS connector grant lifecycle、local API gateway、package-code execution、cloud worker execution、vault secret resolution、token refresh/revocation，或受 supervisor 管理的 adapter action gateway。
+
+## 已完成增量：Proposal-To-Policy File Read Bridge
+
+目标：关闭第一条 PGC-5 bridge，把 operator-restated 且 evidence-matched 的 file-read proposal 转成 fresh supervisor-governed read path。
+
+验收：
+
+- `prompt execute-tool-request <proposal_id> --path <workspace-file> --content <operator-restated intent>` 只接受已有的 `agent.tool.request.proposed` file-read proposal。
+- 该命令会重新验证 prompt/model artifact evidence chain，要求 operator path 与 proposal target 一致，并在缺 proposal evidence 或 path drift 时 fail closed。
+- 执行是单独 run，会调用 Rust `file.read.traced`，生成 fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence，并完成 run manifest。
+- proposal run 仍然 non-authorizing：`prompt propose-tool-request` 仍不产生 `tool.requested`、policy decision、lease 或 tool result。
+- `release-manifest` 现在已纳入共享 schema/example validation baseline。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；model output 和 proposal 仍不能授权 action，read 必须由 Tool Policy Proxy/Supervisor evidence gate。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；本 slice 仍在 V1 TUI/local file read loop 内，没有新增 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：无 drift；Rust 仍是 supervisor-governed file read 的 authority path。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；prompt/model artifact 仍是 non-authorizing evidence，真正 execution run 才携带 fresh policy/lease evidence。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正 PGC-5 当前状态，记录 file-read bridge，同时让更广的 tool loop 继续 open。
+
+剩余边界：
+
+- 这不是 model-driven tool execution、provider tool-call execution、write proposal execution、durable queue integration、semantic response verification、connector OAuth、package execution、cloud worker execution，也不是允许 proposal artifact 自行授权 action。

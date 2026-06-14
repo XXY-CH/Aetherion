@@ -3463,6 +3463,14 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(proposalRecord.requires_tool_policy_proxy, true);
   assert.equal(proposalRecord.requires_fresh_policy_decision, true);
   assert.equal(proposalRecord.requires_scoped_lease, true);
+  assert.equal(proposalRecord.tool_requested, false);
+  assert.equal(proposalRecord.policy_decided, false);
+  assert.equal(proposalRecord.lease_issued, false);
+  assert.equal(proposalRecord.tool_executed, false);
+  assert.equal(proposalRecord.action_recorded, false);
+  assert.equal(proposalRecord.observation_recorded, false);
+  assert.equal(proposalRecord.verification_recorded, false);
+  assert.equal(proposalRecord.runtime_authority_granted, false);
 
   const proposalArtifactPath = join(workspace, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${proposalRecord.proposal_id}.json`);
   const proposalArtifactText = await readFile(proposalArtifactPath, "utf8");
@@ -3657,6 +3665,102 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.response_audit_recorded, modelResponseRecord.response_audit_event_id);
   assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.tool_request_proposed, proposalRecord.proposal_event_id);
 
+  const ledgerBeforeExecution = await readLedgerEvents(workspace);
+  const executeProposal = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "execute-tool-request",
+    proposalRecord.proposal_id,
+    "--path",
+    "README.md",
+    "--content",
+    "Read README.md after operator restatement of the proposal.",
+    "--workspace",
+    workspace
+  ]);
+  const executionRecord = JSON.parse(executeProposal.stdout) as {
+    execution_run_id: string;
+    source_run_id: string;
+    proposal_id: string;
+    proposal_artifact_ref: string;
+    proposal_event_id: string;
+    response_audit_id: string;
+    response_audit_event_id: string;
+    operator_restatement_required: boolean;
+    operator_restatement_sha256: string;
+    proposal_target_uri: string;
+    operator_target_uri: string;
+    path_drift_detected: boolean;
+    proposal_can_authorize_actions: boolean;
+    proposal_reused_authority: boolean;
+    fresh_policy_required: boolean;
+    fresh_policy_decision: string;
+    scoped_lease_required: boolean;
+    lease_issued: boolean;
+    tool_executed: boolean;
+    tool_result_persisted: boolean;
+    raw_response_persisted: boolean;
+    raw_prompt_persisted: boolean;
+    request_id: string;
+    request_event_id: string;
+    risk_event_id: string;
+    policy_decision_id: string;
+    policy_event_id: string;
+    lease_event_id: string;
+    result_event_id: string;
+    risk_level: string;
+    lease_id: string;
+    contents_sha256: string | null;
+    contents_bytes: number;
+    contents_printed: boolean;
+  };
+  assert.match(executionRecord.execution_run_id, /^run_tool_request_execution_/);
+  assert.equal(executionRecord.source_run_id, runId);
+  assert.equal(executionRecord.proposal_id, proposalRecord.proposal_id);
+  assert.equal(executionRecord.proposal_artifact_ref, proposalRecord.proposal_artifact_ref);
+  assert.equal(executionRecord.proposal_event_id, proposalRecord.proposal_event_id);
+  assert.equal(executionRecord.response_audit_id, proposalRecord.response_audit_id);
+  assert.equal(executionRecord.response_audit_event_id, modelResponseRecord.response_audit_event_id);
+  assert.equal(executionRecord.operator_restatement_required, true);
+  assert.match(executionRecord.operator_restatement_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(executionRecord.proposal_target_uri, "workspace://README.md");
+  assert.equal(executionRecord.operator_target_uri, "workspace://README.md");
+  assert.equal(executionRecord.path_drift_detected, false);
+  assert.equal(executionRecord.proposal_can_authorize_actions, false);
+  assert.equal(executionRecord.proposal_reused_authority, false);
+  assert.equal(executionRecord.fresh_policy_required, true);
+  assert.equal(executionRecord.fresh_policy_decision, "allow");
+  assert.equal(executionRecord.scoped_lease_required, true);
+  assert.equal(executionRecord.lease_issued, true);
+  assert.equal(executionRecord.tool_executed, true);
+  assert.equal(executionRecord.tool_result_persisted, true);
+  assert.equal(executionRecord.raw_response_persisted, false);
+  assert.equal(executionRecord.raw_prompt_persisted, false);
+  assert.match(executionRecord.request_id, /^toolreq_run_tool_request_execution_/);
+  assert.match(executionRecord.request_event_id, /^evt_/);
+  assert.match(executionRecord.risk_event_id, /^evt_/);
+  assert.match(executionRecord.policy_decision_id, /^policy_/);
+  assert.match(executionRecord.policy_event_id, /^evt_/);
+  assert.match(executionRecord.lease_event_id, /^evt_/);
+  assert.match(executionRecord.result_event_id, /^evt_/);
+  assert.match(executionRecord.risk_level, /^L[0-5]$/);
+  assert.match(executionRecord.lease_id, /^lease_/);
+  assert.match(executionRecord.contents_sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.equal(executionRecord.contents_bytes > 0, true);
+  assert.equal(executionRecord.contents_printed, false);
+
+  const executionRunEvents = (await readLedgerEvents(workspace)).filter((event) => event.run_id === executionRecord.execution_run_id);
+  assert.deepEqual(executionRunEvents.map((event) => event.event_type), [
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "lease.issued",
+    "tool.result"
+  ]);
+  assert.ok(executionRunEvents.every((event) => event.payload_ref === undefined));
+  assert.equal((await readLedgerEvents(workspace)).filter((event) => event.run_id === proposalRecord.proposal_run_id).some((event) => event.event_type === "tool.requested"), false);
+  assert.equal((await readLedgerEvents(workspace)).length > ledgerBeforeExecution.length, true);
+
   const proposalBoundary = await execFileAsync(process.execPath, [
     cliPath,
     "boundary",
@@ -3670,6 +3774,21 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(stdoutValue(proposalBoundary.stdout, "what_actions"), "0");
   assert.equal(stdoutValue(proposalBoundary.stdout, "boundary_material_actions"), "0");
   assert.equal(stdoutValue(proposalBoundary.stdout, "boundary_action_matrix"), "not_recorded");
+  const executionBoundary = await execFileAsync(process.execPath, [
+    cliPath,
+    "boundary",
+    executionRecord.execution_run_id,
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(stdoutValue(executionBoundary.stdout, "what_tool_requests"), "1");
+  assert.equal(stdoutValue(executionBoundary.stdout, "what_policy_decisions"), "1");
+  assert.equal(stdoutValue(executionBoundary.stdout, "what_leases"), "1");
+  assert.equal(stdoutValue(executionBoundary.stdout, "what_actions"), "0");
+  assert.equal(stdoutValue(executionBoundary.stdout, "boundary_material_actions"), "1");
+  assert.match(executionBoundary.stdout, /boundary_action_1_operation=filesystem\.read/);
+  assert.match(executionBoundary.stdout, /boundary_action_1_actor=system:local_supervisor/);
+  assert.match(executionBoundary.stdout, /boundary_action_1_result=read_recorded/);
 
   // Re-invoking the same request after a response exists fails closed.
   await assert.rejects(

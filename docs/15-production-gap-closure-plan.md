@@ -148,6 +148,12 @@ Acceptance criteria:
 - Passed response audit plus proposal is necessary but not sufficient for execution.
 - Fresh policy and scoped lease are always required; missing proposal evidence, stale response-audit evidence, path drift, or policy denial fails closed.
 
+Current partial status:
+
+- `prompt execute-tool-request` now accepts an operator-restated workspace file-read proposal, revalidates matched prompt/model artifact evidence, rejects path drift, and sends the read through Rust `file.read.traced` for fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence.
+- The proposal artifact remains non-authorizing: `prompt propose-tool-request` still writes only `agent.tool.request.proposed`, while execution is a separate run with fresh supervisor policy and scoped lease evidence.
+- Write proposals, provider tool calls, durable queues, model-driven tool loops, and non-file-read proposal execution remain unimplemented.
+
 ### PGC-6: Projection Rebuild And Ledger Integrity Expansion
 
 Deliverables:

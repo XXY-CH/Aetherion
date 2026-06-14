@@ -14,7 +14,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage, type StoreReplayEvidenceRecord } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -4657,8 +4657,8 @@ async function runContext(options: CliOptions): Promise<void> {
 }
 
 async function runPrompt(options: CliOptions): Promise<void> {
-  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request" && options.topic !== "invoke-model" && options.topic !== "propose-tool-request") {
-    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, prepare-model-request <invocation_id>, invoke-model <request_id> --content <task>, and propose-tool-request <response_audit_id> --path <workspace-file> --content <intent>");
+  if (options.topic !== "plan" && options.topic !== "audit" && options.topic !== "bind-runtime" && options.topic !== "prepare-model-request" && options.topic !== "invoke-model" && options.topic !== "propose-tool-request" && options.topic !== "execute-tool-request") {
+    throw new Error("prompt supports plan <run_id> --content <task>, audit <run_id> --content <task> --path <response-file>, bind-runtime <run_id> --content <task>, prepare-model-request <invocation_id>, invoke-model <request_id> --content <task>, propose-tool-request <response_audit_id> --path <workspace-file> --content <intent>, and execute-tool-request <proposal_id> --path <workspace-file> --content <operator-restated intent>");
   }
   if (options.topic === "prepare-model-request") {
     await runPromptPrepareModelRequest(options);
@@ -4670,6 +4670,10 @@ async function runPrompt(options: CliOptions): Promise<void> {
   }
   if (options.topic === "propose-tool-request") {
     await runPromptProposeToolRequest(options);
+    return;
+  }
+  if (options.topic === "execute-tool-request") {
+    await runPromptExecuteToolRequest(options);
     return;
   }
   if (!options.content) {
@@ -5054,6 +5058,101 @@ async function runPromptProposeToolRequest(options: CliOptions): Promise<void> {
     requires_tool_policy_proxy: proposal.authority_gates.requires_tool_policy_proxy,
     requires_fresh_policy_decision: proposal.authority_gates.requires_fresh_policy_decision,
     requires_scoped_lease: proposal.authority_gates.requires_scoped_lease
+  });
+}
+
+async function runPromptExecuteToolRequest(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const proposalId = requirePositional(options.target ?? options.input, "prompt execute-tool-request requires an Agent Tool Request Proposal id");
+  if (!proposalId.startsWith("agent_tool_request_proposal_")) {
+    throw new Error("prompt execute-tool-request requires an Agent Tool Request Proposal id");
+  }
+  if (!options.content) {
+    throw new Error("prompt execute-tool-request requires --content <operator-restated intent>");
+  }
+  const targetPath = requirePositional(options.path, "prompt execute-tool-request requires --path <workspace-file>");
+  const relativeTargetPath = assertWorkspaceReadPath(workspaceRoot, targetPath);
+  const proposal = await readAgentToolRequestProposalArtifact(workspaceRoot, proposalId);
+  if (!proposal) {
+    throw new Error(`Agent Tool Request Proposal artifact ${proposalId} not found`);
+  }
+  const proposalUri = proposal.proposal.operation.target.uri;
+  const restatedUri = workspaceFileUri(relativeTargetPath);
+  if (proposal.proposal.operation.verb !== "read" || proposal.proposal.operation.target.kind !== "file") {
+    throw new Error(`Agent Tool Request Proposal ${proposalId} is not a workspace file-read proposal`);
+  }
+  if (proposalUri !== restatedUri) {
+    throw new Error(`Operator-restated path ${restatedUri} does not match proposal target ${proposalUri}; refusing path drift`);
+  }
+
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledger = await readEvents(workspace);
+  const evidence = await auditPromptModelArtifactEvidence(repoRoot, workspaceRoot, ledger);
+  const finding = evidence.findings.find((entry) =>
+    entry.artifact_kind === "tool_request_proposal" && entry.artifact_id === proposal.id
+  );
+  if (!finding || finding.status !== "matched") {
+    throw new Error(`Agent Tool Request Proposal ${proposalId} evidence is not matched; refusing supervisor execution`);
+  }
+  const related = finding.related_event_ids;
+  if (!related?.runtime_bound || !related.model_requested || !related.model_responded || !related.response_audit_recorded || !related.tool_request_proposed) {
+    throw new Error(`Agent Tool Request Proposal ${proposalId} matched evidence is missing required event ids`);
+  }
+
+  const executionRunId = `run_tool_request_execution_${sanitizePathSegment(proposal.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Executed operator-restated file-read proposal ${proposal.id} through fresh supervisor policy and scoped lease; the proposal itself remained non-authorizing.`;
+  const manifest = await createRunManifest(repoRoot, workspace, executionRunId, summary);
+  const readResult = rpcResult(await callSupervisorRpc(repoRoot, {
+    id: `rpc_${executionRunId}_proposal_read`,
+    method: "file.read.traced",
+    workspace_root: workspaceRoot,
+    workspace_id: workspace.id,
+    run_id: executionRunId,
+    path: join(workspaceRoot, relativeTargetPath)
+  }));
+  await recordSupervisorEventIds(workspace, manifest, readResult, ["request_event_id", "risk_event_id", "policy_event_id", "lease_event_id", "result_event_id"]);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "tool.requested" },
+    { event_type: "risk.composed" },
+    { event_type: "policy.decided" },
+    { event_type: "lease.issued" },
+    { event_type: "tool.result" }
+  ]);
+  printRawJson({
+    execution_run_id: executionRunId,
+    source_run_id: proposal.run_id,
+    proposal_id: proposal.id,
+    proposal_artifact_ref: agentToolRequestProposalArtifactRef(proposal.id),
+    proposal_event_id: related.tool_request_proposed,
+    response_audit_id: proposal.response_audit_id,
+    response_audit_event_id: related.response_audit_recorded,
+    operator_restatement_required: true,
+    operator_restatement_sha256: sha256Hex(options.content),
+    proposal_target_uri: proposalUri,
+    operator_target_uri: restatedUri,
+    path_drift_detected: false,
+    proposal_can_authorize_actions: proposal.authority_gates.proposal_can_authorize_actions,
+    proposal_reused_authority: false,
+    fresh_policy_required: proposal.authority_gates.requires_fresh_policy_decision,
+    fresh_policy_decision: readResult.decision,
+    scoped_lease_required: proposal.authority_gates.requires_scoped_lease,
+    lease_issued: readResult.decision === "allow",
+    tool_executed: readResult.decision === "allow",
+    tool_result_persisted: true,
+    raw_response_persisted: proposal.scope.raw_response_persisted,
+    raw_prompt_persisted: proposal.scope.raw_prompt_persisted,
+    request_id: readResult.request_id,
+    request_event_id: readResult.request_event_id,
+    risk_event_id: readResult.risk_event_id,
+    policy_decision_id: readResult.policy_decision_id,
+    policy_event_id: readResult.policy_event_id,
+    lease_event_id: readResult.lease_event_id,
+    result_event_id: readResult.result_event_id,
+    risk_level: readResult.risk_level,
+    lease_id: readResult.lease_id,
+    contents_sha256: typeof readResult.contents === "string" ? sha256Hex(readResult.contents) : null,
+    contents_bytes: typeof readResult.contents === "string" ? Buffer.byteLength(readResult.contents) : 0,
+    contents_printed: false
   });
 }
 
@@ -8591,6 +8690,7 @@ Usage:
   npm run ether -- prompt invoke-model <request_id> --content <task> --workspace <path> [--print-output]
   npm run ether -- prompt audit <run_id> --content <task> --path <response-file> --workspace <path>
   npm run ether -- prompt propose-tool-request <response_audit_id> --path <workspace-file> --content <intent> --workspace <path>
+  npm run ether -- prompt execute-tool-request <proposal_id> --path <workspace-file> --content <operator-restated intent> --workspace <path>
   npm run ether -- checkpoint <run_id> --workspace <path>
   npm run ether -- branch <checkpoint_id>
   npm run ether -- rehearse <branch_id> --path <workspace-file> --content <proposed-contents>

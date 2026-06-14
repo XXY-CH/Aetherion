@@ -148,6 +148,12 @@
 - passed response audit + proposal 是必要但不充分条件。
 - fresh policy 与 scoped lease 永远必需；缺 proposal evidence、stale response-audit evidence、path drift 或 policy denial 都 fail closed。
 
+当前部分状态：
+
+- `prompt execute-tool-request` 现在接受 operator-restated 的 workspace file-read proposal，重新验证 matched prompt/model artifact evidence，拒绝 path drift，并通过 Rust `file.read.traced` 生成 fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence。
+- proposal artifact 仍然不授权：`prompt propose-tool-request` 仍只写 `agent.tool.request.proposed`，真实执行是单独 run，必须重新经过 supervisor policy 与 scoped lease evidence。
+- write proposal、provider tool call、durable queue、model-driven tool loop，以及非 file-read proposal execution 仍未实现。
+
 ### PGC-6：Projection Rebuild 与 Ledger Integrity 扩展
 
 交付物：

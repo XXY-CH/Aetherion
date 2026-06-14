@@ -1318,3 +1318,27 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not browser extension runtime, browser/desktop automation, IM delivery, MCP connector runtime, OAuth/SaaS connector grant lifecycle, local API gateway, package-code execution, cloud worker execution, vault secret resolution, token refresh/revocation, or a supervisor-governed adapter action gateway.
+
+## Completed Increment: Proposal-To-Policy File Read Bridge
+
+Target: close the first PGC-5 bridge by converting an operator-restated, evidence-matched file-read proposal into a fresh supervisor-governed read path.
+
+Acceptance:
+
+- `prompt execute-tool-request <proposal_id> --path <workspace-file> --content <operator-restated intent>` accepts only an existing `agent.tool.request.proposed` file-read proposal.
+- The command revalidates the prompt/model artifact evidence chain, requires the operator path to match the proposal target, and fails closed on missing proposal evidence or path drift.
+- Execution is a separate run that calls Rust `file.read.traced`, producing fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence and a completed run manifest.
+- The proposal run remains non-authorizing: `prompt propose-tool-request` still emits no `tool.requested`, policy decision, lease, or tool result.
+- `release-manifest` is now included in the shared schema/example validation baseline.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; model output and proposals still cannot authorize actions, and Tool Policy Proxy/Supervisor evidence gates the read.
+- [Roadmap](06-roadmap.md): no drift; the slice stays in the V1 TUI/local file read loop and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Technical Strategy](10-technical-strategy.md): no drift; Rust remains the authority path for supervisor-governed file reads.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; prompt/model artifacts remain non-authorizing evidence, while the execution run carries the fresh policy/lease evidence.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected PGC-5 current status to record the file-read bridge while leaving broader tool loops open.
+
+Remaining boundary:
+
+- This is not model-driven tool execution, provider tool-call execution, write proposal execution, durable queue integration, semantic response verification, connector OAuth, package execution, cloud worker execution, or permission for a proposal artifact to authorize actions by itself.
