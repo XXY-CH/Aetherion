@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
       await printTrace(options);
       return;
     }
-    throw new Error(`Unknown command ${options.command}. Run "npm run ether -- help".`);
+    throw new Error(`Unknown command ${options.command}. Run "ether help" or "npm run ether -- help".`);
   }
 
   if (options.supervisor === "typescript-seed" && process.env.AETHERION_ALLOW_TYPESCRIPT_SEED !== "1") {
@@ -123,8 +124,12 @@ async function main(): Promise<void> {
 }
 
 function parseArgs(args: string[]): CliOptions {
-  const command = args[0] ?? "help";
-  const positional = collectPositionals(args.slice(1));
+  const firstArg = args[0];
+  const hasExplicitCommand = firstArg !== undefined && !firstArg.startsWith("--");
+  const isHelpFlag = firstArg === "--help" || firstArg === "-h";
+  const command = isHelpFlag ? "help" : hasExplicitCommand ? firstArg : "setup";
+  const optionStartIndex = isHelpFlag ? 1 : hasExplicitCommand ? 1 : 0;
+  const positional = collectPositionals(args.slice(optionStartIndex));
   const options: CliOptions = {
     command,
     topic: positional[0],
@@ -142,10 +147,10 @@ function parseArgs(args: string[]): CliOptions {
     printOutput: false
   };
 
-  for (let index = 1; index < args.length; index += 1) {
+  for (let index = optionStartIndex; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
-    if ((command === "replay" || command === "trace") && index === 1 && !arg.startsWith("--")) {
+    if ((command === "replay" || command === "trace") && index === optionStartIndex && !arg.startsWith("--")) {
       options.input = arg;
       continue;
     }
@@ -343,6 +348,9 @@ function collectPositionals(args: string[]): string[] {
 
 async function runUtilityCommand(options: CliOptions): Promise<boolean> {
   switch (options.command) {
+    case "setup":
+      await runSetup(options);
+      return true;
     case "import":
       await runImport(options);
       return true;
@@ -433,6 +441,123 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     default:
       return false;
   }
+}
+
+async function runSetup(options: CliOptions): Promise<void> {
+  if (options.topic) {
+    throw new Error("setup does not take a topic; use onboarding check for the JSON preflight report.");
+  }
+  const workspaceRoot = resolve(options.workspace);
+  const report = await buildOnboardingPreflightReport(workspaceRoot);
+  console.log(formatSetupPanel(report));
+  if (!shouldPromptSetup()) {
+    return;
+  }
+
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  try {
+    const choice = (await readline.question("Choose a setup action [1/2/3/h/q]: ")).trim().toLowerCase();
+    await runSetupChoice(choice, report, workspaceRoot);
+  } finally {
+    readline.close();
+  }
+}
+
+async function runSetupChoice(choice: string, report: OnboardingPreflightReport, workspaceRoot: string): Promise<void> {
+  switch (choice) {
+    case "":
+    case "q":
+    case "quit":
+      console.log("setup_action=quit");
+      return;
+    case "1":
+      console.log("setup_action=print_onboarding_json");
+      printRawJson(report);
+      return;
+    case "2":
+      console.log("setup_action=print_readiness_commands");
+      for (const command of setupReadinessCommands(workspaceRoot)) {
+        console.log(command);
+      }
+      return;
+    case "3":
+      console.log("setup_action=print_first_run_command");
+      console.log(`run_command=${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write`);
+      return;
+    case "h":
+    case "help":
+      console.log("setup_action=help");
+      printHelp();
+      return;
+    default:
+      console.log(`setup_action=unknown:${choice}`);
+      console.log("No action was run.");
+  }
+}
+
+function formatSetupPanel(report: OnboardingPreflightReport): string {
+  const workspaceRoot = report.workspace_root;
+  return `Ether setup
+
+command=setup
+default_entry=ether
+workspace=${workspaceRoot}
+status=${report.status}
+scope=read_only
+mutates_workspace=false
+initializes_workspace=false
+installs_dependencies=false
+runs_verification_suite=false
+starts_daemon=false
+toolchain=${report.readiness_layers.toolchain_ready}
+repo=${report.readiness_layers.repo_ready}
+workspace_runtime=${report.readiness_layers.workspace_runtime_state}
+checks=pass:${report.summary.pass} warn:${report.summary.warn} fail:${report.summary.fail} not_applicable:${report.summary.not_applicable}
+
+Setup menu:
+  1  Print onboarding JSON
+  2  Print readiness commands
+  3  Print the first approval-gated local run command
+  h  Show help
+  q  Quit
+
+Next commands:
+${setupReadinessCommands(workspaceRoot).map((command) => `  ${command}`).join("\n")}
+
+First local run:
+  run_command=${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write
+
+Direct entry:
+  ether --workspace ${shellQuote(workspaceRoot)}
+  npm run ether -- --workspace ${shellQuote(workspaceRoot)}
+`;
+}
+
+function setupReadinessCommands(workspaceRoot: string): string[] {
+  return [
+    `onboarding_command=${setupCommand("onboarding check --workspace", workspaceRoot)}`,
+    `doctor_command=${setupCommand("doctor --workspace", workspaceRoot)}`,
+    `security_audit_command=${setupCommand("security audit --workspace", workspaceRoot)}`,
+    `release_evidence_command=${setupCommand("release evidence --workspace", workspaceRoot)}`
+  ];
+}
+
+function setupCommand(prefix: string, workspaceRoot: string): string {
+  return `npm run ether -- ${prefix} ${shellQuote(workspaceRoot)}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function shouldPromptSetup(): boolean {
+  return process.stdin.isTTY === true
+    && process.stdout.isTTY === true
+    && process.env.CI !== "true"
+    && process.env.AETHERION_SETUP_NONINTERACTIVE !== "1";
 }
 
 async function runSupervisorCommand(options: CliOptions): Promise<void> {
@@ -8673,6 +8798,10 @@ function printHelp(): void {
   console.log(`Ether CLI
 
 Usage:
+  ether
+  ether --workspace <path>
+  npm run ether -- --workspace <path>
+
   V1 core:
   npm run ether -- run --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write [--idempotency-key <key>]
   npm run ether -- run --supervisor stdio --workspace <path> --input README.md --output .aetherion/SUMMARY.md --approve-write [--idempotency-key <key>]
@@ -8763,6 +8892,7 @@ Usage:
   npm run ether -- ingress audit --workspace <path>
 
 Commands:
+  ether                  Open the read-only setup/onboarding panel
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor status/preflight plus fail-closed unsupported lifecycle command reports

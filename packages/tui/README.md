@@ -4,7 +4,7 @@
 
 V1 terminal surface for the local kernel loop.
 
-Design note: a future full-screen interactive TUI may use Charmbracelet Bubbles as a component-template reference for lists, tables, text inputs, text areas, viewports, help, spinners, progress, and file pickers. The current package remains a TypeScript CLI and does not add a Go/Bubble Tea runtime dependency until that implementation phase is explicit.
+Running `ether` opens the read-only setup/onboarding panel for the current workspace. It summarizes toolchain, repo, and workspace readiness and prints next commands without initializing `.aetherion`, installing dependencies, running long verification, starting daemons, or mutating workspace state. A future full-screen interactive TUI may use Charmbracelet Bubbles as a component-template reference for lists, tables, text inputs, text areas, viewports, help, spinners, progress, and file pickers. The current package remains a TypeScript CLI and does not add a Go/Bubble Tea runtime dependency until that implementation phase is explicit.
 
 Current scope:
 

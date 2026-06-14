@@ -3,6 +3,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "ether": "packages/tui/src/cli.ts"
+  },
   "scripts": {
     "test": "node --test packages/*/test/*.test.ts",
     "test:rust": "cargo test --locked",

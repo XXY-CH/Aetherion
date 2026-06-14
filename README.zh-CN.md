@@ -135,6 +135,8 @@ pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检�
 
 当前仓库已经超过纯文档阶段，包含可运行的本地终端原型。核心已包括合同验证、Rust supervisor POC、hash-chained Event Ledger、本地读写 policy/lease/approval 流、Memory/Capability/Sandbox/Hibernation/Surface 等 trace-backed 合同切片，以及 no-tools 模型调用的 hash-only 证据链。
 
+运行 `ether` 会打开当前 workspace 的只读 setup/onboarding panel，汇总 toolchain、repo 与 workspace readiness，并打印下一步命令；它不会初始化 `.aetherion`、安装依赖、运行长 verification、启动 daemon 或修改 workspace state。
+
 `prompt invoke-model` 支持以下 provider：
 
 - `stub`：默认离线确定性 provider。

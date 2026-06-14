@@ -551,6 +551,9 @@ test("Ether run rejects local rate-limit overflow before supervisor handoff", as
 test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   const help = await execFileAsync(process.execPath, [cliPath, "help"]);
 
+  assert.match(help.stdout, /ether\n/);
+  assert.match(help.stdout, /ether --workspace <path>/);
+  assert.match(help.stdout, /ether\s+Open the read-only setup\/onboarding panel/);
   assert.match(help.stdout, /V1 core:/);
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- onboarding check --workspace <path>/);
@@ -589,6 +592,32 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   for (const excluded of ["memory", "prompt", "capsule", "agent", "surface", "store", "audit"]) {
     assert.equal(v1Help.includes(`npm run ether -- ${excluded}`), false, `${excluded} must not appear in the V1 core help section`);
   }
+});
+
+test("Bare Ether opens the read-only setup panel without initializing a workspace", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-setup-empty-"));
+
+  const setup = await execFileAsync(process.execPath, [
+    cliPath,
+    "--workspace",
+    workspace
+  ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
+
+  assert.match(setup.stdout, /Ether setup/);
+  assert.match(setup.stdout, /command=setup/);
+  assert.match(setup.stdout, /default_entry=ether/);
+  assert.match(setup.stdout, /scope=read_only/);
+  assert.match(setup.stdout, /mutates_workspace=false/);
+  assert.match(setup.stdout, /initializes_workspace=false/);
+  assert.match(setup.stdout, /installs_dependencies=false/);
+  assert.match(setup.stdout, /runs_verification_suite=false/);
+  assert.match(setup.stdout, /starts_daemon=false/);
+  assert.match(setup.stdout, /workspace_runtime=not_initialized/);
+  assert.match(setup.stdout, /Setup menu:/);
+  assert.match(setup.stdout, /onboarding_command=npm run ether -- onboarding check --workspace/);
+  assert.match(setup.stdout, /run_command=npm run ether -- run --workspace/);
+  assert.match(setup.stdout, /Direct entry:/);
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
 test("Ether onboarding check reports fresh-clone next steps without initializing a workspace", async () => {

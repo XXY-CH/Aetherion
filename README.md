@@ -143,7 +143,7 @@ The repository contains the contract-first kernel workspace:
 - `packages/connector-sdk/`: post-V1 scaffold for quarantined connector imports and policy-gated tool calls.
 - `crates/supervisor/`: Rust Local Supervisor POC used by Ether by default: path-derived workspace identity checks, workspace init, versioned cross-author hash-chained JSONL event append/verification, deterministic local file policy, scoped leases, lease-gated reads, and traced write prepare/commit.
 
-Future interactive TUI work may use Charmbracelet Bubbles as a component-template reference for lists, tables, text inputs, text areas, viewports, help, spinners, progress, and file pickers. That is a design direction only; the current TypeScript CLI does not add a Go TUI dependency.
+Running `ether` opens the read-only setup/onboarding panel for the current workspace. It summarizes toolchain, repo, and workspace readiness and prints next commands without initializing `.aetherion`, installing dependencies, running long verification, starting daemons, or mutating workspace state. Future full-screen interactive TUI work may use Charmbracelet Bubbles as a component-template reference for lists, tables, text inputs, text areas, viewports, help, spinners, progress, and file pickers. That is a design direction only; the current TypeScript CLI does not add a Go TUI dependency.
 
 Run verification:
 

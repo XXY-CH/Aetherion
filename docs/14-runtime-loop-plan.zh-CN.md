@@ -1035,3 +1035,24 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 dependency scanning、release signing、public docs deployment、provider probing、secret vault access、live content execution，或任何会修改 workspace state 的 runtime action。
+
+## 已完成增量：Bare Ether Setup TUI Entry
+
+目标：让面向用户的 `ether` command 默认进入 setup/onboarding terminal surface，而不是只落到 generic help，同时保持该入口只读且仍在 V1 scope 内。
+
+验收：
+
+- `package.json` 暴露真实的 `ether` bin entry，指向现有 TypeScript TUI CLI。
+- CLI 没有显式 command 时，包括 `ether --workspace <path>` / `npm run ether -- --workspace <path>`，会渲染 setup/onboarding panel，包含 readiness layers、next commands 和 first-run guidance。
+- setup panel 复用 onboarding readiness evidence，不初始化 `.aetherion`、不安装依赖、不运行长 verification、不启动 daemon、不写 artifact、不追加 Ledger event、不发 lease、不调用 provider，也不修改 workspace state。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：已修正 drift；产品简报把 Ether 定义为面向用户的 terminal command，现在默认路径表现为 TUI setup entry，而不是只有 help dump。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；这仍在 Phase 1/2 TUI-first terminal experience 内，没有新增 GUI、mobile、IM、browser automation、MCP/OAuth connector、cloud worker 或 package execution。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；setup 是只读 onboarding evidence，不能授权 action、发 lease、repair state，或让 projection 变成 authoritative。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：在 command-entry 层修正 guided-onboarding gap，同时保留计划中的 no V1 surface creep 约束。
+
+剩余边界：
+
+- 这不是 full-screen GUI/TUI framework integration、installer/updater、dependency bootstrapper、daemon manager、release packager、remote CI query、OAuth/login flow、connector setup，或任何 authority-bearing action surface。

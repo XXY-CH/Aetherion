@@ -1429,3 +1429,24 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not dependency scanning, release signing, public docs deployment, provider probing, secret vault access, live content execution, or any runtime action that mutates workspace state.
+
+## Completed Increment: Bare Ether Setup TUI Entry
+
+Target: make the user-facing `ether` command enter a setup/onboarding terminal surface by default instead of falling through to generic help, while keeping the entry read-only and V1-scoped.
+
+Acceptance:
+
+- `package.json` exposes a real `ether` bin entry pointing at the existing TypeScript TUI CLI.
+- Running the CLI with no explicit command, including `ether --workspace <path>` / `npm run ether -- --workspace <path>`, renders a setup/onboarding panel with readiness layers, next commands, and first-run guidance.
+- The setup panel reuses onboarding readiness evidence and does not initialize `.aetherion`, install dependencies, run long verification, start daemons, write artifacts, append Ledger events, issue leases, call providers, or mutate workspace state.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): corrected drift; the product brief names Ether as the user-facing terminal command, and the default path now behaves like a TUI setup entry rather than only a help dump.
+- [Roadmap](06-roadmap.md): no drift; this stays inside Phase 1/2 TUI-first terminal experience and does not add GUI, mobile, IM, browser automation, MCP/OAuth connectors, cloud workers, or package execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; setup is read-only onboarding evidence and cannot authorize actions, issue leases, repair state, or make projections authoritative.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected guided-onboarding gap at the command-entry layer while preserving the plan's "no V1 surface creep" constraint.
+
+Remaining boundary:
+
+- This is not a full-screen GUI/TUI framework integration, installer/updater, dependency bootstrapper, daemon manager, release packager, remote CI query, OAuth/login flow, connector setup, or any authority-bearing action surface.
