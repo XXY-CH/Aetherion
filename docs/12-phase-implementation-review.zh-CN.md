@@ -155,6 +155,28 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 - Store trust 仍是 local-only。还没有 remote Capsule marketplace、transparency log、revocation feed、public publisher identity、release evidence repository 或 package-code execution。
 - provider hardening 仍是 no-tools/no-streaming/hash-only；没有 OAuth flow、token refresh、vault storage 或 connector grant。
 
+## 阶段 44.1 复核：Store Registry 只读重建审计
+
+与原始文档对照：
+
+- `docs/01-architecture.md`：Store 与 projection surface 仍然只是 client / fact-layer 对齐对象，不能成为 authority root。
+- `docs/05-audit-and-data-contracts.md`：registry 与 projection 是可重建 evidence view；audit 必须只读，并区分 stale、mismatched 等 projection 状态与 source truth。
+- `docs/06-roadmap.md`：store surface 仍然是 gated client surface，不是 trust root。
+- `docs/13-schema-runtime-governance.md`：projection 和 client-surface contract 不是 runtime authority。
+- `docs/15-production-gap-closure-plan.md`：PGC-6 明确点名 Store publisher/install rebuild parity，并保持 repair 为 operator-approved。
+
+本轮落地：
+
+- `audit store-records` 现在为 `store-publishers` 与 `capsule-installs` 提供只读 parity preview。
+- 该 audit 从 `store.publisher.trusted` 和 `capsule.store.installed` 的 Ledger events 加 payload-ref artifacts 重建期望记录。
+- Findings 区分 `matched`、`missing_registry`、`mismatched`、`stale_registry`、`invalid_artifact` 和 `invalid_registry`，但不会修改 registry 或执行 package code。
+- TUI `audit store-records` 走的仍是 harness-core 同一条审计路径，与其他 rebuild/parity preview 保持一致。
+
+修正与剩余边界：
+
+- 这只关闭了 PGC-6 的审计 slice。自动 repair、更多 registry family、event signatures 和 redaction tooling 仍然未完成。
+- `store install` 仍然是本地且 non-authorizing；新增 audit 只是在预览 projection parity，不会给 Store registry 增加 authority。
+
 ## Phase 45 复核：只读 Doctor 与 Ledger-backed Evidence Gates
 
 本轮继续按 OpenClaw 生产完整度和严格 bug/security 视角复查。Aetherion 已有较强的本地证据链，但缺少单入口只读 operator readiness surface；同时 audit 与 Store install 仍有投影状态被误当成可信证据的风险。

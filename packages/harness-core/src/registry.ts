@@ -290,6 +290,49 @@ export type SandboxRegistryRebuildAudit = {
   findings: SandboxRegistryRebuildFinding[];
 };
 
+export type StoreRegistryName = "store-publishers" | "capsule-installs";
+
+export type StoreRegistryRebuildFinding = {
+  registry: StoreRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  event_id?: string;
+  artifact_ref?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type StoreRegistryRebuildAudit = {
+  id: "store_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: StoreRegistryName[];
+  scope: {
+    mode: "read_only_ledger_artifact_rebuild_parity";
+    mutates_registry: false;
+    executes_package_code: false;
+    trusts_registry_as_authority: false;
+    rebuilds_from: "store publisher/install Ledger events plus payload_ref artifacts";
+  };
+  summary: {
+    expected_store_publishers: number;
+    expected_capsule_installs: number;
+    actual_store_publishers: number;
+    actual_capsule_installs: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_store_publishers: RegistryItem[];
+  expected_capsule_installs: RegistryItem[];
+  findings: StoreRegistryRebuildFinding[];
+};
+
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
 export type LedgerPayloadRefSchemaStatus = "valid" | "invalid" | "not_checked";
 
@@ -838,6 +881,88 @@ export function auditCapsuleRegistryRebuild(workspaceRoot: string, events: Event
     expected_capsules: sortedCapsules,
     expected_capsule_drafts: sortedDrafts,
     expected_capsule_versions: sortedVersions,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
+export function auditStoreRegistryRebuild(workspaceRoot: string, events: EventRecord[]): StoreRegistryRebuildAudit {
+  const expectedPublishers = new Map<string, RegistryItem>();
+  const expectedInstalls = new Map<string, RegistryItem>();
+  const findings: StoreRegistryRebuildFinding[] = [];
+
+  for (const event of events) {
+    if (!isStoreRegistryRebuildEvent(event.event_type)) {
+      continue;
+    }
+    if (!event.payload_ref) {
+      findings.push({
+        registry: storeRegistryForEvent(event.event_type),
+        item_id: event.id,
+        status: "invalid_artifact",
+        event_id: event.id,
+        reason: "store registry event has no payload_ref"
+      });
+      continue;
+    }
+    const artifact = readStoreArtifact(workspaceRoot, event, findings);
+    if (artifact.status === "invalid") {
+      continue;
+    }
+
+    if (event.event_type === "store.publisher.trusted" && isStorePublisherRecord(artifact.value)) {
+      expectedPublishers.set(artifact.value.id, artifact.value);
+      continue;
+    }
+
+    if (event.event_type === "capsule.store.installed" && isCapsuleInstallRecord(artifact.value)) {
+      expectedInstalls.set(artifact.value.id, artifact.value);
+      continue;
+    }
+
+    findings.push({
+      registry: storeRegistryForEvent(event.event_type),
+      item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: artifact.path,
+      reason: `artifact is not valid for ${event.event_type}`
+    });
+  }
+
+  const actualPublishers = readStoreRegistryItems(workspaceRoot, "store-publishers", isStorePublisherRecord, findings);
+  const actualInstalls = readStoreRegistryItems(workspaceRoot, "capsule-installs", isCapsuleInstallRecord, findings);
+  compareStoreRegistryProjection("store-publishers", expectedPublishers, actualPublishers, findings);
+  compareStoreRegistryProjection("capsule-installs", expectedInstalls, actualInstalls, findings);
+
+  const sortedPublishers = [...expectedPublishers.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedInstalls = [...expectedInstalls.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "store_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["store-publishers", "capsule-installs"],
+    scope: {
+      mode: "read_only_ledger_artifact_rebuild_parity",
+      mutates_registry: false,
+      executes_package_code: false,
+      trusts_registry_as_authority: false,
+      rebuilds_from: "store publisher/install Ledger events plus payload_ref artifacts"
+    },
+    summary: {
+      expected_store_publishers: sortedPublishers.length,
+      expected_capsule_installs: sortedInstalls.length,
+      actual_store_publishers: actualPublishers.size,
+      actual_capsule_installs: actualInstalls.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_store_publishers: sortedPublishers,
+    expected_capsule_installs: sortedInstalls,
     findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
   };
 }
@@ -1502,6 +1627,10 @@ function isCapsuleLifecycleRebuildEvent(eventType: string): eventType is "capsul
     || eventType === "capsule.rollback.recorded";
 }
 
+function isStoreRegistryRebuildEvent(eventType: string): eventType is "store.publisher.trusted" | "capsule.store.installed" {
+  return eventType === "store.publisher.trusted" || eventType === "capsule.store.installed";
+}
+
 function memoryRegistryForEvent(eventType: "memory.candidate.created" | "memory.accepted" | "memory.rejected" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
   if (eventType === "memory.candidate.created" || eventType === "memory.rejected") {
     return "memory-candidates";
@@ -1514,6 +1643,10 @@ function capsuleRegistryForEvent(eventType: "capsule.draft.recorded" | "capsule.
     return "capsule-drafts";
   }
   return "capsules";
+}
+
+function storeRegistryForEvent(eventType: "store.publisher.trusted" | "capsule.store.installed"): StoreRegistryName {
+  return eventType === "store.publisher.trusted" ? "store-publishers" : "capsule-installs";
 }
 
 function readLifecycleArtifact(
@@ -1561,6 +1694,55 @@ function readLifecycleArtifact(
       artifact_ref: event.payload_ref,
       artifact_path: resolved.path,
       reason: `${lifecycleName} lifecycle artifact JSON could not be parsed`
+    });
+    return { status: "invalid" };
+  }
+}
+
+function readStoreArtifact(
+  workspaceRoot: string,
+  event: EventRecord,
+  findings: StoreRegistryRebuildFinding[]
+): { status: "valid"; value: unknown; path: string } | { status: "invalid" } {
+  const registry = storeRegistryForEvent(event.event_type as "store.publisher.trusted" | "capsule.store.installed");
+  if (!event.payload_ref) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      reason: "store registry event has no payload_ref"
+    });
+    return { status: "invalid" };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.status === "unresolved" ? undefined : resolved.path,
+      reason: resolved.status === "unresolved" ? resolved.reason : "store registry artifact is missing"
+    });
+    return { status: "invalid" };
+  }
+  try {
+    return {
+      status: "valid",
+      value: JSON.parse(readFileSync(resolved.path, "utf8")) as unknown,
+      path: resolved.path
+    };
+  } catch {
+    findings.push({
+      registry,
+      item_id: basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: "store registry artifact JSON could not be parsed"
     });
     return { status: "invalid" };
   }
@@ -1698,11 +1880,95 @@ function readSandboxRegistryItems(
   return valid;
 }
 
+function readStoreRegistryItems(
+  workspaceRoot: string,
+  registry: StoreRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: StoreRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
 function compareRegistryProjection(
   registry: MemoryRegistryName,
   expected: Map<string, RegistryItem>,
   actual: Map<string, RegistryItem>,
   findings: MemoryRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from Ledger artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function compareStoreRegistryProjection(
+  registry: StoreRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: StoreRegistryRebuildFinding[]
 ): void {
   for (const [itemId, expectedItem] of expected.entries()) {
     const actualItem = actual.get(itemId);
@@ -1974,6 +2240,45 @@ function isCapsuleRollbackArtifact(value: unknown): value is { active: RegistryI
   return isObjectRecord(value)
     && isCapsuleRecord(value.active)
     && isCapsuleRecord(value.deprecated);
+}
+
+function isStorePublisherRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("pub_")
+    && typeof value.public_key_pem === "string"
+    && typeof value.fingerprint_sha256 === "string"
+    && value.fingerprint_sha256.startsWith("sha256:")
+    && value.status === "trusted"
+    && value.source === "local_operator"
+    && typeof value.enrolled_at === "string";
+}
+
+function isCapsuleInstallRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("install_")
+    && typeof value.package_id === "string"
+    && typeof value.capsule_id === "string"
+    && typeof value.capsule_version === "string"
+    && typeof value.publisher_id === "string"
+    && typeof value.publisher_key_fingerprint === "string"
+    && value.publisher_key_fingerprint.startsWith("sha256:")
+    && typeof value.package_digest === "string"
+    && value.package_digest.startsWith("sha256:")
+    && value.signature_verified === true
+    && value.permission_diff_reviewed === true
+    && value.replay_tests_passed === true
+    && Array.isArray(value.replay_record_ids)
+    && value.replay_record_ids.length >= 2
+    && value.replay_record_ids.every((replayRecordId) => typeof replayRecordId === "string")
+    && value.sandbox_trial_passed === true
+    && typeof value.sandbox_content_sha256 === "string"
+    && value.sandbox_content_sha256.startsWith("sha256:")
+    && (typeof value.approval_card_id === "string" || value.approval_card_id === null)
+    && (typeof value.rollback_target === "string" || value.rollback_target === null)
+    && value.installed_registry === "capsules"
+    && value.raw_code_executed === false
+    && value.status === "installed"
+    && typeof value.created_at === "string";
 }
 
 function isHibernationRecord(value: unknown): value is RegistryItem {

@@ -164,7 +164,8 @@
 
 - `store install` 已经不会把 `replay-records` registry projection 当 authority，而是从 hash-chain-verified 的 `replay.recorded` Ledger events 与 Replay Record artifacts 解析 replay evidence。
 - Store install 现在也会拒绝 package replay-test claim 中声明的 `replay_record_id`、`run_id` 或 `source_events` 与本地 Replay Record evidence 不匹配的情况。
-- Store publisher/install registries、child-agent budgets/results、security fixtures、surface records、prompt/model artifacts 的 deterministic rebuild/parity，以及 event signatures、redaction 和显式 repair 仍未完成。
+- `audit store-records` 现在为 `store-publishers` 与 `capsule-installs` 提供只读 Ledger-plus-artifact parity preview；它区分 matched、missing、mismatched、stale、invalid-artifact 和 invalid-registry 状态，但不修改 registry、不执行 package code，也不把 Store projection 当 authority。
+- child-agent budgets/results、security fixtures、surface records、prompt/model artifacts 的 deterministic rebuild/parity，以及 event signatures、redaction 和显式 repair 仍未完成。Store projection repair 也仍然必须显式且 operator-approved，不能由 audit 自动修复。
 
 ### PGC-7：Adapter 与 Surface Gate Readiness
 

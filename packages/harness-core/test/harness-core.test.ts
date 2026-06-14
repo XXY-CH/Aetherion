@@ -20,6 +20,7 @@ import {
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
   auditSandboxRegistryRebuild,
+  auditStoreRegistryRebuild,
   callSupervisorRpc,
   canonicalLedgerPath,
   canonicalRuntimeDir,
@@ -3514,6 +3515,92 @@ test("capsule registry rebuild audit derives active capsule projections from lif
   assert.equal(await readFile(join(registryDir, "capsule-drafts.json"), "utf8"), beforeDrafts);
 });
 
+test("store registry rebuild audit derives publisher and install projections without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-store-registry-audit-"));
+  const artifactDir = join(root, ".aetherion", "artifacts", "store");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactDir, "publisher"), { recursive: true });
+  await mkdir(join(artifactDir, "install"), { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const matchedPublisher = storePublisher("pub_matched");
+  const mismatchPublisherArtifact = storePublisher("pub_mismatch");
+  const mismatchPublisherRegistry = { ...mismatchPublisherArtifact, fingerprint_sha256: `sha256:${"9".repeat(64)}` };
+  const stalePublisher = storePublisher("pub_stale");
+  const matchedInstall = capsuleInstall("install_matched");
+  const mismatchInstallArtifact = capsuleInstall("install_mismatch");
+  const mismatchInstallRegistry = { ...mismatchInstallArtifact, sandbox_content_sha256: `sha256:${"0".repeat(64)}` };
+  const missingInstall = capsuleInstall("install_missing");
+  const staleInstall = capsuleInstall("install_stale");
+
+  await writeFile(join(artifactDir, "publisher", "pub_matched.json"), `${JSON.stringify(matchedPublisher, null, 2)}\n`);
+  await writeFile(join(artifactDir, "publisher", "pub_mismatch.json"), `${JSON.stringify(mismatchPublisherArtifact, null, 2)}\n`);
+  await writeFile(join(artifactDir, "publisher", "broken.json"), "{not json");
+  await writeFile(join(artifactDir, "install", "install_matched.json"), `${JSON.stringify(matchedInstall, null, 2)}\n`);
+  await writeFile(join(artifactDir, "install", "install_mismatch.json"), `${JSON.stringify(mismatchInstallArtifact, null, 2)}\n`);
+  await writeFile(join(artifactDir, "install", "install_missing.json"), `${JSON.stringify(missingInstall, null, 2)}\n`);
+
+  await writeFile(join(registryDir, "store-publishers.json"), `${JSON.stringify([
+    matchedPublisher,
+    mismatchPublisherRegistry,
+    stalePublisher,
+    { id: "pub_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "capsule-installs.json"), `${JSON.stringify([
+    matchedInstall,
+    mismatchInstallRegistry,
+    staleInstall,
+    { id: "install_invalid" }
+  ], null, 2)}\n`);
+  const beforePublishers = await readFile(join(registryDir, "store-publishers.json"), "utf8");
+  const beforeInstalls = await readFile(join(registryDir, "capsule-installs.json"), "utf8");
+
+  const events = [
+    payloadEvent("evt_store_pub_matched", "run_store", "store.publisher.trusted", "artifact://store/publisher/pub_matched"),
+    payloadEvent("evt_store_pub_mismatch", "run_store", "store.publisher.trusted", "artifact://store/publisher/pub_mismatch"),
+    payloadEvent("evt_store_pub_broken", "run_store", "store.publisher.trusted", "artifact://store/publisher/broken"),
+    payloadEvent("evt_store_install_matched", "run_store", "capsule.store.installed", "artifact://store/install/install_matched"),
+    payloadEvent("evt_store_install_mismatch", "run_store", "capsule.store.installed", "artifact://store/install/install_mismatch"),
+    payloadEvent("evt_store_install_missing", "run_store", "capsule.store.installed", "artifact://store/install/install_missing"),
+    payloadEvent("evt_store_install_missing_artifact", "run_store", "capsule.store.installed", "artifact://store/install/install_no_artifact")
+  ];
+
+  const audit = auditStoreRegistryRebuild(root, events);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "store_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.equal(audit.scope.executes_package_code, false);
+  assert.equal(audit.scope.trusts_registry_as_authority, false);
+  assert.deepEqual(audit.summary, {
+    expected_store_publishers: 2,
+    expected_capsule_installs: 3,
+    actual_store_publishers: 3,
+    actual_capsule_installs: 3,
+    matched: 2,
+    missing_registry: 1,
+    mismatched: 2,
+    stale_registry: 2,
+    invalid_artifact: 2,
+    invalid_registry: 2
+  });
+  assert.ok(finding("pub_matched", "matched"));
+  assert.ok(finding("pub_mismatch", "mismatched"));
+  assert.ok(finding("pub_stale", "stale_registry"));
+  assert.ok(finding("pub_invalid", "invalid_registry"));
+  assert.ok(finding("broken", "invalid_artifact"));
+  assert.ok(finding("install_matched", "matched"));
+  assert.ok(finding("install_mismatch", "mismatched"));
+  assert.ok(finding("install_missing", "missing_registry"));
+  assert.ok(finding("install_stale", "stale_registry"));
+  assert.ok(finding("install_invalid", "invalid_registry"));
+  assert.ok(audit.findings.some((entry) => entry.event_id === "evt_store_install_missing_artifact" && entry.status === "invalid_artifact"));
+  assert.deepEqual(audit.expected_store_publishers.map((item) => item.id), ["pub_matched", "pub_mismatch"]);
+  assert.deepEqual(audit.expected_capsule_installs.map((item) => item.id), ["install_matched", "install_mismatch", "install_missing"]);
+  assert.equal(await readFile(join(registryDir, "store-publishers.json"), "utf8"), beforePublishers);
+  assert.equal(await readFile(join(registryDir, "capsule-installs.json"), "utf8"), beforeInstalls);
+});
+
 test("sandbox registry rebuild audit compares checkpoint rehearsal artifacts without mutating", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-sandbox-registry-audit-"));
   const artifactRoot = join(root, ".aetherion", "artifacts");
@@ -4544,6 +4631,17 @@ function imOutboxItem(id: string) {
     policy_decision_id: "policy_surface_outbox_ask",
     policy_event_id: "evt_surface_outbox_policy",
     created_at: "2026-06-07T11:02:00.000Z"
+  };
+}
+
+function storePublisher(id: string) {
+  return {
+    id,
+    public_key_pem: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA1111111111111111111111111111111111111111111=\n-----END PUBLIC KEY-----\n",
+    fingerprint_sha256: `sha256:${"7".repeat(64)}`,
+    status: "trusted",
+    source: "local_operator",
+    enrolled_at: "2026-06-07T11:02:30.000Z"
   };
 }
 

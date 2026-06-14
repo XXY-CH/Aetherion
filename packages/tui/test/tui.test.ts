@@ -4540,6 +4540,53 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   const capsuleRegistry = JSON.parse(await readFile(join(workspace, ".aetherion", "registries", "capsules.json"), "utf8")) as Array<{ id: string; lifecycle: string }>;
   assert.ok(capsuleRegistry.some((entry) => entry.id === "cap_surface_signed" && entry.lifecycle === "published"));
 
+  const storePublishersPath = join(workspace, ".aetherion", "registries", "store-publishers.json");
+  const capsuleInstallsPath = join(workspace, ".aetherion", "registries", "capsule-installs.json");
+  const storePublishers = JSON.parse(await readFile(storePublishersPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const capsuleInstalls = JSON.parse(await readFile(capsuleInstallsPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const tamperedPublishers = storePublishers.map((entry) => entry.id === "pub_surface_local"
+    ? { ...entry, fingerprint_sha256: `sha256:${"0".repeat(64)}` }
+    : entry);
+  tamperedPublishers.push({
+    id: "pub_stale_projection",
+    public_key_pem: publicKeyPem,
+    fingerprint_sha256: `sha256:${"1".repeat(64)}`,
+    status: "trusted",
+    source: "local_operator",
+    enrolled_at: "2026-06-07T13:00:00.000Z"
+  });
+  const installRecord = JSON.parse(install.stdout) as { id: string };
+  const tamperedInstalls = capsuleInstalls.map((entry) => entry.id === installRecord.id
+    ? { ...entry, sandbox_content_sha256: `sha256:${"2".repeat(64)}` }
+    : entry);
+  await writeFile(storePublishersPath, `${JSON.stringify(tamperedPublishers, null, 2)}\n`);
+  await writeFile(capsuleInstallsPath, `${JSON.stringify(tamperedInstalls, null, 2)}\n`);
+  const beforeStorePublisherAudit = await readFile(storePublishersPath, "utf8");
+  const beforeStoreInstallAudit = await readFile(capsuleInstallsPath, "utf8");
+  const storeAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "store-records", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean; executes_package_code: boolean; trusts_registry_as_authority: boolean };
+    summary: { expected_store_publishers: number; expected_capsule_installs: number; actual_store_publishers: number; actual_capsule_installs: number; mismatched: number; stale_registry: number };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(storeAudit.id, "store_registry_rebuild_audit");
+  assert.equal(storeAudit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(storeAudit.scope.mutates_registry, false);
+  assert.equal(storeAudit.scope.executes_package_code, false);
+  assert.equal(storeAudit.scope.trusts_registry_as_authority, false);
+  assert.equal(storeAudit.summary.expected_store_publishers, 1);
+  assert.equal(storeAudit.summary.expected_capsule_installs, 1);
+  assert.equal(storeAudit.summary.actual_store_publishers, 2);
+  assert.equal(storeAudit.summary.actual_capsule_installs, 1);
+  assert.equal(storeAudit.summary.mismatched, 2);
+  assert.equal(storeAudit.summary.stale_registry, 1);
+  assert.equal(storeAudit.findings.find((finding) => finding.registry === "store-publishers" && finding.item_id === "pub_surface_local")?.status, "mismatched");
+  assert.equal(storeAudit.findings.find((finding) => finding.registry === "store-publishers" && finding.item_id === "pub_stale_projection")?.status, "stale_registry");
+  assert.equal(storeAudit.findings.find((finding) => finding.registry === "capsule-installs" && finding.item_id === installRecord.id)?.status, "mismatched");
+  assert.equal(await readFile(storePublishersPath, "utf8"), beforeStorePublisherAudit);
+  assert.equal(await readFile(capsuleInstallsPath, "utf8"), beforeStoreInstallAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
+
   const ledger = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
   assert.match(ledger, /browser\.observation\.ingested/);
   assert.match(ledger, /im\.inbox\.received/);

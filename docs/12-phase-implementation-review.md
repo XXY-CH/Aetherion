@@ -181,6 +181,28 @@ Correction and remaining boundary:
 - Store publication is still local. There is no remote market, transparency log, revocation feed, payment, public trust network, or automatic trust inheritance from package-embedded keys.
 - GUI work remains blocked on a concrete product-design target. The console must be a Local Supervisor client over these same event/registry surfaces, not a new authority path.
 
+## Phase 12 Store Audit Review
+
+Matched source docs:
+
+- `docs/01-architecture.md`: Store and projection surfaces stay client/fact-layer aligned and cannot become authority roots.
+- `docs/05-audit-and-data-contracts.md`: registries and projections are rebuildable evidence views; audits must stay read-only and distinguish stale or mismatched projection state from source truth.
+- `docs/06-roadmap.md`: the store surface remains a gated client surface, not a trust root.
+- `docs/13-schema-runtime-governance.md`: projection and client-surface contracts are not runtime authority.
+- `docs/15-production-gap-closure-plan.md`: PGC-6 explicitly calls out Store publisher/install rebuild parity and keeps repair operator-approved.
+
+Implemented correspondence:
+
+- `audit store-records` now exposes a read-only parity preview for `store-publishers` and `capsule-installs`.
+- The audit reconstructs expected records from `store.publisher.trusted` and `capsule.store.installed` Ledger events plus payload-ref artifacts.
+- Findings distinguish `matched`, `missing_registry`, `mismatched`, `stale_registry`, `invalid_artifact`, and `invalid_registry` without mutating registries or executing package code.
+- TUI `audit store-records` routes through the same harness-core audit path as the other rebuild/parity previews.
+
+Correction and remaining boundary:
+
+- This closes only the audit slice of PGC-6. Automatic repair, additional registry families, event signatures, and redaction tooling remain open.
+- `store install` remains local and non-authorizing; the new audit only previews projection parity and does not add trust to Store registries.
+
 ## Git-Like Event System Review
 
 Matched source docs:
