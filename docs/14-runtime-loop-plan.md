@@ -1387,3 +1387,24 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not write proposal execution, stale-artifact repair, model-driven tool execution, provider tool-call execution, durable queues, semantic verification, connector OAuth, package execution, or cloud worker execution.
+
+## Completed Increment: Ingress Audit Initialized-Workspace No-Mutation
+
+Target: harden PGC-3 readiness evidence by proving `ingress audit` stays read-only after a workspace already has Ledger, run manifest, and registry state.
+
+Acceptance:
+
+- `ingress audit` continues to report local ingress readiness without starting listeners, accepting remote connections, issuing sessions, detecting live duplicates, enforcing live rate limits, writing artifacts, or mutating workspace state.
+- On an initialized workspace, the command leaves `events.jsonl`, `.aetherion/runs/`, and `.aetherion/workspace.json` byte/list-identical.
+- The existing fresh-workspace test still proves `ingress audit` does not initialize `.aetherion`.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; V1 remains TUI-only and this adds no GUI, mobile, IM, browser extension, connector, or cloud surface.
+- [Roadmap](06-roadmap.md): no drift; this remains Phase 1/2 kernel evidence hardening rather than a real ingress gateway.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; local ingress readiness remains P1 metadata that cannot issue leases, authorize tools, replay live side effects, start listeners, or mutate runtime state.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): no drift; PGC-3 already calls for a read-only ingress audit command, and this locks its initialized-workspace no-mutation behavior.
+
+Remaining boundary:
+
+- This is not public API ingress, durable/session/remote idempotency replay, durable/distributed/session/remote rate limiting, persistent auth/session lifecycle, browser extension ingress, IM delivery, mobile pairing, connector OAuth ingress, cloud worker ingress, session issuance, or supervisor bypass.

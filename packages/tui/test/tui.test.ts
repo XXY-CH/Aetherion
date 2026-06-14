@@ -1521,6 +1521,74 @@ test("Ether ingress audit reports local envelope readiness without initializing 
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
+test("Ether ingress audit is read-only for initialized workspace evidence", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-ingress-audit-ready-"));
+  await writeFile(join(workspace, "README.md"), "Ingress audit fixture\n");
+  await execFileAsync(process.execPath, [
+    cliPath,
+    "run",
+    "--workspace",
+    workspace,
+    "--input",
+    "README.md",
+    "--output",
+    ".aetherion/SUMMARY.md",
+    "--approve-write"
+  ]);
+  const ledgerPath = join(workspace, ".aetherion", "events", "events.jsonl");
+  const runsPath = join(workspace, ".aetherion", "runs");
+  const registryPath = join(workspace, ".aetherion", "workspace.json");
+  const ledgerBefore = await readFile(ledgerPath, "utf8");
+  const runsBefore = await readdir(runsPath);
+  const registryBefore = await readFile(registryPath, "utf8");
+
+  const ingress = await execFileAsync(process.execPath, [
+    cliPath,
+    "ingress",
+    "audit",
+    "--workspace",
+    workspace
+  ]);
+  const report = JSON.parse(ingress.stdout) as {
+    id: string;
+    status: string;
+    scope: {
+      read_only: boolean;
+      mutates_ledger: boolean;
+      mutates_registries: boolean;
+      writes_artifacts: boolean;
+      mutates_workspace: boolean;
+      starts_listener: boolean;
+      accepts_remote_connections: boolean;
+      detects_live_duplicates: boolean;
+      enforces_rate_limits: boolean;
+      issues_session: boolean;
+    };
+    summary: { fail: number };
+    checks: Array<{ id: string; status: string; evidence: string[] }>;
+  };
+  assert.equal(report.id, "aetherion_ingress_audit_report");
+  assert.equal(report.status, "draft");
+  assert.equal(report.scope.read_only, true);
+  assert.equal(report.scope.mutates_ledger, false);
+  assert.equal(report.scope.mutates_registries, false);
+  assert.equal(report.scope.writes_artifacts, false);
+  assert.equal(report.scope.mutates_workspace, false);
+  assert.equal(report.scope.starts_listener, false);
+  assert.equal(report.scope.accepts_remote_connections, false);
+  assert.equal(report.scope.detects_live_duplicates, false);
+  assert.equal(report.scope.enforces_rate_limits, false);
+  assert.equal(report.scope.issues_session, false);
+  assert.equal(report.summary.fail, 0);
+  const ingressCheck = report.checks.find((check) => check.id === "local_ingress_readiness_contract");
+  assert.equal(ingressCheck?.status, "pass");
+  assert.match(ingressCheck?.evidence.join("\n") ?? "", /source_ready=true/);
+  assert.equal(await readFile(ledgerPath, "utf8"), ledgerBefore);
+  assert.deepEqual(await readdir(runsPath), runsBefore);
+  assert.equal(await readFile(registryPath, "utf8"), registryBefore);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "ingress")), /ENOENT/);
+});
+
 test("Ether security audit reports read-only status without initializing a workspace", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-security-audit-empty-"));
 

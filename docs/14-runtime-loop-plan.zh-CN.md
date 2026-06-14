@@ -993,3 +993,24 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 write proposal execution、stale-artifact repair、model-driven tool execution、provider tool-call execution、durable queue、semantic verification、connector OAuth、package execution 或 cloud worker execution。
+
+## 已完成增量：Ingress Audit Initialized-Workspace No-Mutation
+
+目标：强化 PGC-3 readiness evidence，证明 workspace 已经有 Ledger、run manifest 和 registry state 之后，`ingress audit` 仍保持只读。
+
+验收：
+
+- `ingress audit` 会继续输出 local ingress readiness，但不启动 listener、不接受 remote connection、不发 session、不检测 live duplicate、不执行 live rate limit、不写 artifact、不修改 workspace state。
+- 在 initialized workspace 上，该命令保持 `events.jsonl`、`.aetherion/runs/` 和 `.aetherion/workspace.json` 字节/list 完全不变。
+- 既有 fresh-workspace 测试仍证明 `ingress audit` 不会初始化 `.aetherion`。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；V1 仍是 TUI-only，没有新增 GUI、mobile、IM、browser extension、connector 或 cloud surface。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；这仍是 Phase 1/2 kernel evidence hardening，不是真实 ingress gateway。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；local ingress readiness 仍是 P1 metadata，不能发 lease、授权 tool、replay live side effect、启动 listener 或修改 runtime state。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：无 drift；PGC-3 已要求 read-only ingress audit command，本轮锁住它在 initialized workspace 上的 no-mutation 行为。
+
+剩余边界：
+
+- 这不是 public API ingress、durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、persistent auth/session lifecycle、browser extension ingress、IM delivery、mobile pairing、connector OAuth ingress、cloud worker ingress、session issuance 或 supervisor bypass。
