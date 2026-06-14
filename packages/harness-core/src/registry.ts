@@ -1,6 +1,13 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import type { AgentModelResponseArtifact, AgentResponseAuditArtifact } from "./agent-runtime.ts";
+import type {
+  AgentModelRequestArtifact,
+  AgentModelResponseArtifact,
+  AgentResponseAuditArtifact,
+  AgentRuntimeInvocationArtifact,
+  AgentToolRequestProposalArtifact
+} from "./agent-runtime.ts";
 import type { EventRecord } from "./ledger.ts";
 import type { ReplayRecord } from "./replay.ts";
 import { validateAgainstSchema } from "./schema.ts";
@@ -524,6 +531,72 @@ export type AgentResponseAuditEvidenceAudit = {
     authority_violation: number;
   };
   findings: AgentResponseAuditEvidenceFinding[];
+};
+
+export type PromptModelArtifactEvidenceStatus =
+  | "matched"
+  | "missing_evidence"
+  | "invalid_artifact"
+  | "invalid_run_manifest"
+  | "authority_violation";
+
+export type PromptModelArtifactKind =
+  | "runtime_invocation"
+  | "model_request"
+  | "model_response"
+  | "response_audit"
+  | "tool_request_proposal";
+
+export type PromptModelArtifactEvidenceFinding = {
+  artifact_kind: PromptModelArtifactKind;
+  artifact_id: string;
+  status: PromptModelArtifactEvidenceStatus;
+  reason?: string;
+  event_id?: string;
+  run_id?: string;
+  source_run_id?: string;
+  payload_ref?: string;
+  resolved_path?: string | null;
+  schema_name?: string;
+  schema_errors?: string[];
+  related_event_ids?: {
+    runtime_bound?: string;
+    model_requested?: string;
+    model_responded?: string;
+    response_audit_recorded?: string;
+    tool_request_proposed?: string;
+  };
+};
+
+export type PromptModelArtifactEvidenceAudit = {
+  id: "prompt_model_artifact_evidence_audit";
+  generated_at: string;
+  workspace_root: string;
+  ledger_event_count: number;
+  scope: {
+    mode: "read_only_prompt_model_artifact_evidence";
+    mutates_ledger: false;
+    mutates_artifacts: false;
+    mutates_registries: false;
+    calls_model_provider: false;
+    requests_supervisor_authority: false;
+    grants_runtime_authority: false;
+    rebuilds_registry_projection: false;
+  };
+  summary: {
+    artifact_events: number;
+    runtime_invocations: number;
+    model_requests: number;
+    model_responses: number;
+    response_audits: number;
+    tool_request_proposals: number;
+    matched: number;
+    missing_evidence: number;
+    invalid_artifact: number;
+    invalid_run_manifest: number;
+    authority_violation: number;
+  };
+  findings: PromptModelArtifactEvidenceFinding[];
 };
 
 export function registryPath(workspaceRoot: string, name: string): string {
@@ -1797,6 +1870,251 @@ export async function auditAgentResponseAuditEvidence(repoRoot: string, workspac
   };
 }
 
+export async function auditPromptModelArtifactEvidence(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<PromptModelArtifactEvidenceAudit> {
+  const findings: PromptModelArtifactEvidenceFinding[] = [];
+  const runtimeEvents = events.filter((event) => event.event_type === "agent.runtime.bound");
+  const requestEvents = events.filter((event) => event.event_type === "agent.model.requested");
+  const responseEvents = events.filter((event) => event.event_type === "agent.model.responded");
+  const responseAuditEvents = events.filter((event) => event.event_type === "agent.response.audit.recorded");
+  const proposalEvents = events.filter((event) => event.event_type === "agent.tool.request.proposed");
+  const runtimeEventByRef = eventMapByPayloadRef(runtimeEvents);
+  const requestEventByRef = eventMapByPayloadRef(requestEvents);
+  const responseEventByRef = eventMapByPayloadRef(responseEvents);
+  const responseAuditEventByRef = eventMapByPayloadRef(responseAuditEvents);
+  const eventsByRun = eventsByRunId(events);
+
+  for (const event of runtimeEvents) {
+    const check = await readPromptModelArtifactForAudit(repoRoot, workspaceRoot, event, "runtime_invocation", "agent-runtime-invocation.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const authorityViolations = runtimeInvocationAuthorityViolations(artifact);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "agent.runtime.bound");
+    findings.push(promptModelFinding({
+      artifactKind: "runtime_invocation",
+      artifactId: artifact.id,
+      status: authorityViolations.length > 0 ? "authority_violation" : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: authorityViolations.length > 0 ? authorityViolations.join("; ") : runCheck.status === "valid" ? undefined : runCheck.reason,
+      event,
+      resolvedPath: check.path,
+      schemaName: "agent-runtime-invocation.schema.json",
+      schemaErrors: [],
+      sourceRunId: artifact.run_id,
+      relatedEventIds: { runtime_bound: event.id }
+    }));
+  }
+
+  for (const event of requestEvents) {
+    const check = await readPromptModelArtifactForAudit(repoRoot, workspaceRoot, event, "model_request", "agent-model-request.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const runtimeEvent = runtimeEventByRef.get(artifact.runtime_invocation_artifact_ref);
+    const missingEvidence = !runtimeEvent ? [`missing agent.runtime.bound event for ${artifact.runtime_invocation_artifact_ref}`] : [];
+    const authorityViolations = modelRequestAuthorityViolations(artifact);
+    const mismatches = requestRuntimeMismatches(artifact, workspaceRoot);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "agent.model.requested");
+    findings.push(promptModelFinding({
+      artifactKind: "model_request",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "agent-model-request.schema.json",
+      schemaErrors: [],
+      sourceRunId: artifact.run_id,
+      relatedEventIds: {
+        runtime_bound: runtimeEvent?.id,
+        model_requested: event.id
+      }
+    }));
+  }
+
+  for (const event of responseEvents) {
+    const check = await readPromptModelArtifactForAudit(repoRoot, workspaceRoot, event, "model_response", "agent-model-response.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const runtimeEvent = runtimeEventByRef.get(artifact.runtime_invocation_artifact_ref);
+    const requestEvent = requestEventByRef.get(artifact.request_artifact_ref);
+    const missingEvidence = [
+      !runtimeEvent ? `missing agent.runtime.bound event for ${artifact.runtime_invocation_artifact_ref}` : "",
+      !requestEvent ? `missing agent.model.requested event for ${artifact.request_artifact_ref}` : ""
+    ].filter(Boolean);
+    const authorityViolations = modelResponseAuthorityViolations(artifact);
+    const mismatches = responseRequestMismatches(artifact, workspaceRoot);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "agent.model.responded");
+    findings.push(promptModelFinding({
+      artifactKind: "model_response",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "agent-model-response.schema.json",
+      schemaErrors: [],
+      sourceRunId: artifact.run_id,
+      relatedEventIds: {
+        runtime_bound: runtimeEvent?.id,
+        model_requested: requestEvent?.id,
+        model_responded: event.id
+      }
+    }));
+  }
+
+  for (const event of responseAuditEvents) {
+    const check = await readPromptModelArtifactForAudit(repoRoot, workspaceRoot, event, "response_audit", "agent-response-audit.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const runtimeEvent = runtimeEventByRef.get(artifact.runtime_invocation_artifact_ref);
+    const requestEvent = requestEventByRef.get(artifact.request_artifact_ref);
+    const responseEvent = responseEventByRef.get(artifact.response_artifact_ref);
+    const missingEvidence = [
+      !runtimeEvent ? `missing agent.runtime.bound event for ${artifact.runtime_invocation_artifact_ref}` : "",
+      !requestEvent ? `missing agent.model.requested event for ${artifact.request_artifact_ref}` : "",
+      !responseEvent ? `missing agent.model.responded event for ${artifact.response_artifact_ref}` : ""
+    ].filter(Boolean);
+    const authorityViolations = responseAuditAuthorityViolations(artifact);
+    const responseArtifactCheck = await validateResponseArtifactForAudit(repoRoot, workspaceRoot, artifact);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "agent.response.audit.recorded");
+    findings.push(promptModelFinding({
+      artifactKind: "response_audit",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || responseArtifactCheck.status === "missing_evidence"
+        ? "missing_evidence"
+        : responseArtifactCheck.status === "invalid_artifact"
+          ? "invalid_artifact"
+          : authorityViolations.length > 0 || responseArtifactCheck.status === "authority_violation"
+            ? "authority_violation"
+            : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [
+        ...missingEvidence,
+        responseArtifactCheck.status === "valid" ? "" : responseArtifactCheck.reason,
+        ...authorityViolations,
+        runCheck.status === "valid" ? "" : runCheck.reason
+      ].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "agent-response-audit.schema.json",
+      schemaErrors: [],
+      sourceRunId: artifact.run_id,
+      relatedEventIds: {
+        runtime_bound: runtimeEvent?.id,
+        model_requested: requestEvent?.id,
+        model_responded: responseEvent?.id,
+        response_audit_recorded: event.id
+      }
+    }));
+  }
+
+  for (const event of proposalEvents) {
+    const check = await readPromptModelArtifactForAudit(repoRoot, workspaceRoot, event, "tool_request_proposal", "agent-tool-request-proposal.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const runtimeEvent = runtimeEventByRef.get(artifact.runtime_invocation_artifact_ref);
+    const requestEvent = requestEventByRef.get(artifact.request_artifact_ref);
+    const responseEvent = responseEventByRef.get(artifact.response_artifact_ref);
+    const responseAuditEvent = responseAuditEventByRef.get(artifact.response_audit_artifact_ref);
+    const missingEvidence = [
+      !runtimeEvent ? `missing agent.runtime.bound event for ${artifact.runtime_invocation_artifact_ref}` : "",
+      !requestEvent ? `missing agent.model.requested event for ${artifact.request_artifact_ref}` : "",
+      !responseEvent ? `missing agent.model.responded event for ${artifact.response_artifact_ref}` : "",
+      !responseAuditEvent ? `missing agent.response.audit.recorded event for ${artifact.response_audit_artifact_ref}` : ""
+    ].filter(Boolean);
+    const authorityViolations = proposalAuthorityViolations(artifact);
+    const mismatches = proposalEvidenceMismatches(artifact, {
+      runtime_bound: runtimeEvent?.id,
+      model_requested: requestEvent?.id,
+      model_responded: responseEvent?.id,
+      response_audit_recorded: responseAuditEvent?.id
+    });
+    const responseAuditCheck = validateProposalResponseAuditLink(artifact, workspaceRoot);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "agent.tool.request.proposed");
+    findings.push(promptModelFinding({
+      artifactKind: "tool_request_proposal",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0 || responseAuditCheck.status === "missing_evidence"
+        ? "missing_evidence"
+        : responseAuditCheck.status === "invalid_artifact"
+          ? "invalid_artifact"
+          : authorityViolations.length > 0
+            ? "authority_violation"
+            : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [
+        ...missingEvidence,
+        ...mismatches,
+        responseAuditCheck.status === "valid" ? "" : responseAuditCheck.reason,
+        ...authorityViolations,
+        runCheck.status === "valid" ? "" : runCheck.reason
+      ].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "agent-tool-request-proposal.schema.json",
+      schemaErrors: [],
+      sourceRunId: artifact.run_id,
+      relatedEventIds: {
+        runtime_bound: runtimeEvent?.id,
+        model_requested: requestEvent?.id,
+        model_responded: responseEvent?.id,
+        response_audit_recorded: responseAuditEvent?.id,
+        tool_request_proposed: event.id
+      }
+    }));
+  }
+
+  return {
+    id: "prompt_model_artifact_evidence_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    ledger_event_count: events.length,
+    scope: {
+      mode: "read_only_prompt_model_artifact_evidence",
+      mutates_ledger: false,
+      mutates_artifacts: false,
+      mutates_registries: false,
+      calls_model_provider: false,
+      requests_supervisor_authority: false,
+      grants_runtime_authority: false,
+      rebuilds_registry_projection: false
+    },
+    summary: {
+      artifact_events: findings.length,
+      runtime_invocations: findings.filter((finding) => finding.artifact_kind === "runtime_invocation").length,
+      model_requests: findings.filter((finding) => finding.artifact_kind === "model_request").length,
+      model_responses: findings.filter((finding) => finding.artifact_kind === "model_response").length,
+      response_audits: findings.filter((finding) => finding.artifact_kind === "response_audit").length,
+      tool_request_proposals: findings.filter((finding) => finding.artifact_kind === "tool_request_proposal").length,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_evidence: findings.filter((finding) => finding.status === "missing_evidence").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_run_manifest: findings.filter((finding) => finding.status === "invalid_run_manifest").length,
+      authority_violation: findings.filter((finding) => finding.status === "authority_violation").length
+    },
+    findings: findings.sort((left, right) => `${left.status}:${left.artifact_kind}:${left.artifact_id}`.localeCompare(`${right.status}:${right.artifact_kind}:${right.artifact_id}`))
+  };
+}
+
 function readRegistryForAudit(workspaceRoot: string, registry: string): {
   itemCount: number;
   items: RegistryItem[];
@@ -1841,6 +2159,465 @@ function readRegistryForAudit(workspaceRoot: string, registry: string): {
     items,
     invalidFindings
   };
+}
+
+type PromptModelArtifactMap = {
+  runtime_invocation: AgentRuntimeInvocationArtifact;
+  model_request: AgentModelRequestArtifact;
+  model_response: AgentModelResponseArtifact;
+  response_audit: AgentResponseAuditArtifact;
+  tool_request_proposal: AgentToolRequestProposalArtifact;
+};
+
+async function readPromptModelArtifactForAudit<Kind extends PromptModelArtifactKind>(
+  repoRoot: string,
+  workspaceRoot: string,
+  event: EventRecord,
+  artifactKind: Kind,
+  schemaName: string
+): Promise<
+  | { status: "valid"; artifact: PromptModelArtifactMap[Kind]; path: string }
+  | { status: "invalid"; finding: PromptModelArtifactEvidenceFinding }
+> {
+  const artifactId = event.payload_ref ? basenameFromArtifactRef(event.payload_ref) : event.id;
+  if (!event.payload_ref) {
+    return {
+      status: "invalid",
+      finding: promptModelFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: `${event.event_type} event has no payload_ref`,
+        event,
+        schemaName
+      })
+    };
+  }
+  const expectedPrefix = promptModelArtifactPrefix(artifactKind);
+  if (!event.payload_ref.startsWith(expectedPrefix)) {
+    return {
+      status: "invalid",
+      finding: promptModelFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: `${event.event_type} event expected ${expectedPrefix} payload_ref`,
+        event,
+        schemaName
+      })
+    };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    return {
+      status: "invalid",
+      finding: promptModelFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: resolved.status === "unresolved" ? resolved.reason : "prompt/model artifact is missing",
+        event,
+        resolvedPath: resolved.status === "unresolved" ? null : resolved.path,
+        schemaName
+      })
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved.path, "utf8")) as unknown;
+  } catch {
+    return {
+      status: "invalid",
+      finding: promptModelFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: "prompt/model artifact JSON could not be parsed",
+        event,
+        resolvedPath: resolved.path,
+        schemaName
+      })
+    };
+  }
+  const schemaValidation = await validateAgainstSchema(repoRoot, schemaName, parsed);
+  if (!schemaValidation.valid || !isPromptModelArtifactKind(artifactKind, parsed)) {
+    return {
+      status: "invalid",
+      finding: promptModelFinding({
+        artifactKind,
+        artifactId: isRegistryItem(parsed) ? parsed.id : artifactId,
+        status: "invalid_artifact",
+        reason: `prompt/model artifact is not schema-valid ${artifactKind}`,
+        event,
+        resolvedPath: resolved.path,
+        schemaName,
+        schemaErrors: schemaValidation.errors
+      })
+    };
+  }
+  return {
+    status: "valid",
+    artifact: parsed as PromptModelArtifactMap[Kind],
+    path: resolved.path
+  };
+}
+
+function promptModelArtifactPrefix(artifactKind: PromptModelArtifactKind): string {
+  switch (artifactKind) {
+    case "runtime_invocation":
+      return "artifact://agent/runtime/";
+    case "model_request":
+      return "artifact://agent/model-request/";
+    case "model_response":
+      return "artifact://agent/model-response/";
+    case "response_audit":
+      return "artifact://agent/response-audit/";
+    case "tool_request_proposal":
+      return "artifact://agent/tool-request-proposal/";
+  }
+}
+
+function isPromptModelArtifactKind<Kind extends PromptModelArtifactKind>(
+  artifactKind: Kind,
+  value: unknown
+): value is PromptModelArtifactMap[Kind] {
+  if (artifactKind === "runtime_invocation") {
+    return isAgentRuntimeInvocationRecord(value);
+  }
+  if (artifactKind === "model_request") {
+    return isAgentModelRequestRecord(value);
+  }
+  if (artifactKind === "model_response") {
+    return isAgentModelResponseRecord(value);
+  }
+  if (artifactKind === "response_audit") {
+    return isAgentResponseAuditRecord(value);
+  }
+  return isAgentToolRequestProposalRecord(value);
+}
+
+function runtimeInvocationAuthorityViolations(artifact: AgentRuntimeInvocationArtifact): string[] {
+  return [
+    artifact.scope.model_invoked ? "runtime invocation claims model_invoked=true" : "",
+    artifact.scope.tools_requested ? "runtime invocation claims tools_requested=true" : "",
+    artifact.scope.raw_payload_artifacts_read ? "runtime invocation claims raw_payload_artifacts_read=true" : "",
+    artifact.scope.ledger_appended ? "runtime invocation claims ledger_appended=true" : "",
+    artifact.scope.prompt_artifact_persisted ? "runtime invocation claims prompt_artifact_persisted=true" : "",
+    artifact.scope.runtime_authority_granted ? "runtime invocation claims runtime_authority_granted=true" : "",
+    artifact.model_call.provider_configured ? "runtime invocation claims provider_configured=true" : "",
+    artifact.model_call.provider_ref !== null ? "runtime invocation includes provider_ref" : "",
+    artifact.model_call.model_ref !== null ? "runtime invocation includes model_ref" : "",
+    artifact.model_call.request_artifact_ref !== null ? "runtime invocation includes request_artifact_ref before request preparation" : "",
+    artifact.model_call.response_artifact_ref !== null ? "runtime invocation includes response_artifact_ref before model response" : "",
+    artifact.model_call.can_invoke_now ? "runtime invocation claims can_invoke_now=true" : "",
+    artifact.context.raw_payload_artifacts_read ? "runtime invocation context claims raw_payload_artifacts_read=true" : "",
+    artifact.authority_gates.prompt_can_authorize_actions ? "runtime invocation claims prompt_can_authorize_actions=true" : "",
+    artifact.authority_gates.context_can_authorize_actions ? "runtime invocation claims context_can_authorize_actions=true" : "",
+    artifact.authority_gates.memory_can_authorize_actions ? "runtime invocation claims memory_can_authorize_actions=true" : "",
+    artifact.authority_gates.capability_cards_can_grant_permissions ? "runtime invocation claims capability_cards_can_grant_permissions=true" : "",
+    artifact.tool_gateway.execution_without_policy_allowed ? "runtime invocation claims execution_without_policy_allowed=true" : "",
+    artifact.tool_gateway.delivery_attempted ? "runtime invocation claims delivery_attempted=true" : "",
+    artifact.tool_gateway.connector_calls_attempted ? "runtime invocation claims connector_calls_attempted=true" : "",
+    artifact.tool_gateway.package_code_execution_attempted ? "runtime invocation claims package_code_execution_attempted=true" : "",
+    artifact.stages.some((stage) => stage.authority_granted) ? "runtime invocation stage claims authority_granted=true" : "",
+    hashLooksComputed(artifact.invocation_sha256) && artifact.invocation_sha256 !== hashArtifactWithoutField(artifact, "invocation_sha256") ? "runtime invocation hash does not match artifact content" : ""
+  ].filter(Boolean);
+}
+
+function modelRequestAuthorityViolations(artifact: AgentModelRequestArtifact): string[] {
+  return [
+    artifact.scope.model_invoked ? "model request claims model_invoked=true" : "",
+    artifact.scope.provider_called ? "model request claims provider_called=true" : "",
+    artifact.scope.tools_requested ? "model request claims tools_requested=true" : "",
+    artifact.scope.raw_prompt_persisted ? "model request claims raw_prompt_persisted=true" : "",
+    artifact.scope.raw_context_persisted ? "model request claims raw_context_persisted=true" : "",
+    artifact.scope.raw_payload_artifacts_read ? "model request claims raw_payload_artifacts_read=true" : "",
+    artifact.scope.secrets_resolved ? "model request claims secrets_resolved=true" : "",
+    artifact.scope.runtime_authority_granted ? "model request claims runtime_authority_granted=true" : "",
+    artifact.provider.credential_ref !== null ? "model request includes credential_ref" : "",
+    artifact.provider.credential_resolved ? "model request claims credential_resolved=true" : "",
+    artifact.provider.network_call_attempted ? "model request claims network_call_attempted=true" : "",
+    artifact.request.raw_request_payload_persisted ? "model request claims raw_request_payload_persisted=true" : "",
+    artifact.context.raw_payload_artifacts_read ? "model request context claims raw_payload_artifacts_read=true" : "",
+    artifact.tool_gateway.declared_tools.length > 0 ? "model request declares tools" : "",
+    artifact.tool_gateway.tool_choice !== "none" ? "model request tool_choice is not none" : "",
+    artifact.tool_gateway.tool_request_events_appended ? "model request claims tool_request_events_appended=true" : "",
+    artifact.tool_gateway.execution_without_policy_allowed ? "model request claims execution_without_policy_allowed=true" : "",
+    artifact.authority_gates.prompt_can_authorize_actions ? "model request claims prompt_can_authorize_actions=true" : "",
+    artifact.authority_gates.context_can_authorize_actions ? "model request claims context_can_authorize_actions=true" : "",
+    artifact.authority_gates.memory_can_authorize_actions ? "model request claims memory_can_authorize_actions=true" : "",
+    artifact.authority_gates.capability_cards_can_grant_permissions ? "model request claims capability_cards_can_grant_permissions=true" : "",
+    artifact.authority_gates.model_request_can_authorize_actions ? "model request claims model_request_can_authorize_actions=true" : "",
+    hashLooksComputed(artifact.request_sha256) && artifact.request_sha256 !== hashArtifactWithoutField(artifact, "request_sha256") ? "model request hash does not match artifact content" : ""
+  ].filter(Boolean);
+}
+
+function modelResponseAuthorityViolations(artifact: AgentModelResponseArtifact): string[] {
+  return [
+    !artifact.scope.model_invoked ? "model response does not claim model_invoked=true" : "",
+    !artifact.scope.provider_called ? "model response does not claim provider_called=true" : "",
+    artifact.scope.tools_requested ? "model response claims tools_requested=true" : "",
+    artifact.scope.tool_execution_allowed ? "model response claims tool_execution_allowed=true" : "",
+    artifact.scope.raw_response_persisted ? "model response claims raw_response_persisted=true" : "",
+    artifact.scope.raw_prompt_persisted ? "model response claims raw_prompt_persisted=true" : "",
+    artifact.scope.raw_payload_artifacts_read ? "model response claims raw_payload_artifacts_read=true" : "",
+    artifact.scope.runtime_authority_granted ? "model response claims runtime_authority_granted=true" : "",
+    artifact.provider.credential_ref !== null ? "model response includes credential_ref" : "",
+    artifact.provider.credential_resolved ? "model response claims credential_resolved=true" : "",
+    artifact.response.raw_response_payload_persisted ? "model response claims raw_response_payload_persisted=true" : "",
+    artifact.response.output_artifact_ref !== null ? "model response includes output_artifact_ref" : "",
+    artifact.tool_gateway.tool_calls_present ? "model response claims tool_calls_present=true" : "",
+    artifact.tool_gateway.proposed_tool_request_ids.length > 0 ? "model response includes proposed_tool_request_ids" : "",
+    artifact.tool_gateway.tool_request_events_appended ? "model response claims tool_request_events_appended=true" : "",
+    artifact.tool_gateway.execution_without_policy_allowed ? "model response claims execution_without_policy_allowed=true" : "",
+    artifact.authority_gates.model_output_can_authorize_actions ? "model response claims model_output_can_authorize_actions=true" : "",
+    artifact.response_audit.audit_artifact_ref !== null ? "model response includes audit_artifact_ref instead of separate audit evidence" : "",
+    artifact.response_audit.passed !== null ? "model response claims response_audit.passed before audit evidence" : "",
+    artifact.response_audit.may_present_as_verified_runtime_evidence ? "model response claims may_present_as_verified_runtime_evidence=true" : "",
+    hashLooksComputed(artifact.response_sha256) && artifact.response_sha256 !== hashArtifactWithoutField(artifact, "response_sha256") ? "model response hash does not match artifact content" : ""
+  ].filter(Boolean);
+}
+
+function responseAuditAuthorityViolations(artifact: AgentResponseAuditArtifact): string[] {
+  return [
+    artifact.scope.audit_invoked_model ? "response audit claims audit_invoked_model=true" : "",
+    artifact.scope.audit_requested_tools ? "response audit claims audit_requested_tools=true" : "",
+    artifact.scope.audit_read_raw_payload_artifacts ? "response audit claims audit_read_raw_payload_artifacts=true" : "",
+    artifact.scope.raw_response_persisted ? "response audit claims raw_response_persisted=true" : "",
+    artifact.scope.raw_prompt_persisted ? "response audit claims raw_prompt_persisted=true" : "",
+    artifact.scope.runtime_authority_granted ? "response audit claims runtime_authority_granted=true" : "",
+    artifact.response.raw_output_persisted ? "response audit claims raw_output_persisted=true" : "",
+    artifact.authority_gates.audit_can_authorize_actions ? "response audit claims audit_can_authorize_actions=true" : "",
+    artifact.authority_gates.model_output_can_authorize_actions ? "response audit claims model_output_can_authorize_actions=true" : "",
+    artifact.authority_gates.audit_pass_is_runtime_verification ? "response audit claims audit_pass_is_runtime_verification=true" : "",
+    hashLooksComputed(artifact.audit_sha256) && artifact.audit_sha256 !== hashArtifactWithoutField(artifact, "audit_sha256") ? "response audit hash does not match artifact content" : ""
+  ].filter(Boolean);
+}
+
+function proposalAuthorityViolations(artifact: AgentToolRequestProposalArtifact): string[] {
+  return [
+    !artifact.scope.proposal_only ? "tool request proposal does not claim proposal_only=true" : "",
+    artifact.scope.tool_requested ? "tool request proposal claims tool_requested=true" : "",
+    artifact.scope.policy_decided ? "tool request proposal claims policy_decided=true" : "",
+    artifact.scope.lease_issued ? "tool request proposal claims lease_issued=true" : "",
+    artifact.scope.tool_executed ? "tool request proposal claims tool_executed=true" : "",
+    artifact.scope.action_recorded ? "tool request proposal claims action_recorded=true" : "",
+    artifact.scope.observation_recorded ? "tool request proposal claims observation_recorded=true" : "",
+    artifact.scope.verification_recorded ? "tool request proposal claims verification_recorded=true" : "",
+    artifact.scope.raw_response_persisted ? "tool request proposal claims raw_response_persisted=true" : "",
+    artifact.scope.raw_prompt_persisted ? "tool request proposal claims raw_prompt_persisted=true" : "",
+    artifact.scope.raw_payload_artifacts_read ? "tool request proposal claims raw_payload_artifacts_read=true" : "",
+    artifact.scope.runtime_authority_granted ? "tool request proposal claims runtime_authority_granted=true" : "",
+    artifact.source_evidence.required_response_audit_status !== "pass" ? "tool request proposal source evidence does not require pass status" : "",
+    artifact.source_evidence.response_audit_evidence_status !== "matched" ? "tool request proposal source evidence is not matched" : "",
+    artifact.authority_gates.proposal_can_authorize_actions ? "tool request proposal claims proposal_can_authorize_actions=true" : "",
+    artifact.authority_gates.model_output_can_authorize_actions ? "tool request proposal claims model_output_can_authorize_actions=true" : "",
+    artifact.authority_gates.response_audit_can_authorize_actions ? "tool request proposal claims response_audit_can_authorize_actions=true" : "",
+    !artifact.authority_gates.requires_fresh_policy_decision ? "tool request proposal does not require fresh policy decision" : "",
+    !artifact.authority_gates.requires_scoped_lease ? "tool request proposal does not require scoped lease" : "",
+    hashLooksComputed(artifact.proposal_sha256) && artifact.proposal_sha256 !== hashArtifactWithoutField(artifact, "proposal_sha256") ? "tool request proposal hash does not match artifact content" : ""
+  ].filter(Boolean);
+}
+
+function requestRuntimeMismatches(request: AgentModelRequestArtifact, workspaceRoot: string): string[] {
+  const runtime = readArtifactForCrossCheck<AgentRuntimeInvocationArtifact>(workspaceRoot, request.runtime_invocation_artifact_ref);
+  if (runtime.status !== "valid") {
+    return [runtime.reason];
+  }
+  return [
+    runtime.artifact.id !== request.runtime_invocation_id ? "request runtime_invocation_id does not match runtime artifact id" : "",
+    runtime.artifact.run_id !== request.run_id ? "request run_id does not match runtime artifact source run_id" : "",
+    runtime.artifact.prompt_plan_id !== request.prompt_plan_id ? "request prompt_plan_id does not match runtime artifact" : "",
+    runtime.artifact.prompt.bundle_id !== request.request.prompt_bundle_id ? "request prompt_bundle_id does not match runtime artifact" : "",
+    runtime.artifact.prompt.preview_sha256 !== request.request.prompt_preview_sha256 ? "request prompt_preview_sha256 does not match runtime artifact" : "",
+    stableStringify(runtime.artifact.prompt.message_hashes) !== stableStringify(request.prompt_hashes) ? "request prompt_hashes do not match runtime artifact" : ""
+  ].filter(Boolean);
+}
+
+function responseRequestMismatches(response: AgentModelResponseArtifact, workspaceRoot: string): string[] {
+  const request = readArtifactForCrossCheck<AgentModelRequestArtifact>(workspaceRoot, response.request_artifact_ref);
+  if (request.status !== "valid") {
+    return [request.reason];
+  }
+  return [
+    request.artifact.id !== response.request_id ? "response request_id does not match request artifact id" : "",
+    request.artifact.run_id !== response.run_id ? "response run_id does not match request artifact source run_id" : "",
+    request.artifact.runtime_invocation_id !== response.runtime_invocation_id ? "response runtime_invocation_id does not match request artifact" : "",
+    request.artifact.runtime_invocation_artifact_ref !== response.runtime_invocation_artifact_ref ? "response runtime_invocation_artifact_ref does not match request artifact" : ""
+  ].filter(Boolean);
+}
+
+function proposalEvidenceMismatches(
+  proposal: AgentToolRequestProposalArtifact,
+  related: NonNullable<PromptModelArtifactEvidenceFinding["related_event_ids"]>
+): string[] {
+  return [
+    related.runtime_bound && proposal.source_evidence.runtime_bound_event_id !== related.runtime_bound
+      ? "proposal runtime_bound_event_id does not match Ledger evidence"
+      : "",
+    related.model_requested && proposal.source_evidence.model_requested_event_id !== related.model_requested
+      ? "proposal model_requested_event_id does not match Ledger evidence"
+      : "",
+    related.model_responded && proposal.source_evidence.model_responded_event_id !== related.model_responded
+      ? "proposal model_responded_event_id does not match Ledger evidence"
+      : "",
+    related.response_audit_recorded && proposal.source_evidence.response_audit_recorded_event_id !== related.response_audit_recorded
+      ? "proposal response_audit_recorded_event_id does not match Ledger evidence"
+      : ""
+  ].filter(Boolean);
+}
+
+function validateProposalResponseAuditLink(
+  proposal: AgentToolRequestProposalArtifact,
+  workspaceRoot: string
+): { status: "valid" } | { status: "missing_evidence" | "invalid_artifact"; reason: string } {
+  const audit = readArtifactForCrossCheck<AgentResponseAuditArtifact>(workspaceRoot, proposal.response_audit_artifact_ref);
+  if (audit.status !== "valid") {
+    return {
+      status: audit.reason.includes("missing") || audit.reason.includes("unresolved") ? "missing_evidence" : "invalid_artifact",
+      reason: audit.reason
+    };
+  }
+  const mismatches = [
+    audit.artifact.id !== proposal.response_audit_id ? "proposal response_audit_id does not match response-audit artifact id" : "",
+    audit.artifact.status !== "pass" ? `proposal response audit status is ${audit.artifact.status}, expected pass` : "",
+    audit.artifact.response_id !== proposal.response_id ? "proposal response_id does not match response-audit artifact" : "",
+    audit.artifact.response_artifact_ref !== proposal.response_artifact_ref ? "proposal response_artifact_ref does not match response-audit artifact" : "",
+    audit.artifact.request_id !== proposal.request_id ? "proposal request_id does not match response-audit artifact" : "",
+    audit.artifact.request_artifact_ref !== proposal.request_artifact_ref ? "proposal request_artifact_ref does not match response-audit artifact" : "",
+    audit.artifact.runtime_invocation_id !== proposal.runtime_invocation_id ? "proposal runtime_invocation_id does not match response-audit artifact" : "",
+    audit.artifact.runtime_invocation_artifact_ref !== proposal.runtime_invocation_artifact_ref ? "proposal runtime_invocation_artifact_ref does not match response-audit artifact" : ""
+  ].filter(Boolean);
+  return mismatches.length > 0
+    ? { status: "missing_evidence", reason: mismatches.join("; ") }
+    : { status: "valid" };
+}
+
+function readArtifactForCrossCheck<T>(
+  workspaceRoot: string,
+  artifactRef: string
+): { status: "valid"; artifact: T } | { status: "invalid"; reason: string } {
+  const resolved = resolveLocalArtifactReference(workspaceRoot, artifactRef);
+  if (resolved.status === "unresolved") {
+    return { status: "invalid", reason: resolved.reason };
+  }
+  if (!existsSync(resolved.path)) {
+    return { status: "invalid", reason: `artifact is missing for ${artifactRef}` };
+  }
+  try {
+    return { status: "valid", artifact: JSON.parse(readFileSync(resolved.path, "utf8")) as T };
+  } catch {
+    return { status: "invalid", reason: `artifact JSON could not be parsed for ${artifactRef}` };
+  }
+}
+
+function hashArtifactWithoutField(artifact: object, hashField: string): string {
+  const withoutHash = { ...(artifact as Record<string, unknown>) };
+  delete withoutHash[hashField];
+  return `sha256:${createHash("sha256").update(stableStringify(withoutHash), "utf8").digest("hex")}`;
+}
+
+function hashLooksComputed(hash: string): boolean {
+  const digest = hash.replace(/^sha256:/, "");
+  return new Set(digest).size > 1;
+}
+
+function promptModelFinding(input: {
+  artifactKind: PromptModelArtifactKind;
+  artifactId: string;
+  status: PromptModelArtifactEvidenceStatus;
+  reason?: string;
+  event?: EventRecord;
+  resolvedPath?: string | null;
+  schemaName?: string;
+  schemaErrors?: string[];
+  sourceRunId?: string;
+  relatedEventIds?: PromptModelArtifactEvidenceFinding["related_event_ids"];
+}): PromptModelArtifactEvidenceFinding {
+  return {
+    artifact_kind: input.artifactKind,
+    artifact_id: input.artifactId,
+    status: input.status,
+    ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.event ? {
+      event_id: input.event.id,
+      run_id: input.event.run_id,
+      payload_ref: input.event.payload_ref
+    } : {}),
+    ...(input.sourceRunId ? { source_run_id: input.sourceRunId } : {}),
+    ...(input.resolvedPath !== undefined ? { resolved_path: input.resolvedPath } : {}),
+    ...(input.schemaName ? { schema_name: input.schemaName } : {}),
+    ...(input.schemaErrors ? { schema_errors: input.schemaErrors } : {}),
+    ...(input.relatedEventIds ? { related_event_ids: input.relatedEventIds } : {})
+  };
+}
+
+function eventMapByPayloadRef(events: EventRecord[]): Map<string, EventRecord> {
+  return new Map(events
+    .filter((event) => event.payload_ref)
+    .map((event) => [event.payload_ref as string, event]));
+}
+
+function eventsByRunId(events: EventRecord[]): Map<string, EventRecord[]> {
+  const byRun = new Map<string, EventRecord[]>();
+  for (const event of events) {
+    const runEvents = byRun.get(event.run_id) ?? [];
+    runEvents.push(event);
+    byRun.set(event.run_id, runEvents);
+  }
+  return byRun;
+}
+
+function singleEventRunEvidence(
+  event: EventRecord,
+  runEvents: EventRecord[],
+  workspaceRoot: string,
+  expectedEventType: string
+): { status: "valid" } | { status: "invalid_run_manifest" | "authority_violation"; reason: string } {
+  const authorityEvent = runEvents.find((entry) => isAuthorityBearingPromptModelEvent(entry.event_type));
+  if (authorityEvent) {
+    return {
+      status: "authority_violation",
+      reason: `${expectedEventType} run includes authority-bearing event ${authorityEvent.event_type}`
+    };
+  }
+  const eventTypes = runEvents.map((entry) => entry.event_type);
+  if (eventTypes.length !== 1 || eventTypes[0] !== expectedEventType) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `${expectedEventType} run must contain only ${expectedEventType}, got ${eventTypes.join(" -> ") || "no events"}`
+    };
+  }
+
+  const manifestRead = readRunManifestForAudit(workspaceRoot, event.run_id, expectedEventType);
+  if (manifestRead.status !== "valid") {
+    return {
+      status: "invalid_run_manifest",
+      reason: manifestRead.reason
+    };
+  }
+  if (manifestRead.manifest.status !== "completed") {
+    return {
+      status: "invalid_run_manifest",
+      reason: `${expectedEventType} run manifest status is ${manifestRead.manifest.status}, expected completed`
+    };
+  }
+  if (!stringArraysEqual(manifestRead.manifest.event_ids, [event.id])) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `${expectedEventType} run manifest event_ids must contain only ${event.id}`
+    };
+  }
+  return { status: "valid" };
+}
+
+function isAuthorityBearingPromptModelEvent(eventType: string): boolean {
+  return eventType === "tool.requested"
+    || eventType === "policy.decided"
+    || eventType === "lease.issued"
+    || eventType === "tool.result"
+    || eventType === "action.recorded"
+    || eventType === "verification.recorded";
 }
 
 function readReplayRecordArtifacts(root: string): {
@@ -3439,6 +4216,46 @@ function isAgentResponseAuditRecord(value: unknown): value is AgentResponseAudit
     && isRecord(authorityGates);
 }
 
+function isAgentRuntimeInvocationRecord(value: unknown): value is AgentRuntimeInvocationArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.id === "string"
+    && typeof value.run_id === "string"
+    && typeof value.prompt_plan_id === "string"
+    && isRecord(value.scope)
+    && isRecord(value.model_call)
+    && isRecord(value.prompt)
+    && isRecord(value.context)
+    && isRecord(value.authority_gates)
+    && isRecord(value.tool_gateway)
+    && Array.isArray(value.stages)
+    && typeof value.invocation_sha256 === "string";
+}
+
+function isAgentModelRequestRecord(value: unknown): value is AgentModelRequestArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const request = value.request;
+  return typeof value.id === "string"
+    && typeof value.run_id === "string"
+    && typeof value.runtime_invocation_id === "string"
+    && typeof value.runtime_invocation_artifact_ref === "string"
+    && typeof value.prompt_plan_id === "string"
+    && isRecord(value.scope)
+    && isRecord(value.provider)
+    && isRecord(request)
+    && typeof request.prompt_bundle_id === "string"
+    && typeof request.prompt_preview_sha256 === "string"
+    && Array.isArray(value.prompt_hashes)
+    && isRecord(value.context)
+    && isRecord(value.tool_gateway)
+    && isRecord(value.authority_gates)
+    && isRecord(value.response_expectations)
+    && typeof value.request_sha256 === "string";
+}
+
 function isAgentModelResponseRecord(value: unknown): value is AgentModelResponseArtifact {
   if (!isRecord(value)) {
     return false;
@@ -3458,6 +4275,27 @@ function isAgentModelResponseRecord(value: unknown): value is AgentModelResponse
     && typeof value.response_sha256 === "string"
     && isRecord(toolGateway)
     && isRecord(authorityGates);
+}
+
+function isAgentToolRequestProposalRecord(value: unknown): value is AgentToolRequestProposalArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.id === "string"
+    && typeof value.run_id === "string"
+    && typeof value.runtime_invocation_id === "string"
+    && typeof value.runtime_invocation_artifact_ref === "string"
+    && typeof value.request_id === "string"
+    && typeof value.request_artifact_ref === "string"
+    && typeof value.response_id === "string"
+    && typeof value.response_artifact_ref === "string"
+    && typeof value.response_audit_id === "string"
+    && typeof value.response_audit_artifact_ref === "string"
+    && isRecord(value.scope)
+    && isRecord(value.source_evidence)
+    && isRecord(value.proposal)
+    && isRecord(value.authority_gates)
+    && typeof value.proposal_sha256 === "string";
 }
 
 async function validateResponseArtifactForAudit(
@@ -3608,20 +4446,21 @@ function responseAuditRunEvidence(
 
 function readRunManifestForAudit(
   workspaceRoot: string,
-  runId: string
+  runId: string,
+  label = "response audit"
 ): { status: "valid"; manifest: { status: string; event_ids: string[] } } | { status: "invalid"; reason: string } {
   const path = join(workspaceRoot, ".aetherion", "runs", `${runId}.json`);
   if (!existsSync(path)) {
-    return { status: "invalid", reason: "response audit run manifest is missing" };
+    return { status: "invalid", reason: `${label} run manifest is missing` };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
   } catch {
-    return { status: "invalid", reason: "response audit run manifest JSON could not be parsed" };
+    return { status: "invalid", reason: `${label} run manifest JSON could not be parsed` };
   }
   if (!isRecord(parsed) || parsed.id !== runId || typeof parsed.status !== "string" || !Array.isArray(parsed.event_ids) || !parsed.event_ids.every((eventId) => typeof eventId === "string")) {
-    return { status: "invalid", reason: "response audit run manifest has invalid shape" };
+    return { status: "invalid", reason: `${label} run manifest has invalid shape` };
   }
   return {
     status: "valid",
@@ -3825,15 +4664,16 @@ function uniqueArtifactReferences(references: RegistryArtifactReference[]): Regi
 }
 
 function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
+    return value.map(sortJsonValue);
   }
   if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, child]) => child !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
-      .join(",")}}`;
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortJsonValue(record[key])]));
   }
-  return JSON.stringify(value);
+  return value;
 }

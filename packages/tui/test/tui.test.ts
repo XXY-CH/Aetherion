@@ -580,6 +580,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit child-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit prompt-model-artifacts --workspace <path>/);
   const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
   assert.match(v1Help, /npm run ether -- run --workspace <path>/);
   assert.match(v1Help, /npm run ether -- ingress audit --workspace <path>/);
@@ -3552,6 +3553,83 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(proposalPayloadFinding.schema_name, "agent-tool-request-proposal.schema.json");
   assert.equal(proposalPayloadFinding.schema_status, "valid");
   assert.deepEqual(proposalPayloadFinding.schema_errors, []);
+
+  const promptModelArtifactAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "prompt-model-artifacts", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: {
+      mode: string;
+      mutates_ledger: boolean;
+      mutates_artifacts: boolean;
+      mutates_registries: boolean;
+      calls_model_provider: boolean;
+      requests_supervisor_authority: boolean;
+      grants_runtime_authority: boolean;
+      rebuilds_registry_projection: boolean;
+    };
+    summary: {
+      artifact_events: number;
+      runtime_invocations: number;
+      model_requests: number;
+      model_responses: number;
+      response_audits: number;
+      tool_request_proposals: number;
+      matched: number;
+      missing_evidence: number;
+      invalid_artifact: number;
+      invalid_run_manifest: number;
+      authority_violation: number;
+    };
+    findings: Array<{
+      artifact_kind: string;
+      artifact_id: string;
+      status: string;
+      event_id?: string;
+      run_id?: string;
+      source_run_id?: string;
+      payload_ref?: string;
+      resolved_path?: string | null;
+      schema_name?: string;
+      schema_errors?: string[];
+      related_event_ids?: {
+        runtime_bound?: string;
+        model_requested?: string;
+        model_responded?: string;
+        response_audit_recorded?: string;
+        tool_request_proposed?: string;
+      };
+    }>;
+  };
+  assert.equal(promptModelArtifactAudit.id, "prompt_model_artifact_evidence_audit");
+  assert.equal(promptModelArtifactAudit.scope.mode, "read_only_prompt_model_artifact_evidence");
+  assert.equal(promptModelArtifactAudit.scope.mutates_ledger, false);
+  assert.equal(promptModelArtifactAudit.scope.mutates_artifacts, false);
+  assert.equal(promptModelArtifactAudit.scope.mutates_registries, false);
+  assert.equal(promptModelArtifactAudit.scope.calls_model_provider, false);
+  assert.equal(promptModelArtifactAudit.scope.requests_supervisor_authority, false);
+  assert.equal(promptModelArtifactAudit.scope.grants_runtime_authority, false);
+  assert.equal(promptModelArtifactAudit.scope.rebuilds_registry_projection, false);
+  assert.equal(promptModelArtifactAudit.summary.artifact_events, 5);
+  assert.equal(promptModelArtifactAudit.summary.runtime_invocations, 1);
+  assert.equal(promptModelArtifactAudit.summary.model_requests, 1);
+  assert.equal(promptModelArtifactAudit.summary.model_responses, 1);
+  assert.equal(promptModelArtifactAudit.summary.response_audits, 1);
+  assert.equal(promptModelArtifactAudit.summary.tool_request_proposals, 1);
+  assert.equal(promptModelArtifactAudit.summary.matched, 5);
+  assert.equal(promptModelArtifactAudit.summary.missing_evidence, 0);
+  assert.equal(promptModelArtifactAudit.summary.invalid_artifact, 0);
+  assert.equal(promptModelArtifactAudit.summary.invalid_run_manifest, 0);
+  assert.equal(promptModelArtifactAudit.summary.authority_violation, 0);
+  const promptModelByKind = new Map(promptModelArtifactAudit.findings.map((finding) => [finding.artifact_kind, finding]));
+  assert.equal(promptModelByKind.get("runtime_invocation")?.event_id, bindingRecord.binding_event_id);
+  assert.equal(promptModelByKind.get("model_request")?.event_id, modelRequestRecord.request_event_id);
+  assert.equal(promptModelByKind.get("model_response")?.event_id, modelResponseRecord.response_event_id);
+  assert.equal(promptModelByKind.get("response_audit")?.event_id, modelResponseRecord.response_audit_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.event_id, proposalRecord.proposal_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.runtime_bound, bindingRecord.binding_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.model_requested, modelRequestRecord.request_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.model_responded, modelResponseRecord.response_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.response_audit_recorded, modelResponseRecord.response_audit_event_id);
+  assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.tool_request_proposed, proposalRecord.proposal_event_id);
 
   const proposalBoundary = await execFileAsync(process.execPath, [
     cliPath,

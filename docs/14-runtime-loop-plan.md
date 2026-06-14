@@ -1226,3 +1226,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not automatic registry repair, browser extension capture, browser/desktop automation, IM/email delivery, reusable outbox approval, remote channel identity, connector OAuth, package execution, event signing, redaction tooling, or a new supervisor action family.
+
+## Completed Increment: Prompt/Model Artifact Evidence Audit
+
+Target: continue PGC-6 integrity work by exposing the full prompt/model artifact evidence chain in a read-only audit without treating prompt/model artifacts as registry projections or authority.
+
+Acceptance:
+
+- `ether audit prompt-model-artifacts --workspace <path>` reads only the verified Ledger plus local payload-ref artifacts, then reports runtime binding, model request, model response, response audit, and tool-request proposal evidence.
+- Findings distinguish `matched`, `missing_evidence`, `invalid_artifact`, `invalid_run_manifest`, and `authority_violation` without mutating Ledger, artifacts, registries, or run manifests.
+- The audit explicitly does not rebuild registry projections, call model providers, read raw prompt/model output, request supervisor authority, issue leases, repair state, or trust response audits/proposals as action authority.
+- TUI integration covers the `prompt bind-runtime -> prompt prepare-model-request -> prompt invoke-model -> prompt propose-tool-request` path and proves the audit sees all five artifact events as a matched non-authorizing chain.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): reinforces local-first auditability while keeping model output and proposals out of action authority.
+- [Roadmap](06-roadmap.md): stays inside TUI-first evidence hardening and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or provider tool execution.
+- [Technical Strategy](10-technical-strategy.md): treats TypeScript prompt/model artifacts as control-plane evidence while Local Supervisor and scoped leases remain the authority path for tools.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): clarifies that `audit prompt-model-artifacts` is artifact-chain evidence, not registry rebuild/parity or repair.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 prompt/model evidence visibility while leaving signing, redaction, and explicit repair work open.
+
+Remaining boundary:
+
+- This is not automatic artifact or registry repair, event signing, raw prompt/model redaction tooling, response semantic verification, provider invocation, provider tool execution, prompt persistence, model-output authority, connector OAuth, package execution, cloud worker execution, or a new supervisor action family.

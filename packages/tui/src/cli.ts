@@ -14,7 +14,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage, type StoreReplayEvidenceRecord } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -761,8 +761,8 @@ function stringField(record: Record<string, unknown>, key: string): string {
 
 async function runAudit(options: CliOptions): Promise<void> {
   const topic = options.topic;
-  if (!topic || !["registries", "replay-records", "memory-records", "capsule-records", "hibernation-records", "sandbox-records", "store-records", "surface-records", "child-records", "payload-refs", "response-audits"].includes(topic)) {
-    throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, hibernation-records, sandbox-records, store-records, surface-records, child-records, payload-refs, or response-audits");
+  if (!topic || !["registries", "replay-records", "memory-records", "capsule-records", "hibernation-records", "sandbox-records", "store-records", "surface-records", "child-records", "payload-refs", "response-audits", "prompt-model-artifacts"].includes(topic)) {
+    throw new Error("audit requires topic registries, replay-records, memory-records, capsule-records, hibernation-records, sandbox-records, store-records, surface-records, child-records, payload-refs, response-audits, or prompt-model-artifacts");
   }
   const workspaceRoot = resolve(options.workspace);
   const verified = await readVerifiedLedgerForReadOnlyCommand(workspaceRoot, `audit ${topic}`);
@@ -810,6 +810,11 @@ async function runAudit(options: CliOptions): Promise<void> {
   }
   if (options.topic === "response-audits") {
     const audit = await auditAgentResponseAuditEvidence(repoRoot, workspaceRoot, verified.events);
+    printRawJson(audit);
+    return;
+  }
+  if (options.topic === "prompt-model-artifacts") {
+    const audit = await auditPromptModelArtifactEvidence(repoRoot, workspaceRoot, verified.events);
     printRawJson(audit);
     return;
   }
@@ -8180,6 +8185,7 @@ Usage:
   npm run ether -- audit child-records --workspace <path>
   npm run ether -- audit payload-refs --workspace <path>
   npm run ether -- audit response-audits --workspace <path>
+  npm run ether -- audit prompt-model-artifacts --workspace <path>
   npm run ether -- ingress audit --workspace <path>
 
 Commands:
@@ -8201,7 +8207,7 @@ Commands:
   security               V1 readiness plus post-V1 lab: read-only security audit, poisoning detection, decoy trial, and fixture
   surface                Post-V1 contract surface: hash-only browser/IM ingress and queued outbox
   store                  Post-V1 contract surface: trusted-publisher signed Capsule declaration install, no code execution
-  audit                  Post-V1 support audit: registry provenance, replay/memory parity, and Ledger payload-ref audits
+  audit                  Post-V1 support audit: registry provenance, parity previews, Ledger payload-ref, and prompt/model evidence audits
   help                   Show this help
 
 Options:
