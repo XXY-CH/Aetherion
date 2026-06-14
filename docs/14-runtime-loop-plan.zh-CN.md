@@ -878,3 +878,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 automatic artifact 或 registry repair、event signing、raw-content redaction tooling、live honeypot execution、quarantine removal、connector OAuth、package execution、cloud worker execution，或新的 supervisor action family。
+
+## 已完成增量：Ledger Integrity Extension Readiness Contract
+
+目标：继续推进 PGC-6，在任何不可逆 signature、redaction、migration 或 repair 工作落地前，让下一步 Event Ledger integrity 扩展先变成可 review 的合同边界。
+
+验收：
+
+- `schemas/ledger-integrity-extension-readiness.schema.json` 与 `examples/contracts/ledger-integrity-extension-readiness.json` 把当前 baseline 验证为 hash-chain plus payload-ref evidence，而不是 event-signature runtime。
+- schema 会拒绝 signing、redaction tooling、Ledger migration、projection repair、cloud notary 或 signature-derived authority 已实现的声明。
+- `doctor`、`onboarding check` 和 `release evidence` 把该 readiness contract 纳入只读 configured evidence，但不修改 workspace、不签名 event、不迁移 Ledger state、不 repair projection、不发 lease，也不创建 trust root。
+- release remaining gaps 现在明确 runtime event signing、Ledger migration、redaction tooling、projection repair command、public transparency log 和 cloud notary 仍未实现。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；Ledger 仍是 fact layer，新合同不授权 action。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；本增量仍是 TUI-first，没有新增 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：无 drift；文档仍说明 Event Ledger signatures 属于 later，当前 crate 不是 production signer。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：已修正文档，把 Ledger Integrity Extension Readiness 列为不授权的 readiness metadata，并加入负向变更 gate。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正文档，记录新的 design contract，同时保持 event signatures、redaction 和 explicit repair 仍为 open。
+
+剩余边界：
+
+- 这不是 event signing、redaction tooling、不可逆 Ledger migration、automatic artifact 或 registry repair、public transparency logging、cloud notarization、repair authority，或新的 supervisor action family。

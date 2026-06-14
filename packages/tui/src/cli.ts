@@ -947,6 +947,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("vault_policy_binding_contract") ?? missingRepoCheck("vault_policy_binding_contract"),
     repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
     repoCheckById.get("supervisor_socket_auth_boundary_contract") ?? missingRepoCheck("supervisor_socket_auth_boundary_contract"),
+    repoCheckById.get("ledger_integrity_extension_readiness_contract") ?? missingRepoCheck("ledger_integrity_extension_readiness_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
@@ -980,6 +981,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "vault_policy_binding_contract",
     "supervisor_lifecycle_readiness_contract",
     "supervisor_socket_auth_boundary_contract",
+    "ledger_integrity_extension_readiness_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
@@ -1312,6 +1314,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    ledger_integrity_extension_readiness_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     vault_reference_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1379,6 +1385,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const vaultPolicyBindingContract = doctorChecks.get("vault_policy_binding_contract");
   const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
   const supervisorSocketAuthBoundaryContract = doctorChecks.get("supervisor_socket_auth_boundary_contract");
+  const ledgerIntegrityExtensionReadinessContract = doctorChecks.get("ledger_integrity_extension_readiness_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
@@ -1490,6 +1497,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       supervisor_socket_auth_boundary_contract: {
         status: supervisorSocketAuthBoundaryContract?.status ?? "fail",
         evidence: supervisorSocketAuthBoundaryContract?.evidence ?? ["supervisor_socket_auth_boundary_contract=missing"]
+      },
+      ledger_integrity_extension_readiness_contract: {
+        status: ledgerIntegrityExtensionReadinessContract?.status ?? "fail",
+        evidence: ledgerIntegrityExtensionReadinessContract?.evidence ?? ["ledger_integrity_extension_readiness_contract=missing"]
       },
       vault_reference_contract: {
         status: vaultReferenceContract?.status ?? "fail",
@@ -1679,6 +1690,7 @@ function releaseRemainingGaps(remoteEvidence: RemoteObservedEvidence, docsDeploy
     "vault policy binding is metadata-only; no secret resolution, provider vault-backed call, token refresh, egress grant, or connector grant lifecycle is implemented",
     "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
     "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
+    "ledger integrity extension readiness documents event signature, redaction, rebuild, and explicit repair prerequisites, but runtime event signing, ledger migration, redaction tooling, projection repair commands, public transparency logs, and cloud notaries are not implemented",
     docsDeploymentReadiness?.status === "pass"
       ? "docs deployment readiness is checked locally, but public docs are not deployed"
       : "docs deployment readiness is missing or failing, and public docs are not deployed",
@@ -2383,6 +2395,7 @@ function repoDoctorChecks(): DoctorCheck[] {
   checks.push(vaultPolicyBindingContractCheck());
   checks.push(supervisorLifecycleReadinessContractCheck());
   checks.push(supervisorSocketAuthBoundaryContractCheck());
+  checks.push(ledgerIntegrityExtensionReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
 }
@@ -3406,6 +3419,206 @@ function supervisorSocketAuthBoundaryContractCheck(): DoctorCheck {
       `tests_ready=${String(testsReady)}`
     ],
     "Restore schemas/supervisor-socket-auth-boundary.schema.json and examples/contracts/supervisor-socket-auth-boundary.json with caller-supplied local socket auth gating, missing/wrong token and workspace mismatch rejection, no token persistence or echo, no remote listener/client claim, no vault storage, and no session, lease, tool, or policy authority."
+  );
+}
+
+function ledgerIntegrityExtensionReadinessContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/ledger-integrity-extension-readiness.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/ledger-integrity-extension-readiness.json");
+  const ledgerSource = readRepoText("packages/harness-core/src/ledger.ts") ?? "";
+  const replaySource = readRepoText("packages/harness-core/src/replay.ts") ?? "";
+  const contractTests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const technicalStrategy = readRepoText("docs/10-technical-strategy.md") ?? "";
+  const governance = readRepoText("docs/13-schema-runtime-governance.md") ?? "";
+  const runtimePlan = readRepoText("docs/14-runtime-loop-plan.md") ?? "";
+  const gapPlan = readRepoText("docs/15-production-gap-closure-plan.md") ?? "";
+  const example = readRepoJson("examples/contracts/ledger-integrity-extension-readiness.json") as {
+    current_baseline?: {
+      event_hash_chain_implemented?: unknown;
+      event_hash_algorithm?: unknown;
+      jsonl_append_implemented?: unknown;
+      audit_hash_chain_gate_implemented?: unknown;
+      event_signature_runtime_implemented?: unknown;
+      redaction_tooling_implemented?: unknown;
+      repair_commands_implemented?: unknown;
+      projection_rebuild_complete?: unknown;
+    };
+    extension_design?: {
+      event_signatures?: unknown;
+      redaction_manifests?: unknown;
+      projection_rebuild?: unknown;
+      explicit_repair?: unknown;
+      irreversible_migration_requires_operator_approval?: unknown;
+      design_contract_can_modify_runtime_state?: unknown;
+    };
+    signature_plan?: {
+      signed_material?: unknown;
+      excluded_material?: unknown;
+      signer_implemented?: unknown;
+      signature_values_in_examples?: unknown;
+      signature_verification_required_before_repair?: unknown;
+      signature_can_authorize_actions?: unknown;
+    };
+    redaction_plan?: {
+      ledger_material?: unknown;
+      artifact_material?: unknown;
+      run_manifest_material?: unknown;
+      raw_prompt_persisted?: unknown;
+      raw_model_output_persisted?: unknown;
+      raw_secret_persisted?: unknown;
+      raw_untrusted_content_persisted?: unknown;
+      redaction_manifest_implemented?: unknown;
+      redaction_rebuild_requires_source_artifacts?: unknown;
+      redaction_tombstone_preserves_hash_chain?: unknown;
+    };
+    rebuild_plan?: {
+      event_ledger_is_source_truth?: unknown;
+      registries_are_authority?: unknown;
+      rebuilds_from_ledger_and_artifacts?: unknown;
+      unrebuildable_states_reported?: unknown;
+      remaining_security_projection_rebuild_complete?: unknown;
+      prompt_model_artifact_repair_implemented?: unknown;
+      security_fixture_repair_implemented?: unknown;
+    };
+    repair_boundary?: {
+      audit_commands_read_only?: unknown;
+      automatic_repair_allowed?: unknown;
+      repair_requires_explicit_operator_command?: unknown;
+      repair_command_implemented?: unknown;
+      repair_can_issue_lease?: unknown;
+      repair_can_treat_projection_as_authority?: unknown;
+      repair_can_bypass_policy_proxy?: unknown;
+    };
+    authority?: {
+      local_supervisor_is_root_authority?: unknown;
+      event_ledger_is_fact_layer?: unknown;
+      tool_policy_proxy_gates_side_effects?: unknown;
+      readiness_contract_can_issue_lease?: unknown;
+      readiness_contract_can_authorize_actions?: unknown;
+      signature_can_grant_tool_authority?: unknown;
+      redaction_can_hide_authorizing_material?: unknown;
+    };
+    limits?: {
+      event_signature_runtime_implemented?: unknown;
+      ledger_migration_implemented?: unknown;
+      redaction_tooling_implemented?: unknown;
+      projection_repair_implemented?: unknown;
+      public_transparency_log_implemented?: unknown;
+      cloud_notary_implemented?: unknown;
+    };
+  } | null;
+  const signedMaterial = Array.isArray(example?.signature_plan?.signed_material)
+    ? example.signature_plan.signed_material
+    : [];
+  const excludedMaterial = Array.isArray(example?.signature_plan?.excluded_material)
+    ? example.signature_plan.excluded_material
+    : [];
+  const baselineSafe = example?.current_baseline?.event_hash_chain_implemented === true
+    && example.current_baseline.event_hash_algorithm === "sha256_stable_json_without_event_hash"
+    && example.current_baseline.jsonl_append_implemented === true
+    && example.current_baseline.audit_hash_chain_gate_implemented === true
+    && example.current_baseline.event_signature_runtime_implemented === false
+    && example.current_baseline.redaction_tooling_implemented === false
+    && example.current_baseline.repair_commands_implemented === false
+    && example.current_baseline.projection_rebuild_complete === false;
+  const extensionDesignSafe = example?.extension_design?.event_signatures === "planned_not_implemented"
+    && example.extension_design.redaction_manifests === "planned_not_implemented"
+    && example.extension_design.projection_rebuild === "partial_read_only_previews_exist"
+    && example.extension_design.explicit_repair === "planned_not_implemented"
+    && example.extension_design.irreversible_migration_requires_operator_approval === true
+    && example.extension_design.design_contract_can_modify_runtime_state === false;
+  const signaturePlanSafe = ["event_hash", "parent_event_hash", "workspace_id", "run_id", "event_type"].every((item) => signedMaterial.includes(item))
+    && ["raw_prompt", "raw_model_output", "raw_secret", "raw_untrusted_content"].every((item) => excludedMaterial.includes(item))
+    && example?.signature_plan?.signer_implemented === false
+    && example.signature_plan.signature_values_in_examples === false
+    && example.signature_plan.signature_verification_required_before_repair === true
+    && example.signature_plan.signature_can_authorize_actions === false;
+  const redactionPlanSafe = example?.redaction_plan?.ledger_material === "hashes_refs_and_redaction_markers_only"
+    && example.redaction_plan.artifact_material === "schema_valid_metadata_only_until_dedicated_redaction_contract"
+    && example.redaction_plan.run_manifest_material === "artifact_refs_hashes_and_status_only"
+    && example.redaction_plan.raw_prompt_persisted === false
+    && example.redaction_plan.raw_model_output_persisted === false
+    && example.redaction_plan.raw_secret_persisted === false
+    && example.redaction_plan.raw_untrusted_content_persisted === false
+    && example.redaction_plan.redaction_manifest_implemented === false
+    && example.redaction_plan.redaction_rebuild_requires_source_artifacts === true
+    && example.redaction_plan.redaction_tombstone_preserves_hash_chain === true;
+  const rebuildPlanSafe = example?.rebuild_plan?.event_ledger_is_source_truth === true
+    && example.rebuild_plan.registries_are_authority === false
+    && example.rebuild_plan.rebuilds_from_ledger_and_artifacts === true
+    && example.rebuild_plan.unrebuildable_states_reported === true
+    && example.rebuild_plan.remaining_security_projection_rebuild_complete === false
+    && example.rebuild_plan.prompt_model_artifact_repair_implemented === false
+    && example.rebuild_plan.security_fixture_repair_implemented === false;
+  const repairBoundarySafe = example?.repair_boundary?.audit_commands_read_only === true
+    && example.repair_boundary.automatic_repair_allowed === false
+    && example.repair_boundary.repair_requires_explicit_operator_command === true
+    && example.repair_boundary.repair_command_implemented === false
+    && example.repair_boundary.repair_can_issue_lease === false
+    && example.repair_boundary.repair_can_treat_projection_as_authority === false
+    && example.repair_boundary.repair_can_bypass_policy_proxy === false;
+  const authoritySafe = example?.authority?.local_supervisor_is_root_authority === true
+    && example.authority.event_ledger_is_fact_layer === true
+    && example.authority.tool_policy_proxy_gates_side_effects === true
+    && example.authority.readiness_contract_can_issue_lease === false
+    && example.authority.readiness_contract_can_authorize_actions === false
+    && example.authority.signature_can_grant_tool_authority === false
+    && example.authority.redaction_can_hide_authorizing_material === false;
+  const limitsSafe = example?.limits?.event_signature_runtime_implemented === false
+    && example.limits.ledger_migration_implemented === false
+    && example.limits.redaction_tooling_implemented === false
+    && example.limits.projection_repair_implemented === false
+    && example.limits.public_transparency_log_implemented === false
+    && example.limits.cloud_notary_implemented === false;
+  const sourceReady = ledgerSource.includes("eventContentHash")
+    && ledgerSource.includes("sha256")
+    && ledgerSource.includes("verifyEventHashChain")
+    && replaySource.includes("live_side_effects_replayed: false")
+    && technicalStrategy.includes("signatures later")
+    && technicalStrategy.includes("does not implement a vault, event signatures")
+    && governance.includes("audit prompt-model-artifacts")
+    && governance.includes("audit security-fixtures")
+    && governance.includes("event signatures, redaction, and explicit repair remains future work")
+    && runtimePlan.includes("audit prompt-model-artifacts")
+    && runtimePlan.includes("audit security-fixtures")
+    && gapPlan.includes("Signature/redaction/rebuild design notes")
+    && gapPlan.includes("event signatures, redaction, explicit repair");
+  const testsReady = contractTests.includes("ledger-integrity-extension-readiness.schema.json")
+    && contractTests.includes("ledger integrity extension readiness rejects signature, redaction, repair, and authority overclaims");
+  const ok = schemaPresent
+    && examplePresent
+    && baselineSafe
+    && extensionDesignSafe
+    && signaturePlanSafe
+    && redactionPlanSafe
+    && rebuildPlanSafe
+    && repairBoundarySafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "ledger_integrity_extension_readiness_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Ledger integrity extension readiness contract documents signature, redaction, rebuild, and explicit repair prerequisites without implementing signing, migration, repair, or new authority."
+      : "Ledger integrity extension readiness contract is missing or overclaims event signatures, redaction tooling, projection repair, migration, cloud notarization, or authority behavior.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `baseline_safe=${String(baselineSafe)}`,
+      `extension_design_safe=${String(extensionDesignSafe)}`,
+      `signature_plan_safe=${String(signaturePlanSafe)}`,
+      `redaction_plan_safe=${String(redactionPlanSafe)}`,
+      `rebuild_plan_safe=${String(rebuildPlanSafe)}`,
+      `repair_boundary_safe=${String(repairBoundarySafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore ledger integrity extension readiness schema/example and docs/tests that keep event signatures, redaction manifests, irreversible ledger migration, and projection repair planned but not implemented; audits must stay read-only and repair explicit/operator-approved."
   );
 }
 

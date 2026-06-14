@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/ledger-integrity-extension-readiness.schema.json",
+  "title": "LedgerIntegrityExtensionReadiness",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "status",
+    "current_baseline",
+    "extension_design",
+    "signature_plan",
+    "redaction_plan",
+    "rebuild_plan",
+    "repair_boundary",
+    "authority",
+    "limits",
+    "source_files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^ledger_integrity_extension_readiness_[A-Za-z0-9_-]+$" },
+    "schema_version": { "type": "string", "enum": ["aetherion-ledger-integrity-extension-readiness-v1"] },
+    "status": { "type": "string", "enum": ["design_contract"] },
+    "current_baseline": {
+      "type": "object",
+      "required": [
+        "event_hash_chain_implemented",
+        "event_hash_algorithm",
+        "jsonl_append_implemented",
+        "audit_hash_chain_gate_implemented",
+        "event_signature_runtime_implemented",
+        "redaction_tooling_implemented",
+        "repair_commands_implemented",
+        "projection_rebuild_complete"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_hash_chain_implemented": { "type": "boolean", "enum": [true] },
+        "event_hash_algorithm": { "type": "string", "enum": ["sha256_stable_json_without_event_hash"] },
+        "jsonl_append_implemented": { "type": "boolean", "enum": [true] },
+        "audit_hash_chain_gate_implemented": { "type": "boolean", "enum": [true] },
+        "event_signature_runtime_implemented": { "type": "boolean", "enum": [false] },
+        "redaction_tooling_implemented": { "type": "boolean", "enum": [false] },
+        "repair_commands_implemented": { "type": "boolean", "enum": [false] },
+        "projection_rebuild_complete": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "extension_design": {
+      "type": "object",
+      "required": [
+        "event_signatures",
+        "redaction_manifests",
+        "projection_rebuild",
+        "explicit_repair",
+        "irreversible_migration_requires_operator_approval",
+        "design_contract_can_modify_runtime_state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_signatures": { "type": "string", "enum": ["planned_not_implemented"] },
+        "redaction_manifests": { "type": "string", "enum": ["planned_not_implemented"] },
+        "projection_rebuild": { "type": "string", "enum": ["partial_read_only_previews_exist"] },
+        "explicit_repair": { "type": "string", "enum": ["planned_not_implemented"] },
+        "irreversible_migration_requires_operator_approval": { "type": "boolean", "enum": [true] },
+        "design_contract_can_modify_runtime_state": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "signature_plan": {
+      "type": "object",
+      "required": [
+        "signed_material",
+        "excluded_material",
+        "signer_implemented",
+        "signature_values_in_examples",
+        "signature_verification_required_before_repair",
+        "signature_can_authorize_actions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "signed_material": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "string",
+            "enum": [
+              "event_hash",
+              "parent_event_hash",
+              "workspace_id",
+              "run_id",
+              "event_type",
+              "payload_ref_hash"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "excluded_material": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "raw_prompt",
+              "raw_model_output",
+              "raw_secret",
+              "raw_untrusted_content"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "signer_implemented": { "type": "boolean", "enum": [false] },
+        "signature_values_in_examples": { "type": "boolean", "enum": [false] },
+        "signature_verification_required_before_repair": { "type": "boolean", "enum": [true] },
+        "signature_can_authorize_actions": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "redaction_plan": {
+      "type": "object",
+      "required": [
+        "ledger_material",
+        "artifact_material",
+        "run_manifest_material",
+        "raw_prompt_persisted",
+        "raw_model_output_persisted",
+        "raw_secret_persisted",
+        "raw_untrusted_content_persisted",
+        "redaction_manifest_implemented",
+        "redaction_rebuild_requires_source_artifacts",
+        "redaction_tombstone_preserves_hash_chain"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ledger_material": { "type": "string", "enum": ["hashes_refs_and_redaction_markers_only"] },
+        "artifact_material": { "type": "string", "enum": ["schema_valid_metadata_only_until_dedicated_redaction_contract"] },
+        "run_manifest_material": { "type": "string", "enum": ["artifact_refs_hashes_and_status_only"] },
+        "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
+        "raw_model_output_persisted": { "type": "boolean", "enum": [false] },
+        "raw_secret_persisted": { "type": "boolean", "enum": [false] },
+        "raw_untrusted_content_persisted": { "type": "boolean", "enum": [false] },
+        "redaction_manifest_implemented": { "type": "boolean", "enum": [false] },
+        "redaction_rebuild_requires_source_artifacts": { "type": "boolean", "enum": [true] },
+        "redaction_tombstone_preserves_hash_chain": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "rebuild_plan": {
+      "type": "object",
+      "required": [
+        "event_ledger_is_source_truth",
+        "registries_are_authority",
+        "rebuilds_from_ledger_and_artifacts",
+        "unrebuildable_states_reported",
+        "remaining_security_projection_rebuild_complete",
+        "prompt_model_artifact_repair_implemented",
+        "security_fixture_repair_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_ledger_is_source_truth": { "type": "boolean", "enum": [true] },
+        "registries_are_authority": { "type": "boolean", "enum": [false] },
+        "rebuilds_from_ledger_and_artifacts": { "type": "boolean", "enum": [true] },
+        "unrebuildable_states_reported": { "type": "boolean", "enum": [true] },
+        "remaining_security_projection_rebuild_complete": { "type": "boolean", "enum": [false] },
+        "prompt_model_artifact_repair_implemented": { "type": "boolean", "enum": [false] },
+        "security_fixture_repair_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "repair_boundary": {
+      "type": "object",
+      "required": [
+        "audit_commands_read_only",
+        "automatic_repair_allowed",
+        "repair_requires_explicit_operator_command",
+        "repair_command_implemented",
+        "repair_can_issue_lease",
+        "repair_can_treat_projection_as_authority",
+        "repair_can_bypass_policy_proxy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "audit_commands_read_only": { "type": "boolean", "enum": [true] },
+        "automatic_repair_allowed": { "type": "boolean", "enum": [false] },
+        "repair_requires_explicit_operator_command": { "type": "boolean", "enum": [true] },
+        "repair_command_implemented": { "type": "boolean", "enum": [false] },
+        "repair_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "repair_can_treat_projection_as_authority": { "type": "boolean", "enum": [false] },
+        "repair_can_bypass_policy_proxy": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "local_supervisor_is_root_authority",
+        "event_ledger_is_fact_layer",
+        "tool_policy_proxy_gates_side_effects",
+        "readiness_contract_can_issue_lease",
+        "readiness_contract_can_authorize_actions",
+        "signature_can_grant_tool_authority",
+        "redaction_can_hide_authorizing_material"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "local_supervisor_is_root_authority": { "type": "boolean", "enum": [true] },
+        "event_ledger_is_fact_layer": { "type": "boolean", "enum": [true] },
+        "tool_policy_proxy_gates_side_effects": { "type": "boolean", "enum": [true] },
+        "readiness_contract_can_issue_lease": { "type": "boolean", "enum": [false] },
+        "readiness_contract_can_authorize_actions": { "type": "boolean", "enum": [false] },
+        "signature_can_grant_tool_authority": { "type": "boolean", "enum": [false] },
+        "redaction_can_hide_authorizing_material": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "event_signature_runtime_implemented",
+        "ledger_migration_implemented",
+        "redaction_tooling_implemented",
+        "projection_repair_implemented",
+        "public_transparency_log_implemented",
+        "cloud_notary_implemented"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_signature_runtime_implemented": { "type": "boolean", "enum": [false] },
+        "ledger_migration_implemented": { "type": "boolean", "enum": [false] },
+        "redaction_tooling_implemented": { "type": "boolean", "enum": [false] },
+        "projection_repair_implemented": { "type": "boolean", "enum": [false] },
+        "public_transparency_log_implemented": { "type": "boolean", "enum": [false] },
+        "cloud_notary_implemented": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 5,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}

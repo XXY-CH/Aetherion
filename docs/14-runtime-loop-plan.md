@@ -1272,3 +1272,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not automatic artifact or registry repair, event signing, raw-content redaction tooling, live honeypot execution, quarantine removal, connector OAuth, package execution, cloud worker execution, or a new supervisor action family.
+
+## Completed Increment: Ledger Integrity Extension Readiness Contract
+
+Target: continue PGC-6 by making the next Event Ledger integrity step reviewable before any irreversible signature, redaction, migration, or repair work lands.
+
+Acceptance:
+
+- `schemas/ledger-integrity-extension-readiness.schema.json` and `examples/contracts/ledger-integrity-extension-readiness.json` validate the current baseline as hash-chain plus payload-ref evidence, not event-signature runtime.
+- The schema rejects claims that signing, redaction tooling, Ledger migration, projection repair, cloud notaries, or signature-derived authority are implemented.
+- `doctor`, `onboarding check`, and `release evidence` include the readiness contract as read-only configured evidence without mutating workspaces, signing events, migrating Ledger state, repairing projections, issuing leases, or creating a trust root.
+- Release remaining gaps now state that runtime event signing, Ledger migration, redaction tooling, projection repair commands, public transparency logs, and cloud notaries are still unimplemented.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; the Ledger remains the fact layer and the new contract does not authorize actions.
+- [Roadmap](06-roadmap.md): no drift; the increment stays TUI-first and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Technical Strategy](10-technical-strategy.md): no drift; it still says Event Ledger signatures are later and the current crate is not a production signer.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): corrected docs to list Ledger Integrity Extension Readiness as non-authorizing readiness metadata and to add its negative-change gate.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected docs to record the new design contract while keeping event signatures, redaction, and explicit repair open.
+
+Remaining boundary:
+
+- This is not event signing, redaction tooling, irreversible Ledger migration, automatic artifact or registry repair, public transparency logging, cloud notarization, repair authority, or a new supervisor action family.

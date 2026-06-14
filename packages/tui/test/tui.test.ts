@@ -692,6 +692,9 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   assert.equal(supervisorSocketAuthBoundary?.status, "pass");
   assert.match(supervisorSocketAuthBoundary?.evidence.join("\n") ?? "", /request_auth_safe=true/);
   assert.match(supervisorSocketAuthBoundary?.evidence.join("\n") ?? "", /authority_safe=true/);
+  const ledgerIntegrityExtensionReadiness = report.checks.find((check) => check.id === "ledger_integrity_extension_readiness_contract");
+  assert.equal(ledgerIntegrityExtensionReadiness?.status, "pass");
+  assert.match(ledgerIntegrityExtensionReadiness?.evidence.join("\n") ?? "", /redaction_plan_safe=true/);
   assert.ok(report.next_steps.includes("npm ci --ignore-scripts"));
   assert.ok(report.next_steps.includes("npm run ether -- release evidence --workspace ."));
   assert.ok(report.deferred_surfaces.some((surface) => surface.includes("release packaging")));
@@ -831,6 +834,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const supervisorSocketAuthBoundaryCheck = report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract");
   assert.equal(supervisorSocketAuthBoundaryCheck?.status, "pass");
   assert.match(supervisorSocketAuthBoundaryCheck?.summary ?? "", /caller-supplied foreground socket tokens/);
+  const ledgerIntegrityExtensionReadinessCheck = report.checks.find((check) => check.id === "ledger_integrity_extension_readiness_contract");
+  assert.equal(ledgerIntegrityExtensionReadinessCheck?.status, "pass");
+  assert.match(ledgerIntegrityExtensionReadinessCheck?.summary ?? "", /signature, redaction, rebuild/);
   const ciWorkflowCheck = report.checks.find((check) => check.id === "ci_workflow_gate");
   assert.equal(ciWorkflowCheck?.status, "pass");
   assert.match(ciWorkflowCheck?.summary ?? "", /platform smoke/);
@@ -877,6 +883,7 @@ test("TUI doctor verifies initialized workspace state without mutating runtime f
   assert.equal(report.checks.find((check) => check.id === "vault_policy_binding_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_lifecycle_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "supervisor_socket_auth_boundary_contract")?.status, "pass");
+  assert.equal(report.checks.find((check) => check.id === "ledger_integrity_extension_readiness_contract")?.status, "pass");
   assert.equal(report.checks.find((check) => check.id === "vault_reference_contract")?.status, "pass");
   const docsDeploymentReadiness = report.checks.find((check) => check.id === "docs_deployment_readiness");
   assert.equal(docsDeploymentReadiness?.status, "pass");
@@ -950,6 +957,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       vault_policy_binding_contract: { status: string; evidence: string[] };
       supervisor_lifecycle_readiness_contract: { status: string; evidence: string[] };
       supervisor_socket_auth_boundary_contract: { status: string; evidence: string[] };
+      ledger_integrity_extension_readiness_contract: { status: string; evidence: string[] };
       vault_reference_contract: { status: string; evidence: string[] };
     };
     v1_core_profile: {
@@ -1066,6 +1074,9 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /request_auth_safe=true/);
   assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /workspace_binding_safe=true/);
   assert.match(report.configured_evidence.supervisor_socket_auth_boundary_contract.evidence.join("\n"), /authority_safe=true/);
+  assert.equal(report.configured_evidence.ledger_integrity_extension_readiness_contract.status, "pass");
+  assert.match(report.configured_evidence.ledger_integrity_extension_readiness_contract.evidence.join("\n"), /signature_plan_safe=true/);
+  assert.match(report.configured_evidence.ledger_integrity_extension_readiness_contract.evidence.join("\n"), /repair_boundary_safe=true/);
   assert.equal(report.configured_evidence.vault_reference_contract.status, "pass");
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /raw_secret_persisted=false/);
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /ledger_material=reference_and_fingerprint_only/);
@@ -1137,6 +1148,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("vault policy binding is metadata-only")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("OAuth flows")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("ledger integrity extension readiness")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("docs deployment readiness is checked locally")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });

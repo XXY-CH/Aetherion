@@ -1,0 +1,99 @@
+{
+  "id": "ledger_integrity_extension_readiness_design_v1",
+  "schema_version": "aetherion-ledger-integrity-extension-readiness-v1",
+  "status": "design_contract",
+  "current_baseline": {
+    "event_hash_chain_implemented": true,
+    "event_hash_algorithm": "sha256_stable_json_without_event_hash",
+    "jsonl_append_implemented": true,
+    "audit_hash_chain_gate_implemented": true,
+    "event_signature_runtime_implemented": false,
+    "redaction_tooling_implemented": false,
+    "repair_commands_implemented": false,
+    "projection_rebuild_complete": false
+  },
+  "extension_design": {
+    "event_signatures": "planned_not_implemented",
+    "redaction_manifests": "planned_not_implemented",
+    "projection_rebuild": "partial_read_only_previews_exist",
+    "explicit_repair": "planned_not_implemented",
+    "irreversible_migration_requires_operator_approval": true,
+    "design_contract_can_modify_runtime_state": false
+  },
+  "signature_plan": {
+    "signed_material": [
+      "event_hash",
+      "parent_event_hash",
+      "workspace_id",
+      "run_id",
+      "event_type",
+      "payload_ref_hash"
+    ],
+    "excluded_material": [
+      "raw_prompt",
+      "raw_model_output",
+      "raw_secret",
+      "raw_untrusted_content"
+    ],
+    "signer_implemented": false,
+    "signature_values_in_examples": false,
+    "signature_verification_required_before_repair": true,
+    "signature_can_authorize_actions": false
+  },
+  "redaction_plan": {
+    "ledger_material": "hashes_refs_and_redaction_markers_only",
+    "artifact_material": "schema_valid_metadata_only_until_dedicated_redaction_contract",
+    "run_manifest_material": "artifact_refs_hashes_and_status_only",
+    "raw_prompt_persisted": false,
+    "raw_model_output_persisted": false,
+    "raw_secret_persisted": false,
+    "raw_untrusted_content_persisted": false,
+    "redaction_manifest_implemented": false,
+    "redaction_rebuild_requires_source_artifacts": true,
+    "redaction_tombstone_preserves_hash_chain": true
+  },
+  "rebuild_plan": {
+    "event_ledger_is_source_truth": true,
+    "registries_are_authority": false,
+    "rebuilds_from_ledger_and_artifacts": true,
+    "unrebuildable_states_reported": true,
+    "remaining_security_projection_rebuild_complete": false,
+    "prompt_model_artifact_repair_implemented": false,
+    "security_fixture_repair_implemented": false
+  },
+  "repair_boundary": {
+    "audit_commands_read_only": true,
+    "automatic_repair_allowed": false,
+    "repair_requires_explicit_operator_command": true,
+    "repair_command_implemented": false,
+    "repair_can_issue_lease": false,
+    "repair_can_treat_projection_as_authority": false,
+    "repair_can_bypass_policy_proxy": false
+  },
+  "authority": {
+    "local_supervisor_is_root_authority": true,
+    "event_ledger_is_fact_layer": true,
+    "tool_policy_proxy_gates_side_effects": true,
+    "readiness_contract_can_issue_lease": false,
+    "readiness_contract_can_authorize_actions": false,
+    "signature_can_grant_tool_authority": false,
+    "redaction_can_hide_authorizing_material": false
+  },
+  "limits": {
+    "event_signature_runtime_implemented": false,
+    "ledger_migration_implemented": false,
+    "redaction_tooling_implemented": false,
+    "projection_repair_implemented": false,
+    "public_transparency_log_implemented": false,
+    "cloud_notary_implemented": false
+  },
+  "source_files": [
+    "packages/harness-core/src/ledger.ts",
+    "packages/harness-core/src/replay.ts",
+    "packages/tui/src/cli.ts",
+    "docs/10-technical-strategy.md",
+    "docs/13-schema-runtime-governance.md",
+    "docs/14-runtime-loop-plan.md",
+    "docs/15-production-gap-closure-plan.md"
+  ]
+}

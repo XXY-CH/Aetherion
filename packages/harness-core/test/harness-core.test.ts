@@ -201,6 +201,7 @@ const schemaExamplePairs = [
   ["supervisor-lifecycle-readiness.schema.json", "supervisor-lifecycle-readiness.json"],
   ["supervisor-lifecycle-command.schema.json", "supervisor-lifecycle-command.json"],
   ["supervisor-socket-auth-boundary.schema.json", "supervisor-socket-auth-boundary.json"],
+  ["ledger-integrity-extension-readiness.schema.json", "ledger-integrity-extension-readiness.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -538,6 +539,41 @@ test("supervisor socket auth boundary rejects token persistence, remote clients,
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "supervisor-socket-auth-boundary.schema.json", draft);
     assert.equal(result.valid, false, "supervisor-socket-auth-boundary schema accepted token persistence or authority drift");
+  }
+});
+
+test("ledger integrity extension readiness rejects signature, redaction, repair, and authority overclaims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "ledger-integrity-extension-readiness.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.current_baseline.event_signature_runtime_implemented = true; },
+    (draft: typeof valid) => { draft.current_baseline.redaction_tooling_implemented = true; },
+    (draft: typeof valid) => { draft.current_baseline.repair_commands_implemented = true; },
+    (draft: typeof valid) => { draft.extension_design.event_signatures = "implemented"; },
+    (draft: typeof valid) => { draft.extension_design.design_contract_can_modify_runtime_state = true; },
+    (draft: typeof valid) => { draft.signature_plan.signer_implemented = true; },
+    (draft: typeof valid) => { draft.signature_plan.signature_values_in_examples = true; },
+    (draft: typeof valid) => { draft.signature_plan.signature_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.redaction_plan.raw_prompt_persisted = true; },
+    (draft: typeof valid) => { draft.redaction_plan.raw_model_output_persisted = true; },
+    (draft: typeof valid) => { draft.redaction_plan.raw_secret_persisted = true; },
+    (draft: typeof valid) => { draft.redaction_plan.redaction_manifest_implemented = true; },
+    (draft: typeof valid) => { draft.rebuild_plan.registries_are_authority = true; },
+    (draft: typeof valid) => { draft.rebuild_plan.remaining_security_projection_rebuild_complete = true; },
+    (draft: typeof valid) => { draft.repair_boundary.automatic_repair_allowed = true; },
+    (draft: typeof valid) => { draft.repair_boundary.repair_command_implemented = true; },
+    (draft: typeof valid) => { draft.repair_boundary.repair_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.repair_boundary.repair_can_treat_projection_as_authority = true; },
+    (draft: typeof valid) => { draft.authority.readiness_contract_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.authority.signature_can_grant_tool_authority = true; },
+    (draft: typeof valid) => { draft.limits.cloud_notary_implemented = true; },
+    (draft: typeof valid) => { draft.raw_signature_private_key = "do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "ledger-integrity-extension-readiness.schema.json", draft);
+    assert.equal(result.valid, false, "ledger-integrity-extension-readiness schema accepted signature, redaction, repair, or authority drift");
   }
 });
 
