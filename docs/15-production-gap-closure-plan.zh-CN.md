@@ -140,7 +140,7 @@
 
 交付物：
 
-- 将 operator-restated 的 `agent.tool.request.proposed` file-read proposal 转成 fresh supervisor `tool.requested -> policy.decided -> lease -> tool.result` path。
+- 将 operator-restated 的 `agent.tool.request.proposed` file-read proposal 转成 fresh supervisor `tool.requested -> risk.composed -> policy.decided -> scoped lease -> tool.result` path。
 - model output 仍只是 non-authorizing context；operator restatement 才是 intent input。
 
 验收：
@@ -153,6 +153,7 @@
 - `prompt execute-tool-request` 现在接受 operator-restated 的 workspace file-read proposal，重新验证 matched prompt/model artifact evidence，拒绝 path drift，并通过 Rust `file.read.traced` 执行。
 - 允许的 proposal execution 会在单独 run 中生成 fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence。
 - 被拒绝的 proposal execution 现在会完成一个 blocked 的单独 run，生成 fresh `tool.requested -> risk.composed -> policy.decided -> tool.result` evidence，没有 lease，不在 stdout 打印文件内容，并只输出 hash-only denial reason。
+- path drift 和没有 matched Ledger evidence 的 proposal artifact 会在 supervisor execution 之前 fail closed，且不会追加 Ledger event 或创建 execution run manifest。
 - proposal artifact 仍然不授权：`prompt propose-tool-request` 仍只写 `agent.tool.request.proposed`，真实执行是单独 run，必须重新经过 supervisor policy；只有 policy allow 时才会有 scoped lease。
 - write proposal、provider tool call、durable queue、model-driven tool loop，以及非 file-read proposal execution 仍未实现。
 

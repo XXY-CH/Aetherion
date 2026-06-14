@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -3664,6 +3664,65 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.model_responded, modelResponseRecord.response_event_id);
   assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.response_audit_recorded, modelResponseRecord.response_audit_event_id);
   assert.equal(promptModelByKind.get("tool_request_proposal")?.related_event_ids?.tool_request_proposed, proposalRecord.proposal_event_id);
+
+  const ledgerBeforeFailedExecution = await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8");
+  const executionRunManifestsBeforeFailedExecution = (await readdir(join(workspace, ".aetherion", "runs")))
+    .filter((name) => name.startsWith("run_tool_request_execution_") && name.endsWith(".json"))
+    .sort();
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "execute-tool-request",
+      proposalRecord.proposal_id,
+      "--path",
+      "NOT_README.md",
+      "--content",
+      "Try to use a proposal for a different path.",
+      "--workspace",
+      workspace
+    ]),
+    /refusing path drift/
+  );
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeFailedExecution);
+  assert.deepEqual(
+    (await readdir(join(workspace, ".aetherion", "runs")))
+      .filter((name) => name.startsWith("run_tool_request_execution_") && name.endsWith(".json"))
+      .sort(),
+    executionRunManifestsBeforeFailedExecution
+  );
+
+  const orphanProposalId = `agent_tool_request_proposal_${runId}_orphan`;
+  await copyFile(
+    proposalArtifactPath,
+    join(workspace, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${orphanProposalId}.json`)
+  );
+  const orphanProposalPath = join(workspace, ".aetherion", "artifacts", "agent", "tool-request-proposal", `${orphanProposalId}.json`);
+  const orphanProposalArtifact = JSON.parse(await readFile(orphanProposalPath, "utf8")) as typeof proposalArtifact;
+  orphanProposalArtifact.id = orphanProposalId;
+  await writeFile(orphanProposalPath, `${JSON.stringify(orphanProposalArtifact, null, 2)}\n`);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      cliPath,
+      "prompt",
+      "execute-tool-request",
+      orphanProposalId,
+      "--path",
+      "README.md",
+      "--content",
+      "Try to execute a proposal artifact with no matching Ledger event.",
+      "--workspace",
+      workspace
+    ]),
+    /evidence is not matched; refusing supervisor execution/
+  );
+  assert.equal(await readFile(join(workspace, ".aetherion", "events", "events.jsonl"), "utf8"), ledgerBeforeFailedExecution);
+  assert.deepEqual(
+    (await readdir(join(workspace, ".aetherion", "runs")))
+      .filter((name) => name.startsWith("run_tool_request_execution_") && name.endsWith(".json"))
+      .sort(),
+    executionRunManifestsBeforeFailedExecution
+  );
 
   const ledgerBeforeExecution = await readLedgerEvents(workspace);
   const executeProposal = await execFileAsync(process.execPath, [

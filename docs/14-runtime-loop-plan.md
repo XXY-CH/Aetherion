@@ -1365,3 +1365,25 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not write proposal execution, model-driven tool execution, provider tool-call execution, durable queue integration, semantic verification, connector OAuth, package execution, cloud worker execution, or automatic repair of proposal artifacts.
+
+## Completed Increment: Proposal Execution Evidence Gates
+
+Target: lock the remaining negative PGC-5 gates with regression coverage so a proposal artifact cannot be used as a convenient authority token.
+
+Acceptance:
+
+- `prompt execute-tool-request` refuses operator path drift before supervisor execution and leaves the Ledger and execution run manifests unchanged.
+- A copied or orphaned proposal artifact without matched `agent.tool.request.proposed` Ledger evidence fails closed before supervisor execution and leaves the Ledger and execution run manifests unchanged.
+- The existing allow and deny execution paths still prove that only the separate execution run can carry fresh policy, scoped lease, and tool-result evidence.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; proposal artifacts remain reviewable context rather than authority.
+- [Roadmap](06-roadmap.md): no drift; this stays inside V1 TUI evidence hardening and does not add deferred client surfaces.
+- [Technical Strategy](10-technical-strategy.md): no drift; Rust supervisor policy remains the action boundary, and TypeScript rejects mismatched evidence before calling it.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; prompt/model artifacts remain non-authorizing and unmatched artifacts cannot trigger authority-bearing lifecycles.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected PGC-5 current status to state that path drift and unmatched proposal evidence fail closed without Ledger or execution-manifest mutation.
+
+Remaining boundary:
+
+- This is not write proposal execution, stale-artifact repair, model-driven tool execution, provider tool-call execution, durable queues, semantic verification, connector OAuth, package execution, or cloud worker execution.

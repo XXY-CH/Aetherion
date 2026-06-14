@@ -971,3 +971,25 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 write proposal execution、model-driven tool execution、provider tool-call execution、durable queue integration、semantic verification、connector OAuth、package execution、cloud worker execution，或 proposal artifact 自动修复。
+
+## 已完成增量：Proposal Execution Evidence Gates
+
+目标：用回归测试锁住 PGC-5 剩余的负向 gate，避免 proposal artifact 被当作方便的 authority token。
+
+验收：
+
+- `prompt execute-tool-request` 会在 supervisor execution 之前拒绝 operator path drift，并保持 Ledger 与 execution run manifest 不变。
+- 被复制出来、没有 matched `agent.tool.request.proposed` Ledger evidence 的 orphan proposal artifact 会在 supervisor execution 前 fail closed，并保持 Ledger 与 execution run manifest 不变。
+- 既有 allow 与 deny execution path 仍证明：只有单独 execution run 才能携带 fresh policy、scoped lease 和 tool-result evidence。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；proposal artifact 仍是可 review 的 context，不是 authority。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；本 slice 仍在 V1 TUI evidence hardening 内，没有新增延后 client surface。
+- [技术策略](10-technical-strategy.zh-CN.md)：无 drift；Rust supervisor policy 仍是 action boundary，TypeScript 会在调用前拒绝不匹配 evidence。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；prompt/model artifact 仍不授权，unmatched artifact 不能触发 authority-bearing lifecycle。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正 PGC-5 当前状态，说明 path drift 与 unmatched proposal evidence 会 fail closed 且不修改 Ledger 或 execution manifest。
+
+剩余边界：
+
+- 这不是 write proposal execution、stale-artifact repair、model-driven tool execution、provider tool-call execution、durable queue、semantic verification、connector OAuth、package execution 或 cloud worker execution。

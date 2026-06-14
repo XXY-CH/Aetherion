@@ -140,7 +140,7 @@ Current partial status:
 
 Deliverables:
 
-- Convert an operator-restated `agent.tool.request.proposed` file-read proposal into a fresh supervisor `tool.requested -> policy.decided -> lease -> tool.result` path.
+- Convert an operator-restated `agent.tool.request.proposed` file-read proposal into a fresh supervisor `tool.requested -> risk.composed -> policy.decided -> scoped lease -> tool.result` path.
 - Preserve model output as non-authorizing context; the operator restatement is the intent input.
 
 Acceptance criteria:
@@ -153,6 +153,7 @@ Current partial status:
 - `prompt execute-tool-request` now accepts an operator-restated workspace file-read proposal, revalidates matched prompt/model artifact evidence, rejects path drift, and sends the read through Rust `file.read.traced`.
 - Allowed proposal executions complete a separate run with fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence.
 - Denied proposal executions now complete a blocked separate run with fresh `tool.requested -> risk.composed -> policy.decided -> tool.result` evidence, no lease, no file contents in stdout, and a hash-only denial reason.
+- Path drift and proposal artifacts without matched Ledger evidence fail closed before supervisor execution and do not append Ledger events or create execution run manifests.
 - The proposal artifact remains non-authorizing: `prompt propose-tool-request` still writes only `agent.tool.request.proposed`, while execution is a separate run with fresh supervisor policy and any scoped lease only if policy allows.
 - Write proposals, provider tool calls, durable queues, model-driven tool loops, and non-file-read proposal execution remain unimplemented.
 
