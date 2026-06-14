@@ -152,7 +152,7 @@
 
 交付物：
 
-- 给剩余 registry family 做 deterministic rebuild/parity，尤其是 Store publisher/install records、child-agent budgets/results、security fixtures 和 surface records；prompt/model artifacts 需要 artifact-chain evidence、signing/redaction 与显式 repair 覆盖，而不是 registry projection parity。
+- 给剩余 registry family 和 projection 做 deterministic rebuild/parity，尤其是剩余 security projections；Store publisher/install records、child-agent budgets/results 和 surface records 现在已有只读 preview。prompt/model 与 security fixture artifacts 需要 artifact-chain evidence、signing/redaction 与显式 repair 覆盖，而不是 registry projection authority。
 - 在不可逆 migration 或 repair 前先写 signature/redaction/rebuild design notes。
 
 验收：
@@ -168,8 +168,9 @@
 - `audit child-records` 现在为 Agent Contracts、Child Results、policy-denial Budget Account snapshots 和 Circuit Breakers 提供只读 Ledger-plus-artifact parity preview；它区分 matched、missing、mismatched、stale、invalid-artifact、invalid-registry 和 unrebuildable 状态，但不执行 child agent、不请求 supervisor authority、不修改 registry，也不把 child-agent projection 当 authority。
 - `audit surface-records` 现在为 Browser Observation、IM Inbox 和 IM Outbox projection 提供只读 Ledger-plus-artifact parity preview；它区分 matched、missing、mismatched、stale、invalid-artifact 和 invalid-registry 状态，但不会打开浏览器、不会发送消息、不会请求 supervisor authority、不会修改 registry，也不会把 surface projection 当 authority。
 - `audit prompt-model-artifacts` 现在为 runtime binding、model request、model response、response audit 和 operator-restated tool-request proposal events 提供只读 artifact evidence-chain preview；它区分 matched、missing-evidence、invalid-artifact、invalid-run-manifest 和 authority-violation 状态，但不 rebuild registry、不调用 model provider、不读取 raw prompt/model output、不修改 state、不发 lease，也不把 prompt/model artifact 当 authority。
+- `audit security-fixtures` 现在为 content assessment、poisoning signal、acknowledgement、decoy-only honeypot trial 和 detector-only regression fixture events 提供只读 artifact evidence-chain preview；它区分 matched、missing-evidence、invalid-artifact、invalid-run-manifest 和 authority-violation 状态，但不读取 raw content、不执行 honeypot subject、不解除 quarantine、不修改 state、不发 lease，也不把 security artifact 当 authority。
 - 当前没有 payload-ref artifact 来源的 Budget Account success-path registry row 会在这个 preview 中显示为 `unrebuildable`。这是显式暴露的剩余 rebuild gap，不是自动 repair。
-- security fixtures、event signatures、redaction、显式 repair，以及更强的 prompt/model artifact signing/redaction/repair 仍未完成。Store、surface 与 child-agent projection repair 也仍然必须显式且 operator-approved，不能由 audit 自动修复。
+- 剩余 security projection rebuild/parity、event signatures、redaction、显式 repair，以及更强的 prompt/model 与 security artifact signing/redaction/repair 仍未完成。Store、surface 与 child-agent projection repair 也仍然必须显式且 operator-approved，不能由 audit 自动修复。
 
 ### PGC-7：Adapter 与 Surface Gate Readiness
 

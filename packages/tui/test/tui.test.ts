@@ -581,6 +581,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit prompt-model-artifacts --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit security-fixtures --workspace <path>/);
   const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
   assert.match(v1Help, /npm run ether -- run --workspace <path>/);
   assert.match(v1Help, /npm run ether -- ingress audit --workspace <path>/);
@@ -4047,6 +4048,47 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.equal(securityFinding("honeypot.trial.completed")?.schema_status, "valid");
   assert.equal(securityFinding("poisoning.regression.created")?.schema_name, "poisoning-regression-fixture.schema.json");
   assert.equal(securityFinding("poisoning.regression.created")?.schema_status, "valid");
+  const securityFixtureArtifact = await readFile(join(workspace, ".aetherion", "artifacts", "security", "fixture", `${JSON.parse(fixture.stdout).id}.json`), "utf8");
+  const securityFixtureAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "security-fixtures", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: {
+      mutates_ledger: boolean;
+      mutates_artifacts: boolean;
+      reads_raw_content: boolean;
+      executes_honeypot_subject: boolean;
+      grants_runtime_authority: boolean;
+    };
+    summary: {
+      poisoning_fixtures: number;
+      matched: number;
+      authority_violation: number;
+    };
+    findings: Array<{
+      artifact_kind: string;
+      artifact_id: string;
+      status: string;
+      related_event_ids?: {
+        poisoning_detected?: string;
+        honeypot_trial_completed?: string;
+        poisoning_regression_created?: string;
+      };
+    }>;
+  };
+  assert.equal(securityFixtureAudit.id, "security_fixture_evidence_audit");
+  assert.equal(securityFixtureAudit.scope.mutates_ledger, false);
+  assert.equal(securityFixtureAudit.scope.mutates_artifacts, false);
+  assert.equal(securityFixtureAudit.scope.reads_raw_content, false);
+  assert.equal(securityFixtureAudit.scope.executes_honeypot_subject, false);
+  assert.equal(securityFixtureAudit.scope.grants_runtime_authority, false);
+  assert.equal(securityFixtureAudit.summary.poisoning_fixtures, 1);
+  assert.equal(securityFixtureAudit.summary.authority_violation, 0);
+  assert.ok(securityFixtureAudit.summary.matched >= 4);
+  const fixtureEvidence = securityFixtureAudit.findings.find((finding) => finding.artifact_kind === "poisoning_fixture");
+  assert.equal(fixtureEvidence?.status, "matched");
+  assert.ok(fixtureEvidence?.related_event_ids?.poisoning_detected);
+  assert.ok(fixtureEvidence?.related_event_ids?.honeypot_trial_completed);
+  assert.ok(fixtureEvidence?.related_event_ids?.poisoning_regression_created);
+  assert.equal(await readFile(join(workspace, ".aetherion", "artifacts", "security", "fixture", `${JSON.parse(fixture.stdout).id}.json`), "utf8"), securityFixtureArtifact);
 });
 
 test("TUI migration dry-run redacts tokens and quarantines legacy skills", async () => {

@@ -117,6 +117,7 @@ npm run ether -- audit hibernation-records --workspace .
 npm run ether -- audit sandbox-records --workspace .
 npm run ether -- audit payload-refs --workspace .
 npm run ether -- audit response-audits --workspace .
+npm run ether -- audit security-fixtures --workspace .
 ```
 
 The audit writes only to stdout. Every audit topic first verifies the workspace Event Ledger hash chain and fails closed when the JSONL has been tampered with. `strong` means every event id referenced by a registry entry exists in the JSONL Ledger; it does not mean the registry can already be rebuilt from Ledger/artifacts. `weak`, `missing`, and `invalid` entries show the current projection debt explicitly.

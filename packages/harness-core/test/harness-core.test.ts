@@ -17,6 +17,7 @@ import {
   auditSurfaceRegistryRebuild,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
+  auditSecurityFixtureEvidence,
   approveWriteWithConsent,
   auditRegistryProvenance,
   auditReplayRecordRegistryRebuild,
@@ -4032,6 +4033,98 @@ test("hibernation registry rebuild audit compares sleep and wake artifacts witho
   assert.deepEqual(audit.expected_hibernations.map((item) => item.id), ["hibernate_run_mismatch", "hibernate_run_missing", "hibernate_run_sleep"]);
   assert.deepEqual(audit.expected_wakeups.map((item) => item.id), ["wake_hibernate_run_mismatch_manual", "wake_hibernate_run_sleep_manual"]);
   assert.equal(await readFile(join(registryDir, "hibernations.json"), "utf8"), beforeHibernations);
+});
+
+test("security fixture evidence audit verifies detector-only artifact chains without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-security-fixture-audit-"));
+  const securityScanDir = join(root, ".aetherion", "artifacts", "security", "scan");
+  const securityAckDir = join(root, ".aetherion", "artifacts", "security", "ack");
+  const securityTrialDir = join(root, ".aetherion", "artifacts", "security", "trial");
+  const securityFixtureDir = join(root, ".aetherion", "artifacts", "security", "fixture");
+  const runsDir = join(root, ".aetherion", "runs");
+  await mkdir(securityScanDir, { recursive: true });
+  await mkdir(securityAckDir, { recursive: true });
+  await mkdir(securityTrialDir, { recursive: true });
+  await mkdir(securityFixtureDir, { recursive: true });
+  await mkdir(runsDir, { recursive: true });
+  const assessment = contentAssessment("assessment_payload");
+  const detected = poisoningSignal("poison_payload", "detected");
+  const acknowledged = {
+    ...poisoningSignal("poison_payload", "acknowledged"),
+    regression_fixture_id: "poison_fixture_payload"
+  };
+  const trial = honeypotTrial("honeypot_payload");
+  const fixture = poisoningFixture("poison_fixture_payload");
+  await writeFile(join(securityScanDir, "assessment_payload.json"), `${JSON.stringify(assessment, null, 2)}\n`);
+  await writeFile(join(securityScanDir, "poison_payload.json"), `${JSON.stringify(detected, null, 2)}\n`);
+  await writeFile(join(securityAckDir, "poison_payload.json"), `${JSON.stringify(acknowledged, null, 2)}\n`);
+  await writeFile(join(securityTrialDir, "honeypot_payload.json"), `${JSON.stringify(trial, null, 2)}\n`);
+  await writeFile(join(securityFixtureDir, "poison_fixture_payload.json"), `${JSON.stringify(fixture, null, 2)}\n`);
+  const policyEvent = eventRecord({
+    id: "evt_security_policy",
+    workspace_id: "ws_payload_ref_audit",
+    run_id: "run_security_scan",
+    event_type: "policy.decided",
+    actor: { type: "system", id: "security_fixture_auditor_fixture" },
+    summary: "Security fixture policy decision denied tainted authorization."
+  });
+  const auditEvents = [
+    policyEvent,
+    payloadEvent("evt_security_assessment", "run_security_scan", "security.content.assessed", "artifact://security/scan/assessment_payload"),
+    payloadEvent("evt_security_detected", "run_security_scan", "poisoning.detected", "artifact://security/scan/poison_payload"),
+    payloadEvent("evt_security_ack", "run_security_ack", "poisoning.acknowledged", "artifact://security/ack/poison_payload"),
+    payloadEvent("evt_security_trial", "run_security_trial", "honeypot.trial.completed", "artifact://security/trial/honeypot_payload"),
+    payloadEvent("evt_security_fixture", "run_security_fixture", "poisoning.regression.created", "artifact://security/fixture/poison_fixture_payload")
+  ];
+  await writeFile(join(runsDir, "run_security_scan.json"), `${JSON.stringify({
+    id: "run_security_scan",
+    status: "blocked",
+    event_ids: ["evt_security_policy", "evt_security_assessment", "evt_security_detected"]
+  }, null, 2)}\n`);
+  await writeFile(join(runsDir, "run_security_ack.json"), `${JSON.stringify({
+    id: "run_security_ack",
+    status: "completed",
+    event_ids: ["evt_security_ack"]
+  }, null, 2)}\n`);
+  await writeFile(join(runsDir, "run_security_trial.json"), `${JSON.stringify({
+    id: "run_security_trial",
+    status: "completed",
+    event_ids: ["evt_security_trial"]
+  }, null, 2)}\n`);
+  await writeFile(join(runsDir, "run_security_fixture.json"), `${JSON.stringify({
+    id: "run_security_fixture",
+    status: "completed",
+    event_ids: ["evt_security_fixture"]
+  }, null, 2)}\n`);
+  const beforeFixture = await readFile(join(securityFixtureDir, "poison_fixture_payload.json"), "utf8");
+
+  const audit = await auditSecurityFixtureEvidence(repoRoot, root, auditEvents);
+
+  assert.equal(audit.id, "security_fixture_evidence_audit");
+  assert.equal(audit.scope.mode, "read_only_security_fixture_evidence");
+  assert.equal(audit.scope.mutates_ledger, false);
+  assert.equal(audit.scope.mutates_artifacts, false);
+  assert.equal(audit.scope.reads_raw_content, false);
+  assert.equal(audit.scope.executes_honeypot_subject, false);
+  assert.deepEqual(audit.summary, {
+    artifact_events: 5,
+    content_assessments: 1,
+    poisoning_signals: 1,
+    poisoning_acks: 1,
+    honeypot_trials: 1,
+    poisoning_fixtures: 1,
+    matched: 5,
+    missing_evidence: 0,
+    invalid_artifact: 0,
+    invalid_run_manifest: 0,
+    authority_violation: 0
+  });
+  const fixtureFinding = audit.findings.find((finding) => finding.artifact_kind === "poisoning_fixture");
+  assert.equal(fixtureFinding?.status, "matched");
+  assert.equal(fixtureFinding?.related_event_ids?.poisoning_detected, "evt_security_detected");
+  assert.equal(fixtureFinding?.related_event_ids?.poisoning_acknowledged, "evt_security_ack");
+  assert.equal(fixtureFinding?.related_event_ids?.honeypot_trial_completed, "evt_security_trial");
+  assert.equal(await readFile(join(securityFixtureDir, "poison_fixture_payload.json"), "utf8"), beforeFixture);
 });
 
 test("ledger payload-ref audit resolves local artifact refs without mutating", async () => {

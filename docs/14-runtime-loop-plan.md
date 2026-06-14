@@ -1249,3 +1249,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not automatic artifact or registry repair, event signing, raw prompt/model redaction tooling, response semantic verification, provider invocation, provider tool execution, prompt persistence, model-output authority, connector OAuth, package execution, cloud worker execution, or a new supervisor action family.
+
+## Completed Increment: Security Fixture Artifact Evidence Audit
+
+Target: continue PGC-6 integrity work by exposing the Security scan/ack/trial/fixture evidence chain in a read-only audit without treating security artifacts or registries as authority.
+
+Acceptance:
+
+- `ether audit security-fixtures --workspace <path>` reads only the verified Ledger plus local payload-ref artifacts, then reports content assessment, poisoning signal, acknowledgement, honeypot trial, and poisoning regression fixture evidence.
+- Findings distinguish `matched`, `missing_evidence`, `invalid_artifact`, `invalid_run_manifest`, and `authority_violation` without mutating Ledger, artifacts, registries, or run manifests.
+- The audit explicitly does not read raw content, execute honeypot subjects, lift quarantine, rebuild registry projections, request supervisor authority, issue leases, repair state, or trust Security artifacts as action authority.
+- TUI integration covers the `security scan -> security trial -> security fixture -> security ack` path and proves the audit sees the detector-only fixture chain as matched non-authorizing evidence.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): reinforces local-first auditability while keeping untrusted content and Security artifacts out of action authority.
+- [Roadmap](06-roadmap.md): stays inside TUI-first evidence hardening and does not add GUI, IM delivery, browser automation, MCP/OAuth connectors, cloud workers, or real adapter execution.
+- [Technical Strategy](10-technical-strategy.md): treats TypeScript Security artifacts as contract/control-plane evidence while Local Supervisor and scoped leases remain the authority path.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): clarifies that `audit security-fixtures` is artifact-chain evidence, not registry rebuild/parity or repair.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 security fixture evidence visibility while leaving remaining security projection rebuild/parity, signing, redaction, and explicit repair work open.
+
+Remaining boundary:
+
+- This is not automatic artifact or registry repair, event signing, raw-content redaction tooling, live honeypot execution, quarantine removal, connector OAuth, package execution, cloud worker execution, or a new supervisor action family.

@@ -152,7 +152,7 @@ Acceptance criteria:
 
 Deliverables:
 
-- Deterministic rebuild/parity for remaining registry families, especially Store publisher/install records, child-agent budgets/results, security fixtures, and surface records; prompt/model artifacts need artifact-chain evidence, signing/redaction, and explicit repair coverage rather than registry projection parity.
+- Deterministic rebuild/parity for remaining registry families and projections, especially remaining security projections; Store publisher/install records, child-agent budgets/results, and surface records now have read-only previews. Prompt/model and security fixture artifacts need artifact-chain evidence, signing/redaction, and explicit repair coverage rather than registry projection authority.
 - Signature/redaction/rebuild design notes before implementing irreversible migration or repair.
 
 Acceptance criteria:
@@ -168,8 +168,9 @@ Current partial status:
 - `audit child-records` now provides a read-only Ledger-plus-artifact parity preview for Agent Contracts, Child Results, policy-denial Budget Account snapshots, and Circuit Breakers; it reports matched, missing, mismatched, stale, invalid-artifact, invalid-registry, and unrebuildable states without executing child agents, requesting supervisor authority, mutating registries, or trusting child-agent projections as authority.
 - `audit surface-records` now provides a read-only Ledger-plus-artifact parity preview for Browser Observation, IM Inbox, and IM Outbox projections; it reports matched, missing, mismatched, stale, invalid-artifact, and invalid-registry states without opening a browser, delivering messages, requesting supervisor authority, mutating registries, or trusting surface projections as authority.
 - `audit prompt-model-artifacts` now provides a read-only artifact evidence-chain preview for runtime binding, model request, model response, response audit, and operator-restated tool-request proposal events; it reports matched, missing-evidence, invalid-artifact, invalid-run-manifest, and authority-violation states without rebuilding registries, calling model providers, reading raw prompt/model output, mutating state, issuing leases, or trusting prompt/model artifacts as authority.
+- `audit security-fixtures` now provides a read-only artifact evidence-chain preview for content assessment, poisoning signal, acknowledgement, decoy-only honeypot trial, and detector-only regression fixture events; it reports matched, missing-evidence, invalid-artifact, invalid-run-manifest, and authority-violation states without reading raw content, executing honeypot subjects, lifting quarantine, mutating state, issuing leases, or trusting security artifacts as authority.
 - Budget Account success-path registry rows without a current payload-ref artifact source are surfaced as `unrebuildable` in this preview. This is an explicit remaining rebuild gap, not automatic repair.
-- Security fixtures, event signatures, redaction, explicit repair, and stronger prompt/model artifact signing/redaction/repair remain open. Store, surface, and child-agent projection repair also remain explicit and operator-approved rather than automatic.
+- Remaining security projection rebuild/parity, event signatures, redaction, explicit repair, and stronger prompt/model plus security artifact signing/redaction/repair remain open. Store, surface, and child-agent projection repair also remain explicit and operator-approved rather than automatic.
 
 ### PGC-7: Adapter And Surface Gate Readiness
 

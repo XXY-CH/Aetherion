@@ -599,6 +599,72 @@ export type PromptModelArtifactEvidenceAudit = {
   findings: PromptModelArtifactEvidenceFinding[];
 };
 
+export type SecurityFixtureArtifactKind =
+  | "content_assessment"
+  | "poisoning_signal"
+  | "poisoning_ack"
+  | "honeypot_trial"
+  | "poisoning_fixture";
+
+export type SecurityFixtureEvidenceStatus =
+  | "matched"
+  | "missing_evidence"
+  | "invalid_artifact"
+  | "invalid_run_manifest"
+  | "authority_violation";
+
+export type SecurityFixtureEvidenceFinding = {
+  artifact_kind: SecurityFixtureArtifactKind;
+  artifact_id: string;
+  status: SecurityFixtureEvidenceStatus;
+  reason?: string;
+  event_id?: string;
+  run_id?: string;
+  payload_ref?: string;
+  resolved_path?: string | null;
+  schema_name?: string;
+  schema_errors?: string[];
+  related_event_ids?: {
+    security_content_assessed?: string;
+    poisoning_detected?: string;
+    poisoning_acknowledged?: string;
+    honeypot_trial_completed?: string;
+    poisoning_regression_created?: string;
+  };
+};
+
+export type SecurityFixtureEvidenceAudit = {
+  id: "security_fixture_evidence_audit";
+  generated_at: string;
+  workspace_root: string;
+  ledger_event_count: number;
+  scope: {
+    mode: "read_only_security_fixture_evidence";
+    mutates_ledger: false;
+    mutates_artifacts: false;
+    mutates_registries: false;
+    reads_raw_content: false;
+    executes_honeypot_subject: false;
+    requests_supervisor_authority: false;
+    grants_runtime_authority: false;
+    rebuilds_registry_projection: false;
+  };
+  summary: {
+    artifact_events: number;
+    content_assessments: number;
+    poisoning_signals: number;
+    poisoning_acks: number;
+    honeypot_trials: number;
+    poisoning_fixtures: number;
+    matched: number;
+    missing_evidence: number;
+    invalid_artifact: number;
+    invalid_run_manifest: number;
+    authority_violation: number;
+  };
+  findings: SecurityFixtureEvidenceFinding[];
+};
+
 export function registryPath(workspaceRoot: string, name: string): string {
   return join(workspaceRoot, ".aetherion", "registries", `${name}.json`);
 }
@@ -2115,6 +2181,220 @@ export async function auditPromptModelArtifactEvidence(repoRoot: string, workspa
   };
 }
 
+export async function auditSecurityFixtureEvidence(repoRoot: string, workspaceRoot: string, events: EventRecord[]): Promise<SecurityFixtureEvidenceAudit> {
+  const findings: SecurityFixtureEvidenceFinding[] = [];
+  const assessmentEvents = events.filter((event) => event.event_type === "security.content.assessed");
+  const detectedEvents = events.filter((event) => event.event_type === "poisoning.detected");
+  const ackEvents = events.filter((event) => event.event_type === "poisoning.acknowledged");
+  const trialEvents = events.filter((event) => event.event_type === "honeypot.trial.completed");
+  const fixtureEvents = events.filter((event) => event.event_type === "poisoning.regression.created");
+  const assessmentEventByRef = eventMapByPayloadRef(assessmentEvents);
+  const detectedEventByRef = eventMapByPayloadRef(detectedEvents);
+  const detectedEventsBySignalId = new Map<string, EventRecord>();
+  const ackEventsBySignalId = new Map<string, EventRecord>();
+  const trialEventsBySignalId = new Map<string, EventRecord[]>();
+  const eventsByRun = eventsByRunId(events);
+  const validSignalsById = new Map<string, SecurityPoisoningSignalRecord>();
+  const validAssessmentsById = new Map<string, SecurityContentAssessmentRecord>();
+
+  for (const event of assessmentEvents) {
+    const check = await readSecurityArtifactForAudit(repoRoot, workspaceRoot, event, "content_assessment", "content-assessment.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    validAssessmentsById.set(artifact.id, artifact);
+    const authorityViolations = contentAssessmentAuthorityViolations(artifact);
+    const runCheck = securityAssessmentRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot);
+    findings.push(securityFixtureFinding({
+      artifactKind: "content_assessment",
+      artifactId: artifact.id,
+      status: authorityViolations.length > 0 ? "authority_violation" : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: authorityViolations.length > 0 ? authorityViolations.join("; ") : runCheck.status === "valid" ? undefined : runCheck.reason,
+      event,
+      resolvedPath: check.path,
+      schemaName: "content-assessment.schema.json",
+      schemaErrors: [],
+      relatedEventIds: { security_content_assessed: event.id }
+    }));
+  }
+
+  for (const event of detectedEvents) {
+    const check = await readSecurityArtifactForAudit(repoRoot, workspaceRoot, event, "poisoning_signal", "poisoning-signal.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    validSignalsById.set(artifact.id, artifact);
+    detectedEventsBySignalId.set(artifact.id, event);
+    const assessmentEvent = assessmentEventByRef.get(`artifact://security/scan/${artifact.assessment_id}`);
+    const missingEvidence = !assessmentEvent ? [`missing security.content.assessed event for ${artifact.assessment_id}`] : [];
+    const mismatches = signalAssessmentMismatches(artifact, validAssessmentsById.get(artifact.assessment_id));
+    const authorityViolations = poisoningSignalAuthorityViolations(artifact, "detected");
+    const runCheck = securityDetectedRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot);
+    findings.push(securityFixtureFinding({
+      artifactKind: "poisoning_signal",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "poisoning-signal.schema.json",
+      schemaErrors: [],
+      relatedEventIds: {
+        security_content_assessed: assessmentEvent?.id,
+        poisoning_detected: event.id
+      }
+    }));
+  }
+
+  for (const event of ackEvents) {
+    const check = await readSecurityArtifactForAudit(repoRoot, workspaceRoot, event, "poisoning_ack", "poisoning-signal.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    validSignalsById.set(artifact.id, artifact);
+    ackEventsBySignalId.set(artifact.id, event);
+    const detectedEvent = detectedEventsBySignalId.get(artifact.id) ?? detectedEventByRef.get(`artifact://security/scan/${artifact.id}`);
+    const missingEvidence = !detectedEvent ? [`missing poisoning.detected event for ${artifact.id}`] : [];
+    const detectedArtifact = readArtifactForCrossCheck<SecurityPoisoningSignalRecord>(workspaceRoot, `artifact://security/scan/${artifact.id}`);
+    const mismatches = ackSignalMismatches(artifact, detectedArtifact.status === "valid" ? detectedArtifact.artifact : undefined);
+    const authorityViolations = poisoningSignalAuthorityViolations(artifact, "acknowledged");
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "poisoning.acknowledged");
+    findings.push(securityFixtureFinding({
+      artifactKind: "poisoning_ack",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "poisoning-signal.schema.json",
+      schemaErrors: [],
+      relatedEventIds: {
+        poisoning_detected: detectedEvent?.id,
+        poisoning_acknowledged: event.id
+      }
+    }));
+  }
+
+  for (const event of trialEvents) {
+    const check = await readSecurityArtifactForAudit(repoRoot, workspaceRoot, event, "honeypot_trial", "honeypot-trial.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const trialEventMatches = trialEventsBySignalId.get(artifact.signal_id) ?? [];
+    trialEventMatches.push(event);
+    trialEventsBySignalId.set(artifact.signal_id, trialEventMatches);
+    const signalEvent = detectedEventsBySignalId.get(artifact.signal_id) ?? ackEventsBySignalId.get(artifact.signal_id);
+    const missingEvidence = !signalEvent ? [`missing poisoning signal event for ${artifact.signal_id}`] : [];
+    const signalArtifact = validSignalsById.get(artifact.signal_id) ?? readFirstSecuritySignalForAudit(workspaceRoot, artifact.signal_id);
+    const mismatches = trialSignalMismatches(artifact, signalArtifact);
+    const authorityViolations = honeypotTrialAuthorityViolations(artifact);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "honeypot.trial.completed");
+    findings.push(securityFixtureFinding({
+      artifactKind: "honeypot_trial",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "honeypot-trial.schema.json",
+      schemaErrors: [],
+      relatedEventIds: {
+        poisoning_detected: detectedEventsBySignalId.get(artifact.signal_id)?.id,
+        poisoning_acknowledged: ackEventsBySignalId.get(artifact.signal_id)?.id,
+        honeypot_trial_completed: event.id
+      }
+    }));
+  }
+
+  for (const event of fixtureEvents) {
+    const check = await readSecurityArtifactForAudit(repoRoot, workspaceRoot, event, "poisoning_fixture", "poisoning-regression-fixture.schema.json");
+    if (check.status !== "valid") {
+      findings.push(check.finding);
+      continue;
+    }
+    const artifact = check.artifact;
+    const detectedEvent = detectedEventsBySignalId.get(artifact.signal_id);
+    const ackEvent = ackEventsBySignalId.get(artifact.signal_id);
+    const signalArtifact = validSignalsById.get(artifact.signal_id) ?? readFirstSecuritySignalForAudit(workspaceRoot, artifact.signal_id);
+    const missingEvidence = !detectedEvent && !ackEvent ? [`missing poisoning signal event for ${artifact.signal_id}`] : [];
+    const mismatches = fixtureSignalMismatches(artifact, signalArtifact);
+    const authorityViolations = fixtureAuthorityViolations(artifact);
+    const runCheck = singleEventRunEvidence(event, eventsByRun.get(event.run_id) ?? [], workspaceRoot, "poisoning.regression.created");
+    findings.push(securityFixtureFinding({
+      artifactKind: "poisoning_fixture",
+      artifactId: artifact.id,
+      status: missingEvidence.length > 0 || mismatches.length > 0
+        ? "missing_evidence"
+        : authorityViolations.length > 0
+          ? "authority_violation"
+          : runCheck.status === "valid" ? "matched" : runCheck.status,
+      reason: [...missingEvidence, ...mismatches, ...authorityViolations, runCheck.status === "valid" ? "" : runCheck.reason].filter(Boolean).join("; ") || undefined,
+      event,
+      resolvedPath: check.path,
+      schemaName: "poisoning-regression-fixture.schema.json",
+      schemaErrors: [],
+      relatedEventIds: {
+        poisoning_detected: detectedEvent?.id,
+        poisoning_acknowledged: ackEvent?.id,
+        honeypot_trial_completed: trialEventsBySignalId.get(artifact.signal_id)?.at(0)?.id,
+        poisoning_regression_created: event.id
+      }
+    }));
+  }
+
+  return {
+    id: "security_fixture_evidence_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    ledger_event_count: events.length,
+    scope: {
+      mode: "read_only_security_fixture_evidence",
+      mutates_ledger: false,
+      mutates_artifacts: false,
+      mutates_registries: false,
+      reads_raw_content: false,
+      executes_honeypot_subject: false,
+      requests_supervisor_authority: false,
+      grants_runtime_authority: false,
+      rebuilds_registry_projection: false
+    },
+    summary: {
+      artifact_events: findings.length,
+      content_assessments: findings.filter((finding) => finding.artifact_kind === "content_assessment").length,
+      poisoning_signals: findings.filter((finding) => finding.artifact_kind === "poisoning_signal").length,
+      poisoning_acks: findings.filter((finding) => finding.artifact_kind === "poisoning_ack").length,
+      honeypot_trials: findings.filter((finding) => finding.artifact_kind === "honeypot_trial").length,
+      poisoning_fixtures: findings.filter((finding) => finding.artifact_kind === "poisoning_fixture").length,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_evidence: findings.filter((finding) => finding.status === "missing_evidence").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_run_manifest: findings.filter((finding) => finding.status === "invalid_run_manifest").length,
+      authority_violation: findings.filter((finding) => finding.status === "authority_violation").length
+    },
+    findings: findings.sort((left, right) => `${left.status}:${left.artifact_kind}:${left.artifact_id}`.localeCompare(`${right.status}:${right.artifact_kind}:${right.artifact_id}`))
+  };
+}
+
 function readRegistryForAudit(workspaceRoot: string, registry: string): {
   itemCount: number;
   items: RegistryItem[];
@@ -2167,6 +2447,66 @@ type PromptModelArtifactMap = {
   model_response: AgentModelResponseArtifact;
   response_audit: AgentResponseAuditArtifact;
   tool_request_proposal: AgentToolRequestProposalArtifact;
+};
+
+type SecurityContentAssessmentRecord = RegistryItem & {
+  source_event_id: string;
+  source_kind: string;
+  content_sha256: string;
+  status: "clean" | "suspicious";
+  matched_rules: string[];
+  taint: {
+    sources: string[];
+    can_authorize_actions: false;
+  };
+  raw_content_persisted: false;
+};
+
+type SecurityPoisoningSignalRecord = RegistryItem & {
+  assessment_id: string;
+  source_event_id: string;
+  source_kind: string;
+  content_sha256: string;
+  signal_type: string;
+  matched_rules: string[];
+  status: "detected" | "acknowledged";
+  quarantined: true;
+  sandbox_required: true;
+  can_authorize_actions: false;
+  acknowledged_at: string | null;
+  regression_fixture_id: string | null;
+};
+
+type SecurityHoneypotTrialRecord = RegistryItem & {
+  signal_id: string;
+  source_event_ids: string[];
+  mode: "deterministic_decoy_trial";
+  decoy_secret_refs: string[];
+  real_secret_accessed: false;
+  network_accessed: false;
+  authorization_issued: false;
+  observed_attempts: string[];
+  outcome: "contained";
+  quarantine_recommended: true;
+};
+
+type SecurityPoisoningFixtureRecord = RegistryItem & {
+  signal_id: string;
+  source_event_ids: string[];
+  input_sha256: string;
+  replay_mode: "detector_only";
+  expected_signal_type: string;
+  expected_matched_rules: string[];
+  expected_authorization_blocked: true;
+  raw_content_included: false;
+};
+
+type SecurityArtifactMap = {
+  content_assessment: SecurityContentAssessmentRecord;
+  poisoning_signal: SecurityPoisoningSignalRecord;
+  poisoning_ack: SecurityPoisoningSignalRecord;
+  honeypot_trial: SecurityHoneypotTrialRecord;
+  poisoning_fixture: SecurityPoisoningFixtureRecord;
 };
 
 async function readPromptModelArtifactForAudit<Kind extends PromptModelArtifactKind>(
@@ -2294,6 +2634,129 @@ function isPromptModelArtifactKind<Kind extends PromptModelArtifactKind>(
     return isAgentResponseAuditRecord(value);
   }
   return isAgentToolRequestProposalRecord(value);
+}
+
+async function readSecurityArtifactForAudit<Kind extends SecurityFixtureArtifactKind>(
+  repoRoot: string,
+  workspaceRoot: string,
+  event: EventRecord,
+  artifactKind: Kind,
+  schemaName: string
+): Promise<
+  | { status: "valid"; artifact: SecurityArtifactMap[Kind]; path: string }
+  | { status: "invalid"; finding: SecurityFixtureEvidenceFinding }
+> {
+  const artifactId = event.payload_ref ? basenameFromArtifactRef(event.payload_ref) : event.id;
+  if (!event.payload_ref) {
+    return {
+      status: "invalid",
+      finding: securityFixtureFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: `${event.event_type} event has no payload_ref`,
+        event,
+        schemaName
+      })
+    };
+  }
+  const expectedPrefix = securityArtifactPrefix(artifactKind);
+  if (!event.payload_ref.startsWith(expectedPrefix)) {
+    return {
+      status: "invalid",
+      finding: securityFixtureFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: `${event.event_type} event expected ${expectedPrefix} payload_ref`,
+        event,
+        schemaName
+      })
+    };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    return {
+      status: "invalid",
+      finding: securityFixtureFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: resolved.status === "unresolved" ? resolved.reason : "security artifact is missing",
+        event,
+        resolvedPath: resolved.status === "unresolved" ? null : resolved.path,
+        schemaName
+      })
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved.path, "utf8")) as unknown;
+  } catch {
+    return {
+      status: "invalid",
+      finding: securityFixtureFinding({
+        artifactKind,
+        artifactId,
+        status: "invalid_artifact",
+        reason: "security artifact JSON could not be parsed",
+        event,
+        resolvedPath: resolved.path,
+        schemaName
+      })
+    };
+  }
+  const schemaValidation = await validateAgainstSchema(repoRoot, schemaName, parsed);
+  if (!schemaValidation.valid || !isSecurityArtifactKind(artifactKind, parsed)) {
+    return {
+      status: "invalid",
+      finding: securityFixtureFinding({
+        artifactKind,
+        artifactId: isRegistryItem(parsed) ? parsed.id : artifactId,
+        status: "invalid_artifact",
+        reason: `security artifact is not schema-valid ${artifactKind}`,
+        event,
+        resolvedPath: resolved.path,
+        schemaName,
+        schemaErrors: schemaValidation.errors
+      })
+    };
+  }
+  return {
+    status: "valid",
+    artifact: parsed as SecurityArtifactMap[Kind],
+    path: resolved.path
+  };
+}
+
+function securityArtifactPrefix(artifactKind: SecurityFixtureArtifactKind): string {
+  switch (artifactKind) {
+    case "content_assessment":
+    case "poisoning_signal":
+      return "artifact://security/scan/";
+    case "poisoning_ack":
+      return "artifact://security/ack/";
+    case "honeypot_trial":
+      return "artifact://security/trial/";
+    case "poisoning_fixture":
+      return "artifact://security/fixture/";
+  }
+}
+
+function isSecurityArtifactKind<Kind extends SecurityFixtureArtifactKind>(
+  artifactKind: Kind,
+  value: unknown
+): value is SecurityArtifactMap[Kind] {
+  if (artifactKind === "content_assessment") {
+    return isSecurityContentAssessmentRecord(value);
+  }
+  if (artifactKind === "poisoning_signal" || artifactKind === "poisoning_ack") {
+    return isSecurityPoisoningSignalRecord(value);
+  }
+  if (artifactKind === "honeypot_trial") {
+    return isSecurityHoneypotTrialRecord(value);
+  }
+  return isSecurityPoisoningFixtureRecord(value);
 }
 
 function runtimeInvocationAuthorityViolations(artifact: AgentRuntimeInvocationArtifact): string[] {
@@ -2609,6 +3072,205 @@ function singleEventRunEvidence(
     };
   }
   return { status: "valid" };
+}
+
+function contentAssessmentAuthorityViolations(artifact: SecurityContentAssessmentRecord): string[] {
+  return [
+    artifact.raw_content_persisted ? "content assessment claims raw_content_persisted=true" : "",
+    artifact.taint.can_authorize_actions ? "content assessment taint claims can_authorize_actions=true" : ""
+  ].filter(Boolean);
+}
+
+function poisoningSignalAuthorityViolations(artifact: SecurityPoisoningSignalRecord, expectedStatus: "detected" | "acknowledged"): string[] {
+  return [
+    artifact.status !== expectedStatus ? `poisoning signal status is ${artifact.status}, expected ${expectedStatus}` : "",
+    !artifact.quarantined ? "poisoning signal does not require quarantine" : "",
+    !artifact.sandbox_required ? "poisoning signal does not require sandbox" : "",
+    artifact.can_authorize_actions ? "poisoning signal claims can_authorize_actions=true" : "",
+    expectedStatus === "acknowledged" && artifact.acknowledged_at === null ? "acknowledged poisoning signal has null acknowledged_at" : ""
+  ].filter(Boolean);
+}
+
+function honeypotTrialAuthorityViolations(artifact: SecurityHoneypotTrialRecord): string[] {
+  return [
+    artifact.mode !== "deterministic_decoy_trial" ? `honeypot trial mode is ${artifact.mode}` : "",
+    artifact.real_secret_accessed ? "honeypot trial claims real_secret_accessed=true" : "",
+    artifact.network_accessed ? "honeypot trial claims network_accessed=true" : "",
+    artifact.authorization_issued ? "honeypot trial claims authorization_issued=true" : "",
+    artifact.outcome !== "contained" ? `honeypot trial outcome is ${artifact.outcome}` : "",
+    !artifact.quarantine_recommended ? "honeypot trial does not recommend quarantine" : "",
+    artifact.decoy_secret_refs.some((ref) => !ref.startsWith("decoy://")) ? "honeypot trial includes non-decoy secret ref" : ""
+  ].filter(Boolean);
+}
+
+function fixtureAuthorityViolations(artifact: SecurityPoisoningFixtureRecord): string[] {
+  return [
+    artifact.replay_mode !== "detector_only" ? `poisoning fixture replay_mode is ${artifact.replay_mode}` : "",
+    !artifact.expected_authorization_blocked ? "poisoning fixture does not expect authorization blocked" : "",
+    artifact.raw_content_included ? "poisoning fixture claims raw_content_included=true" : ""
+  ].filter(Boolean);
+}
+
+function signalAssessmentMismatches(signal: SecurityPoisoningSignalRecord, assessment: SecurityContentAssessmentRecord | undefined): string[] {
+  if (!assessment) {
+    return [`missing content assessment artifact for ${signal.assessment_id}`];
+  }
+  return [
+    assessment.status !== "suspicious" ? `signal assessment status is ${assessment.status}, expected suspicious` : "",
+    assessment.source_event_id !== signal.source_event_id ? "signal source_event_id does not match assessment" : "",
+    assessment.source_kind !== signal.source_kind ? "signal source_kind does not match assessment" : "",
+    assessment.content_sha256 !== signal.content_sha256 ? "signal content_sha256 does not match assessment" : "",
+    !stringArraysEqual([...assessment.matched_rules].sort(), [...signal.matched_rules].sort()) ? "signal matched_rules do not match assessment" : ""
+  ].filter(Boolean);
+}
+
+function ackSignalMismatches(ack: SecurityPoisoningSignalRecord, detected: SecurityPoisoningSignalRecord | undefined): string[] {
+  if (!detected) {
+    return [`missing detected poisoning signal artifact for ${ack.id}`];
+  }
+  return [
+    detected.status !== "detected" ? `detected poisoning signal status is ${detected.status}` : "",
+    detected.assessment_id !== ack.assessment_id ? "ack assessment_id does not match detected signal" : "",
+    detected.source_event_id !== ack.source_event_id ? "ack source_event_id does not match detected signal" : "",
+    detected.source_kind !== ack.source_kind ? "ack source_kind does not match detected signal" : "",
+    detected.content_sha256 !== ack.content_sha256 ? "ack content_sha256 does not match detected signal" : "",
+    detected.signal_type !== ack.signal_type ? "ack signal_type does not match detected signal" : "",
+    !stringArraysEqual([...detected.matched_rules].sort(), [...ack.matched_rules].sort()) ? "ack matched_rules do not match detected signal" : ""
+  ].filter(Boolean);
+}
+
+function trialSignalMismatches(trial: SecurityHoneypotTrialRecord, signal: SecurityPoisoningSignalRecord | undefined): string[] {
+  if (!signal) {
+    return [`missing poisoning signal artifact for ${trial.signal_id}`];
+  }
+  return [
+    !trial.source_event_ids.includes(signal.source_event_id) ? "honeypot trial source_event_ids do not include signal source_event_id" : "",
+    !trial.observed_attempts.includes(signal.signal_type) ? "honeypot trial observed_attempts do not include signal type" : ""
+  ].filter(Boolean);
+}
+
+function fixtureSignalMismatches(fixture: SecurityPoisoningFixtureRecord, signal: SecurityPoisoningSignalRecord | undefined): string[] {
+  if (!signal) {
+    return [`missing poisoning signal artifact for ${fixture.signal_id}`];
+  }
+  return [
+    !fixture.source_event_ids.includes(signal.source_event_id) ? "fixture source_event_ids do not include signal source_event_id" : "",
+    fixture.input_sha256 !== signal.content_sha256 ? "fixture input_sha256 does not match signal content_sha256" : "",
+    fixture.expected_signal_type !== signal.signal_type ? "fixture expected_signal_type does not match signal" : "",
+    !stringArraysEqual([...fixture.expected_matched_rules].sort(), [...signal.matched_rules].sort()) ? "fixture expected_matched_rules do not match signal" : ""
+  ].filter(Boolean);
+}
+
+function readFirstSecuritySignalForAudit(workspaceRoot: string, signalId: string): SecurityPoisoningSignalRecord | undefined {
+  const scan = readArtifactForCrossCheck<SecurityPoisoningSignalRecord>(workspaceRoot, `artifact://security/scan/${signalId}`);
+  if (scan.status === "valid" && isSecurityPoisoningSignalRecord(scan.artifact)) {
+    return scan.artifact;
+  }
+  const ack = readArtifactForCrossCheck<SecurityPoisoningSignalRecord>(workspaceRoot, `artifact://security/ack/${signalId}`);
+  if (ack.status === "valid" && isSecurityPoisoningSignalRecord(ack.artifact)) {
+    return ack.artifact;
+  }
+  return undefined;
+}
+
+function securityAssessmentRunEvidence(
+  event: EventRecord,
+  runEvents: EventRecord[],
+  workspaceRoot: string
+): { status: "valid" } | { status: "invalid_run_manifest" | "authority_violation"; reason: string } {
+  const eventTypes = runEvents.map((entry) => entry.event_type);
+  const cleanSequence = ["policy.decided", "security.content.assessed"];
+  const blockedSequence = [...cleanSequence, "poisoning.detected"];
+  if (!stringArraysEqual(eventTypes, cleanSequence) && !stringArraysEqual(eventTypes, blockedSequence)) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `security.content.assessed run must be policy.decided -> security.content.assessed with optional poisoning.detected, got ${eventTypes.join(" -> ") || "no events"}`
+    };
+  }
+  const manifestRead = readRunManifestForAudit(workspaceRoot, event.run_id, "security.content.assessed");
+  if (manifestRead.status !== "valid") {
+    return { status: "invalid_run_manifest", reason: manifestRead.reason };
+  }
+  const expectedStatus = stringArraysEqual(eventTypes, blockedSequence) ? "blocked" : "completed";
+  if (manifestRead.manifest.status !== expectedStatus) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `security.content.assessed run manifest status is ${manifestRead.manifest.status}, expected ${expectedStatus}`
+    };
+  }
+  if (!stringArraysEqual(manifestRead.manifest.event_ids, runEvents.map((entry) => entry.id))) {
+    return {
+      status: "invalid_run_manifest",
+      reason: "security.content.assessed run manifest event_ids do not match Ledger run events"
+    };
+  }
+  return { status: "valid" };
+}
+
+function securityDetectedRunEvidence(
+  event: EventRecord,
+  runEvents: EventRecord[],
+  workspaceRoot: string
+): { status: "valid" } | { status: "invalid_run_manifest" | "authority_violation"; reason: string } {
+  const eventTypes = runEvents.map((entry) => entry.event_type);
+  const blockedSequence = ["policy.decided", "security.content.assessed", "poisoning.detected"];
+  if (!stringArraysEqual(eventTypes, blockedSequence)) {
+    return {
+      status: "invalid_run_manifest",
+      reason: `poisoning.detected run must be ${blockedSequence.join(" -> ")}, got ${eventTypes.join(" -> ") || "no events"}`
+    };
+  }
+  const manifestRead = readRunManifestForAudit(workspaceRoot, event.run_id, "poisoning.detected");
+  if (manifestRead.status !== "valid") {
+    return { status: "invalid_run_manifest", reason: manifestRead.reason };
+  }
+  if (manifestRead.manifest.status !== "blocked") {
+    return {
+      status: "invalid_run_manifest",
+      reason: `poisoning.detected run manifest status is ${manifestRead.manifest.status}, expected blocked`
+    };
+  }
+  if (!stringArraysEqual(manifestRead.manifest.event_ids, runEvents.map((entry) => entry.id))) {
+    return {
+      status: "invalid_run_manifest",
+      reason: "poisoning.detected run manifest event_ids do not match Ledger run events"
+    };
+  }
+  if (runEvents.at(-1)?.id !== event.id) {
+    return {
+      status: "invalid_run_manifest",
+      reason: "poisoning.detected event is not the final event in its security scan run"
+    };
+  }
+  return { status: "valid" };
+}
+
+function securityFixtureFinding(input: {
+  artifactKind: SecurityFixtureArtifactKind;
+  artifactId: string;
+  status: SecurityFixtureEvidenceStatus;
+  reason?: string;
+  event?: EventRecord;
+  resolvedPath?: string | null;
+  schemaName?: string;
+  schemaErrors?: string[];
+  relatedEventIds?: SecurityFixtureEvidenceFinding["related_event_ids"];
+}): SecurityFixtureEvidenceFinding {
+  return {
+    artifact_kind: input.artifactKind,
+    artifact_id: input.artifactId,
+    status: input.status,
+    ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.event ? {
+      event_id: input.event.id,
+      run_id: input.event.run_id,
+      payload_ref: input.event.payload_ref
+    } : {}),
+    ...(input.resolvedPath !== undefined ? { resolved_path: input.resolvedPath } : {}),
+    ...(input.schemaName ? { schema_name: input.schemaName } : {}),
+    ...(input.schemaErrors ? { schema_errors: input.schemaErrors } : {}),
+    ...(input.relatedEventIds ? { related_event_ids: input.relatedEventIds } : {})
+  };
 }
 
 function isAuthorityBearingPromptModelEvent(eventType: string): boolean {
@@ -4296,6 +4958,81 @@ function isAgentToolRequestProposalRecord(value: unknown): value is AgentToolReq
     && isRecord(value.proposal)
     && isRecord(value.authority_gates)
     && typeof value.proposal_sha256 === "string";
+}
+
+function isSecurityContentAssessmentRecord(value: unknown): value is SecurityContentAssessmentRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const taint = value.taint;
+  return typeof value.id === "string"
+    && typeof value.source_event_id === "string"
+    && typeof value.source_kind === "string"
+    && typeof value.content_sha256 === "string"
+    && (value.status === "clean" || value.status === "suspicious")
+    && Array.isArray(value.matched_rules)
+    && value.matched_rules.every((rule) => typeof rule === "string")
+    && isRecord(taint)
+    && Array.isArray(taint.sources)
+    && taint.can_authorize_actions === false
+    && value.raw_content_persisted === false;
+}
+
+function isSecurityPoisoningSignalRecord(value: unknown): value is SecurityPoisoningSignalRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.id === "string"
+    && typeof value.assessment_id === "string"
+    && typeof value.source_event_id === "string"
+    && typeof value.source_kind === "string"
+    && typeof value.content_sha256 === "string"
+    && typeof value.signal_type === "string"
+    && Array.isArray(value.matched_rules)
+    && value.matched_rules.every((rule) => typeof rule === "string")
+    && (value.status === "detected" || value.status === "acknowledged")
+    && value.quarantined === true
+    && value.sandbox_required === true
+    && value.can_authorize_actions === false
+    && (typeof value.acknowledged_at === "string" || value.acknowledged_at === null)
+    && (typeof value.regression_fixture_id === "string" || value.regression_fixture_id === null);
+}
+
+function isSecurityHoneypotTrialRecord(value: unknown): value is SecurityHoneypotTrialRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.id === "string"
+    && typeof value.signal_id === "string"
+    && Array.isArray(value.source_event_ids)
+    && value.source_event_ids.every((eventId) => typeof eventId === "string")
+    && value.mode === "deterministic_decoy_trial"
+    && Array.isArray(value.decoy_secret_refs)
+    && value.decoy_secret_refs.every((ref) => typeof ref === "string")
+    && value.real_secret_accessed === false
+    && value.network_accessed === false
+    && value.authorization_issued === false
+    && Array.isArray(value.observed_attempts)
+    && value.observed_attempts.every((attempt) => typeof attempt === "string")
+    && value.outcome === "contained"
+    && value.quarantine_recommended === true;
+}
+
+function isSecurityPoisoningFixtureRecord(value: unknown): value is SecurityPoisoningFixtureRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.id === "string"
+    && typeof value.signal_id === "string"
+    && Array.isArray(value.source_event_ids)
+    && value.source_event_ids.every((eventId) => typeof eventId === "string")
+    && typeof value.input_sha256 === "string"
+    && value.replay_mode === "detector_only"
+    && typeof value.expected_signal_type === "string"
+    && Array.isArray(value.expected_matched_rules)
+    && value.expected_matched_rules.every((rule) => typeof rule === "string")
+    && value.expected_authorization_blocked === true
+    && value.raw_content_included === false;
 }
 
 async function validateResponseArtifactForAudit(

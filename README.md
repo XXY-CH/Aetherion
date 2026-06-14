@@ -310,4 +310,6 @@ npm run ether -- audit hibernation-records --workspace .
 npm run ether -- audit sandbox-records --workspace .
 npm run ether -- audit payload-refs --workspace .
 npm run ether -- audit response-audits --workspace .
+npm run ether -- audit prompt-model-artifacts --workspace .
+npm run ether -- audit security-fixtures --workspace .
 ```

@@ -855,3 +855,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 automatic artifact 或 registry repair、event signing、raw prompt/model redaction tooling、response semantic verification、provider invocation、provider tool execution、prompt persistence、model-output authority、connector OAuth、package execution、cloud worker execution，或新的 supervisor action family。
+
+## 已完成增量：Security Fixture Artifact Evidence Audit
+
+目标：继续推进 PGC-6 integrity work，用只读 audit 暴露 Security scan/ack/trial/fixture evidence chain，同时不把 security artifact 或 registry 当作 authority。
+
+验收：
+
+- `ether audit security-fixtures --workspace <path>` 只读取已验证 Ledger 和本地 payload-ref artifacts，然后报告 content assessment、poisoning signal、acknowledgement、honeypot trial 和 poisoning regression fixture evidence。
+- Findings 区分 `matched`、`missing_evidence`、`invalid_artifact`、`invalid_run_manifest` 和 `authority_violation`，但不修改 Ledger、artifact、registry 或 run manifest。
+- 该 audit 明确不读取 raw content、不执行 honeypot subject、不解除 quarantine、不 rebuild registry projection、不请求 supervisor authority、不发 lease、不 repair state，也不把 Security artifact 当 action authority。
+- TUI integration 覆盖 `security scan -> security trial -> security fixture -> security ack` 路径，并证明 audit 能把 detector-only fixture chain 识别为 matched non-authorizing evidence。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：强化 local-first auditability，同时保持 untrusted content 和 Security artifact 不能进入 action authority。
+- [路线图](06-roadmap.zh-CN.md)：仍停留在 TUI-first evidence hardening 内，没有新增 GUI、IM delivery、browser automation、MCP/OAuth connector、cloud worker 或真实 adapter execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：把 TypeScript Security artifact 视作 contract/control-plane evidence；authority path 仍必须走 Local Supervisor 与 scoped lease。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：澄清 `audit security-fixtures` 是 artifact-chain evidence，不是 registry rebuild/parity 或 repair。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 security fixture evidence visibility，同时让剩余 security projection rebuild/parity、signing、redaction 和显式 repair 继续 open。
+
+剩余边界：
+
+- 这不是 automatic artifact 或 registry repair、event signing、raw-content redaction tooling、live honeypot execution、quarantine removal、connector OAuth、package execution、cloud worker execution，或新的 supervisor action family。
