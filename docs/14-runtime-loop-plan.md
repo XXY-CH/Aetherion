@@ -1181,3 +1181,25 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not a remote marketplace, transparency log, revocation feed, Store registry rebuild/repair implementation, package execution sandbox, route scorer, permission-diff UX, connector OAuth, cloud worker, or broader adapter action gateway.
+
+## Completed Increment: Child Registry Rebuild Preview
+
+Target: continue PGC-6 projection-integrity work by exposing child-agent registry parity evidence for Agent Contracts, Child Results, policy-denial Budget Account snapshots, and Circuit Breakers.
+
+Acceptance:
+
+- `ether audit child-records --workspace <path>` reads only the verified Ledger plus local payload-ref artifacts, then reports expected and actual child-agent registry rows.
+- Findings distinguish `matched`, `missing_registry`, `mismatched`, `stale_registry`, `invalid_artifact`, `invalid_registry`, and `unrebuildable` without mutating registries.
+- The audit explicitly does not execute child agents, request supervisor authority, trust registry rows as authority, repair projections, issue leases, or change run manifests.
+- Budget Account registry rows that lack a current artifact-backed Ledger source are surfaced as `unrebuildable` rather than silently treated as trusted or repaired.
+
+Matched source docs and corrections:
+
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): child-agent registries are treated as rebuildable evidence views, not source truth.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): scoped parity previews now include `audit child-records`; the docs no longer imply this family is wholly future work.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 child-agent budgets/results parity while keeping repair explicit and operator-approved.
+- [Roadmap](06-roadmap.md): stays inside TUI-first local evidence work and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or broader child-agent execution.
+
+Remaining boundary:
+
+- This is not automatic registry repair, budget-account success-path artifacting, event signing, redaction tooling, semantic verification, general LLM child orchestration, child writes, network tools, package execution, connector OAuth, cloud worker execution, or a new supervisor action family.

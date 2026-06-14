@@ -165,7 +165,9 @@ Current partial status:
 - `store install` already avoids treating the `replay-records` registry projection as authority by resolving replay evidence from hash-chain-verified `replay.recorded` Ledger events and Replay Record artifacts.
 - Store install now also rejects package replay-test claims whose declared `replay_record_id`, `run_id`, or `source_events` do not match the local Replay Record evidence.
 - `audit store-records` now provides a read-only Ledger-plus-artifact parity preview for `store-publishers` and `capsule-installs`; it reports matched, missing, mismatched, stale, invalid-artifact, and invalid-registry states without mutating registries, executing package code, or trusting Store projections as authority.
-- Child-agent budgets/results, security fixtures, surface records, prompt/model artifacts, event signatures, redaction, and explicit repair remain open. Store projection repair also remains explicit and operator-approved rather than automatic.
+- `audit child-records` now provides a read-only Ledger-plus-artifact parity preview for Agent Contracts, Child Results, policy-denial Budget Account snapshots, and Circuit Breakers; it reports matched, missing, mismatched, stale, invalid-artifact, invalid-registry, and unrebuildable states without executing child agents, requesting supervisor authority, mutating registries, or trusting child-agent projections as authority.
+- Budget Account success-path registry rows without a current payload-ref artifact source are surfaced as `unrebuildable` in this preview. This is an explicit remaining rebuild gap, not automatic repair.
+- Security fixtures, surface records, prompt/model artifacts, event signatures, redaction, and explicit repair remain open. Store and child-agent projection repair also remain explicit and operator-approved rather than automatic.
 
 ### PGC-7: Adapter And Surface Gate Readiness
 

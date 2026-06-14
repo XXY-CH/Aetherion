@@ -67,7 +67,8 @@ export type RegistryRebuildParityStatus =
   | "mismatched"
   | "stale_registry"
   | "invalid_artifact"
-  | "invalid_registry";
+  | "invalid_registry"
+  | "unrebuildable";
 
 export type ReplayRegistryRebuildFinding = {
   registry: "replay-records";
@@ -331,6 +332,58 @@ export type StoreRegistryRebuildAudit = {
   expected_store_publishers: RegistryItem[];
   expected_capsule_installs: RegistryItem[];
   findings: StoreRegistryRebuildFinding[];
+};
+
+export type AgentRegistryName = "agent-contracts" | "child-results" | "budget-accounts" | "circuit-breakers";
+
+export type AgentRegistryRebuildFinding = {
+  registry: AgentRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  event_id?: string;
+  artifact_ref?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type AgentRegistryRebuildAudit = {
+  id: "agent_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: AgentRegistryName[];
+  scope: {
+    mode: "read_only_ledger_artifact_rebuild_parity";
+    mutates_registry: false;
+    executes_child_agent: false;
+    requests_supervisor_authority: false;
+    trusts_registry_as_authority: false;
+    rebuilds_from: "agent contract/result/account/breaker Ledger events plus payload_ref artifacts";
+    unrebuildable_meaning: "registry entry has no current artifact-backed Ledger source in this preview";
+  };
+  summary: {
+    expected_agent_contracts: number;
+    expected_child_results: number;
+    expected_budget_accounts: number;
+    expected_circuit_breakers: number;
+    actual_agent_contracts: number;
+    actual_child_results: number;
+    actual_budget_accounts: number;
+    actual_circuit_breakers: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+    unrebuildable: number;
+  };
+  expected_agent_contracts: RegistryItem[];
+  expected_child_results: RegistryItem[];
+  expected_budget_accounts: RegistryItem[];
+  expected_circuit_breakers: RegistryItem[];
+  findings: AgentRegistryRebuildFinding[];
 };
 
 export type LedgerPayloadRefStatus = "resolved" | "missing" | "invalid_json" | "unresolved";
@@ -963,6 +1016,198 @@ export function auditStoreRegistryRebuild(workspaceRoot: string, events: EventRe
     },
     expected_store_publishers: sortedPublishers,
     expected_capsule_installs: sortedInstalls,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
+export function auditAgentRegistryRebuild(workspaceRoot: string, events: EventRecord[]): AgentRegistryRebuildAudit {
+  const expectedContracts = new Map<string, RegistryItem>();
+  const expectedChildResults = new Map<string, RegistryItem>();
+  const expectedBudgetAccounts = new Map<string, RegistryItem>();
+  const expectedCircuitBreakers = new Map<string, RegistryItem>();
+  const findings: AgentRegistryRebuildFinding[] = [];
+
+  for (const event of events) {
+    if (event.event_type === "agent.contract.created") {
+      if (!event.payload_ref) {
+        findings.push({
+          registry: "agent-contracts",
+          item_id: event.id,
+          status: "invalid_artifact",
+          event_id: event.id,
+          reason: "agent contract event has no payload_ref"
+        });
+        continue;
+      }
+      const artifact = readAgentArtifact(workspaceRoot, event, "contract", findings);
+      if (artifact.status === "invalid") {
+        continue;
+      }
+      if (isAgentContractRecord(artifact.value)) {
+        expectedContracts.set(artifact.value.id, artifact.value);
+        continue;
+      }
+      findings.push({
+        registry: "agent-contracts",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid agent contract record"
+      });
+      continue;
+    }
+
+    if (event.event_type === "agent.child.completed") {
+      if (!event.payload_ref) {
+        findings.push({
+          registry: "child-results",
+          item_id: event.id,
+          status: "invalid_artifact",
+          event_id: event.id,
+          reason: "child result event has no payload_ref"
+        });
+        continue;
+      }
+      const artifact = readAgentArtifact(workspaceRoot, event, "execute", findings);
+      if (artifact.status === "invalid") {
+        continue;
+      }
+      if (isChildResultRecord(artifact.value)) {
+        expectedChildResults.set(artifact.value.id, artifact.value);
+        const contract = expectedContracts.get(artifact.value.contract_id);
+        if (contract) {
+          expectedContracts.set(contract.id, { ...contract, status: "completed" });
+        }
+        continue;
+      }
+      findings.push({
+        registry: "child-results",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid child result record"
+      });
+      continue;
+    }
+
+    if (event.event_type === "agent.child.policy_denied") {
+      if (!event.payload_ref) {
+        findings.push({
+          registry: "budget-accounts",
+          item_id: event.id,
+          status: "invalid_artifact",
+          event_id: event.id,
+          reason: "policy denial event has no payload_ref"
+        });
+        continue;
+      }
+      const artifact = readAgentArtifact(workspaceRoot, event, "execute", findings);
+      if (artifact.status === "invalid") {
+        continue;
+      }
+      if (isBudgetAccountRecord(artifact.value)) {
+        expectedBudgetAccounts.set(artifact.value.id, artifact.value);
+        continue;
+      }
+      findings.push({
+        registry: "budget-accounts",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid budget account record"
+      });
+      continue;
+    }
+
+    if (event.event_type === "circuit.opened") {
+      if (!event.payload_ref) {
+        findings.push({
+          registry: "circuit-breakers",
+          item_id: event.id,
+          status: "invalid_artifact",
+          event_id: event.id,
+          reason: "circuit breaker event has no payload_ref"
+        });
+        continue;
+      }
+      const artifact = readAgentArtifact(workspaceRoot, event, "execute", findings);
+      if (artifact.status === "invalid") {
+        continue;
+      }
+      if (isCircuitBreakerRecord(artifact.value)) {
+        expectedCircuitBreakers.set(artifact.value.id, artifact.value);
+        const contract = expectedContracts.get(artifact.value.contract_id);
+        if (contract) {
+          expectedContracts.set(contract.id, { ...contract, status: "stopped" });
+        }
+        continue;
+      }
+      findings.push({
+        registry: "circuit-breakers",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid circuit breaker record"
+      });
+    }
+  }
+
+  const actualContracts = readAgentRegistryItems(workspaceRoot, "agent-contracts", isAgentContractRecord, findings);
+  const actualChildResults = readAgentRegistryItems(workspaceRoot, "child-results", isChildResultRecord, findings);
+  const actualBudgetAccounts = readAgentRegistryItems(workspaceRoot, "budget-accounts", isBudgetAccountRecord, findings);
+  const actualCircuitBreakers = readAgentRegistryItems(workspaceRoot, "circuit-breakers", isCircuitBreakerRecord, findings);
+  compareAgentRegistryProjection("agent-contracts", expectedContracts, actualContracts, findings);
+  compareAgentRegistryProjection("child-results", expectedChildResults, actualChildResults, findings);
+  compareAgentRegistryProjection("budget-accounts", expectedBudgetAccounts, actualBudgetAccounts, findings);
+  compareAgentRegistryProjection("circuit-breakers", expectedCircuitBreakers, actualCircuitBreakers, findings);
+
+  const sortedContracts = [...expectedContracts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedChildResults = [...expectedChildResults.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedBudgetAccounts = [...expectedBudgetAccounts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedCircuitBreakers = [...expectedCircuitBreakers.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "agent_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["agent-contracts", "child-results", "budget-accounts", "circuit-breakers"],
+    scope: {
+      mode: "read_only_ledger_artifact_rebuild_parity",
+      mutates_registry: false,
+      executes_child_agent: false,
+      requests_supervisor_authority: false,
+      trusts_registry_as_authority: false,
+      rebuilds_from: "agent contract/result/account/breaker Ledger events plus payload_ref artifacts",
+      unrebuildable_meaning: "registry entry has no current artifact-backed Ledger source in this preview"
+    },
+    summary: {
+      expected_agent_contracts: sortedContracts.length,
+      expected_child_results: sortedChildResults.length,
+      expected_budget_accounts: sortedBudgetAccounts.length,
+      expected_circuit_breakers: sortedCircuitBreakers.length,
+      actual_agent_contracts: actualContracts.size,
+      actual_child_results: actualChildResults.size,
+      actual_budget_accounts: actualBudgetAccounts.size,
+      actual_circuit_breakers: actualCircuitBreakers.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length,
+      unrebuildable: findings.filter((finding) => finding.status === "unrebuildable").length
+    },
+    expected_agent_contracts: sortedContracts,
+    expected_child_results: sortedChildResults,
+    expected_budget_accounts: sortedBudgetAccounts,
+    expected_circuit_breakers: sortedCircuitBreakers,
     findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
   };
 }
@@ -1649,6 +1894,81 @@ function storeRegistryForEvent(eventType: "store.publisher.trusted" | "capsule.s
   return eventType === "store.publisher.trusted" ? "store-publishers" : "capsule-installs";
 }
 
+function agentRegistryForEvent(eventType: string): AgentRegistryName {
+  if (eventType === "agent.contract.created" || eventType === "agent.child.started") {
+    return "agent-contracts";
+  }
+  if (eventType === "agent.child.completed") {
+    return "child-results";
+  }
+  if (eventType === "agent.child.policy_denied") {
+    return "budget-accounts";
+  }
+  return "circuit-breakers";
+}
+
+function readAgentArtifact(
+  workspaceRoot: string,
+  event: EventRecord,
+  topic: "contract" | "execute",
+  findings: AgentRegistryRebuildFinding[]
+): { status: "valid"; value: unknown; path: string } | { status: "invalid" } {
+  const registry = agentRegistryForEvent(event.event_type);
+  if (!event.payload_ref) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      reason: "agent registry event has no payload_ref"
+    });
+    return { status: "invalid" };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.status === "unresolved" ? undefined : resolved.path,
+      reason: resolved.status === "unresolved" ? resolved.reason : "agent registry artifact is missing"
+    });
+    return { status: "invalid" };
+  }
+  if (!event.payload_ref.startsWith(`artifact://agent/${topic}/`)) {
+    findings.push({
+      registry,
+      item_id: basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: `agent registry event expected artifact://agent/${topic}/ payload_ref`
+    });
+    return { status: "invalid" };
+  }
+  try {
+    return {
+      status: "valid",
+      value: JSON.parse(readFileSync(resolved.path, "utf8")) as unknown,
+      path: resolved.path
+    };
+  } catch {
+    findings.push({
+      registry,
+      item_id: basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: "agent registry artifact JSON could not be parsed"
+    });
+    return { status: "invalid" };
+  }
+}
+
 function readLifecycleArtifact(
   workspaceRoot: string,
   event: EventRecord,
@@ -1913,6 +2233,39 @@ function readStoreRegistryItems(
   return valid;
 }
 
+function readAgentRegistryItems(
+  workspaceRoot: string,
+  registry: AgentRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: AgentRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
 function compareRegistryProjection(
   registry: MemoryRegistryName,
   expected: Map<string, RegistryItem>,
@@ -2009,6 +2362,60 @@ function compareStoreRegistryProjection(
         item_id: itemId,
         status: "stale_registry",
         reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function compareAgentRegistryProjection(
+  registry: AgentRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: AgentRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from Ledger artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      const status = registry === "budget-accounts" ? "unrebuildable" : "stale_registry";
+      findings.push({
+        registry,
+        item_id: itemId,
+        status,
+        reason: registry === "budget-accounts"
+          ? "budget account registry entry has no current payload-ref artifact source in this preview"
+          : `${registry} registry entry has no active Ledger artifact rebuild source`,
         actual: actualItem
       });
     }
@@ -2279,6 +2686,125 @@ function isCapsuleInstallRecord(value: unknown): value is RegistryItem {
     && value.raw_code_executed === false
     && value.status === "installed"
     && typeof value.created_at === "string";
+}
+
+function isAgentContractRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("contract_")
+    && typeof value.parent_run_id === "string"
+    && typeof value.child_agent_id === "string"
+    && value.child_agent_id.startsWith("agent_")
+    && typeof value.task === "string"
+    && value.task.length > 0
+    && typeof value.resource_budget_id === "string"
+    && isResourceBudgetRecord(value.budget_snapshot)
+    && Array.isArray(value.allowed_capsules)
+    && value.allowed_capsules.length > 0
+    && value.allowed_capsules.every((capsuleId) => typeof capsuleId === "string")
+    && Array.isArray(value.allowed_paths)
+    && value.allowed_paths.length > 0
+    && value.allowed_paths.every((path) => typeof path === "string")
+    && value.completion_evidence_required === true
+    && isChildOutputTaint(value.output_taint)
+    && ["draft", "active", "completed", "stopped"].includes(String(value.status))
+    && typeof value.created_at === "string";
+}
+
+function isBudgetAccountRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("account_")
+    && typeof value.contract_id === "string"
+    && isResourceBudgetRecord(value.remaining)
+    && Number.isInteger(value.tool_calls_used)
+    && value.tool_calls_used >= 0
+    && Number.isInteger(value.leases_used)
+    && value.leases_used >= 0
+    && Number.isInteger(value.policy_denials)
+    && value.policy_denials >= 0
+    && Number.isInteger(value.token_used)
+    && value.token_used >= 0
+    && Number.isInteger(value.cpu_ms_used)
+    && value.cpu_ms_used >= 0
+    && Number.isInteger(value.network_calls_used)
+    && value.network_calls_used >= 0
+    && Number.isInteger(value.wall_time_ms_used)
+    && value.wall_time_ms_used >= 0
+    && ["active", "exhausted", "stopped"].includes(String(value.status));
+}
+
+function isChildResultRecord(value: unknown): value is RegistryItem {
+  if (!isRegistryItem(value)
+    || !value.id.startsWith("child_result_")
+    || typeof value.contract_id !== "string"
+    || typeof value.child_run_id !== "string"
+    || typeof value.child_agent_id !== "string"
+    || typeof value.capsule_id !== "string"
+    || value.status !== "completed"
+    || !isObjectRecord(value.completion_evidence)
+    || !isChildOutputTaint(value.output_taint)
+    || value.parent_must_reauthorize_actions !== true) {
+    return false;
+  }
+  const evidence = value.completion_evidence;
+  return Array.isArray(evidence.source_event_ids)
+    && evidence.source_event_ids.length >= 2
+    && evidence.source_event_ids.every((eventId) => typeof eventId === "string")
+    && typeof evidence.request_id === "string"
+    && typeof evidence.policy_decision_id === "string"
+    && typeof evidence.lease_id === "string"
+    && typeof evidence.artifact_sha256 === "string"
+    && evidence.artifact_sha256.startsWith("sha256:")
+    && Number.isInteger(evidence.byte_count)
+    && evidence.byte_count >= 0
+    && isObjectRecord(evidence.usage)
+    && Number.isInteger(evidence.usage.token_used)
+    && evidence.usage.token_used >= 0
+    && Number.isInteger(evidence.usage.cpu_ms_used)
+    && evidence.usage.cpu_ms_used >= 0
+    && Number.isInteger(evidence.usage.network_calls_used)
+    && evidence.usage.network_calls_used >= 0
+    && Number.isInteger(evidence.usage.wall_time_ms_used)
+    && evidence.usage.wall_time_ms_used >= 0;
+}
+
+function isCircuitBreakerRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("breaker_")
+    && typeof value.contract_id === "string"
+    && typeof value.child_run_id === "string"
+    && ["budget_exhausted", "repeated_policy_denial", "permission_violation", "poisoning_detected", "execution_failure"].includes(String(value.trigger))
+    && ["open", "closed"].includes(String(value.status))
+    && ["stop", "queue", "report"].includes(String(value.action))
+    && typeof value.event_id === "string"
+    && typeof value.reason === "string"
+    && typeof value.created_at === "string";
+}
+
+function isResourceBudgetRecord(value: unknown): value is Record<string, unknown> {
+  return isObjectRecord(value)
+    && typeof value.id === "string"
+    && Number.isInteger(value.token_budget)
+    && value.token_budget >= 0
+    && Number.isInteger(value.tool_call_budget)
+    && value.tool_call_budget >= 0
+    && Number.isInteger(value.cpu_ms_budget)
+    && value.cpu_ms_budget >= 0
+    && Number.isInteger(value.network_call_budget)
+    && value.network_call_budget >= 0
+    && Number.isInteger(value.wall_time_ms_budget)
+    && value.wall_time_ms_budget >= 0
+    && ["L0", "L1", "L2", "L3", "L4", "L5"].includes(String(value.risk_budget))
+    && Number.isInteger(value.lease_budget)
+    && value.lease_budget >= 0
+    && ["stop", "queue", "ask"].includes(String(value.on_exhaustion));
+}
+
+function isChildOutputTaint(value: unknown): boolean {
+  return isObjectRecord(value)
+    && Array.isArray(value.sources)
+    && value.sources.length === 1
+    && value.sources[0] === "child_agent"
+    && value.can_authorize_actions === false;
 }
 
 function isHibernationRecord(value: unknown): value is RegistryItem {

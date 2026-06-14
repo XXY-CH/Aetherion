@@ -21,6 +21,7 @@ import {
   auditReplayRecordRegistryRebuild,
   auditSandboxRegistryRebuild,
   auditStoreRegistryRebuild,
+  auditAgentRegistryRebuild,
   callSupervisorRpc,
   canonicalLedgerPath,
   canonicalRuntimeDir,
@@ -3601,6 +3602,137 @@ test("store registry rebuild audit derives publisher and install projections wit
   assert.equal(await readFile(join(registryDir, "capsule-installs.json"), "utf8"), beforeInstalls);
 });
 
+test("agent registry rebuild audit previews child records without executing or mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-agent-registry-audit-"));
+  const contractDir = join(root, ".aetherion", "artifacts", "agent", "contract");
+  const executeDir = join(root, ".aetherion", "artifacts", "agent", "execute");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(contractDir, { recursive: true });
+  await mkdir(executeDir, { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const matchedContract = agentContract("contract_agent_matched", "draft");
+  const completedContractArtifact = agentContract("contract_agent_completed", "draft");
+  const completedContractRegistry = { ...completedContractArtifact, status: "completed" };
+  const stoppedContractArtifact = agentContract("contract_agent_stopped", "draft");
+  const stoppedContractRegistry = { ...stoppedContractArtifact, status: "stopped" };
+  const staleContract = agentContract("contract_agent_stale", "draft");
+  const matchedResult = { ...childResult("child_result_agent_matched"), contract_id: "contract_agent_completed" };
+  const mismatchResultArtifact = childResult("child_result_agent_mismatch");
+  const mismatchResultRegistry = { ...mismatchResultArtifact, capsule_id: "cap_tampered" };
+  const missingResult = childResult("child_result_agent_missing");
+  const staleResult = childResult("child_result_agent_stale");
+  const matchedAccount = agentBudgetAccountRecord("account_contract_agent_denied_run_child_denied");
+  const staleAccount = agentBudgetAccountRecord("account_contract_agent_registry_only");
+  const matchedBreaker = agentCircuitBreakerRecord("breaker_contract_agent_stopped_run_child_stopped_repeated_policy_denial", "contract_agent_stopped");
+  const mismatchBreakerArtifact = agentCircuitBreakerRecord("breaker_contract_agent_mismatch_run_child_mismatch_repeated_policy_denial", "contract_agent_mismatch");
+  const mismatchBreakerRegistry = { ...mismatchBreakerArtifact, reason: "tampered registry reason" };
+  const staleBreaker = agentCircuitBreakerRecord("breaker_contract_agent_stale_run_child_stale_repeated_policy_denial", "contract_agent_stale");
+
+  await writeFile(join(contractDir, "contract_agent_matched.json"), `${JSON.stringify(matchedContract, null, 2)}\n`);
+  await writeFile(join(contractDir, "contract_agent_completed.json"), `${JSON.stringify(completedContractArtifact, null, 2)}\n`);
+  await writeFile(join(contractDir, "contract_agent_stopped.json"), `${JSON.stringify(stoppedContractArtifact, null, 2)}\n`);
+  await writeFile(join(contractDir, "broken.json"), "{not json");
+  await writeFile(join(executeDir, "child_result_agent_matched.json"), `${JSON.stringify(matchedResult, null, 2)}\n`);
+  await writeFile(join(executeDir, "child_result_agent_mismatch.json"), `${JSON.stringify(mismatchResultArtifact, null, 2)}\n`);
+  await writeFile(join(executeDir, "child_result_agent_missing.json"), `${JSON.stringify(missingResult, null, 2)}\n`);
+  await writeFile(join(executeDir, "account_contract_agent_denied_run_child_denied.json"), `${JSON.stringify(matchedAccount, null, 2)}\n`);
+  await writeFile(join(executeDir, "breaker_contract_agent_stopped_run_child_stopped_repeated_policy_denial.json"), `${JSON.stringify(matchedBreaker, null, 2)}\n`);
+  await writeFile(join(executeDir, "breaker_contract_agent_mismatch_run_child_mismatch_repeated_policy_denial.json"), `${JSON.stringify(mismatchBreakerArtifact, null, 2)}\n`);
+
+  await writeFile(join(registryDir, "agent-contracts.json"), `${JSON.stringify([
+    matchedContract,
+    completedContractRegistry,
+    stoppedContractRegistry,
+    staleContract,
+    { id: "contract_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "child-results.json"), `${JSON.stringify([
+    matchedResult,
+    mismatchResultRegistry,
+    staleResult,
+    { id: "child_result_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "budget-accounts.json"), `${JSON.stringify([
+    matchedAccount,
+    staleAccount,
+    { id: "account_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "circuit-breakers.json"), `${JSON.stringify([
+    matchedBreaker,
+    mismatchBreakerRegistry,
+    staleBreaker,
+    { id: "breaker_invalid" }
+  ], null, 2)}\n`);
+  const beforeContracts = await readFile(join(registryDir, "agent-contracts.json"), "utf8");
+  const beforeResults = await readFile(join(registryDir, "child-results.json"), "utf8");
+  const beforeAccounts = await readFile(join(registryDir, "budget-accounts.json"), "utf8");
+  const beforeBreakers = await readFile(join(registryDir, "circuit-breakers.json"), "utf8");
+
+  const events = [
+    payloadEvent("evt_agent_contract_matched", "run_agent", "agent.contract.created", "artifact://agent/contract/contract_agent_matched"),
+    payloadEvent("evt_agent_contract_completed", "run_agent", "agent.contract.created", "artifact://agent/contract/contract_agent_completed"),
+    payloadEvent("evt_agent_contract_stopped", "run_agent", "agent.contract.created", "artifact://agent/contract/contract_agent_stopped"),
+    payloadEvent("evt_agent_contract_broken", "run_agent", "agent.contract.created", "artifact://agent/contract/broken"),
+    payloadEvent("evt_agent_result_matched", "run_agent", "agent.child.completed", "artifact://agent/execute/child_result_agent_matched"),
+    payloadEvent("evt_agent_result_mismatch", "run_agent", "agent.child.completed", "artifact://agent/execute/child_result_agent_mismatch"),
+    payloadEvent("evt_agent_result_missing", "run_agent", "agent.child.completed", "artifact://agent/execute/child_result_agent_missing"),
+    payloadEvent("evt_agent_result_missing_artifact", "run_agent", "agent.child.completed", "artifact://agent/execute/child_result_no_artifact"),
+    payloadEvent("evt_agent_account_matched", "run_agent", "agent.child.policy_denied", "artifact://agent/execute/account_contract_agent_denied_run_child_denied"),
+    payloadEvent("evt_agent_breaker_matched", "run_agent", "circuit.opened", "artifact://agent/execute/breaker_contract_agent_stopped_run_child_stopped_repeated_policy_denial"),
+    payloadEvent("evt_agent_breaker_mismatch", "run_agent", "circuit.opened", "artifact://agent/execute/breaker_contract_agent_mismatch_run_child_mismatch_repeated_policy_denial")
+  ];
+
+  const audit = auditAgentRegistryRebuild(root, events);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "agent_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.equal(audit.scope.executes_child_agent, false);
+  assert.equal(audit.scope.requests_supervisor_authority, false);
+  assert.equal(audit.scope.trusts_registry_as_authority, false);
+  assert.deepEqual(audit.summary, {
+    expected_agent_contracts: 3,
+    expected_child_results: 3,
+    expected_budget_accounts: 1,
+    expected_circuit_breakers: 2,
+    actual_agent_contracts: 4,
+    actual_child_results: 3,
+    actual_budget_accounts: 2,
+    actual_circuit_breakers: 3,
+    matched: 6,
+    missing_registry: 1,
+    mismatched: 2,
+    stale_registry: 3,
+    invalid_artifact: 2,
+    invalid_registry: 4,
+    unrebuildable: 1
+  });
+  assert.ok(finding("contract_agent_matched", "matched"));
+  assert.ok(finding("contract_agent_completed", "matched"));
+  assert.ok(finding("contract_agent_stopped", "matched"));
+  assert.ok(finding("contract_agent_stale", "stale_registry"));
+  assert.ok(finding("contract_invalid", "invalid_registry"));
+  assert.ok(finding("child_result_agent_matched", "matched"));
+  assert.ok(finding("child_result_agent_mismatch", "mismatched"));
+  assert.ok(finding("child_result_agent_missing", "missing_registry"));
+  assert.ok(finding("child_result_agent_stale", "stale_registry"));
+  assert.ok(finding("child_result_invalid", "invalid_registry"));
+  assert.ok(finding("account_contract_agent_denied_run_child_denied", "matched"));
+  assert.ok(finding("account_contract_agent_registry_only", "unrebuildable"));
+  assert.ok(finding("account_invalid", "invalid_registry"));
+  assert.ok(finding("breaker_contract_agent_stopped_run_child_stopped_repeated_policy_denial", "matched"));
+  assert.ok(finding("breaker_contract_agent_mismatch_run_child_mismatch_repeated_policy_denial", "mismatched"));
+  assert.ok(finding("breaker_contract_agent_stale_run_child_stale_repeated_policy_denial", "stale_registry"));
+  assert.ok(finding("breaker_invalid", "invalid_registry"));
+  assert.ok(finding("broken", "invalid_artifact"));
+  assert.ok(audit.findings.some((entry) => entry.event_id === "evt_agent_result_missing_artifact" && entry.status === "invalid_artifact"));
+  assert.equal(await readFile(join(registryDir, "agent-contracts.json"), "utf8"), beforeContracts);
+  assert.equal(await readFile(join(registryDir, "child-results.json"), "utf8"), beforeResults);
+  assert.equal(await readFile(join(registryDir, "budget-accounts.json"), "utf8"), beforeAccounts);
+  assert.equal(await readFile(join(registryDir, "circuit-breakers.json"), "utf8"), beforeBreakers);
+});
+
 test("sandbox registry rebuild audit compares checkpoint rehearsal artifacts without mutating", async () => {
   const root = await mkdtemp(join(tmpdir(), "aetherion-sandbox-registry-audit-"));
   const artifactRoot = join(root, ".aetherion", "artifacts");
@@ -4270,7 +4402,7 @@ function resourceBudget(id: string) {
   };
 }
 
-function budgetAccount(id: string) {
+function agentBudgetAccountRecord(id: string) {
   return {
     id,
     contract_id: "contract_payload_active",
@@ -4481,6 +4613,37 @@ function childResult(id: string) {
       can_authorize_actions: false
     },
     parent_must_reauthorize_actions: true
+  };
+}
+
+function budgetAccount(id: string) {
+  const contractId = id.replace(/^account_/, "").replace(/_run_child_.+$/, "");
+  return {
+    id,
+    contract_id: contractId,
+    remaining: resourceBudget("budget_payload"),
+    tool_calls_used: 1,
+    leases_used: 0,
+    policy_denials: 1,
+    token_used: 0,
+    cpu_ms_used: 0,
+    network_calls_used: 0,
+    wall_time_ms_used: 1,
+    status: "active"
+  };
+}
+
+function agentCircuitBreakerRecord(id: string, contractId: string) {
+  return {
+    id,
+    contract_id: contractId,
+    child_run_id: "run_child_fixture",
+    trigger: "repeated_policy_denial",
+    status: "open",
+    action: "stop",
+    event_id: "evt_fixture_breaker",
+    reason: "Three supervisor policy denials",
+    created_at: "2026-06-07T11:05:00.000Z"
   };
 }
 

@@ -787,3 +787,25 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 remote marketplace、transparency log、revocation feed、Store registry rebuild/repair implementation、package execution sandbox、route scorer、permission-diff UX、connector OAuth、cloud worker 或更广 adapter action gateway。
+
+## 已完成增量：Child Registry Rebuild Preview
+
+目标：继续推进 PGC-6 projection integrity，为 Agent Contracts、Child Results、policy-denial Budget Account snapshots 和 Circuit Breakers 暴露 child-agent registry parity evidence。
+
+验收：
+
+- `ether audit child-records --workspace <path>` 只读取已验证 Ledger 和本地 payload-ref artifacts，然后报告期望与实际 child-agent registry rows。
+- Findings 区分 `matched`、`missing_registry`、`mismatched`、`stale_registry`、`invalid_artifact`、`invalid_registry` 和 `unrebuildable`，但不修改 registry。
+- 该 audit 明确不执行 child agent、不请求 supervisor authority、不把 registry row 当 authority、不修复 projection、不发 lease，也不改 run manifest。
+- 当前没有 artifact-backed Ledger source 的 Budget Account registry row 会显示为 `unrebuildable`，而不是被静默信任或自动修复。
+
+匹配 source docs 与修正：
+
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：child-agent registries 被当作可重建 evidence view，而不是 source truth。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：scoped parity preview 现在包含 `audit child-records`；文档不再暗示这个 family 完全属于未来工作。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 child-agent budgets/results parity，同时保持 repair 必须显式且 operator-approved。
+- [Roadmap](06-roadmap.zh-CN.md)：仍停留在 TUI-first 本地 evidence 工作内，没有增加 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或更广 child-agent execution。
+
+剩余边界：
+
+- 这不是 automatic registry repair、budget-account success-path artifacting、event signing、redaction tooling、semantic verification、general LLM child orchestration、child writes、network tools、package execution、connector OAuth、cloud worker execution，或新的 supervisor action family。

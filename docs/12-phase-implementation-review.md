@@ -35,12 +35,15 @@ Correction and remaining boundary:
 
 Verification from the latest pass:
 
-- `npm test`: 143 passing tests.
-- `cargo test`: 39 passing Rust tests.
-- `cargo clippy --all-targets --all-features -- -D warnings`: clean.
+- `npm test`: 163 passing tests.
+- `cargo test --locked`: 41 passing Rust tests.
+- `cargo clippy --all-targets --all-features --locked -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
 - `git diff --check`: clean.
-- `git ls-files .aetherion target`: no tracked runtime/build artifacts.
+- `xargs git ls-files < tools/forbidden-tracked-roots.txt`: no tracked runtime/build artifacts.
+- `npm audit --audit-level=high --json`: 0 vulnerabilities.
+- `cargo audit`: no vulnerabilities reported.
+- `onboarding check`: ready; `doctor`: ready; `security audit`: pass; `release evidence`: draft because local changes are intentionally not yet committed and remote evidence was not supplied.
 
 ## Phase Alignment Matrix
 
@@ -202,6 +205,28 @@ Correction and remaining boundary:
 
 - This closes only the audit slice of PGC-6. Automatic repair, additional registry families, event signatures, and redaction tooling remain open.
 - `store install` remains local and non-authorizing; the new audit only previews projection parity and does not add trust to Store registries.
+
+## Child Registry Audit Review
+
+Matched source docs:
+
+- `docs/01-architecture.md`: child-agent execution evidence remains downstream of Local Supervisor policy and Ledger facts; registry projections cannot become authority.
+- `docs/05-audit-and-data-contracts.md`: child-agent registries are rebuildable evidence views, and audits must distinguish projection drift from source truth without repair.
+- `docs/06-roadmap.md`: this stays inside the local TUI evidence path and does not add GUI, IM, browser automation, connectors, cloud workers, child writes, or network tools.
+- `docs/13-schema-runtime-governance.md`: projection entries are not source truth; scoped parity previews may report drift or unrebuildable rows but cannot authorize actions.
+- `docs/15-production-gap-closure-plan.md`: this advances PGC-6 child-agent budgets/results rebuild parity while keeping repair explicit and operator-approved.
+
+Implemented correspondence:
+
+- `audit child-records` now exposes a read-only parity preview for `agent-contracts`, `child-results`, `budget-accounts`, and `circuit-breakers`.
+- The audit reconstructs Agent Contracts, Child Results, policy-denial Budget Account snapshots, and Circuit Breakers from Ledger events plus payload-ref artifacts.
+- Findings distinguish `matched`, `missing_registry`, `mismatched`, `stale_registry`, `invalid_artifact`, `invalid_registry`, and `unrebuildable` without mutating registries, executing child agents, requesting supervisor authority, or trusting registry rows as authority.
+- TUI help lists the new read-only audit command, and the child-agent integration test proves the command preserves the existing registry files after detecting a tampered Agent Contract projection.
+
+Correction and remaining boundary:
+
+- This closes the child-agent audit-preview slice of PGC-6, but not automatic repair, event signatures, redaction tooling, budget-account success-path artifacting, semantic verification, general LLM child orchestration, child writes, network tools, or broader supervisor action families.
+- Budget Account registry rows without a current artifact-backed Ledger source are intentionally surfaced as `unrebuildable`; this records a remaining rebuild gap instead of hiding it behind registry trust.
 
 ## Git-Like Event System Review
 

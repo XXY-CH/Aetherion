@@ -576,6 +576,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit child-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
   const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
@@ -5383,6 +5384,44 @@ test("Ether runs a budgeted child read with isolated Capsule, lease, evidence, a
   assert.equal(circuitFinding?.schema_status, "valid");
   const childResults = JSON.parse(await readFile(join(registryDir, "child-results.json"), "utf8")) as Array<{ id: string }>;
   assert.deepEqual(childResults.map((entry) => entry.id), [childResult.id]);
+  const agentContractsPath = join(registryDir, "agent-contracts.json");
+  const childResultsPath = join(registryDir, "child-results.json");
+  const budgetAccountsPath = join(registryDir, "budget-accounts.json");
+  const circuitBreakersPath = join(registryDir, "circuit-breakers.json");
+  const agentContracts = JSON.parse(await readFile(agentContractsPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const tamperedAgentContracts = agentContracts.map((entry) => entry.id === contractId
+    ? { ...entry, status: "draft" }
+    : entry);
+  await writeFile(agentContractsPath, `${JSON.stringify(tamperedAgentContracts, null, 2)}\n`);
+  const beforeAgentContractsAudit = await readFile(agentContractsPath, "utf8");
+  const beforeChildResultsAudit = await readFile(childResultsPath, "utf8");
+  const beforeBudgetAccountsAudit = await readFile(budgetAccountsPath, "utf8");
+  const beforeCircuitBreakersAudit = await readFile(circuitBreakersPath, "utf8");
+  const childAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "child-records", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: { mode: string; mutates_registry: boolean; executes_child_agent: boolean; requests_supervisor_authority: boolean; trusts_registry_as_authority: boolean };
+    summary: { expected_agent_contracts: number; expected_child_results: number; expected_budget_accounts: number; expected_circuit_breakers: number; mismatched: number; unrebuildable: number };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(childAudit.id, "agent_registry_rebuild_audit");
+  assert.equal(childAudit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(childAudit.scope.mutates_registry, false);
+  assert.equal(childAudit.scope.executes_child_agent, false);
+  assert.equal(childAudit.scope.requests_supervisor_authority, false);
+  assert.equal(childAudit.scope.trusts_registry_as_authority, false);
+  assert.equal(childAudit.summary.expected_agent_contracts, 2);
+  assert.equal(childAudit.summary.expected_child_results, 1);
+  assert.equal(childAudit.summary.expected_budget_accounts, 3);
+  assert.equal(childAudit.summary.expected_circuit_breakers, 1);
+  assert.ok(childAudit.summary.mismatched >= 1);
+  assert.ok(childAudit.summary.unrebuildable >= 1);
+  assert.equal(childAudit.findings.find((finding) => finding.registry === "agent-contracts" && finding.item_id === contractId)?.status, "mismatched");
+  assert.equal(childAudit.findings.find((finding) => finding.registry === "child-results" && finding.item_id === childResult.id)?.status, "matched");
+  assert.ok(childAudit.findings.some((finding) => finding.registry === "budget-accounts" && finding.status === "unrebuildable"));
+  assert.equal(await readFile(agentContractsPath, "utf8"), beforeAgentContractsAudit);
+  assert.equal(await readFile(childResultsPath, "utf8"), beforeChildResultsAudit);
+  assert.equal(await readFile(budgetAccountsPath, "utf8"), beforeBudgetAccountsAudit);
+  assert.equal(await readFile(circuitBreakersPath, "utf8"), beforeCircuitBreakersAudit);
   const scores = JSON.parse(await readFile(join(registryDir, "agent-scores.json"), "utf8")) as Array<{ agent_id: string; routing_weight: number }>;
   assert.ok((scores.find((entry) => entry.agent_id === "agent_denied")?.routing_weight ?? 1) < 1);
 

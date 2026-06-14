@@ -47,12 +47,15 @@ schema 增长现在由 `docs/13-schema-runtime-governance.md` 治理：P0 kernel
 
 验证快照：
 
-- `npm test`：143 个测试通过。
-- `cargo test`：39 个 Rust 测试通过。
-- `cargo clippy --all-targets --all-features -- -D warnings`：通过。
+- `npm test`：163 个测试通过。
+- `cargo test --locked`：41 个 Rust 测试通过。
+- `cargo clippy --all-targets --all-features --locked -- -D warnings`：通过。
 - `cargo fmt --check`：通过。
 - `git diff --check`：通过。
-- `git ls-files .aetherion target`：没有 tracked runtime/build artifacts。
+- `xargs git ls-files < tools/forbidden-tracked-roots.txt`：没有 tracked runtime/build artifacts。
+- `npm audit --audit-level=high --json`：0 vulnerabilities。
+- `cargo audit`：未报告 vulnerabilities。
+- `onboarding check`：ready；`doctor`：ready；`security audit`：pass；`release evidence`：draft，因为本地改动尚未提交且未提供 remote evidence。
 
 ## 对原始构想的一一核对
 
@@ -176,6 +179,28 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - 这只关闭了 PGC-6 的审计 slice。自动 repair、更多 registry family、event signatures 和 redaction tooling 仍然未完成。
 - `store install` 仍然是本地且 non-authorizing；新增 audit 只是在预览 projection parity，不会给 Store registry 增加 authority。
+
+## child registry 审计复核
+
+匹配 source docs：
+
+- `docs/01-architecture.md`：child-agent execution evidence 仍然位于 Local Supervisor policy 和 Ledger facts 之下；registry projection 不能变成 authority。
+- `docs/05-audit-and-data-contracts.md`：child-agent registries 是可重建 evidence view；audit 必须区分 projection drift 与 source truth，且不能自动 repair。
+- `docs/06-roadmap.md`：本轮仍停留在本地 TUI evidence path，不增加 GUI、IM、browser automation、connectors、cloud worker、child writes 或 network tools。
+- `docs/13-schema-runtime-governance.md`：projection entry 不是 source truth；scoped parity preview 可以报告 drift 或 unrebuildable row，但不能授权 action。
+- `docs/15-production-gap-closure-plan.md`：本轮推进 PGC-6 child-agent budgets/results rebuild parity，同时保持 repair 必须显式且 operator-approved。
+
+本轮落地：
+
+- `audit child-records` 现在为 `agent-contracts`、`child-results`、`budget-accounts` 和 `circuit-breakers` 提供只读 parity preview。
+- 该 audit 从 Ledger events 加 payload-ref artifacts 重建 Agent Contract、Child Result、policy-denial Budget Account snapshot 和 Circuit Breaker。
+- Findings 区分 `matched`、`missing_registry`、`mismatched`、`stale_registry`、`invalid_artifact`、`invalid_registry` 和 `unrebuildable`，但不会修改 registry、执行 child agent、请求 supervisor authority 或把 registry row 当 authority。
+- TUI help 已列出新只读 audit command；child-agent integration test 证明该 command 能识别被篡改的 Agent Contract projection，同时保持 registry 文件不变。
+
+修正与剩余边界：
+
+- 这只关闭了 child-agent audit-preview slice；自动 repair、event signatures、redaction tooling、budget-account success-path artifacting、semantic verification、general LLM child orchestration、child writes、network tools 和更广 supervisor action family 仍未完成。
+- 没有当前 artifact-backed Ledger source 的 Budget Account registry row 会刻意显示为 `unrebuildable`，这是在记录剩余 rebuild gap，而不是用 registry trust 把它藏起来。
 
 ## Phase 45 复核：只读 Doctor 与 Ledger-backed Evidence Gates
 
