@@ -1024,6 +1024,36 @@ OpenClaw 一手对照证据（2026-06-11 抓取）：
 
 - Store publisher/install registry rebuild parity、transparency/revocation evidence、package execution sandboxing、route scoring、permission-diff UX 和 Store repair command 仍未完成。
 
+## Phase 72 复核：Surface Registry Rebuild Preview
+
+本轮继续推进 PGC-6，新增只读 surface registry rebuild preview。目标是让 Browser Observation、IM Inbox 和 IM Outbox projection 可以对照 Ledger-backed artifacts 检查，但不把这些 post-V1 surface 当成可信输入或 action authority。
+
+匹配源文档：
+
+- [产品简报](00-product-brief.zh-CN.md)：Aetherion 仍是 local-first Agent Harness Kernel；本轮增加 auditability，没有新增 GUI、mobile、IM delivery、browser extension、browser automation、MCP/OAuth connector 或 cloud worker。
+- [路线图](06-roadmap.zh-CN.md)：V1 仍保持 TUI-first。Browser/IM/mobile/API surface 仍属于后续阶段 client；当前只是 Ether 的 read-only audit command。
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 可以承载 surface contracts 与 projection preview，而 Rust 仍是未来真实执行的 authority/policy boundary。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：registry 是可重建 projection。`audit surface-records` 现在是 scoped read-only parity preview，不能 repair、authorize 或 execute。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 surface-record parity，同时让 event signatures、redaction、prompt/model parity、security fixture parity 和 explicit repair 继续 open。
+
+本轮变化：
+
+- `auditSurfaceRegistryRebuild()` 会从已验证 Ledger events 与本地 `payload_ref` artifacts 重建期望的 `browser-observations`、`im-inbox` 和 `im-outbox` rows。
+- `ether audit surface-records --workspace <path>` 以 JSON 暴露 audit，并通过 scope fields 证明它不修改 registry、不打开浏览器、不发送消息、不请求 supervisor authority，也不把 registry row 当 authority。
+- 单元测试覆盖三类 surface registry 的 matched、missing、mismatched、stale、invalid-artifact 和 invalid-registry findings，并断言 registry files 保持不变。
+- TUI integration 在真实 browser/inbox/outbox 命令后污染 surface registries，验证 `audit surface-records` 会报告 drift，且不会写 `.aetherion/artifacts/audit` 或 repair registry。
+- help text 与 PGC/schema/runtime docs 现在都把 `audit surface-records` 列为已实现 scoped parity evidence。
+
+偏差复核：
+
+- 修正 PGC-6 偏差：Browser Observation、IM Inbox 和 IM Outbox artifacts 已经有 Ledger-backed payload refs，但文档仍把 surface records 整体写成 open。
+- 修正保持窄边界：surface records 现在是可审计 projection，不是 identity、ingress、permission、delivery 或 automation primitive。
+- 未新增 browser extension capture、DOM/CDP action、screenshot fallback、desktop automation、webhook/IM delivery、reusable outbox approval、remote channel identity、connector OAuth、package execution、automatic repair、event signing 或 redaction tooling。
+
+剩余边界：
+
+- Security fixture rebuild parity、prompt/model artifact parity、event signatures、redaction/rebuild tooling 和 operator-approved repair commands 仍未完成。
+
 ## Phase 67 复核：GitHub Remote Evidence Reader
 
 本轮回到 PGC-1，通过新增 stdout-only GitHub Actions snapshot reader，关闭下一段 remote release-evidence 缺口。

@@ -1203,3 +1203,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not automatic registry repair, budget-account success-path artifacting, event signing, redaction tooling, semantic verification, general LLM child orchestration, child writes, network tools, package execution, connector OAuth, cloud worker execution, or a new supervisor action family.
+
+## Completed Increment: Surface Registry Rebuild Preview
+
+Target: continue PGC-6 projection-integrity work by exposing Browser Observation, IM Inbox, and IM Outbox registry parity evidence without making post-V1 surfaces authoritative.
+
+Acceptance:
+
+- `ether audit surface-records --workspace <path>` reads only the verified Ledger plus local payload-ref artifacts, then reports expected and actual surface registry rows.
+- Findings distinguish `matched`, `missing_registry`, `mismatched`, `stale_registry`, `invalid_artifact`, and `invalid_registry` without mutating registries.
+- The audit explicitly does not open a browser, execute browser automation, deliver messages, request supervisor authority, trust registry rows as authority, repair projections, issue leases, or change run manifests.
+- Real TUI surface/store integration covers browser, inbox, and two outbox records, tampers registries, and proves the audit reports mismatch/stale states while leaving the registry files byte-identical.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): stays inside local-first auditability and does not add GUI, IM delivery, browser extension, browser automation, connector, or cloud-worker surfaces.
+- [Roadmap](06-roadmap.md): respects the V1 TUI-first boundary; Phase 8/9 surfaces remain post-gate.
+- [Technical Strategy](10-technical-strategy.md): treats TypeScript surface scaffolds as contract/control-plane evidence while Rust remains the future authority path.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): scoped parity previews now include `audit surface-records`; the docs no longer imply Browser Observation, IM Inbox, and IM Outbox projection parity are wholly future work.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 surface records parity while keeping repair explicit and operator-approved.
+
+Remaining boundary:
+
+- This is not automatic registry repair, browser extension capture, browser/desktop automation, IM/email delivery, reusable outbox approval, remote channel identity, connector OAuth, package execution, event signing, redaction tooling, or a new supervisor action family.

@@ -576,6 +576,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /Read-only audits:/);
   assert.match(help.stdout, /npm run ether -- audit hibernation-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit sandbox-records --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- audit surface-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit child-records --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit payload-refs --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- audit response-audits --workspace <path>/);
@@ -4433,6 +4434,90 @@ test("Ether surface and store commands remain supervisor-gated and non-authorita
   const publicOutboxManifest = JSON.parse(await readFile(join(workspace, ".aetherion", "runs", `${publicOutboxEvents[0].run_id}.json`), "utf8")) as { status: string; event_ids: string[] };
   assert.equal(publicOutboxManifest.status, "completed");
   assert.deepEqual(publicOutboxManifest.event_ids, publicOutboxEvents.map((event) => event.id));
+
+  const browserRegistryPath = join(workspace, ".aetherion", "registries", "browser-observations.json");
+  const inboxRegistryPath = join(workspace, ".aetherion", "registries", "im-inbox.json");
+  const outboxRegistryPath = join(workspace, ".aetherion", "registries", "im-outbox.json");
+  const browserRegistry = JSON.parse(await readFile(browserRegistryPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const inboxRegistry = JSON.parse(await readFile(inboxRegistryPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const outboxRegistry = JSON.parse(await readFile(outboxRegistryPath, "utf8")) as Array<Record<string, unknown> & { id: string }>;
+  const tamperedBrowserRegistry = browserRegistry.map((entry) => entry.id === browserRegistry[0].id
+    ? { ...entry, title: "Tampered Browser Projection" }
+    : entry);
+  tamperedBrowserRegistry.push({
+    ...browserRegistry[0],
+    id: "browser_obs_stale_projection",
+    title: "Registry-only browser observation"
+  });
+  const tamperedInboxRegistry = inboxRegistry.map((entry) => entry.id === inboxRegistry[0].id
+    ? { ...entry, disposition: "queued" }
+    : entry);
+  tamperedInboxRegistry.push({
+    ...inboxRegistry[0],
+    id: "inbox_stale_projection",
+    external_message_id: "registry_only"
+  });
+  const tamperedOutboxRegistry = outboxRegistry.map((entry, index) => index === 0
+    ? { ...entry, delivery_status: "blocked" }
+    : entry);
+  tamperedOutboxRegistry.push({
+    ...outboxRegistry[0],
+    id: "outbox_stale_projection",
+    policy_event_id: "evt_registry_only"
+  });
+  await writeFile(browserRegistryPath, `${JSON.stringify(tamperedBrowserRegistry, null, 2)}\n`);
+  await writeFile(inboxRegistryPath, `${JSON.stringify(tamperedInboxRegistry, null, 2)}\n`);
+  await writeFile(outboxRegistryPath, `${JSON.stringify(tamperedOutboxRegistry, null, 2)}\n`);
+  const beforeSurfaceBrowserAudit = await readFile(browserRegistryPath, "utf8");
+  const beforeSurfaceInboxAudit = await readFile(inboxRegistryPath, "utf8");
+  const beforeSurfaceOutboxAudit = await readFile(outboxRegistryPath, "utf8");
+  const surfaceAudit = JSON.parse((await execFileAsync(process.execPath, [cliPath, "audit", "surface-records", "--workspace", workspace])).stdout) as {
+    id: string;
+    scope: {
+      mode: string;
+      mutates_registry: boolean;
+      opens_browser: boolean;
+      delivers_messages: boolean;
+      requests_supervisor_authority: boolean;
+      trusts_registry_as_authority: boolean;
+    };
+    summary: {
+      expected_browser_observations: number;
+      expected_im_inbox: number;
+      expected_im_outbox: number;
+      actual_browser_observations: number;
+      actual_im_inbox: number;
+      actual_im_outbox: number;
+      mismatched: number;
+      stale_registry: number;
+    };
+    findings: Array<{ registry: string; item_id: string; status: string }>;
+  };
+  assert.equal(surfaceAudit.id, "surface_registry_rebuild_audit");
+  assert.equal(surfaceAudit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(surfaceAudit.scope.mutates_registry, false);
+  assert.equal(surfaceAudit.scope.opens_browser, false);
+  assert.equal(surfaceAudit.scope.delivers_messages, false);
+  assert.equal(surfaceAudit.scope.requests_supervisor_authority, false);
+  assert.equal(surfaceAudit.scope.trusts_registry_as_authority, false);
+  assert.equal(surfaceAudit.summary.expected_browser_observations, 1);
+  assert.equal(surfaceAudit.summary.expected_im_inbox, 1);
+  assert.equal(surfaceAudit.summary.expected_im_outbox, 2);
+  assert.equal(surfaceAudit.summary.actual_browser_observations, 2);
+  assert.equal(surfaceAudit.summary.actual_im_inbox, 2);
+  assert.equal(surfaceAudit.summary.actual_im_outbox, 3);
+  assert.equal(surfaceAudit.summary.mismatched, 3);
+  assert.equal(surfaceAudit.summary.stale_registry, 3);
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "browser-observations" && finding.item_id === browserRegistry[0].id)?.status, "mismatched");
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "browser-observations" && finding.item_id === "browser_obs_stale_projection")?.status, "stale_registry");
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "im-inbox" && finding.item_id === inboxRegistry[0].id)?.status, "mismatched");
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "im-inbox" && finding.item_id === "inbox_stale_projection")?.status, "stale_registry");
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "im-outbox" && finding.item_id === outboxRegistry[0].id)?.status, "mismatched");
+  assert.equal(surfaceAudit.findings.find((finding) => finding.registry === "im-outbox" && finding.item_id === "outbox_stale_projection")?.status, "stale_registry");
+  assert.equal(await readFile(browserRegistryPath, "utf8"), beforeSurfaceBrowserAudit);
+  assert.equal(await readFile(inboxRegistryPath, "utf8"), beforeSurfaceInboxAudit);
+  assert.equal(await readFile(outboxRegistryPath, "utf8"), beforeSurfaceOutboxAudit);
+  await assert.rejects(access(join(workspace, ".aetherion", "artifacts", "audit")), /ENOENT/);
 
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();

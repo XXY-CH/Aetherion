@@ -14,6 +14,7 @@ import {
   agentRuntimeInvocationArtifactRef,
   agentToolRequestProposalArtifactRef,
   auditAgentResponseAuditEvidence,
+  auditSurfaceRegistryRebuild,
   auditLedgerPayloadRefs,
   auditMemoryRegistryRebuild,
   approveWriteWithConsent,
@@ -3600,6 +3601,118 @@ test("store registry rebuild audit derives publisher and install projections wit
   assert.deepEqual(audit.expected_capsule_installs.map((item) => item.id), ["install_matched", "install_mismatch", "install_missing"]);
   assert.equal(await readFile(join(registryDir, "store-publishers.json"), "utf8"), beforePublishers);
   assert.equal(await readFile(join(registryDir, "capsule-installs.json"), "utf8"), beforeInstalls);
+});
+
+test("surface registry rebuild audit derives browser and IM projections without mutating", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-surface-registry-audit-"));
+  const artifactDir = join(root, ".aetherion", "artifacts", "surface");
+  const registryDir = join(root, ".aetherion", "registries");
+  await mkdir(join(artifactDir, "browser-observe"), { recursive: true });
+  await mkdir(join(artifactDir, "im-inbox"), { recursive: true });
+  await mkdir(join(artifactDir, "im-outbox"), { recursive: true });
+  await mkdir(registryDir, { recursive: true });
+
+  const matchedBrowser = browserObservation("browser_obs_matched");
+  const mismatchBrowserArtifact = browserObservation("browser_obs_mismatch");
+  const mismatchBrowserRegistry = { ...mismatchBrowserArtifact, origin: "https://tampered.example.com/account" };
+  const staleBrowser = browserObservation("browser_obs_stale");
+  const matchedInbox = imInboxItem("inbox_matched");
+  const mismatchInboxArtifact = imInboxItem("inbox_mismatch");
+  const mismatchInboxRegistry = { ...mismatchInboxArtifact, disposition: "queued" };
+  const missingInbox = imInboxItem("inbox_missing");
+  const staleInbox = imInboxItem("inbox_stale");
+  const matchedOutbox = imOutboxItem("outbox_matched");
+  const mismatchOutboxArtifact = imOutboxItem("outbox_mismatch");
+  const mismatchOutboxRegistry = { ...mismatchOutboxArtifact, delivery_status: "blocked" };
+  const missingOutbox = imOutboxItem("outbox_missing");
+  const staleOutbox = imOutboxItem("outbox_stale");
+
+  await writeFile(join(artifactDir, "browser-observe", "browser_obs_matched.json"), `${JSON.stringify(matchedBrowser, null, 2)}\n`);
+  await writeFile(join(artifactDir, "browser-observe", "browser_obs_mismatch.json"), `${JSON.stringify(mismatchBrowserArtifact, null, 2)}\n`);
+  await writeFile(join(artifactDir, "browser-observe", "broken.json"), "{not json");
+  await writeFile(join(artifactDir, "im-inbox", "inbox_matched.json"), `${JSON.stringify(matchedInbox, null, 2)}\n`);
+  await writeFile(join(artifactDir, "im-inbox", "inbox_mismatch.json"), `${JSON.stringify(mismatchInboxArtifact, null, 2)}\n`);
+  await writeFile(join(artifactDir, "im-inbox", "inbox_missing.json"), `${JSON.stringify(missingInbox, null, 2)}\n`);
+  await writeFile(join(artifactDir, "im-outbox", "outbox_matched.json"), `${JSON.stringify(matchedOutbox, null, 2)}\n`);
+  await writeFile(join(artifactDir, "im-outbox", "outbox_mismatch.json"), `${JSON.stringify(mismatchOutboxArtifact, null, 2)}\n`);
+  await writeFile(join(artifactDir, "im-outbox", "outbox_missing.json"), `${JSON.stringify(missingOutbox, null, 2)}\n`);
+
+  await writeFile(join(registryDir, "browser-observations.json"), `${JSON.stringify([
+    matchedBrowser,
+    mismatchBrowserRegistry,
+    staleBrowser,
+    { id: "browser_obs_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "im-inbox.json"), `${JSON.stringify([
+    matchedInbox,
+    mismatchInboxRegistry,
+    staleInbox,
+    { id: "inbox_invalid" }
+  ], null, 2)}\n`);
+  await writeFile(join(registryDir, "im-outbox.json"), `${JSON.stringify([
+    matchedOutbox,
+    mismatchOutboxRegistry,
+    staleOutbox,
+    { id: "outbox_invalid" }
+  ], null, 2)}\n`);
+  const beforeBrowser = await readFile(join(registryDir, "browser-observations.json"), "utf8");
+  const beforeInbox = await readFile(join(registryDir, "im-inbox.json"), "utf8");
+  const beforeOutbox = await readFile(join(registryDir, "im-outbox.json"), "utf8");
+
+  const events = [
+    payloadEvent("evt_surface_browser_matched", "run_surface", "browser.observation.ingested", "artifact://surface/browser-observe/browser_obs_matched"),
+    payloadEvent("evt_surface_browser_mismatch", "run_surface", "browser.observation.ingested", "artifact://surface/browser-observe/browser_obs_mismatch"),
+    payloadEvent("evt_surface_browser_broken", "run_surface", "browser.observation.ingested", "artifact://surface/browser-observe/broken"),
+    payloadEvent("evt_surface_inbox_matched", "run_surface", "im.inbox.received", "artifact://surface/im-inbox/inbox_matched"),
+    payloadEvent("evt_surface_inbox_mismatch", "run_surface", "im.inbox.received", "artifact://surface/im-inbox/inbox_mismatch"),
+    payloadEvent("evt_surface_inbox_missing", "run_surface", "im.inbox.received", "artifact://surface/im-inbox/inbox_missing"),
+    payloadEvent("evt_surface_inbox_missing_artifact", "run_surface", "im.inbox.received", "artifact://surface/im-inbox/inbox_no_artifact"),
+    payloadEvent("evt_surface_outbox_matched", "run_surface", "im.outbox.queued", "artifact://surface/im-outbox/outbox_matched"),
+    payloadEvent("evt_surface_outbox_mismatch", "run_surface", "im.outbox.queued", "artifact://surface/im-outbox/outbox_mismatch"),
+    payloadEvent("evt_surface_outbox_missing", "run_surface", "im.outbox.queued", "artifact://surface/im-outbox/outbox_missing")
+  ];
+
+  const audit = auditSurfaceRegistryRebuild(root, events);
+  const finding = (itemId: string, status: string) => audit.findings.find((entry) => entry.item_id === itemId && entry.status === status);
+  assert.equal(audit.id, "surface_registry_rebuild_audit");
+  assert.equal(audit.scope.mode, "read_only_ledger_artifact_rebuild_parity");
+  assert.equal(audit.scope.mutates_registry, false);
+  assert.equal(audit.scope.opens_browser, false);
+  assert.equal(audit.scope.delivers_messages, false);
+  assert.equal(audit.scope.requests_supervisor_authority, false);
+  assert.equal(audit.scope.trusts_registry_as_authority, false);
+  assert.deepEqual(audit.summary, {
+    expected_browser_observations: 2,
+    expected_im_inbox: 3,
+    expected_im_outbox: 3,
+    actual_browser_observations: 3,
+    actual_im_inbox: 3,
+    actual_im_outbox: 3,
+    matched: 3,
+    missing_registry: 2,
+    mismatched: 3,
+    stale_registry: 3,
+    invalid_artifact: 2,
+    invalid_registry: 3
+  });
+  assert.ok(finding("browser_obs_matched", "matched"));
+  assert.ok(finding("browser_obs_mismatch", "mismatched"));
+  assert.ok(finding("browser_obs_stale", "stale_registry"));
+  assert.ok(finding("browser_obs_invalid", "invalid_registry"));
+  assert.ok(finding("inbox_matched", "matched"));
+  assert.ok(finding("inbox_mismatch", "mismatched"));
+  assert.ok(finding("inbox_missing", "missing_registry"));
+  assert.ok(finding("inbox_stale", "stale_registry"));
+  assert.ok(finding("inbox_invalid", "invalid_registry"));
+  assert.ok(finding("outbox_matched", "matched"));
+  assert.ok(finding("outbox_mismatch", "mismatched"));
+  assert.ok(finding("outbox_missing", "missing_registry"));
+  assert.ok(finding("outbox_stale", "stale_registry"));
+  assert.ok(finding("outbox_invalid", "invalid_registry"));
+  assert.ok(audit.findings.some((entry) => entry.event_id === "evt_surface_inbox_missing_artifact" && entry.status === "invalid_artifact"));
+  assert.equal(await readFile(join(registryDir, "browser-observations.json"), "utf8"), beforeBrowser);
+  assert.equal(await readFile(join(registryDir, "im-inbox.json"), "utf8"), beforeInbox);
+  assert.equal(await readFile(join(registryDir, "im-outbox.json"), "utf8"), beforeOutbox);
 });
 
 test("agent registry rebuild audit previews child records without executing or mutating", async () => {

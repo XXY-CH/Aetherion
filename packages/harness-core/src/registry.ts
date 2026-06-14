@@ -334,6 +334,54 @@ export type StoreRegistryRebuildAudit = {
   findings: StoreRegistryRebuildFinding[];
 };
 
+export type SurfaceRegistryName = "browser-observations" | "im-inbox" | "im-outbox";
+
+export type SurfaceRegistryRebuildFinding = {
+  registry: SurfaceRegistryName;
+  item_id: string;
+  status: RegistryRebuildParityStatus;
+  reason?: string;
+  event_id?: string;
+  artifact_ref?: string;
+  artifact_path?: string;
+  expected?: RegistryItem;
+  actual?: RegistryItem;
+};
+
+export type SurfaceRegistryRebuildAudit = {
+  id: "surface_registry_rebuild_audit";
+  generated_at: string;
+  workspace_root: string;
+  registries: SurfaceRegistryName[];
+  scope: {
+    mode: "read_only_ledger_artifact_rebuild_parity";
+    mutates_registry: false;
+    opens_browser: false;
+    delivers_messages: false;
+    requests_supervisor_authority: false;
+    trusts_registry_as_authority: false;
+    rebuilds_from: "surface browser/IM Ledger events plus payload_ref artifacts";
+  };
+  summary: {
+    expected_browser_observations: number;
+    expected_im_inbox: number;
+    expected_im_outbox: number;
+    actual_browser_observations: number;
+    actual_im_inbox: number;
+    actual_im_outbox: number;
+    matched: number;
+    missing_registry: number;
+    mismatched: number;
+    stale_registry: number;
+    invalid_artifact: number;
+    invalid_registry: number;
+  };
+  expected_browser_observations: RegistryItem[];
+  expected_im_inbox: RegistryItem[];
+  expected_im_outbox: RegistryItem[];
+  findings: SurfaceRegistryRebuildFinding[];
+};
+
 export type AgentRegistryName = "agent-contracts" | "child-results" | "budget-accounts" | "circuit-breakers";
 
 export type AgentRegistryRebuildFinding = {
@@ -1016,6 +1064,122 @@ export function auditStoreRegistryRebuild(workspaceRoot: string, events: EventRe
     },
     expected_store_publishers: sortedPublishers,
     expected_capsule_installs: sortedInstalls,
+    findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
+  };
+}
+
+export function auditSurfaceRegistryRebuild(workspaceRoot: string, events: EventRecord[]): SurfaceRegistryRebuildAudit {
+  const expectedBrowserObservations = new Map<string, RegistryItem>();
+  const expectedImInbox = new Map<string, RegistryItem>();
+  const expectedImOutbox = new Map<string, RegistryItem>();
+  const findings: SurfaceRegistryRebuildFinding[] = [];
+
+  for (const event of events) {
+    if (!isSurfaceRegistryRebuildEvent(event.event_type)) {
+      continue;
+    }
+    if (!event.payload_ref) {
+      findings.push({
+        registry: surfaceRegistryForEvent(event.event_type),
+        item_id: event.id,
+        status: "invalid_artifact",
+        event_id: event.id,
+        reason: "surface registry event has no payload_ref"
+      });
+      continue;
+    }
+    const artifact = readSurfaceArtifact(workspaceRoot, event, findings);
+    if (artifact.status === "invalid") {
+      continue;
+    }
+    if (event.event_type === "browser.observation.ingested") {
+      if (isBrowserObservationRecord(artifact.value)) {
+        expectedBrowserObservations.set(artifact.value.id, artifact.value);
+        continue;
+      }
+      findings.push({
+        registry: "browser-observations",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid browser observation record"
+      });
+      continue;
+    }
+    if (event.event_type === "im.inbox.received") {
+      if (isImInboxRecord(artifact.value)) {
+        expectedImInbox.set(artifact.value.id, artifact.value);
+        continue;
+      }
+      findings.push({
+        registry: "im-inbox",
+        item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+        status: "invalid_artifact",
+        event_id: event.id,
+        artifact_ref: event.payload_ref,
+        artifact_path: artifact.path,
+        reason: "artifact is not a valid IM inbox record"
+      });
+      continue;
+    }
+    if (isImOutboxRecord(artifact.value)) {
+      expectedImOutbox.set(artifact.value.id, artifact.value);
+      continue;
+    }
+    findings.push({
+      registry: "im-outbox",
+      item_id: isRegistryItem(artifact.value) ? artifact.value.id : basename(artifact.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: artifact.path,
+      reason: "artifact is not a valid IM outbox record"
+    });
+  }
+
+  const actualBrowserObservations = readSurfaceRegistryItems(workspaceRoot, "browser-observations", isBrowserObservationRecord, findings);
+  const actualImInbox = readSurfaceRegistryItems(workspaceRoot, "im-inbox", isImInboxRecord, findings);
+  const actualImOutbox = readSurfaceRegistryItems(workspaceRoot, "im-outbox", isImOutboxRecord, findings);
+  compareSurfaceRegistryProjection("browser-observations", expectedBrowserObservations, actualBrowserObservations, findings);
+  compareSurfaceRegistryProjection("im-inbox", expectedImInbox, actualImInbox, findings);
+  compareSurfaceRegistryProjection("im-outbox", expectedImOutbox, actualImOutbox, findings);
+
+  const sortedBrowserObservations = [...expectedBrowserObservations.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedImInbox = [...expectedImInbox.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedImOutbox = [...expectedImOutbox.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    id: "surface_registry_rebuild_audit",
+    generated_at: new Date().toISOString(),
+    workspace_root: workspaceRoot,
+    registries: ["browser-observations", "im-inbox", "im-outbox"],
+    scope: {
+      mode: "read_only_ledger_artifact_rebuild_parity",
+      mutates_registry: false,
+      opens_browser: false,
+      delivers_messages: false,
+      requests_supervisor_authority: false,
+      trusts_registry_as_authority: false,
+      rebuilds_from: "surface browser/IM Ledger events plus payload_ref artifacts"
+    },
+    summary: {
+      expected_browser_observations: sortedBrowserObservations.length,
+      expected_im_inbox: sortedImInbox.length,
+      expected_im_outbox: sortedImOutbox.length,
+      actual_browser_observations: actualBrowserObservations.size,
+      actual_im_inbox: actualImInbox.size,
+      actual_im_outbox: actualImOutbox.size,
+      matched: findings.filter((finding) => finding.status === "matched").length,
+      missing_registry: findings.filter((finding) => finding.status === "missing_registry").length,
+      mismatched: findings.filter((finding) => finding.status === "mismatched").length,
+      stale_registry: findings.filter((finding) => finding.status === "stale_registry").length,
+      invalid_artifact: findings.filter((finding) => finding.status === "invalid_artifact").length,
+      invalid_registry: findings.filter((finding) => finding.status === "invalid_registry").length
+    },
+    expected_browser_observations: sortedBrowserObservations,
+    expected_im_inbox: sortedImInbox,
+    expected_im_outbox: sortedImOutbox,
     findings: findings.sort((left, right) => `${left.registry}:${left.status}:${left.item_id}`.localeCompare(`${right.registry}:${right.status}:${right.item_id}`))
   };
 }
@@ -1876,6 +2040,10 @@ function isStoreRegistryRebuildEvent(eventType: string): eventType is "store.pub
   return eventType === "store.publisher.trusted" || eventType === "capsule.store.installed";
 }
 
+function isSurfaceRegistryRebuildEvent(eventType: string): eventType is "browser.observation.ingested" | "im.inbox.received" | "im.outbox.queued" {
+  return eventType === "browser.observation.ingested" || eventType === "im.inbox.received" || eventType === "im.outbox.queued";
+}
+
 function memoryRegistryForEvent(eventType: "memory.candidate.created" | "memory.accepted" | "memory.rejected" | "memory.blocked" | "memory.deleted"): MemoryRegistryName {
   if (eventType === "memory.candidate.created" || eventType === "memory.rejected") {
     return "memory-candidates";
@@ -1892,6 +2060,13 @@ function capsuleRegistryForEvent(eventType: "capsule.draft.recorded" | "capsule.
 
 function storeRegistryForEvent(eventType: "store.publisher.trusted" | "capsule.store.installed"): StoreRegistryName {
   return eventType === "store.publisher.trusted" ? "store-publishers" : "capsule-installs";
+}
+
+function surfaceRegistryForEvent(eventType: "browser.observation.ingested" | "im.inbox.received" | "im.outbox.queued"): SurfaceRegistryName {
+  if (eventType === "browser.observation.ingested") {
+    return "browser-observations";
+  }
+  return eventType === "im.inbox.received" ? "im-inbox" : "im-outbox";
 }
 
 function agentRegistryForEvent(eventType: string): AgentRegistryName {
@@ -2063,6 +2238,55 @@ function readStoreArtifact(
       artifact_ref: event.payload_ref,
       artifact_path: resolved.path,
       reason: "store registry artifact JSON could not be parsed"
+    });
+    return { status: "invalid" };
+  }
+}
+
+function readSurfaceArtifact(
+  workspaceRoot: string,
+  event: EventRecord,
+  findings: SurfaceRegistryRebuildFinding[]
+): { status: "valid"; value: unknown; path: string } | { status: "invalid" } {
+  const registry = surfaceRegistryForEvent(event.event_type as "browser.observation.ingested" | "im.inbox.received" | "im.outbox.queued");
+  if (!event.payload_ref) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      reason: "surface registry event has no payload_ref"
+    });
+    return { status: "invalid" };
+  }
+  const resolved = resolveLocalArtifactReference(workspaceRoot, event.payload_ref);
+  if (resolved.status === "unresolved" || !existsSync(resolved.path)) {
+    findings.push({
+      registry,
+      item_id: event.id,
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.status === "unresolved" ? undefined : resolved.path,
+      reason: resolved.status === "unresolved" ? resolved.reason : "surface registry artifact is missing"
+    });
+    return { status: "invalid" };
+  }
+  try {
+    return {
+      status: "valid",
+      value: JSON.parse(readFileSync(resolved.path, "utf8")) as unknown,
+      path: resolved.path
+    };
+  } catch {
+    findings.push({
+      registry,
+      item_id: basename(resolved.path, ".json"),
+      status: "invalid_artifact",
+      event_id: event.id,
+      artifact_ref: event.payload_ref,
+      artifact_path: resolved.path,
+      reason: "surface registry artifact JSON could not be parsed"
     });
     return { status: "invalid" };
   }
@@ -2266,11 +2490,95 @@ function readAgentRegistryItems(
   return valid;
 }
 
+function readSurfaceRegistryItems(
+  workspaceRoot: string,
+  registry: SurfaceRegistryName,
+  isValid: (value: unknown) => value is RegistryItem,
+  findings: SurfaceRegistryRebuildFinding[]
+): Map<string, RegistryItem> {
+  const auditedRegistry = readRegistryForAudit(workspaceRoot, registry);
+  for (const invalidFinding of auditedRegistry.invalidFindings) {
+    findings.push({
+      registry,
+      item_id: invalidFinding.item_id,
+      status: "invalid_registry",
+      reason: invalidFinding.reason
+    });
+  }
+
+  const valid = new Map<string, RegistryItem>();
+  for (const item of auditedRegistry.items) {
+    if (isValid(item)) {
+      valid.set(item.id, item);
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: item.id,
+      status: "invalid_registry",
+      reason: `registry entry is not a valid ${registry} record`,
+      actual: item
+    });
+  }
+  return valid;
+}
+
 function compareRegistryProjection(
   registry: MemoryRegistryName,
   expected: Map<string, RegistryItem>,
   actual: Map<string, RegistryItem>,
   findings: MemoryRegistryRebuildFinding[]
+): void {
+  for (const [itemId, expectedItem] of expected.entries()) {
+    const actualItem = actual.get(itemId);
+    if (!actualItem) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "missing_registry",
+        reason: `${registry} artifact-backed expected item has no registry entry`,
+        expected: expectedItem
+      });
+      continue;
+    }
+    if (stableStringify(actualItem) === stableStringify(expectedItem)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "matched",
+        expected: expectedItem,
+        actual: actualItem
+      });
+      continue;
+    }
+    findings.push({
+      registry,
+      item_id: itemId,
+      status: "mismatched",
+      reason: `${registry} registry entry differs from Ledger artifact rebuild`,
+      expected: expectedItem,
+      actual: actualItem
+    });
+  }
+
+  for (const [itemId, actualItem] of actual.entries()) {
+    if (!expected.has(itemId)) {
+      findings.push({
+        registry,
+        item_id: itemId,
+        status: "stale_registry",
+        reason: `${registry} registry entry has no active Ledger artifact rebuild source`,
+        actual: actualItem
+      });
+    }
+  }
+}
+
+function compareSurfaceRegistryProjection(
+  registry: SurfaceRegistryName,
+  expected: Map<string, RegistryItem>,
+  actual: Map<string, RegistryItem>,
+  findings: SurfaceRegistryRebuildFinding[]
 ): void {
   for (const [itemId, expectedItem] of expected.entries()) {
     const actualItem = actual.get(itemId);
@@ -2686,6 +2994,87 @@ function isCapsuleInstallRecord(value: unknown): value is RegistryItem {
     && value.raw_code_executed === false
     && value.status === "installed"
     && typeof value.created_at === "string";
+}
+
+function isBrowserObservationRecord(value: unknown): value is RegistryItem {
+  if (!isRegistryItem(value)
+    || !value.id.startsWith("browser_obs_")
+    || typeof value.origin !== "string"
+    || typeof value.title !== "string"
+    || value.mode !== "current_tab_observe"
+    || value.current_tab_only !== true
+    || typeof value.dom_sha256 !== "string"
+    || !value.dom_sha256.startsWith("sha256:")
+    || value.raw_dom_persisted !== false
+    || !isObjectRecord(value.redactions)
+    || !isObjectRecord(value.taint)
+    || value.can_create_side_effects !== false
+    || typeof value.policy_decision_id !== "string"
+    || !Array.isArray(value.source_event_ids)
+    || value.source_event_ids.length === 0
+    || !value.source_event_ids.every((eventId) => typeof eventId === "string")
+    || typeof value.captured_at !== "string") {
+    return false;
+  }
+  return Number.isInteger(value.redactions.password_fields)
+    && value.redactions.password_fields >= 0
+    && Number.isInteger(value.redactions.hidden_inputs)
+    && value.redactions.hidden_inputs >= 0
+    && Number.isInteger(value.redactions.credential_like_matches)
+    && value.redactions.credential_like_matches >= 0
+    && Array.isArray(value.taint.sources)
+    && value.taint.sources.length === 1
+    && value.taint.sources[0] === "public_web"
+    && value.taint.can_authorize_actions === false;
+}
+
+function isImInboxRecord(value: unknown): value is RegistryItem {
+  return isRegistryItem(value)
+    && value.id.startsWith("inbox_")
+    && ["telegram", "slack", "local_fixture"].includes(String(value.adapter))
+    && typeof value.external_message_id === "string"
+    && typeof value.sender_hash === "string"
+    && value.sender_hash.startsWith("sha256:")
+    && ["owner", "paired", "unknown"].includes(String(value.sender_role))
+    && ["dm", "group", "public"].includes(String(value.visibility))
+    && typeof value.mentioned === "boolean"
+    && typeof value.message_sha256 === "string"
+    && value.message_sha256.startsWith("sha256:")
+    && value.raw_message_persisted === false
+    && ["L1", "L3", "L5"].includes(String(value.risk_level))
+    && ["queued", "observe_only", "pairing_required"].includes(String(value.disposition))
+    && value.can_authorize_actions === false
+    && isObjectRecord(value.taint)
+    && Array.isArray(value.taint.sources)
+    && value.taint.sources.length === 1
+    && value.taint.sources[0] === "im"
+    && value.taint.can_authorize_actions === false
+    && typeof value.created_at === "string";
+}
+
+function isImOutboxRecord(value: unknown): value is RegistryItem {
+  if (!isRegistryItem(value)
+    || !value.id.startsWith("outbox_")
+    || typeof value.source_run_id !== "string"
+    || ["telegram", "slack", "local_fixture"].includes(String(value.adapter)) === false
+    || typeof value.destination_hash !== "string"
+    || !value.destination_hash.startsWith("sha256:")
+    || ["dm", "group", "public"].includes(String(value.visibility)) === false
+    || typeof value.body_sha256 !== "string"
+    || !value.body_sha256.startsWith("sha256:")
+    || value.raw_body_persisted !== false
+    || ["L3", "L5"].includes(String(value.risk_level)) === false
+    || value.approval_required !== true
+    || ["queued", "blocked"].includes(String(value.delivery_status)) === false
+    || value.delivery_attempted !== false
+    || typeof value.policy_decision_id !== "string"
+    || typeof value.policy_event_id !== "string"
+    || !isObjectRecord(value.approval_scope)
+    || typeof value.created_at !== "string") {
+    return false;
+  }
+  return value.approval_scope.one_scoped_action === true
+    && value.approval_scope.may_reuse_for_future_messages === false;
 }
 
 function isAgentContractRecord(value: unknown): value is RegistryItem {

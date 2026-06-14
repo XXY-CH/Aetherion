@@ -2067,6 +2067,36 @@ Remaining boundary:
 
 - Store publisher/install registry rebuild parity, transparency/revocation evidence, package execution sandboxing, route scoring, permission-diff UX, and Store repair commands remain open.
 
+## Phase 72 Review Notes
+
+This pass continues PGC-6 by adding a read-only surface registry rebuild preview. The point is to make Browser Observation, IM Inbox, and IM Outbox projections inspectable against Ledger-backed artifacts without treating those post-V1 surfaces as trusted inputs or action authority.
+
+Matched source docs:
+
+- [Product Brief](00-product-brief.md): Aetherion stays a local-first Agent Harness Kernel; this pass adds auditability and does not add GUI, mobile, IM delivery, browser extension, browser automation, MCP/OAuth connectors, or cloud workers.
+- [Roadmap](06-roadmap.md): V1 remains TUI-first. Browser/IM/mobile/API surfaces remain later-phase clients; the current work is only an Ether read-only audit command.
+- [Technical Strategy](10-technical-strategy.md): TypeScript can host surface contracts and projection previews, while Rust remains the future authority/policy boundary for real execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): registries are rebuildable projections. `audit surface-records` is now a scoped read-only parity preview and cannot repair, authorize, or execute.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): advances PGC-6 surface-record parity while keeping event signatures, redaction, prompt/model parity, security fixture parity, and explicit repair open.
+
+Implemented correspondence:
+
+- `auditSurfaceRegistryRebuild()` reconstructs expected `browser-observations`, `im-inbox`, and `im-outbox` rows from verified Ledger events plus local `payload_ref` artifacts.
+- `ether audit surface-records --workspace <path>` exposes the audit as JSON, with scope fields proving it does not mutate registries, open a browser, deliver messages, request supervisor authority, or trust registry rows as authority.
+- Unit tests cover matched, missing, mismatched, stale, invalid-artifact, and invalid-registry findings for all three surface registry families and assert registry files remain unchanged.
+- TUI integration tampers real surface registries after browser/inbox/outbox commands and verifies `audit surface-records` reports the drift without writing `.aetherion/artifacts/audit` or repairing registries.
+- Help text and PGC/schema/runtime docs now list `audit surface-records` as implemented scoped parity evidence.
+
+Drift review:
+
+- Corrects the PGC-6 drift where docs still listed surface records as wholly open after Browser Observation, IM Inbox, and IM Outbox artifacts already had Ledger-backed payload refs.
+- Keeps the correction narrow: surface records are now auditable projections, not identity, ingress, permission, delivery, or automation primitives.
+- Does not add browser extension capture, DOM/CDP action, screenshot fallback, desktop automation, webhook/IM delivery, reusable outbox approval, remote channel identity, connector OAuth, package execution, automatic repair, event signing, or redaction tooling.
+
+Remaining boundary:
+
+- Security fixture rebuild parity, prompt/model artifact parity, event signatures, redaction/rebuild tooling, and operator-approved repair commands remain open.
+
 ## Phase 3 Review Notes
 
 Matched architecture docs:

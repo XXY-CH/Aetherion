@@ -809,3 +809,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 automatic registry repair、budget-account success-path artifacting、event signing、redaction tooling、semantic verification、general LLM child orchestration、child writes、network tools、package execution、connector OAuth、cloud worker execution，或新的 supervisor action family。
+
+## 已完成增量：Surface Registry Rebuild Preview
+
+目标：继续推进 PGC-6 projection-integrity，为 Browser Observation、IM Inbox 和 IM Outbox registry 暴露 parity evidence，但不把这些 post-V1 surface 变成 authority source。
+
+验收：
+
+- `ether audit surface-records --workspace <path>` 只读取已验证 Ledger 和本地 payload-ref artifacts，然后报告期望与实际 surface registry rows。
+- Findings 区分 `matched`、`missing_registry`、`mismatched`、`stale_registry`、`invalid_artifact` 和 `invalid_registry`，但不修改 registry。
+- 该 audit 明确不打开浏览器、不执行 browser automation、不发送消息、不请求 supervisor authority、不把 registry row 当 authority、不修复 projection、不发 lease，也不改 run manifest。
+- 真实的 TUI surface/store integration 覆盖 browser、inbox 和两个 outbox record，随后故意污染 registry，证明 audit 会报告 mismatch/stale 状态，同时保持 registry file 字节不变。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：仍停留在 local-first auditability，没有新增 GUI、IM delivery、browser extension、browser automation、connector 或 cloud-worker surface。
+- [路线图](06-roadmap.zh-CN.md)：遵守 V1 TUI-first 边界；Phase 8/9 surface 仍然是 post-gate。
+- [技术策略](10-technical-strategy.zh-CN.md)：把 TypeScript surface scaffold 视为 contract/control-plane evidence，而 Rust 仍然是未来 authority path。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：scoped parity preview 现在包含 `audit surface-records`；文档不再暗示 Browser Observation、IM Inbox 和 IM Outbox projection parity 完全属于 future work。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：推进 PGC-6 surface records parity，同时保持 repair 必须显式且 operator-approved。
+
+剩余边界：
+
+- 这不是 automatic registry repair、browser extension capture、browser/desktop automation、IM/email delivery、reusable outbox approval、remote channel identity、connector OAuth、package execution、event signing、redaction tooling，或新的 supervisor action family。
