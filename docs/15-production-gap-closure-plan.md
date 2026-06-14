@@ -150,8 +150,10 @@ Acceptance criteria:
 
 Current partial status:
 
-- `prompt execute-tool-request` now accepts an operator-restated workspace file-read proposal, revalidates matched prompt/model artifact evidence, rejects path drift, and sends the read through Rust `file.read.traced` for fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence.
-- The proposal artifact remains non-authorizing: `prompt propose-tool-request` still writes only `agent.tool.request.proposed`, while execution is a separate run with fresh supervisor policy and scoped lease evidence.
+- `prompt execute-tool-request` now accepts an operator-restated workspace file-read proposal, revalidates matched prompt/model artifact evidence, rejects path drift, and sends the read through Rust `file.read.traced`.
+- Allowed proposal executions complete a separate run with fresh `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` evidence.
+- Denied proposal executions now complete a blocked separate run with fresh `tool.requested -> risk.composed -> policy.decided -> tool.result` evidence, no lease, no file contents in stdout, and a hash-only denial reason.
+- The proposal artifact remains non-authorizing: `prompt propose-tool-request` still writes only `agent.tool.request.proposed`, while execution is a separate run with fresh supervisor policy and any scoped lease only if policy allows.
 - Write proposals, provider tool calls, durable queues, model-driven tool loops, and non-file-read proposal execution remain unimplemented.
 
 ### PGC-6: Projection Rebuild And Ledger Integrity Expansion

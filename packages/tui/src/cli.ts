@@ -5100,7 +5100,7 @@ async function runPromptExecuteToolRequest(options: CliOptions): Promise<void> {
   }
 
   const executionRunId = `run_tool_request_execution_${sanitizePathSegment(proposal.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
-  const summary = `Executed operator-restated file-read proposal ${proposal.id} through fresh supervisor policy and scoped lease; the proposal itself remained non-authorizing.`;
+  const summary = `Evaluated operator-restated file-read proposal ${proposal.id} through fresh supervisor policy; the proposal itself remained non-authorizing and any lease must come from the execution run.`;
   const manifest = await createRunManifest(repoRoot, workspace, executionRunId, summary);
   const readResult = rpcResult(await callSupervisorRpc(repoRoot, {
     id: `rpc_${executionRunId}_proposal_read`,
@@ -5110,14 +5110,30 @@ async function runPromptExecuteToolRequest(options: CliOptions): Promise<void> {
     run_id: executionRunId,
     path: join(workspaceRoot, relativeTargetPath)
   }));
-  await recordSupervisorEventIds(workspace, manifest, readResult, ["request_event_id", "risk_event_id", "policy_event_id", "lease_event_id", "result_event_id"]);
-  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
-    { event_type: "tool.requested" },
-    { event_type: "risk.composed" },
-    { event_type: "policy.decided" },
-    { event_type: "lease.issued" },
-    { event_type: "tool.result" }
-  ]);
+  const eventKeys = readResult.decision === "allow"
+    ? ["request_event_id", "risk_event_id", "policy_event_id", "lease_event_id", "result_event_id"]
+    : ["request_event_id", "risk_event_id", "policy_event_id", "result_event_id"];
+  await recordSupervisorEventIds(workspace, manifest, readResult, eventKeys);
+  await completeRunManifestWithEventSequence(
+    repoRoot,
+    workspace,
+    manifest,
+    readResult.decision === "allow" ? "completed" : "blocked",
+    readResult.decision === "allow"
+      ? [
+          { event_type: "tool.requested" },
+          { event_type: "risk.composed" },
+          { event_type: "policy.decided" },
+          { event_type: "lease.issued" },
+          { event_type: "tool.result" }
+        ]
+      : [
+          { event_type: "tool.requested" },
+          { event_type: "risk.composed" },
+          { event_type: "policy.decided" },
+          { event_type: "tool.result" }
+        ]
+  );
   printRawJson({
     execution_run_id: executionRunId,
     source_run_id: proposal.run_id,
@@ -5146,13 +5162,15 @@ async function runPromptExecuteToolRequest(options: CliOptions): Promise<void> {
     risk_event_id: readResult.risk_event_id,
     policy_decision_id: readResult.policy_decision_id,
     policy_event_id: readResult.policy_event_id,
-    lease_event_id: readResult.lease_event_id,
+    lease_event_id: readResult.decision === "allow" ? readResult.lease_event_id : "",
     result_event_id: readResult.result_event_id,
     risk_level: readResult.risk_level,
-    lease_id: readResult.lease_id,
+    lease_id: readResult.decision === "allow" ? readResult.lease_id : "",
     contents_sha256: typeof readResult.contents === "string" ? sha256Hex(readResult.contents) : null,
     contents_bytes: typeof readResult.contents === "string" ? Buffer.byteLength(readResult.contents) : 0,
-    contents_printed: false
+    contents_printed: false,
+    denial_reason_sha256: typeof readResult.reason === "string" ? sha256Hex(readResult.reason) : null,
+    denial_reason_printed: false
   });
 }
 

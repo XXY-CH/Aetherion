@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -3713,6 +3713,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
     contents_sha256: string | null;
     contents_bytes: number;
     contents_printed: boolean;
+    denial_reason_sha256: string | null;
+    denial_reason_printed: boolean;
   };
   assert.match(executionRecord.execution_run_id, /^run_tool_request_execution_/);
   assert.equal(executionRecord.source_run_id, runId);
@@ -3748,6 +3750,8 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(executionRecord.contents_sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
   assert.equal(executionRecord.contents_bytes > 0, true);
   assert.equal(executionRecord.contents_printed, false);
+  assert.equal(executionRecord.denial_reason_sha256, null);
+  assert.equal(executionRecord.denial_reason_printed, false);
 
   const executionRunEvents = (await readLedgerEvents(workspace)).filter((event) => event.run_id === executionRecord.execution_run_id);
   assert.deepEqual(executionRunEvents.map((event) => event.event_type), [
@@ -3789,6 +3793,111 @@ test("TUI exposes local-only phase command surfaces", async () => {
   assert.match(executionBoundary.stdout, /boundary_action_1_operation=filesystem\.read/);
   assert.match(executionBoundary.stdout, /boundary_action_1_actor=system:local_supervisor/);
   assert.match(executionBoundary.stdout, /boundary_action_1_result=read_recorded/);
+
+  const outsideTarget = join(workspace, "..", "proposal-denied-outside.txt");
+  await writeFile(outsideTarget, "This file must remain outside the workspace authority boundary.\n");
+  await symlink(outsideTarget, join(workspace, "outside-link.txt"));
+  const deniedProposal = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "propose-tool-request",
+    modelResponseRecord.response_audit_id,
+    "--path",
+    "outside-link.txt",
+    "--content",
+    "Read the symlink target after policy checks.",
+    "--workspace",
+    workspace
+  ]);
+  const deniedProposalRecord = JSON.parse(deniedProposal.stdout) as {
+    proposal_id: string;
+    proposal_event_id: string;
+    proposal_artifact_ref: string;
+    proposal_run_id: string;
+  };
+  const deniedExecution = await execFileAsync(process.execPath, [
+    cliPath,
+    "prompt",
+    "execute-tool-request",
+    deniedProposalRecord.proposal_id,
+    "--path",
+    "outside-link.txt",
+    "--content",
+    "Operator restates the symlink read so fresh policy can deny it.",
+    "--workspace",
+    workspace
+  ]);
+  const deniedExecutionRecord = JSON.parse(deniedExecution.stdout) as {
+    execution_run_id: string;
+    proposal_id: string;
+    proposal_artifact_ref: string;
+    proposal_event_id: string;
+    proposal_target_uri: string;
+    operator_target_uri: string;
+    fresh_policy_decision: string;
+    lease_issued: boolean;
+    tool_executed: boolean;
+    tool_result_persisted: boolean;
+    request_event_id: string;
+    risk_event_id: string;
+    policy_decision_id: string;
+    policy_event_id: string;
+    lease_event_id: string;
+    result_event_id: string;
+    risk_level: string;
+    lease_id: string;
+    contents_sha256: string | null;
+    contents_bytes: number;
+    contents_printed: boolean;
+    denial_reason_sha256: string | null;
+    denial_reason_printed: boolean;
+  };
+  assert.equal(deniedExecutionRecord.proposal_id, deniedProposalRecord.proposal_id);
+  assert.equal(deniedExecutionRecord.proposal_artifact_ref, deniedProposalRecord.proposal_artifact_ref);
+  assert.equal(deniedExecutionRecord.proposal_event_id, deniedProposalRecord.proposal_event_id);
+  assert.equal(deniedExecutionRecord.proposal_target_uri, "workspace://outside-link.txt");
+  assert.equal(deniedExecutionRecord.operator_target_uri, "workspace://outside-link.txt");
+  assert.equal(deniedExecutionRecord.fresh_policy_decision, "deny");
+  assert.equal(deniedExecutionRecord.lease_issued, false);
+  assert.equal(deniedExecutionRecord.tool_executed, false);
+  assert.equal(deniedExecutionRecord.tool_result_persisted, true);
+  assert.match(deniedExecutionRecord.request_event_id, /^evt_/);
+  assert.match(deniedExecutionRecord.risk_event_id, /^evt_/);
+  assert.match(deniedExecutionRecord.policy_decision_id, /^policy_/);
+  assert.match(deniedExecutionRecord.policy_event_id, /^evt_/);
+  assert.equal(deniedExecutionRecord.lease_event_id, "");
+  assert.match(deniedExecutionRecord.result_event_id, /^evt_/);
+  assert.equal(deniedExecutionRecord.risk_level, "L5");
+  assert.equal(deniedExecutionRecord.lease_id, "");
+  assert.equal(deniedExecutionRecord.contents_sha256, null);
+  assert.equal(deniedExecutionRecord.contents_bytes, 0);
+  assert.equal(deniedExecutionRecord.contents_printed, false);
+  assert.match(deniedExecutionRecord.denial_reason_sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.equal(deniedExecutionRecord.denial_reason_printed, false);
+  const deniedExecutionRunEvents = (await readLedgerEvents(workspace)).filter((event) => event.run_id === deniedExecutionRecord.execution_run_id);
+  assert.deepEqual(deniedExecutionRunEvents.map((event) => event.event_type), [
+    "tool.requested",
+    "risk.composed",
+    "policy.decided",
+    "tool.result"
+  ]);
+  assert.equal(deniedExecutionRunEvents.some((event) => event.event_type === "lease.issued"), false);
+  assert.equal(deniedExecutionRunEvents.every((event) => event.payload_ref === undefined), true);
+  assert.equal((await readLedgerEvents(workspace)).filter((event) => event.run_id === deniedProposalRecord.proposal_run_id).some((event) => event.event_type === "policy.decided"), false);
+  const deniedBoundary = await execFileAsync(process.execPath, [
+    cliPath,
+    "boundary",
+    deniedExecutionRecord.execution_run_id,
+    "--workspace",
+    workspace
+  ]);
+  assert.equal(stdoutValue(deniedBoundary.stdout, "what_tool_requests"), "1");
+  assert.equal(stdoutValue(deniedBoundary.stdout, "what_policy_decisions"), "1");
+  assert.equal(stdoutValue(deniedBoundary.stdout, "what_leases"), "0");
+  assert.equal(stdoutValue(deniedBoundary.stdout, "what_actions"), "0");
+  assert.equal(stdoutValue(deniedBoundary.stdout, "boundary_material_actions"), "1");
+  assert.match(deniedBoundary.stdout, /boundary_action_1_operation=filesystem\.read/);
+  assert.match(deniedBoundary.stdout, /boundary_action_1_result=denied/);
 
   // Re-invoking the same request after a response exists fails closed.
   await assert.rejects(

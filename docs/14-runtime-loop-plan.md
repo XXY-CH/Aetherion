@@ -1342,3 +1342,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not model-driven tool execution, provider tool-call execution, write proposal execution, durable queue integration, semantic response verification, connector OAuth, package execution, cloud worker execution, or permission for a proposal artifact to authorize actions by itself.
+
+## Completed Increment: Proposal-To-Policy Denial Evidence
+
+Target: complete the fail-closed half of PGC-5 by making denied file-read proposal executions record the supervisor's actual blocked lifecycle instead of assuming an allowed read sequence.
+
+Acceptance:
+
+- `prompt execute-tool-request` records `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result` only when Rust `file.read.traced` allows the read.
+- When fresh supervisor policy denies the read, the execution run is `blocked` and records `tool.requested -> risk.composed -> policy.decided -> tool.result` with no `lease.issued`, no lease id, no contents hash, and only a hash-only denial reason.
+- The test path uses an operator-restated proposal whose lexical workspace path matches the proposal target while the Rust supervisor rejects the real symlink target as outside the workspace boundary.
+- The proposal run remains non-authorizing in both allow and deny cases.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; proposal/model output still cannot authorize action, and fresh Tool Policy Proxy/Supervisor evidence decides the read.
+- [Roadmap](06-roadmap.md): no drift; this remains inside the V1 TUI/local file-read policy loop and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package execution.
+- [Technical Strategy](10-technical-strategy.md): corrected execution evidence to match the Rust authority path rather than letting TypeScript assume the allowed lifecycle.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; prompt/model artifacts remain non-authorizing evidence, and denied execution creates no lease authority.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected PGC-5 current status to distinguish allowed execution evidence from denied blocked evidence.
+
+Remaining boundary:
+
+- This is not write proposal execution, model-driven tool execution, provider tool-call execution, durable queue integration, semantic verification, connector OAuth, package execution, cloud worker execution, or automatic repair of proposal artifacts.

@@ -948,3 +948,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 model-driven tool execution、provider tool-call execution、write proposal execution、durable queue integration、semantic response verification、connector OAuth、package execution、cloud worker execution，也不是允许 proposal artifact 自行授权 action。
+
+## 已完成增量：Proposal-To-Policy Denial Evidence
+
+目标：补齐 PGC-5 的 fail-closed 半边，让被拒绝的 file-read proposal execution 记录 supervisor 的真实 blocked lifecycle，而不是假设 allowed read sequence。
+
+验收：
+
+- `prompt execute-tool-request` 只有在 Rust `file.read.traced` allow 读取时，才记录 `tool.requested -> risk.composed -> policy.decided -> lease.issued -> tool.result`。
+- 当 fresh supervisor policy 拒绝读取时，execution run 是 `blocked`，记录 `tool.requested -> risk.composed -> policy.decided -> tool.result`，没有 `lease.issued`、没有 lease id、没有 contents hash，并且只输出 hash-only denial reason。
+- 测试路径使用 operator-restated proposal：词法上的 workspace path 与 proposal target 匹配，但 Rust supervisor 会因为真实 symlink target 越过 workspace boundary 而拒绝。
+- allow 和 deny 两种情况下，proposal run 都仍然 non-authorizing。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；proposal/model output 仍不能授权 action，读取由 fresh Tool Policy Proxy/Supervisor evidence 决定。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；本 slice 仍在 V1 TUI/local file-read policy loop 内，没有新增 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：已修正 execution evidence，使其匹配 Rust authority path，而不是由 TypeScript 假设 allowed lifecycle。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；prompt/model artifact 仍是 non-authorizing evidence，被拒绝的 execution 不创建 lease authority。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正 PGC-5 当前状态，区分 allowed execution evidence 与 denied blocked evidence。
+
+剩余边界：
+
+- 这不是 write proposal execution、model-driven tool execution、provider tool-call execution、durable queue integration、semantic verification、connector OAuth、package execution、cloud worker execution，或 proposal artifact 自动修复。
