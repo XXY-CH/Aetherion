@@ -1295,3 +1295,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not event signing, redaction tooling, irreversible Ledger migration, automatic artifact or registry repair, public transparency logging, cloud notarization, repair authority, or a new supervisor action family.
+
+## Completed Increment: Adapter Gate Readiness Contract
+
+Target: start PGC-7 by making adapter-family gates reviewable before any browser, IM, MCP, OAuth/SaaS connector, computer-use, local API, package execution, or cloud worker runtime is enabled.
+
+Acceptance:
+
+- `schemas/adapter-gate-readiness.schema.json` and `examples/contracts/adapter-gate-readiness.json` define the pre-runtime adapter-family manifest and policy matrix.
+- The schema rejects real adapter execution, browser/desktop automation, IM delivery, connector grants, local API gateway enablement, package-code execution, cloud worker execution, missing gate controls, live side-effect replay, raw secret persistence, supervisor bypass, adapter-issued leases, and generated-package trust-root claims.
+- `doctor`, `onboarding check`, and `release evidence` include the contract as read-only configured evidence without mutating workspaces, issuing leases, executing adapters, creating connector grants, resolving vault secrets, or creating a trust root.
+- Release remaining gaps now state that adapter gate readiness exists as evidence while real adapter execution and deferred surfaces remain unimplemented.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; V1 remains TUI-first and does not add GUI, IM, browser automation, MCP/OAuth connectors, cloud workers, or package-code execution.
+- [Roadmap](06-roadmap.md): no drift; adapter and surface work remains post-gate until ingress, vault, policy, lease, and supervisor action-gateway evidence exists.
+- [Computer Use Implementation](09-computer-use-implementation.md): corrected docs to name `adapter-gate-readiness` as evidence-only control-plane contract above live computer-use surfaces.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): corrected docs to list Adapter Gate Readiness as non-authorizing readiness metadata and add its negative-change gate.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected PGC-7 to record the new design contract while keeping real adapter execution deferred.
+
+Remaining boundary:
+
+- This is not browser extension runtime, browser/desktop automation, IM delivery, MCP connector runtime, OAuth/SaaS connector grant lifecycle, local API gateway, package-code execution, cloud worker execution, vault secret resolution, token refresh/revocation, or a supervisor-governed adapter action gateway.

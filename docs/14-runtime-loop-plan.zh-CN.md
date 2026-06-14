@@ -901,3 +901,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 event signing、redaction tooling、不可逆 Ledger migration、automatic artifact 或 registry repair、public transparency logging、cloud notarization、repair authority，或新的 supervisor action family。
+
+## 已完成增量：Adapter Gate Readiness Contract
+
+目标：启动 PGC-7，在 browser、IM、MCP、OAuth/SaaS connector、computer-use、local API、package execution 和 cloud worker runtime 启用前，先把 adapter-family gate 变成可 review 的合同。
+
+验收：
+
+- `schemas/adapter-gate-readiness.schema.json` 与 `examples/contracts/adapter-gate-readiness.json` 定义了 pre-runtime adapter-family manifest 和 policy matrix。
+- schema 会拒绝真实 adapter 执行、browser/desktop automation、IM delivery、connector grant、local API gateway enablement、package-code execution、cloud worker execution、缺少 gate controls、live side-effect replay、raw secret persistence、supervisor bypass、adapter-issued lease 和 generated-package trust-root claim。
+- `doctor`、`onboarding check` 和 `release evidence` 把该 contract 纳入只读 configured evidence，但不修改 workspace、不发 lease、不执行 adapter、不创建 connector grant、不解析 vault secret，也不创建 trust root。
+- release remaining gaps 现在明确：adapter gate readiness 已作为 evidence 存在，而真实 adapter 执行和延后表面仍未实现。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；V1 仍是 TUI-first，没有新增 GUI、IM、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；adapter 和 surface work 仍然是 post-gate，要等 ingress、vault、policy、lease 和 supervisor action-gateway evidence。
+- [Computer Use 实现](09-computer-use-implementation.zh-CN.md)：已修正文档，把 `adapter-gate-readiness` 命名为 evidence-only control-plane contract，位于真实 computer-use surface 之上。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：已修正文档，把 Adapter Gate Readiness 列为不授权的 readiness metadata，并加入负向变更 gate。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正文档中的 PGC-7，记录新的 design contract，同时保持真实 adapter execution 继续 deferred。
+
+剩余边界：
+
+- 这不是 browser extension runtime、browser/desktop automation、IM delivery、MCP connector runtime、OAuth/SaaS connector grant lifecycle、local API gateway、package-code execution、cloud worker execution、vault secret resolution、token refresh/revocation，或受 supervisor 管理的 adapter action gateway。

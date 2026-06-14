@@ -179,12 +179,14 @@
 
 - browser、IM、MCP、OAuth/SaaS connector、computer-use、local API 和 package execution family 的 adapter manifest 与 policy matrix。
 - 每个 family 的 gate document：真实执行前至少需要哪些 identity、vault、policy、lease、observation、verification、replay 和 egress controls。
+- Adapter Gate Readiness contract：`adapter-gate-readiness` schema/example 以及 doctor/onboarding/release evidence wiring，证明这个 gate 仍然是只读的，不会启用真实 adapter 执行。
 
 验收：
 
 - Browser/IM/mobile/API 只能在 ingress gateway evidence 出现后作为 client surface 实现。
 - 真实 OAuth connector work 不能早于 vault refs、token refresh/revocation policy、connector grant lifecycle 和 egress policy 可测试。
 - 真实 browser/desktop automation 不能早于 supervisor 拥有 governed adapter action gateway。
+- adapter gate contract 本身必须保持 non-authorizing：它可以被 `doctor`、`onboarding check` 和 `release evidence` 验证，但不能发 lease、授权 action 或执行 adapter。
 
 ### PGC-8：Production Bug 与 Quality Sweep
 

@@ -50,6 +50,8 @@ Policy decision 应明确 allow、deny、ask、queue 或 sandbox，并记录 rat
 
 Computer-use action/observation 目前是 P2 合同并带 P1 风格验证。允许硬化合同，但不应启用真实浏览器/桌面自动化，直到 Local Supervisor 暴露受治理 action gateway。
 
+`adapter-gate-readiness` 是 browser、IM、MCP、OAuth/SaaS connector、computer-use、local API 和 package execution family 的 pre-runtime adapter-manifest contract。它只证明 gate 仍是 evidence-only，并要求真实执行前必须具备 identity、vault、policy、lease、observation、verification、replay 和 egress controls；它不会授权任何 adapter lane，也不会启用真实执行。
+
 ## Local Computer Harness
 
 本地电脑 harness 必须受 workspace、path、app target、file picker、approval 和 verifier 限制。shell/code/file/repo 操作不能绕过 supervisor。
@@ -92,4 +94,4 @@ post-V1 可从最窄 browser observation、current-tab read、sandbox action 和
 
 ## 当前 Phase 12 Control-Plane Slice
 
-当前 surface/computer-use 包只定义 control-plane 合同和测试：current-tab browser observation、IM inbox/outbox metadata、store publisher trust enrollment、store package verification 和隔离安装记录。`ether store install` 必须先有本地 operator 登记的 publisher key，再解析本地 replay-record evidence 并校验 sandbox file hash；它们不执行真实浏览器动作、IM 投递、connector 调用或 package code。
+当前 surface/computer-use 包只定义 control-plane 合同和测试：current-tab browser observation、IM inbox/outbox metadata、store publisher trust enrollment、store package verification 和隔离安装记录。`ether store install` 必须先有本地 operator 登记的 publisher key，再解析本地 replay-record evidence 并校验 sandbox file hash；它们不执行真实浏览器动作、IM 投递、connector 调用或 package code。`adapter-gate-readiness` 位于这些 runtime surface 上一层，是只读门禁证据，不是执行入口。

@@ -179,12 +179,14 @@ Deliverables:
 
 - Adapter manifest and policy matrix for browser, IM, MCP, OAuth/SaaS connector, computer-use, local API, and package execution families.
 - Per-family gate document: minimum identity, vault, policy, lease, observation, verification, replay, and egress controls before real execution.
+- Adapter Gate Readiness contract: `adapter-gate-readiness` schema/example plus doctor/onboarding/release evidence wiring that proves the gate is still read-only and does not enable real adapter execution.
 
 Acceptance criteria:
 
 - Browser/IM/mobile/API can be implemented as client surfaces only after ingress gateway evidence exists.
 - Real OAuth connector work cannot start until vault refs, token refresh/revocation policy, connector grant lifecycle, and egress policy are testable.
 - Real browser/desktop automation cannot start until the supervisor owns a governed adapter action gateway.
+- The adapter gate contract itself must remain non-authorizing: it can be validated by `doctor`, `onboarding check`, and `release evidence`, but it cannot issue leases, authorize actions, or execute adapters.
 
 ### PGC-8: Production Bug And Quality Sweep
 

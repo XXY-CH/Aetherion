@@ -171,6 +171,7 @@ The control-plane contracts are:
 
 - `computer-action`: a policy-linked action request. It records source events, adapter, adapter requirements gate evidence, channel, target, confidence, taint, egress destination, policy decision, optional lease, optional approval card, exact approval keys, expected effect, and the invariant that live replay is disabled.
 - `computer-observation`: post-action or observe-only evidence. It stores artifact hashes, redaction counts, taint, observed effect, and verifier status while explicitly marking raw payload persistence and authorization as false.
+- `adapter-gate-readiness`: a pre-runtime adapter-manifest contract for browser, IM, MCP, OAuth/SaaS connector, computer-use, local API, and package execution families. It keeps the gate evidence-only, requires a governed action gateway before live execution, and records the minimum identity, vault, policy, lease, observation, verification, replay, and egress controls without authorizing any adapter lane.
 
 Channel preference is part of the contract:
 
@@ -395,4 +396,4 @@ The current implementation does not yet drive the browser or desktop. It impleme
 - `ether surface im-outbox` validates the source run, asks Rust `surface.outbox.evaluate`, queues DM/group messages for one scoped approval, blocks public sends, stores only destination/body hashes, and attempts no delivery.
 - `ether store trust-publisher` records a local operator-enrolled publisher key fingerprint. `ether store install` validates a Store Package against that local trust anchor, verifies Ed25519 over the canonical Capsule declaration, requires local replay-record evidence, verifies the sandbox trial file hash, requires permission-diff approval, then installs only the Capsule declaration. Package code is not executed.
 
-This deliberately follows the lessons from mature computer-use surfaces: prefer structured observation before screenshots, observe after action, treat external content as untrusted, require scoped approval for risky UI/egress operations, and make runtime failures auditable. The actual DOM/CDP action channel, screenshot fallback, OS automation, browser extension, IM delivery adapter, and GUI console remain future work.
+This deliberately follows the lessons from mature computer-use surfaces: prefer structured observation before screenshots, observe after action, treat external content as untrusted, require scoped approval for risky UI/egress operations, and make runtime failures auditable. The actual DOM/CDP action channel, screenshot fallback, OS automation, browser extension, IM delivery adapter, and GUI console remain future work. `adapter-gate-readiness` sits one level above those runtime surfaces as evidence-only contract text; it does not grant adapter execution.
