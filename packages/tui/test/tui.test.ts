@@ -695,6 +695,10 @@ test("Ether onboarding check reports fresh-clone next steps without initializing
   const ledgerIntegrityExtensionReadiness = report.checks.find((check) => check.id === "ledger_integrity_extension_readiness_contract");
   assert.equal(ledgerIntegrityExtensionReadiness?.status, "pass");
   assert.match(ledgerIntegrityExtensionReadiness?.evidence.join("\n") ?? "", /redaction_plan_safe=true/);
+  const adapterGateReadiness = report.checks.find((check) => check.id === "adapter_gate_readiness_contract");
+  assert.equal(adapterGateReadiness?.status, "pass");
+  assert.match(adapterGateReadiness?.evidence.join("\n") ?? "", /families_declared=true/);
+  assert.match(adapterGateReadiness?.evidence.join("\n") ?? "", /execution_boundary_safe=true/);
   assert.ok(report.next_steps.includes("npm ci --ignore-scripts"));
   assert.ok(report.next_steps.includes("npm run ether -- release evidence --workspace ."));
   assert.ok(report.deferred_surfaces.some((surface) => surface.includes("release packaging")));
@@ -837,6 +841,9 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const ledgerIntegrityExtensionReadinessCheck = report.checks.find((check) => check.id === "ledger_integrity_extension_readiness_contract");
   assert.equal(ledgerIntegrityExtensionReadinessCheck?.status, "pass");
   assert.match(ledgerIntegrityExtensionReadinessCheck?.summary ?? "", /signature, redaction, rebuild/);
+  const adapterGateReadinessCheck = report.checks.find((check) => check.id === "adapter_gate_readiness_contract");
+  assert.equal(adapterGateReadinessCheck?.status, "pass");
+  assert.match(adapterGateReadinessCheck?.summary ?? "", /adapter-family manifests/);
   const ciWorkflowCheck = report.checks.find((check) => check.id === "ci_workflow_gate");
   assert.equal(ciWorkflowCheck?.status, "pass");
   assert.match(ciWorkflowCheck?.summary ?? "", /platform smoke/);
@@ -958,6 +965,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
       supervisor_lifecycle_readiness_contract: { status: string; evidence: string[] };
       supervisor_socket_auth_boundary_contract: { status: string; evidence: string[] };
       ledger_integrity_extension_readiness_contract: { status: string; evidence: string[] };
+      adapter_gate_readiness_contract: { status: string; evidence: string[] };
       vault_reference_contract: { status: string; evidence: string[] };
     };
     v1_core_profile: {
@@ -1077,6 +1085,10 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.ledger_integrity_extension_readiness_contract.status, "pass");
   assert.match(report.configured_evidence.ledger_integrity_extension_readiness_contract.evidence.join("\n"), /signature_plan_safe=true/);
   assert.match(report.configured_evidence.ledger_integrity_extension_readiness_contract.evidence.join("\n"), /repair_boundary_safe=true/);
+  assert.equal(report.configured_evidence.adapter_gate_readiness_contract.status, "pass");
+  assert.match(report.configured_evidence.adapter_gate_readiness_contract.evidence.join("\n"), /family_boundaries_safe=true/);
+  assert.match(report.configured_evidence.adapter_gate_readiness_contract.evidence.join("\n"), /policy_matrix_safe=true/);
+  assert.match(report.configured_evidence.adapter_gate_readiness_contract.evidence.join("\n"), /execution_boundary_safe=true/);
   assert.equal(report.configured_evidence.vault_reference_contract.status, "pass");
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /raw_secret_persisted=false/);
   assert.match(report.configured_evidence.vault_reference_contract.evidence.join("\n"), /ledger_material=reference_and_fingerprint_only/);
@@ -1149,6 +1161,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("production vault backend")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("OAuth flows")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("ledger integrity extension readiness")));
+  assert.ok(report.remaining_gaps.some((gap) => gap.includes("adapter gate readiness")));
   assert.ok(report.remaining_gaps.some((gap) => gap.includes("docs deployment readiness is checked locally")));
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });

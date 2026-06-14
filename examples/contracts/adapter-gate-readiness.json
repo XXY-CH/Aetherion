@@ -1,0 +1,349 @@
+{
+  "id": "adapter_gate_readiness_pgc7_v1",
+  "schema_version": "aetherion-adapter-gate-readiness-v1",
+  "status": "design_contract",
+  "adapter_families": [
+    {
+      "family": "browser_extension",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "browser_automation",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "desktop_automation",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "im_delivery",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "mcp_connector",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "oauth_saas_connector",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "computer_use",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "local_api_gateway",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "package_execution",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    },
+    {
+      "family": "cloud_worker",
+      "manifest_status": "required_before_runtime",
+      "runtime_status": "deferred_not_implemented",
+      "requires_controls": [
+        "identity",
+        "vault_reference",
+        "fresh_policy_decision",
+        "scoped_lease",
+        "approval_for_side_effects",
+        "observation_artifact",
+        "verification_record",
+        "no_live_side_effect_replay",
+        "egress_policy",
+        "taint_handling",
+        "supervisor_action_gateway"
+      ],
+      "raw_secret_persistence_allowed": false,
+      "raw_untrusted_payload_persistence_allowed": false,
+      "live_side_effect_replay_allowed": false,
+      "can_authorize_actions": false,
+      "can_bypass_supervisor": false
+    }
+  ],
+  "gate_controls": {
+    "identity": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "vault": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "policy": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "lease": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "approval": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "observation": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "verification": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "replay": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "egress": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "taint": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    },
+    "supervisor_action_gateway": {
+      "required_before_runtime": true,
+      "implemented_for_all_adapter_families": false,
+      "evidence_only": true
+    }
+  },
+  "execution_boundary": {
+    "real_adapter_execution_enabled": false,
+    "browser_extension_runtime_enabled": false,
+    "browser_automation_enabled": false,
+    "desktop_automation_enabled": false,
+    "im_delivery_enabled": false,
+    "mcp_connector_runtime_enabled": false,
+    "oauth_saas_connector_runtime_enabled": false,
+    "local_api_gateway_enabled": false,
+    "package_code_execution_enabled": false,
+    "cloud_worker_execution_enabled": false
+  },
+  "policy_matrix": {
+    "matrix_kind": "required_before_runtime_adapter_enablement",
+    "typed_target_families_required": true,
+    "deny_first_rules_required": true,
+    "fresh_policy_required_per_action": true,
+    "egress_policy_required": true,
+    "connector_grant_lifecycle_required": true,
+    "policy_matrix_can_issue_lease": false,
+    "policy_matrix_can_execute_adapter": false
+  },
+  "authority": {
+    "local_supervisor_is_root_authority": true,
+    "event_ledger_is_fact_layer": true,
+    "tool_policy_proxy_gates_side_effects": true,
+    "adapter_manifest_can_authorize_actions": false,
+    "adapter_gate_contract_can_issue_lease": false,
+    "adapter_can_bypass_supervisor": false,
+    "adapter_observation_can_authorize_side_effects": false,
+    "generated_package_can_be_trust_root": false
+  },
+  "limits": {
+    "real_browser_automation_implemented": false,
+    "real_desktop_automation_implemented": false,
+    "real_im_delivery_implemented": false,
+    "real_mcp_adapter_implemented": false,
+    "real_oauth_connector_implemented": false,
+    "real_local_api_gateway_implemented": false,
+    "real_package_execution_implemented": false,
+    "real_cloud_worker_implemented": false,
+    "supervisor_governed_adapter_action_gateway_implemented": false,
+    "connector_grants_implemented": false,
+    "vault_secret_resolution_implemented": false,
+    "token_refresh_revocation_implemented": false
+  },
+  "source_files": [
+    "docs/09-computer-use-implementation.md",
+    "docs/10-technical-strategy.md",
+    "docs/13-schema-runtime-governance.md",
+    "docs/15-production-gap-closure-plan.md",
+    "packages/computer-use/src/index.ts",
+    "packages/connector-sdk/src/index.ts",
+    "packages/surface-os/src/index.ts"
+  ]
+}

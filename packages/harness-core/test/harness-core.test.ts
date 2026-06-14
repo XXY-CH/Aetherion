@@ -202,6 +202,7 @@ const schemaExamplePairs = [
   ["supervisor-lifecycle-command.schema.json", "supervisor-lifecycle-command.json"],
   ["supervisor-socket-auth-boundary.schema.json", "supervisor-socket-auth-boundary.json"],
   ["ledger-integrity-extension-readiness.schema.json", "ledger-integrity-extension-readiness.json"],
+  ["adapter-gate-readiness.schema.json", "adapter-gate-readiness.json"],
   ["boundary-facts.schema.json", "boundary-facts.json"],
   ["workspace-registry.schema.json", "workspace-registry.json"],
   ["run-manifest.schema.json", "run-manifest.json"],
@@ -574,6 +575,42 @@ test("ledger integrity extension readiness rejects signature, redaction, repair,
     mutation(draft);
     const result = await validateAgainstSchema(repoRoot, "ledger-integrity-extension-readiness.schema.json", draft);
     assert.equal(result.valid, false, "ledger-integrity-extension-readiness schema accepted signature, redaction, repair, or authority drift");
+  }
+});
+
+test("adapter gate readiness rejects runtime execution, missing gates, replay, and authority overclaims", async () => {
+  await primeSchemaCache(repoRoot);
+  const valid = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "adapter-gate-readiness.json"), "utf8"));
+
+  for (const mutation of [
+    (draft: typeof valid) => { draft.adapter_families[0].runtime_status = "implemented"; },
+    (draft: typeof valid) => { draft.adapter_families[1].requires_controls = draft.adapter_families[1].requires_controls.filter((control: string) => control !== "supervisor_action_gateway"); },
+    (draft: typeof valid) => { draft.adapter_families[2].raw_secret_persistence_allowed = true; },
+    (draft: typeof valid) => { draft.adapter_families[3].raw_untrusted_payload_persistence_allowed = true; },
+    (draft: typeof valid) => { draft.adapter_families[4].live_side_effect_replay_allowed = true; },
+    (draft: typeof valid) => { draft.adapter_families[5].can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.adapter_families[6].can_bypass_supervisor = true; },
+    (draft: typeof valid) => { draft.gate_controls.identity.implemented_for_all_adapter_families = true; },
+    (draft: typeof valid) => { draft.gate_controls.vault.evidence_only = false; },
+    (draft: typeof valid) => { draft.execution_boundary.browser_automation_enabled = true; },
+    (draft: typeof valid) => { draft.execution_boundary.im_delivery_enabled = true; },
+    (draft: typeof valid) => { draft.execution_boundary.package_code_execution_enabled = true; },
+    (draft: typeof valid) => { draft.execution_boundary.cloud_worker_execution_enabled = true; },
+    (draft: typeof valid) => { draft.policy_matrix.policy_matrix_can_issue_lease = true; },
+    (draft: typeof valid) => { draft.policy_matrix.policy_matrix_can_execute_adapter = true; },
+    (draft: typeof valid) => { draft.authority.adapter_manifest_can_authorize_actions = true; },
+    (draft: typeof valid) => { draft.authority.adapter_can_bypass_supervisor = true; },
+    (draft: typeof valid) => { draft.authority.generated_package_can_be_trust_root = true; },
+    (draft: typeof valid) => { draft.limits.supervisor_governed_adapter_action_gateway_implemented = true; },
+    (draft: typeof valid) => { draft.limits.connector_grants_implemented = true; },
+    (draft: typeof valid) => { draft.limits.vault_secret_resolution_implemented = true; },
+    (draft: typeof valid) => { draft.limits.real_cloud_worker_implemented = true; },
+    (draft: typeof valid) => { draft.raw_adapter_secret = "do-not-store"; }
+  ]) {
+    const draft = JSON.parse(JSON.stringify(valid));
+    mutation(draft);
+    const result = await validateAgainstSchema(repoRoot, "adapter-gate-readiness.schema.json", draft);
+    assert.equal(result.valid, false, "adapter-gate-readiness schema accepted runtime execution, missing gates, replay, or authority drift");
   }
 });
 

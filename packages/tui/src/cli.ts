@@ -948,6 +948,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     repoCheckById.get("supervisor_lifecycle_readiness_contract") ?? missingRepoCheck("supervisor_lifecycle_readiness_contract"),
     repoCheckById.get("supervisor_socket_auth_boundary_contract") ?? missingRepoCheck("supervisor_socket_auth_boundary_contract"),
     repoCheckById.get("ledger_integrity_extension_readiness_contract") ?? missingRepoCheck("ledger_integrity_extension_readiness_contract"),
+    repoCheckById.get("adapter_gate_readiness_contract") ?? missingRepoCheck("adapter_gate_readiness_contract"),
     repoCheckById.get("vault_reference_contract") ?? missingRepoCheck("vault_reference_contract"),
     ...workspaceChecks,
     onboardingDocsCheck()
@@ -982,6 +983,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "supervisor_lifecycle_readiness_contract",
     "supervisor_socket_auth_boundary_contract",
     "ledger_integrity_extension_readiness_contract",
+    "adapter_gate_readiness_contract",
     "vault_reference_contract",
     "from_source_onboarding_docs"
   ].includes(checkItem.id));
@@ -1318,6 +1320,10 @@ type ReleaseEvidenceReport = {
       status: DoctorCheckStatus;
       evidence: string[];
     };
+    adapter_gate_readiness_contract: {
+      status: DoctorCheckStatus;
+      evidence: string[];
+    };
     vault_reference_contract: {
       status: DoctorCheckStatus;
       evidence: string[];
@@ -1386,6 +1392,7 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
   const supervisorLifecycleReadinessContract = doctorChecks.get("supervisor_lifecycle_readiness_contract");
   const supervisorSocketAuthBoundaryContract = doctorChecks.get("supervisor_socket_auth_boundary_contract");
   const ledgerIntegrityExtensionReadinessContract = doctorChecks.get("ledger_integrity_extension_readiness_contract");
+  const adapterGateReadinessContract = doctorChecks.get("adapter_gate_readiness_contract");
   const vaultReferenceContract = doctorChecks.get("vault_reference_contract");
   const workspaceRuntime = releaseWorkspaceRuntime(doctor, securityAudit);
   const v1CoreProfile = buildV1CoreProfile();
@@ -1501,6 +1508,10 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
       ledger_integrity_extension_readiness_contract: {
         status: ledgerIntegrityExtensionReadinessContract?.status ?? "fail",
         evidence: ledgerIntegrityExtensionReadinessContract?.evidence ?? ["ledger_integrity_extension_readiness_contract=missing"]
+      },
+      adapter_gate_readiness_contract: {
+        status: adapterGateReadinessContract?.status ?? "fail",
+        evidence: adapterGateReadinessContract?.evidence ?? ["adapter_gate_readiness_contract=missing"]
       },
       vault_reference_contract: {
         status: vaultReferenceContract?.status ?? "fail",
@@ -1691,6 +1702,7 @@ function releaseRemainingGaps(remoteEvidence: RemoteObservedEvidence, docsDeploy
     "vault references are metadata-only; no production vault backend, token refresh, or connector grant lifecycle is implemented",
     "model provider readiness covers OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini generateContent, but OAuth flows, token refresh, connector grants, streaming, multimodal payloads, and legacy OpenAI text completions are not implemented",
     "ledger integrity extension readiness documents event signature, redaction, rebuild, and explicit repair prerequisites, but runtime event signing, ledger migration, redaction tooling, projection repair commands, public transparency logs, and cloud notaries are not implemented",
+    "adapter gate readiness documents the adapter-family policy matrix and pre-runtime controls for browser, IM, MCP, OAuth/SaaS connector, computer-use, local API, package execution, and cloud worker families, but real adapter execution, browser automation, desktop automation, IM delivery, connector grants, local API gateway, package execution, and cloud worker surfaces remain deferred",
     docsDeploymentReadiness?.status === "pass"
       ? "docs deployment readiness is checked locally, but public docs are not deployed"
       : "docs deployment readiness is missing or failing, and public docs are not deployed",
@@ -2396,6 +2408,7 @@ function repoDoctorChecks(): DoctorCheck[] {
   checks.push(supervisorLifecycleReadinessContractCheck());
   checks.push(supervisorSocketAuthBoundaryContractCheck());
   checks.push(ledgerIntegrityExtensionReadinessContractCheck());
+  checks.push(adapterGateReadinessContractCheck());
   checks.push(vaultReferenceContractCheck());
   return checks;
 }
@@ -3619,6 +3632,230 @@ function ledgerIntegrityExtensionReadinessContractCheck(): DoctorCheck {
       `tests_ready=${String(testsReady)}`
     ],
     "Restore ledger integrity extension readiness schema/example and docs/tests that keep event signatures, redaction manifests, irreversible ledger migration, and projection repair planned but not implemented; audits must stay read-only and repair explicit/operator-approved."
+  );
+}
+
+function adapterGateReadinessContractCheck(): DoctorCheck {
+  const schemaPresent = existsRepoFile("schemas/adapter-gate-readiness.schema.json");
+  const examplePresent = existsRepoFile("examples/contracts/adapter-gate-readiness.json");
+  const computerUseSource = readRepoText("packages/computer-use/src/index.ts") ?? "";
+  const connectorSource = readRepoText("packages/connector-sdk/src/index.ts") ?? "";
+  const surfaceSource = readRepoText("packages/surface-os/src/index.ts") ?? "";
+  const contractTests = readRepoText("packages/harness-core/test/harness-core.test.ts") ?? "";
+  const computerUseDoc = readRepoText("docs/09-computer-use-implementation.md") ?? "";
+  const technicalStrategy = readRepoText("docs/10-technical-strategy.md") ?? "";
+  const governance = readRepoText("docs/13-schema-runtime-governance.md") ?? "";
+  const gapPlan = readRepoText("docs/15-production-gap-closure-plan.md") ?? "";
+  const example = readRepoJson("examples/contracts/adapter-gate-readiness.json") as {
+    adapter_families?: Array<{
+      family?: unknown;
+      manifest_status?: unknown;
+      runtime_status?: unknown;
+      requires_controls?: unknown;
+      raw_secret_persistence_allowed?: unknown;
+      raw_untrusted_payload_persistence_allowed?: unknown;
+      live_side_effect_replay_allowed?: unknown;
+      can_authorize_actions?: unknown;
+      can_bypass_supervisor?: unknown;
+    }>;
+    gate_controls?: Record<string, {
+      required_before_runtime?: unknown;
+      implemented_for_all_adapter_families?: unknown;
+      evidence_only?: unknown;
+    }>;
+    execution_boundary?: {
+      real_adapter_execution_enabled?: unknown;
+      browser_extension_runtime_enabled?: unknown;
+      browser_automation_enabled?: unknown;
+      desktop_automation_enabled?: unknown;
+      im_delivery_enabled?: unknown;
+      mcp_connector_runtime_enabled?: unknown;
+      oauth_saas_connector_runtime_enabled?: unknown;
+      local_api_gateway_enabled?: unknown;
+      package_code_execution_enabled?: unknown;
+      cloud_worker_execution_enabled?: unknown;
+    };
+    policy_matrix?: {
+      matrix_kind?: unknown;
+      typed_target_families_required?: unknown;
+      deny_first_rules_required?: unknown;
+      fresh_policy_required_per_action?: unknown;
+      egress_policy_required?: unknown;
+      connector_grant_lifecycle_required?: unknown;
+      policy_matrix_can_issue_lease?: unknown;
+      policy_matrix_can_execute_adapter?: unknown;
+    };
+    authority?: {
+      local_supervisor_is_root_authority?: unknown;
+      event_ledger_is_fact_layer?: unknown;
+      tool_policy_proxy_gates_side_effects?: unknown;
+      adapter_manifest_can_authorize_actions?: unknown;
+      adapter_gate_contract_can_issue_lease?: unknown;
+      adapter_can_bypass_supervisor?: unknown;
+      adapter_observation_can_authorize_side_effects?: unknown;
+      generated_package_can_be_trust_root?: unknown;
+    };
+    limits?: {
+      real_browser_automation_implemented?: unknown;
+      real_desktop_automation_implemented?: unknown;
+      real_im_delivery_implemented?: unknown;
+      real_mcp_adapter_implemented?: unknown;
+      real_oauth_connector_implemented?: unknown;
+      real_local_api_gateway_implemented?: unknown;
+      real_package_execution_implemented?: unknown;
+      real_cloud_worker_implemented?: unknown;
+      supervisor_governed_adapter_action_gateway_implemented?: unknown;
+      connector_grants_implemented?: unknown;
+      vault_secret_resolution_implemented?: unknown;
+      token_refresh_revocation_implemented?: unknown;
+    };
+  } | null;
+  const families = Array.isArray(example?.adapter_families) ? example.adapter_families : [];
+  const familyNames = new Set(families.map((entry) => entry.family).filter((value): value is string => typeof value === "string"));
+  const requiredFamilies = [
+    "browser_extension",
+    "browser_automation",
+    "desktop_automation",
+    "im_delivery",
+    "mcp_connector",
+    "oauth_saas_connector",
+    "computer_use",
+    "local_api_gateway",
+    "package_execution",
+    "cloud_worker"
+  ];
+  const requiredControls = [
+    "identity",
+    "vault_reference",
+    "fresh_policy_decision",
+    "scoped_lease",
+    "approval_for_side_effects",
+    "observation_artifact",
+    "verification_record",
+    "no_live_side_effect_replay",
+    "egress_policy",
+    "taint_handling",
+    "supervisor_action_gateway"
+  ];
+  const familiesDeclared = families.length === requiredFamilies.length
+    && requiredFamilies.every((family) => familyNames.has(family));
+  const familyBoundariesSafe = familiesDeclared && families.every((entry) => {
+    const controls = Array.isArray(entry.requires_controls) ? entry.requires_controls : [];
+    return entry.manifest_status === "required_before_runtime"
+      && entry.runtime_status === "deferred_not_implemented"
+      && requiredControls.every((control) => controls.includes(control))
+      && entry.raw_secret_persistence_allowed === false
+      && entry.raw_untrusted_payload_persistence_allowed === false
+      && entry.live_side_effect_replay_allowed === false
+      && entry.can_authorize_actions === false
+      && entry.can_bypass_supervisor === false;
+  });
+  const requiredGateControlKeys = [
+    "identity",
+    "vault",
+    "policy",
+    "lease",
+    "approval",
+    "observation",
+    "verification",
+    "replay",
+    "egress",
+    "taint",
+    "supervisor_action_gateway"
+  ];
+  const gateControlsSafe = requiredGateControlKeys.every((key) => {
+    const control = example?.gate_controls?.[key];
+    return control?.required_before_runtime === true
+      && control.implemented_for_all_adapter_families === false
+      && control.evidence_only === true;
+  });
+  const executionBoundarySafe = example?.execution_boundary?.real_adapter_execution_enabled === false
+    && example.execution_boundary.browser_extension_runtime_enabled === false
+    && example.execution_boundary.browser_automation_enabled === false
+    && example.execution_boundary.desktop_automation_enabled === false
+    && example.execution_boundary.im_delivery_enabled === false
+    && example.execution_boundary.mcp_connector_runtime_enabled === false
+    && example.execution_boundary.oauth_saas_connector_runtime_enabled === false
+    && example.execution_boundary.local_api_gateway_enabled === false
+    && example.execution_boundary.package_code_execution_enabled === false
+    && example.execution_boundary.cloud_worker_execution_enabled === false;
+  const policyMatrixSafe = example?.policy_matrix?.matrix_kind === "required_before_runtime_adapter_enablement"
+    && example.policy_matrix.typed_target_families_required === true
+    && example.policy_matrix.deny_first_rules_required === true
+    && example.policy_matrix.fresh_policy_required_per_action === true
+    && example.policy_matrix.egress_policy_required === true
+    && example.policy_matrix.connector_grant_lifecycle_required === true
+    && example.policy_matrix.policy_matrix_can_issue_lease === false
+    && example.policy_matrix.policy_matrix_can_execute_adapter === false;
+  const authoritySafe = example?.authority?.local_supervisor_is_root_authority === true
+    && example.authority.event_ledger_is_fact_layer === true
+    && example.authority.tool_policy_proxy_gates_side_effects === true
+    && example.authority.adapter_manifest_can_authorize_actions === false
+    && example.authority.adapter_gate_contract_can_issue_lease === false
+    && example.authority.adapter_can_bypass_supervisor === false
+    && example.authority.adapter_observation_can_authorize_side_effects === false
+    && example.authority.generated_package_can_be_trust_root === false;
+  const limitsSafe = example?.limits?.real_browser_automation_implemented === false
+    && example.limits.real_desktop_automation_implemented === false
+    && example.limits.real_im_delivery_implemented === false
+    && example.limits.real_mcp_adapter_implemented === false
+    && example.limits.real_oauth_connector_implemented === false
+    && example.limits.real_local_api_gateway_implemented === false
+    && example.limits.real_package_execution_implemented === false
+    && example.limits.real_cloud_worker_implemented === false
+    && example.limits.supervisor_governed_adapter_action_gateway_implemented === false
+    && example.limits.connector_grants_implemented === false
+    && example.limits.vault_secret_resolution_implemented === false
+    && example.limits.token_refresh_revocation_implemented === false;
+  const sourceReady = computerUseSource.includes("requires_policy_lease: true")
+    && computerUseSource.includes("live_replay_allowed: false")
+    && computerUseSource.includes("can_authorize_from_observation: false")
+    && connectorSource.includes("policy_required_for_calls: true")
+    && connectorSource.includes("trust_inherited: false")
+    && surfaceSource.includes("can_authorize_actions: false")
+    && surfaceSource.includes("delivery_attempted: false")
+    && computerUseDoc.includes("Aetherion adapter manifests")
+    && computerUseDoc.includes("Any side-effectful computer action requires a policy decision plus a scoped lease")
+    && technicalStrategy.includes("MCP/OAuth/SaaS connectors")
+    && governance.includes("Real click/type/browser/desktop automation must wait")
+    && gapPlan.includes("PGC-7: Adapter And Surface Gate Readiness")
+    && gapPlan.includes("Adapter manifest and policy matrix")
+    && gapPlan.includes("Per-family gate document");
+  const testsReady = contractTests.includes("adapter-gate-readiness.schema.json")
+    && contractTests.includes("adapter gate readiness rejects runtime execution, missing gates, replay, and authority overclaims");
+  const ok = schemaPresent
+    && examplePresent
+    && familiesDeclared
+    && familyBoundariesSafe
+    && gateControlsSafe
+    && executionBoundarySafe
+    && policyMatrixSafe
+    && authoritySafe
+    && limitsSafe
+    && sourceReady
+    && testsReady;
+  return check(
+    "adapter_gate_readiness_contract",
+    ok ? "pass" : "fail",
+    ok ? "info" : "error",
+    ok
+      ? "Adapter gate readiness contract documents adapter-family manifests, policy matrix, and pre-runtime controls without enabling real adapter execution or authority bypass."
+      : "Adapter gate readiness contract is missing or overclaims adapter execution, policy/lease authority, live replay, secret access, connector grants, package execution, or supervisor bypass.",
+    [
+      `schema=${schemaPresent ? "present" : "missing"}`,
+      `example=${examplePresent ? "present" : "missing"}`,
+      `families=${[...familyNames].sort().join(",") || "missing"}`,
+      `families_declared=${String(familiesDeclared)}`,
+      `family_boundaries_safe=${String(familyBoundariesSafe)}`,
+      `gate_controls_safe=${String(gateControlsSafe)}`,
+      `execution_boundary_safe=${String(executionBoundarySafe)}`,
+      `policy_matrix_safe=${String(policyMatrixSafe)}`,
+      `authority_safe=${String(authoritySafe)}`,
+      `limits_safe=${String(limitsSafe)}`,
+      `source_ready=${String(sourceReady)}`,
+      `tests_ready=${String(testsReady)}`
+    ],
+    "Restore adapter gate readiness schema/example, source checks, and tests that keep browser, IM, MCP, OAuth/SaaS connector, computer-use, local API, package execution, and cloud worker families behind identity, vault, policy, lease, approval, observation, verification, replay, egress, taint, and supervisor action-gateway controls without executing adapters."
   );
 }
 
