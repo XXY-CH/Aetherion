@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
@@ -448,9 +449,34 @@ async function runSetup(options: CliOptions): Promise<void> {
   }
   const workspaceRoot = resolve(options.workspace);
   const report = await buildOnboardingPreflightReport(workspaceRoot);
-  const config = setupTuiConfig(report);
+  const interactive = shouldPromptSetup();
+  const config = setupTuiConfig(report, interactive);
   const input = `${JSON.stringify(config)}\n`;
   const goArgs = ["run", "./packages/tui-go/cmd/ether-setup"];
+
+  if (interactive) {
+    const configFile = writeSetupConfigFile(input);
+    try {
+      const result = spawnSync("go", [...goArgs, configFile], {
+        cwd: repoRoot,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          AETHERION_SETUP_NONINTERACTIVE: "0"
+        }
+      });
+      if (result.error) {
+        throw result.error;
+      }
+      if (result.status !== 0) {
+        throw new Error(`Go Bubble Tea setup exited with status ${result.status ?? "unknown"}`);
+      }
+    } finally {
+      rmSync(dirname(configFile), { recursive: true, force: true });
+    }
+    return;
+  }
+
   const result = spawnSync("go", goArgs, {
     cwd: repoRoot,
     input,
@@ -458,7 +484,7 @@ async function runSetup(options: CliOptions): Promise<void> {
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      AETHERION_SETUP_NONINTERACTIVE: shouldPromptSetup() ? "0" : "1"
+      AETHERION_SETUP_NONINTERACTIVE: "1"
     }
   });
   if (result.error) {
@@ -475,11 +501,18 @@ async function runSetup(options: CliOptions): Promise<void> {
   }
 }
 
-function setupTuiConfig(report: OnboardingPreflightReport): Record<string, unknown> {
+function writeSetupConfigFile(input: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "aetherion-setup-"));
+  const file = join(dir, "config.json");
+  writeFileSync(file, input, { encoding: "utf8", mode: 0o600 });
+  return file;
+}
+
+function setupTuiConfig(report: OnboardingPreflightReport, interactive = shouldPromptSetup()): Record<string, unknown> {
   const workspaceRoot = report.workspace_root;
   return {
     Snapshot: report,
-    NonInteractive: !shouldPromptSetup(),
+    NonInteractive: !interactive,
     DefaultEntry: "ether",
     OnboardingCommand: setupCommand("onboarding check --workspace", workspaceRoot),
     DoctorCommand: setupCommand("doctor --workspace", workspaceRoot),

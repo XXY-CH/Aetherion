@@ -52,6 +52,22 @@ func TestKeyboardNavigationSelectsPanels(t *testing.T) {
 	}
 }
 
+func TestDecodeConfigAcceptsJSONConfig(t *testing.T) {
+	cfg, err := DecodeConfig(strings.NewReader(testConfigJSON()))
+	if err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if !cfg.NonInteractive {
+		t.Fatal("expected non-interactive config")
+	}
+	if cfg.Snapshot.WorkspaceRoot != "/repo" {
+		t.Fatalf("workspace root = %q", cfg.Snapshot.WorkspaceRoot)
+	}
+	if !strings.Contains(cfg.LLMReadLoopCommand, "fresh supervisor policy") {
+		t.Fatalf("missing LLM read loop: %q", cfg.LLMReadLoopCommand)
+	}
+}
+
 func testConfig() Config {
 	return Config{
 		Snapshot: Snapshot{
@@ -79,6 +95,27 @@ func testConfig() Config {
 		DirectEntry:        "ether --workspace '/repo'",
 		PackageEntry:       "npm run ether -- --workspace '/repo'",
 	}
+}
+
+func testConfigJSON() string {
+	return `{
+		"Snapshot": {
+			"id": "aetherion_onboarding_preflight_report",
+			"repo_root": "/repo",
+			"workspace_root": "/repo",
+			"status": "ready",
+			"summary": { "pass": 4, "warn": 0, "fail": 0, "not_applicable": 0 },
+			"readiness_layers": {
+				"toolchain_ready": "ready",
+				"repo_ready": "ready",
+				"workspace_runtime_state": "not_initialized",
+				"next_steps_ready": true
+			}
+		},
+		"NonInteractive": true,
+		"DefaultEntry": "ether",
+		"LLMReadLoopCommand": "next slice: prompt invoke-model -> response audit -> operator-restated file read -> fresh supervisor policy"
+	}`
 }
 
 func keyPress(value string) tea.KeyPressMsg {

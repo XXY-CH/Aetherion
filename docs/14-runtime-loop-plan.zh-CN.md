@@ -1104,3 +1104,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 npm publication、release packaging、installer/updater automation、global shell configuration、dependency bootstrap、package-code execution，或完整 package signing/release artifact pipeline。
+
+## 已完成增量：继承 TTY 的 Setup TUI 启动
+
+目标：让默认 `ether` entry 在真实交互终端里进入 Go Bubble Tea/Bubbles setup TUI，而不是继续通过 piped stdio 渲染同一个静态 setup view。
+
+验收：
+
+- 交互式 `ether --workspace <path>` 现在把 setup config 写入临时 `0600` JSON 文件，并用 inherited stdio 启动 `go run ./packages/tui-go/cmd/ether-setup <config>`，因此 Bubble Tea 可以真正接管终端输入输出生命周期。
+- 非交互和测试路径继续保留 deterministic stdin/stdout 模式，并设置 `AETHERION_SETUP_NONINTERACTIVE=1`，维持稳定的 setup panel assertions 与 installed-bin smoke tests。
+- Go setup command 同时支持 stdin 与 config-file path，打开文件会显式关闭，并已有 stdin、文件、缺失文件、JSON decode、static view 与 keyboard navigation 测试。
+- PTY 验证确认真实 TUI 会渲染控制序列，按 `Tab` 后状态变为 `panel=timeline`，按 `q` 后退出。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：已修正 drift；面向用户的 `ether` entry 在交互使用时现在是真正的 terminal UI，而不是披着 TUI 文本的 static stdout。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；这强化 V1 TUI-first surface，没有新增 GUI、mobile、IM delivery、browser automation、MCP/OAuth connector、cloud worker 或 package execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：无 drift；Go 只负责 narrow setup TUI surface，TypeScript 仍保留 command/runtime orchestration path，Rust 仍是未来 authority boundary。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；TUI 仍只是 readiness evidence presentation，不能授权 action、发 lease、repair state、调用 provider，或让 projection 变成 authoritative。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正 drift；guided onboarding 现在有真实交互 terminal surface，而 release packaging、installer/updater 和更宽 client surfaces 仍是未来工作。
+
+剩余边界：
+
+- 这不是 general long-running operator console、semantic verifier、durable queue、provider/tool execution loop、daemon manager、GUI、OAuth/login flow、connector setup、package execution path，或 authority-bearing action surface。

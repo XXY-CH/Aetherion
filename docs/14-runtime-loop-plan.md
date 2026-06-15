@@ -1498,3 +1498,26 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not a general operator app, LLM tool execution loop, semantic verifier, durable queue, production daemon, GUI, installer/updater, connector setup, OAuth flow, IM/browser/mobile surface, package execution, or authority-bearing action surface. The real LLM read-only workflow remains the next slice.
+
+## Completed Increment: Inherited-TTY Setup TUI Launch
+
+Target: make the default `ether` entry enter the Go Bubble Tea/Bubbles setup TUI in real interactive terminals instead of rendering the same setup view through piped stdio.
+
+Acceptance:
+
+- Interactive `ether --workspace <path>` now writes the setup config to a temporary `0600` JSON file and launches `go run ./packages/tui-go/cmd/ether-setup <config>` with inherited stdio, so Bubble Tea owns the terminal input/output lifecycle.
+- Non-interactive and test runs keep the deterministic stdin/stdout path with `AETHERION_SETUP_NONINTERACTIVE=1`, preserving stable setup-panel assertions and installed-bin smoke tests.
+- The Go setup command accepts either stdin or a config-file path, closes opened config files, and has tests for stdin, file, missing-file, decoded JSON, static view, and keyboard navigation behavior.
+- PTY verification confirmed the real TUI renders control sequences, responds to `Tab` by changing the status to `panel=timeline`, and exits on `q`.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): corrected drift; the user-facing `ether` entry is now an actual terminal UI in interactive use, not just static stdout wearing TUI text.
+- [Roadmap](06-roadmap.md): no drift; this strengthens the V1 TUI-first surface without adding GUI, mobile, IM delivery, browser automation, MCP/OAuth connectors, cloud workers, or package execution.
+- [Technical Strategy](10-technical-strategy.md): no drift; Go owns only the narrow setup TUI surface, TypeScript keeps the command/runtime orchestration path, and Rust remains the future authority boundary.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; the TUI still presents readiness evidence only and cannot authorize actions, issue leases, repair state, invoke providers, or make projections authoritative.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected drift; guided onboarding now has a real interactive terminal surface while release packaging, installer/updater, and broader client surfaces remain future work.
+
+Remaining boundary:
+
+- This is not a general long-running operator console, semantic verifier, durable queue, provider/tool execution loop, daemon manager, GUI, OAuth/login flow, connector setup, package execution path, or authority-bearing action surface.
