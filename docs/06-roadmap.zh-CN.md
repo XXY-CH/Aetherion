@@ -26,7 +26,7 @@
 
 目标：把权限边界从 TypeScript seed path 推向 Rust Local Supervisor POC。
 
-范围：workspace init、hash-chained JSONL event append/verify、local file policy、scoped lease、lease-gated read、traced write prepare/commit，以及 Ether client 对接。
+范围：workspace init、hash-chained JSONL event append/verify、local file policy、scoped lease、lease-gated read、traced write prepare/commit，以及 TypeScript Ether runtime/orchestrator client 对接；Go/Bubbles setup TUI 保持为只读 terminal client surface。
 
 ## Phase 3: Memory OS MVP
 

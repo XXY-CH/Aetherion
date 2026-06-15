@@ -100,6 +100,7 @@ docker-compose.override.yml
 # Aetherion local runtime state
 .aetherion/
 !.aetherion/README.md
+.claude/
 .omc/
 .omx/
 .omx/state/

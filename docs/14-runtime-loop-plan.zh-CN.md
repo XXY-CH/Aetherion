@@ -101,12 +101,12 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 为什么做这一片：
 
 - 严格对照 OpenClaw 后可以看到，生产级完整度不只是 runtime 能力；OpenClaw 在公开仓库和 docs 中展示 CI/release、guided onboarding、update/security docs 和 multi-platform workflow。
-- Aetherion 已有本地测试和 Rust 检查，但 push/PR 之前没有自动门禁。
+- Aetherion 已有本地 TypeScript、Go TUI 和 Rust 检查，但 push/PR 之前没有自动门禁。
 - CI 可以提高生产纪律，同时不扩大 V1 runtime scope，也不启用延后产品 surface。
 
 验收：
 
-- push 到 `main` 和 pull request 会运行 TypeScript contract/TUI tests、Rust supervisor tests、Rust clippy、Rust fmt、diff whitespace checks，以及 tracked runtime/build artifact guard。
+- push 到 `main` 和 pull request 会运行 TypeScript contract/TUI tests、Go Bubble Tea TUI tests、Rust supervisor tests、Rust clippy、Rust fmt、diff whitespace checks，以及 tracked runtime/build artifact guard。
 - README 和贡献文档提示贡献者运行同一组本地检查。
 - workflow 只读仓库，不解析 secret、不调用 model provider、不执行外部 connector、不写 runtime state。
 - supervisor process failure 在 CI 中可诊断，但不会打印 raw stdout payload。
@@ -116,7 +116,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 - `docs/00-product-brief.md`：强化本地可审计 runtime 的开发闭环，不添加 GUI/IM/browser/connector/cloud surface。
 - `docs/01-architecture.md`：CI 是验证基础设施，不是 runtime authority boundary。
 - `docs/06-roadmap.md`：先强化 Phase 1/2 kernel loop 质量，再扩展后续 surface。
-- `docs/10-technical-strategy.md`：同时运行 TypeScript 与 Rust gate，保留语言职责划分。
+- `docs/10-technical-strategy.md`：同时运行 TypeScript、Go TUI 与 Rust gate，保留语言职责划分。
 - `docs/13-schema-runtime-governance.md`：自动执行现有 contract/runtime tests，而不是扩张 schema。
 
 剩余边界：
@@ -261,7 +261,7 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 剩余边界：
 
-- 这是 smoke matrix，不是完整 release matrix、package build、installer、updater 或 artifact-signing pipeline。
+- 这是 smoke matrix，不是完整 release matrix、package build、installer、updater 或 artifact-signing pipeline；Go Bubble Tea setup TUI 只是只读 operator client，不是新的 authority surface。
 - 真实 OAuth、MCP connector、browser automation、IM delivery、GUI app、package-code execution、cloud worker 和 public docs deployment 仍然延后。
 - 剩余生产差距包括 install/onboarding automation、release packaging、更深入的 release artifact evidence、public docs deployment 和更广的 platform/release matrix coverage。
 
@@ -366,6 +366,31 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 
 - 这不是 private vulnerability-reporting backend、release automation、documentation deployment、issue triage automation 或 maintainer workflow bot。
 - 它不启用 GUI、browser automation、IM delivery、MCP/OAuth connectors、package-code execution、cloud workers 或 remote marketplace。
+
+## 已完成增量：Go Bubbles Operator Setup TUI
+
+目标：把 bare text setup panel 替换成真正的终端 operator console；`ether` 默认入口现在通过 Go Bubble Tea/Bubbles 渲染，而 TypeScript 继续保留命令引擎和 JSON report 路径，Rust 继续保留 authority boundary。
+
+验收：
+
+- bare `ether --workspace <path>` 和 installed `ether` bin 都会渲染 `Ether Operator Console`。
+- setup TUI 提供 Runs、Timeline、Approvals、Context、Replay / Debug 五个 operator panels。
+- setup TUI 显示下一步 LLM 只读闭环：`prompt invoke-model -> response audit -> operator-restated file read -> fresh supervisor policy`。
+- `doctor`、`security audit`、`release evidence` 和 CI gate evidence 现在都把 Go 路径纳入 readiness：`go_available`、`test:go-tui`、`actions/setup-go@v6`、`go-version: 1.25.x` 和 `go test ./packages/tui-go/...`。
+- 入口仍是只读：不初始化 `.aetherion`、不安装 dependency、不跑长 verification、不启动 daemon、不写 artifact、不追加 Ledger event、不发 lease、不调用 provider，也不修改 workspace state。
+
+与原始文档对照和修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；仍然是 TUI-first，这只是 terminal operator console，不是 GUI/mobile/IM/browser/connector/package/cloud surface。
+- [路线图](06-roadmap.zh-CN.md)：已修正文档漂移；Phase 2 现在区分 TypeScript Ether runtime/orchestrator client 与 Go/Bubbles 只读 setup TUI。
+- [技术策略](10-technical-strategy.zh-CN.md)：已修正文档漂移；Go 负责窄的 setup operator TUI，TypeScript 负责 command/runtime path，Rust 负责 authority。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；setup UI 仍只是 evidence/readiness presentation。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：已修正文档漂移；Client Surfaces 现在更精确地描述 TypeScript command/runtime surface 加 Go/Bubbles setup UI。
+- [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：无 drift；console 只是展示人类可读 readiness evidence。
+
+剩余边界：
+
+- 这不是 general operator app、LLM tool execution loop、semantic verifier、durable queue、production daemon、GUI、installer/updater、connector setup、OAuth flow、IM/browser/mobile surface、package execution 或 authority-bearing action surface。真实的 LLM 只读工作流仍是下一片。
 
 ## 已完成增量：Supervisor RPC Stdin Failure Normalization
 
@@ -1056,3 +1081,26 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 full-screen GUI/TUI framework integration、installer/updater、dependency bootstrapper、daemon manager、release packager、remote CI query、OAuth/login flow、connector setup，或任何 authority-bearing action surface。
+
+## 已完成增量：Installed Ether Bin Setup Smoke
+
+目标：补上 bare setup entry 遗留的 packaging evidence gap，证明 package `bin.ether` path 会产生真实 installed `ether` command，并打开同一个只读 setup panel。
+
+验收：
+
+- `package.json` 与 `package-lock.json` 现在携带 private `0.0.0` package version，以及 `bin.ether=packages/tui/src/cli.ts` mapping。
+- `doctor` 与 dependency lockfile evidence 现在检查 package version 和 Ether bin mapping；如果 direct command entry 与 lockfile 漂移，readiness 会 fail。
+- TUI test suite 会把当前 repo 以 scripts disabled 的方式安装到临时 npm prefix，运行生成的 `node_modules/.bin/ether --workspace <tmp>`，并证明它渲染 setup 且不创建 `.aetherion`。
+- 新增 `.npmignore` 与 dry-run pack 测试，确保 local runtime state、assistant/orchestration files，以及 generated promo/build/test artifacts 不进入 package tarball previews。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：已修正 drift；直接的 `ether` 用户命令现在通过 installed bin path 测试，而不只是用 Node 调 source file。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；这强化 Minimal Ether terminal client evidence，没有新增 GUI、mobile、IM、browser automation、MCP/OAuth connector、cloud worker 或 package execution。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；package/bin metadata 只是 readiness evidence，不能授权 action、发 lease、repair state，或让 projection 变成 authoritative。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：无 drift；这继续 guided-onboarding/release-readiness hardening，同时保留 no V1 surface creep 约束。
+- [审计与数据契约](05-audit-and-data-contracts.zh-CN.md)：已修正 verification 中发现的 drift；npm package dry-runs 现在会排除 local runtime 与 generated state，而不是依赖 `.gitignore` fallback 行为。
+
+剩余边界：
+
+- 这不是 npm publication、release packaging、installer/updater automation、global shell configuration、dependency bootstrap、package-code execution，或完整 package signing/release artifact pipeline。

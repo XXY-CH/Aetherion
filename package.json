@@ -1,5 +1,6 @@
 {
   "name": "aetherion-kernel",
+  "version": "0.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,8 +9,9 @@
   },
   "scripts": {
     "test": "node --test packages/*/test/*.test.ts",
+    "test:go-tui": "GOCACHE=/tmp/aetherion-go-build-cache go test ./packages/tui-go/...",
     "test:rust": "cargo test --locked",
-    "test:all": "npm test && cargo test --locked",
+    "test:all": "npm test && npm run test:go-tui && cargo test --locked",
     "ether": "node packages/tui/src/cli.ts"
   },
   "engines": {

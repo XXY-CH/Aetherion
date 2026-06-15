@@ -14,6 +14,7 @@ Aetherion 使用 contract-first、local-first 的混合架构。
 
 ```text
 TypeScript: product velocity, contracts, agents, connectors, browser, frontend
+Go: narrow terminal setup/operator UI with Bubble Tea/Bubbles
 Rust: authority, policy, vault, ledger, sandbox, native execution
 Python: eval and research only
 JSON Schema / YAML / JSONL / Markdown: human-readable contracts and governance metadata
@@ -30,7 +31,8 @@ TUI 应证明 command surface、workspace identity、contract validation、event
 
 ## Language Ownership
 
-- TypeScript：schema iteration、contract validation、TUI seed work、Agent Orchestrator 原型、connector/browser/frontend 速度层。
+- TypeScript：schema iteration、contract validation、Ether command/runtime path、Agent Orchestrator 原型、connector/browser/frontend 速度层。
+- Go：很窄的 Bubble Tea/Bubbles setup/onboarding operator TUI；它是 non-authorizing client surface，不拥有 supervisor RPC authority。
 - Rust：Local Supervisor 权限边界、policy/vault/ledger/sandbox/native execution。
 - Python：eval/research only，不进入 authority path。
 
@@ -42,7 +44,7 @@ Rust 不是为了重写一切，而是为了把权限、lease、ledger 和 nativ
 
 ## IPC Strategy
 
-IPC 应使用显式 envelope、workspace identity、request id、auth/binding、version、schema validation 和错误分类。RPC 不能允许 caller 提供伪造 workspace id 或直接 append authority-bearing lifecycle events。
+IPC 应使用显式 envelope、workspace identity、request id、auth/binding、version、schema validation 和错误分类。RPC 不能允许 caller 提供伪造 workspace id 或直接 append authority-bearing lifecycle events。Supervisor RPC 属于 TypeScript Ether runtime/orchestrator path 与 Rust Local Supervisor 之间的边界；Go setup TUI 只是只读 client surface。
 
 ## Current Rust POC
 

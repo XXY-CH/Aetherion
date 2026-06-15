@@ -13,7 +13,7 @@
 - [用户边界层](02-user-boundary-layer.zh-CN.md)：client surface、connector、skill、generated package 和 remote channel 都不能直接授权敏感动作。
 - [审计与数据合同](05-audit-and-data-contracts.zh-CN.md)：human-readable governance state 是 source truth；index、registry 和 projection 都必须是可重建 evidence view。
 - [路线图](06-roadmap.zh-CN.md)：Phase 1/2 必须先证明 TUI + Rust supervisor loop，再进入 post-V1 computer、connector、proactive、GUI 或 broader surface。
-- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 负责快速 contract/orchestrator iteration；Rust 负责 authority、policy、vault、ledger、sandbox 和 native execution。
+- [技术策略](10-technical-strategy.zh-CN.md)：TypeScript 负责快速 contract/orchestrator iteration，Go 负责窄的 Bubble Tea/Bubbles setup operator UI，Rust 负责 authority、policy、vault、ledger、sandbox 和 native execution。
 - [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：schema、fixture、projection 和 client surface 都不是 runtime authority；P0/P1 工作必须关闭 executable loops。
 - [运行时闭环计划](14-runtime-loop-plan.zh-CN.md)：近期增量已经硬化 no-tools model provider evidence、supervisor lifecycle readiness 与 fail-closed command evidence、只读 doctor/security/release evidence、dependency reproducibility、CI platform smoke、onboarding checks 和 supervisor failure diagnostics。
 
@@ -30,7 +30,7 @@
 
 | 架构层 | 当前仓库证据 | 生产缺口 | 补全方向 |
 | --- | --- | --- | --- |
-| Client Surfaces | 已有 Ether TUI；GUI/mobile/IM/browser/API 都标为 deferred；README 列出受治理的 post-V1 scaffold。 | 没有产品化 desktop/mobile/browser/IM/API client，也没有 surface identity/pairing lifecycle。 | 保持 V1 只有 TUI 可运行。API/GUI/browser/IM/mobile 必须等 ingress identity 和 supervisor policy gateway 后再实现。 |
+| Client Surfaces | 已有 Ether command surface（TypeScript），默认只读 setup/operator console 由 Go Bubble Tea/Bubbles 渲染；GUI/mobile/IM/browser/API 都标为 deferred；README 列出受治理的 post-V1 scaffold。 | 没有产品化 desktop/mobile/browser/IM/API client，也没有 surface identity/pairing lifecycle。 | 保持 V1 仍只有 TUI client family 可运行。API/GUI/browser/IM/mobile 必须等 ingress identity 和 supervisor policy gateway 后再实现。 |
 | Ingress Gateways | 本地 command invocation 有 workspace identity checks；Local Ingress Readiness 已定义 envelope/idempotency/auth-state/rate-limit/policy-handoff 边界；TUI `run` 会在 supervisor handoff 前创建 hash-only local rate-limit window-slot、idempotency reservation 和同 key 同 intent completion cache；IM/browser/store observation 是 hash-only 或 queue-only slice。 | 没有 durable/session/remote idempotency replay、durable/distributed/session/remote rate limiting、durable auth/session lifecycle、public API listener、IM/browser/mobile ingress gateway 或真实 remote-surface request execution。 | 小步把 local ingress contract 推进为 runtime gateway：caller/session identity、durable 或 remote idempotency/rate-limit semantics，以及真实 remote surface 前的 fresh supervisor policy handoff。 |
 | Local Supervisor | Rust POC 已有 workspace identity、hash-chained ledger append、traced file read/write、scoped lease、status/preflight、foreground socket lock observation、supervisor lifecycle readiness evidence、显式 fail-closed `start`/`stop`/`recover-stale-lock` command report、metadata-only vault reference、vault policy binding readiness evidence 和 process-failure hardening。 | 没有 long-running production daemon、vault backend、signing、process sandbox、socket auth lifecycle、已实现 start/stop/recover behavior、stale-lock repair 或 secret retrieval path。 | 小步推进 lifecycle：先保持 fail-closed command contract，再在真实 start/stop/recovery 前补 auth token boundary、vault metadata binding、signer plan 和 daemon health evidence。 |
 | Agent Orchestrator | prompt assembly、runtime binding、model request/response metadata、live no-tools invocation、response audit 和 tool-request proposal 都作为 non-authorizing evidence 实现。 | 没有 full agent loop、planner/verifier runtime、streaming、retry policy、semantic verification、tool-call translation 或 durable queue integration。 | 保持 no-tools provider lane；先把 operator-restated proposal 转成 fresh supervisor policy request，再考虑 model-driven tool loop。 |
@@ -236,6 +236,7 @@ npm run ether -- release evidence --workspace .
 npm ci --ignore-scripts
 npm audit --audit-level=high --json
 npm test
+npm run test:go-tui
 cargo test --locked
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --check

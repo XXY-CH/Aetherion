@@ -41,6 +41,12 @@ jobs:
       - name: Set up Rust tools
         run: rustup component add clippy rustfmt
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.25.x
+          cache: true
+
       - name: Install Rust dependency audit tool
         run: cargo install cargo-audit --locked --version 0.22.1
 
@@ -49,6 +55,9 @@ jobs:
 
       - name: Run TypeScript contract and TUI tests
         run: npm test
+
+      - name: Run Go Bubble Tea TUI tests
+        run: go test ./packages/tui-go/...
 
       - name: Run Rust supervisor tests
         run: cargo test --locked
@@ -100,11 +109,20 @@ jobs:
           node-version: 25.x
           package-manager-cache: false
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.25.x
+          cache: true
+
       - name: Install Node dependencies from lockfile
         run: npm ci --ignore-scripts
 
       - name: Run platform smoke tests
-        run: node --test --test-name-pattern "contract examples validate|live model providers map official API surfaces|TUI help" packages/*/test/*.test.ts
+        run: node --test --test-name-pattern "contract examples validate|live model providers map official API surfaces|TUI help|Bare Ether opens|Installed Ether bin opens" packages/*/test/*.test.ts
+
+      - name: Run Go Bubble Tea TUI smoke tests
+        run: go test ./packages/tui-go/...
 
       - name: Run Rust supervisor smoke tests
         run: cargo test --locked

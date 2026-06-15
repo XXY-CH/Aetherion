@@ -487,12 +487,12 @@ Target: close the immediate production-readiness gap between local verification 
 Why this slice:
 
 - A strict OpenClaw comparison shows that production readiness is not just runtime capability; OpenClaw advertises CI/release status, guided onboarding, update/security docs, and a routed multi-platform workflow from the public repository and docs.
-- Aetherion already has strong local tests and Rust checks, but they were not enforced on push or pull request.
+- Aetherion already has strong local TypeScript, Go TUI, and Rust checks, but they were not enforced on push or pull request.
 - Adding CI improves production discipline without widening V1 runtime scope or adding deferred user surfaces.
 
 Acceptance:
 
-- Pushes to `main` and pull requests run TypeScript contract/TUI tests, Rust supervisor tests, Rust clippy, Rust fmt, diff whitespace checks, and tracked runtime/build artifact checks.
+- Pushes to `main` and pull requests run TypeScript contract/TUI tests, Go Bubble Tea TUI tests, Rust supervisor tests, Rust clippy, Rust fmt, diff whitespace checks, and tracked runtime/build artifact checks.
 - README and contributing docs point contributors at the same local checks.
 - The workflow is repository read-only and does not resolve secrets, call model providers, execute external connectors, or mutate runtime state.
 - Supervisor process failures are diagnosable in CI without printing raw stdout payloads.
@@ -1436,7 +1436,7 @@ Target: make the user-facing `ether` command enter a setup/onboarding terminal s
 
 Acceptance:
 
-- `package.json` exposes a real `ether` bin entry pointing at the existing TypeScript TUI CLI.
+- `package.json` exposes a real `ether` bin entry pointing at the TypeScript command engine, which delegates the default setup surface to the Go Bubble Tea/Bubbles app.
 - Running the CLI with no explicit command, including `ether --workspace <path>` / `npm run ether -- --workspace <path>`, renders a setup/onboarding panel with readiness layers, next commands, and first-run guidance.
 - The setup panel reuses onboarding readiness evidence and does not initialize `.aetherion`, install dependencies, run long verification, start daemons, write artifacts, append Ledger events, issue leases, call providers, or mutate workspace state.
 
@@ -1449,4 +1449,52 @@ Matched source docs and corrections:
 
 Remaining boundary:
 
-- This is not a full-screen GUI/TUI framework integration, installer/updater, dependency bootstrapper, daemon manager, release packager, remote CI query, OAuth/login flow, connector setup, or any authority-bearing action surface.
+- This was superseded by a narrow Go Bubble Tea/Bubbles setup TUI. It is still not a general operator app, GUI, installer/updater, dependency bootstrapper, daemon manager, release packager, remote CI query, OAuth/login flow, connector setup, or any authority-bearing action surface.
+
+## Completed Increment: Installed Ether Bin Setup Smoke
+
+Target: close the packaging evidence gap left by the bare setup entry by proving the package `bin.ether` path produces a real installed `ether` command that opens the same read-only setup panel.
+
+Acceptance:
+
+- `package.json` and `package-lock.json` now carry the private `0.0.0` package version plus the `bin.ether=packages/tui/src/cli.ts` mapping.
+- `doctor` and dependency lockfile evidence now check the package version and Ether bin mapping, so readiness fails if the direct command entry drifts from the lockfile.
+- The TUI test suite installs the current repo into a temporary npm prefix with scripts disabled, runs the generated `node_modules/.bin/ether --workspace <tmp>`, and proves it renders setup without creating `.aetherion`.
+- A new `.npmignore` and dry-run pack test exclude local runtime state, assistant/orchestration files, and generated promo/build/test artifacts from package tarball previews.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): corrected drift; the direct `ether` user-facing command is now tested through the installed bin path, not only by invoking the source file with Node.
+- [Roadmap](06-roadmap.md): no drift; this strengthens the Minimal Ether terminal client evidence without adding GUI, mobile, IM, browser automation, MCP/OAuth connectors, cloud workers, or package execution.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; package/bin metadata is readiness evidence only and cannot authorize actions, issue leases, repair state, or make projections authoritative.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): no drift; this continues guided-onboarding/release-readiness hardening while preserving the no V1 surface creep constraint.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): corrected drift caught during verification; npm package dry-runs now exclude local runtime and generated state instead of relying on `.gitignore` fallback behavior.
+
+Remaining boundary:
+
+- This is not npm publication, release packaging, installer/updater automation, global shell configuration, dependency bootstrap, package-code execution, or a full package signing/release artifact pipeline.
+
+## Completed Increment: Go Bubbles Operator Setup TUI
+
+Target: replace the bare text setup panel with a real terminal operator console for `ether`, using Go Bubble Tea/Bubbles while keeping the TypeScript command engine and Rust supervisor authority path intact.
+
+Acceptance:
+
+- Bare `ether --workspace <path>` and the installed `ether` bin render `Ether Operator Console` through the Go Bubble Tea/Bubbles setup app.
+- The setup TUI exposes operator panels for Runs, Timeline, Approvals, Context, and Replay / Debug, matching the first OpenClaw-facing operator workflow surface.
+- The setup TUI surfaces the next LLM read-only loop as `prompt invoke-model -> response audit -> operator-restated file read -> fresh supervisor policy`.
+- `doctor`, `security audit`, `release evidence`, and CI gate evidence now include the Go setup/tooling path through `go_available`, `test:go-tui`, `actions/setup-go@v6`, `go-version: 1.25.x`, and `go test ./packages/tui-go/...`.
+- The entry remains read-only: no `.aetherion` initialization, dependency installation, long verification run, daemon start, artifact write, Ledger append, lease issuance, provider call, or workspace mutation.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; V1 remains TUI-first, and this is a terminal operator console rather than GUI, mobile, IM, browser automation, connector, package execution, or cloud worker work.
+- [Roadmap](06-roadmap.md): corrected drift; Phase 2 now distinguishes the TypeScript Ether runtime/orchestrator client that talks to the Rust supervisor from the Go/Bubbles setup TUI that is only a read-only client surface.
+- [Technical Strategy](10-technical-strategy.md): corrected drift; Bubbles is no longer merely deferred reference material for setup/onboarding. Go now owns the narrow setup operator TUI, while TypeScript keeps the command/runtime path and Rust keeps authority.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; the setup UI is still evidence/readiness presentation and cannot authorize actions, issue leases, repair state, make projections authoritative, or bypass the supervisor.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): corrected drift; Client Surfaces now describe the TypeScript command/runtime surface plus Go/Bubbles setup UI, while real GUI/mobile/browser/IM/API clients remain unproductized.
+- [Audit and Data Contracts](05-audit-and-data-contracts.md): no drift; the console reads and displays human-readable readiness evidence without becoming the fact layer.
+
+Remaining boundary:
+
+- This is not a general operator app, LLM tool execution loop, semantic verifier, durable queue, production daemon, GUI, installer/updater, connector setup, OAuth flow, IM/browser/mobile surface, package execution, or authority-bearing action surface. The real LLM read-only workflow remains the next slice.

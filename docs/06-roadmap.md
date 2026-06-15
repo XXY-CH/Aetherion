@@ -67,7 +67,7 @@ Deliverables:
 - Event append JSONL.
 - Simple policy evaluation.
 - Workspace-scoped file read/write through scoped leases.
-- TypeScript TUI client calling the supervisor.
+- TypeScript Ether runtime/orchestrator client calling the supervisor, with the Go/Bubbles setup TUI kept as a read-only terminal client surface.
 
 Exit criteria:
 

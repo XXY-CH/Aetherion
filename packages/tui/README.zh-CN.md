@@ -4,7 +4,7 @@
 
 本 package 是本地 kernel loop 的 V1 终端表面。
 
-运行 `ether` 会打开当前 workspace 的只读 setup/onboarding panel。它汇总 toolchain、repo 与 workspace readiness，并打印下一步命令；不会初始化 `.aetherion`、安装依赖、运行长 verification、启动 daemon 或修改 workspace state。未来全屏交互式 TUI 可以参考 Charmbracelet Bubbles 的组件模板；当前 package 仍是 TypeScript CLI，不在明确实现阶段前加入 Go/Bubble Tea runtime 依赖。
+运行 `ether` 会打开当前 workspace 的只读 setup/onboarding operator console。`packages/tui` 仍是 TypeScript command/router，负责 JSON reports 和可脚本化 kernel path；`packages/tui-go` 使用 Go Bubble Tea/Bubbles 渲染默认 setup surface。这仍是 V1 TUI scope：没有新增 GUI、installer、daemon manager、connector setup 或 authority-bearing action surface。
 
 当前范围：
 

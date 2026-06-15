@@ -603,21 +603,92 @@ test("Bare Ether opens the read-only setup panel without initializing a workspac
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /Ether setup/);
+  assert.match(setup.stdout, /Ether Operator Console/);
+  assert.match(setup.stdout, /Bubble Tea\/Bubbles/);
   assert.match(setup.stdout, /command=setup/);
   assert.match(setup.stdout, /default_entry=ether/);
   assert.match(setup.stdout, /scope=read_only/);
   assert.match(setup.stdout, /mutates_workspace=false/);
   assert.match(setup.stdout, /initializes_workspace=false/);
   assert.match(setup.stdout, /installs_dependencies=false/);
-  assert.match(setup.stdout, /runs_verification_suite=false/);
   assert.match(setup.stdout, /starts_daemon=false/);
-  assert.match(setup.stdout, /workspace_runtime=not_initialized/);
-  assert.match(setup.stdout, /Setup menu:/);
-  assert.match(setup.stdout, /onboarding_command=npm run ether -- onboarding check --workspace/);
-  assert.match(setup.stdout, /run_command=npm run ether -- run --workspace/);
-  assert.match(setup.stdout, /Direct entry:/);
+  assert.match(setup.stdout, /operator_panels=Runs,Timeline,Approvals,Context,Replay \/ Debug/);
+  assert.match(setup.stdout, /llm_read_loop=.*operator-restated file read.*fresh supervisor policy/);
+  assert.match(setup.stdout, /runtime\s+not_initialized/);
+  assert.match(setup.stdout, /first run\s+npm run ether -- run --/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("Installed Ether bin opens the setup panel without mutating workspace state", async () => {
+  const installPrefix = await mkdtemp(join(tmpdir(), "aetherion-tui-bin-install-"));
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-bin-workspace-"));
+  await execFileAsync("npm", [
+    "install",
+    "--ignore-scripts",
+    "--prefix",
+    installPrefix,
+    repoRoot
+  ]);
+
+  const etherBin = join(installPrefix, "node_modules", ".bin", "ether");
+  const setup = await execFileAsync(etherBin, [
+    "--workspace",
+    workspace
+  ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
+
+  assert.match(setup.stdout, /Ether Operator Console/);
+  assert.match(setup.stdout, /Bubble Tea\/Bubbles/);
+  assert.match(setup.stdout, /command=setup/);
+  assert.match(setup.stdout, /default_entry=ether/);
+  assert.match(setup.stdout, /mutates_workspace=false/);
+  assert.match(setup.stdout, /operator_panels=Runs,Timeline,Approvals,Context,Replay \/ Debug/);
+  assert.match(setup.stdout, /runtime\s+not_initialized/);
+  await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
+});
+
+test("npm package dry-run excludes local runtime and assistant state", async () => {
+  const cache = await mkdtemp(join(tmpdir(), "aetherion-npm-pack-cache-"));
+  const pack = await execFileAsync("npm", [
+    "pack",
+    "--dry-run",
+    "--json",
+    "--cache",
+    cache
+  ], { cwd: repoRoot });
+  const report = JSON.parse(pack.stdout) as Array<{ files?: Array<{ path: string }> }>;
+  const files = report[0]?.files?.map((file) => file.path) ?? [];
+  const forbiddenPrefixes = [
+    ".aetherion/",
+    ".claude/",
+    ".codex/",
+    ".agents/",
+    ".omx/",
+    ".omc/",
+    ".gsd/",
+    ".bg-shell/",
+    "promo/",
+    "target/",
+    "coverage/",
+    "artifacts/",
+    "reports/",
+    "screenshots/",
+    "playwright-report/",
+    "test-results/",
+    "logs/",
+    "tmp/",
+    "temp/",
+    "vault/",
+    "memory-vault/",
+    "local-data/"
+  ];
+
+  assert.ok(files.includes("package.json"));
+  assert.ok(files.includes("packages/tui/src/cli.ts"));
+  assert.ok(!files.includes("AGENTS.md"));
+  assert.ok(!files.includes("CLAUDE.md"));
+  for (const prefix of forbiddenPrefixes) {
+    assert.ok(!files.some((file) => file.startsWith(prefix)), `${prefix} leaked into npm pack dry-run`);
+  }
 });
 
 test("Ether onboarding check reports fresh-clone next steps without initializing a workspace", async () => {
@@ -845,10 +916,18 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   const nodeRuntimeCheck = report.checks.find((check) => check.id === "node_runtime_version");
   assert.equal(nodeRuntimeCheck?.status, "pass");
   assert.match(nodeRuntimeCheck?.evidence?.join("\n") ?? "", /required=>=24\.9\.0/);
+  const goAvailableCheck = report.checks.find((check) => check.id === "go_available");
+  assert.equal(goAvailableCheck?.status, "pass");
+  assert.match(goAvailableCheck?.evidence?.join("\n") ?? "", /command=go version/);
   const packageMetadataCheck = report.checks.find((check) => check.id === "package_metadata");
   assert.equal(packageMetadataCheck?.status, "pass");
+  assert.match(packageMetadataCheck?.evidence?.join("\n") ?? "", /version=0\.0\.0/);
+  assert.match(packageMetadataCheck?.evidence?.join("\n") ?? "", /bin_ether=packages\/tui\/src\/cli\.ts/);
   assert.match(packageMetadataCheck?.evidence?.join("\n") ?? "", /node_engine=>=24\.9\.0/);
-  assert.equal(report.checks.find((check) => check.id === "dependency_lockfiles")?.status, "pass");
+  const dependencyLockfileCheck = report.checks.find((check) => check.id === "dependency_lockfiles");
+  assert.equal(dependencyLockfileCheck?.status, "pass");
+  assert.match(dependencyLockfileCheck?.evidence?.join("\n") ?? "", /package_lock_root_version=0\.0\.0/);
+  assert.match(dependencyLockfileCheck?.evidence?.join("\n") ?? "", /package_lock_bin_ether=packages\/tui\/src\/cli\.ts/);
   const vaultReferenceCheck = report.checks.find((check) => check.id === "vault_reference_contract");
   assert.equal(vaultReferenceCheck?.status, "pass");
   assert.match(vaultReferenceCheck?.summary ?? "", /Metadata-only vault reference contract/);
@@ -875,7 +954,8 @@ test("TUI doctor reports read-only readiness without initializing a workspace", 
   assert.match(adapterGateReadinessCheck?.summary ?? "", /adapter-family manifests/);
   const ciWorkflowCheck = report.checks.find((check) => check.id === "ci_workflow_gate");
   assert.equal(ciWorkflowCheck?.status, "pass");
-  assert.match(ciWorkflowCheck?.summary ?? "", /platform smoke/);
+  assert.match(ciWorkflowCheck?.summary ?? "", /Go Bubble Tea TUI tests/);
+  assert.match(ciWorkflowCheck?.evidence?.join("\n") ?? "", /go tui test/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
@@ -979,7 +1059,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
     configured_evidence: {
       ci_workflow_gate: { status: string; missing_gates: string[] };
       platform_smoke_matrix: { configured: boolean; runners: string[]; evidence: string[] };
-      action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; package_manager_cache_disabled: boolean };
+      action_runtime: { node24_forced: boolean; checkout_v5: boolean; setup_node_v5: boolean; setup_go_v6: boolean; go_version_125: boolean; package_manager_cache_disabled: boolean };
       dependency_lockfiles: { status: string; evidence: string[] };
       docs_deployment_readiness: {
         status: string;
@@ -1083,6 +1163,8 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.equal(report.configured_evidence.action_runtime.node24_forced, true);
   assert.equal(report.configured_evidence.action_runtime.checkout_v5, true);
   assert.equal(report.configured_evidence.action_runtime.setup_node_v5, true);
+  assert.equal(report.configured_evidence.action_runtime.setup_go_v6, true);
+  assert.equal(report.configured_evidence.action_runtime.go_version_125, true);
   assert.equal(report.configured_evidence.action_runtime.package_manager_cache_disabled, true);
   assert.equal(report.configured_evidence.dependency_lockfiles.status, "pass");
   assert.match(report.configured_evidence.dependency_lockfiles.evidence.join("\n"), /package_lock_version=3/);
@@ -1156,6 +1238,7 @@ test("Ether release evidence reports a read-only local snapshot without initiali
   assert.ok(report.release_manifest_preview.dependency_lockfiles.some((item) => item.name === "package-lock.json" && item.status === "pass"));
   assert.ok(report.release_manifest_preview.dependency_lockfiles.some((item) => item.name === "Cargo.lock" && item.status === "pass"));
   assert.ok(report.release_manifest_preview.test_gates.some((item) => item.name === "npm_test_configured" && item.command === "npm test" && item.status === "pass"));
+  assert.ok(report.release_manifest_preview.test_gates.some((item) => item.name === "go_tui_test_configured" && item.command === "go test ./packages/tui-go/..." && item.status === "pass"));
   assert.ok(report.release_manifest_preview.test_gates.every((item) => item.evidence.includes("configured_not_executed_by_release_evidence=true")));
   assert.match(report.release_manifest_preview.artifact_hashes.find((item) => item.path === "package-lock.json")?.sha256 ?? "", /^sha256:[a-f0-9]{64}$/);
   assert.match(report.release_manifest_preview.artifact_hashes.find((item) => item.path === "schemas/release-manifest.schema.json")?.sha256 ?? "", /^sha256:[a-f0-9]{64}$/);

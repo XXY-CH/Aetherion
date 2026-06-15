@@ -92,7 +92,8 @@ Aetherion 是一个本地优先的 Agent Harness Kernel 代号：它为 agent �
 - `schemas/`：Event、Tool Request、Policy Decision、Scoped Lease、Action Record、Observation Record、Verification Record、Consent Record、Permission Policy、Memory、Agent Runtime、Model Request/Response、Response Audit、Tool Request Proposal、Capability、Replay、Release Manifest、Local Ingress Readiness、Local Ingress Rate Limit Reservation、Local Ingress Idempotency Reservation、Local Ingress Idempotency Completion、metadata-only Vault Reference、Vault Policy Binding、Model Provider Readiness、Supervisor Lifecycle Readiness、Supervisor Lifecycle Command、Supervisor Socket Auth Boundary 和 Ledger Integrity Extension Readiness 等 JSON Schema。
 - `examples/contracts/`：每个 schema 的有效 JSON 示例。
 - `packages/harness-core/`：TypeScript 合同、replay、registry 和测试用 seed policy path。
-- `packages/tui/`：V1 终端表面 Ether。
+- `packages/tui/`：TypeScript command engine 和 V1 终端 runtime surface。
+- `packages/tui-go/`：默认只读 `ether` 入口使用的 Go Bubble Tea/Bubbles setup operator console。
 - `packages/computer-use/`：post-V1 的 policy-gated computer-use adapter 脚手架。
 - `packages/connector-sdk/`：post-V1 的隔离 connector 导入与 policy-gated tool call 脚手架。
 - `crates/supervisor/`：Rust Local Supervisor POC，负责工作区身份、hash-chained JSONL ledger、policy、scoped lease、lease-gated read 和 traced write prepare/commit。
@@ -104,6 +105,7 @@ cargo install cargo-audit --locked --version 0.22.1
 npm ci --ignore-scripts
 npm audit --audit-level=high --json
 npm test
+npm run test:go-tui
 cargo audit
 cargo test --locked
 cargo clippy --all-targets --all-features --locked -- -D warnings
@@ -117,11 +119,13 @@ npm run ether -- security audit --workspace .
 npm run ether -- release evidence --workspace .
 ```
 
-pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。CI 也会把 GitHub JavaScript actions opt in 到 Node 24 runtime，并运行 Ubuntu/macOS platform-smoke job，覆盖 contract/provider/help 子集、locked Rust tests、`onboarding check`、`doctor`、`ingress audit`、`security audit` 和 `release evidence`。根 JavaScript surface 当前没有 npm dependency，但已提交 `package-lock.json`，所以第一项 dependency 加入前 `npm ci` 和 `npm audit` 已经可复现。`Cargo.lock` 已提交，Rust verification 使用 `--locked`；完整本地 dependency audit 需要 `cargo-audit`。被 ignore 的 `promo/` 子树是 local/generated promotional experiment，不属于 release evidence。
+pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检查；tracked artifact guard 读取共享 denylist：`tools/forbidden-tracked-roots.txt`。CI 也会把 GitHub JavaScript actions opt in 到 Node 24 runtime，设置 Go 1.25.x 并运行 `go test ./packages/tui-go/...`，同时运行 Ubuntu/macOS platform-smoke job，覆盖 contract/provider/help/setup 子集、locked Rust tests、`onboarding check`、`doctor`、`ingress audit`、`security audit` 和 `release evidence`。根 JavaScript surface 当前没有 npm dependency，但已提交 `package-lock.json`，所以第一项 dependency 加入前 `npm ci` 和 `npm audit` 已经可复现。`Cargo.lock` 已提交，Rust verification 使用 `--locked`；完整本地 dependency audit 需要 `cargo-audit`。被 ignore 的 `promo/` 子树是 local/generated promotional experiment，不属于 release evidence。
 
-如需只读 from-source onboarding preflight，运行 `npm run ether -- onboarding check --workspace .`。报告会检查本机 toolchain（`node`、`npm`、`git`、`rustc`、`cargo`、可选 `cargo-audit`）、repo scripts、lockfiles、CI gates、governance files、双语文档、Local Ingress Readiness、Supervisor Lifecycle Readiness、Supervisor Lifecycle Command fail-closed schema/example、Supervisor Socket Auth Boundary、Ledger Integrity Extension Readiness、Adapter Gate Readiness、workspace runtime state、onboarding doc links 和 V1 Core Profile，然后输出下一步命令。它不安装 dependency、不运行整套 verification suite、不初始化 `.aetherion`、不启动或修复 daemon、不签名或迁移 Ledger events、不写 artifact、不调用 provider、不查询远端 CI、不启动 listener、不接受 remote connection、不发 session 或 lease、不执行 adapter，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
+如需只读 from-source onboarding preflight，运行 `npm run ether -- onboarding check --workspace .`。报告会检查本机 toolchain（`node`、`npm`、`git`、`go`、`rustc`、`cargo`、可选 `cargo-audit`）、repo scripts、lockfiles、CI gates、governance files、双语文档、Local Ingress Readiness、Supervisor Lifecycle Readiness、Supervisor Lifecycle Command fail-closed schema/example、Supervisor Socket Auth Boundary、Ledger Integrity Extension Readiness、Adapter Gate Readiness、workspace runtime state、onboarding doc links 和 V1 Core Profile，然后输出下一步命令。它不安装 dependency、不运行整套 verification suite、不初始化 `.aetherion`、不启动或修复 daemon、不签名或迁移 Ledger events、不写 artifact、不调用 provider、不查询远端 CI、不启动 listener、不接受 remote connection、不发 session 或 lease、不执行 adapter，也不会启用 GUI/IM/browser/MCP/OAuth/cloud/package-code 等延后表面。
 
 如需只读生产就绪快照，运行 `npm run ether -- doctor --workspace .`。报告会检查仓库治理文件、双语文档链接、docs deployment readiness inputs、CI/script/artifact/dependency-audit/platform-smoke guard 预期、dependency lockfiles、schema/example baseline、Local Ingress Readiness、Model Provider Readiness、Vault Policy Binding、Supervisor Lifecycle Readiness、Supervisor Lifecycle Command fail-closed contract、Supervisor Socket Auth Boundary、Ledger Integrity Extension Readiness、Adapter Gate Readiness、metadata-only Vault Reference contract、workspace identity、Ledger hash chain 和 run manifest 状态；它不会初始化尚未运行过 Ether 的 workspace，不会修复 runtime state，不会签名或迁移 Ledger events，不会执行 adapter，也不会部署 public docs。本轮增量记录在[阶段实现复核](docs/12-phase-implementation-review.zh-CN.md)、[运行时闭环计划](docs/14-runtime-loop-plan.zh-CN.md)和[生产缺口补全计划](docs/15-production-gap-closure-plan.zh-CN.md)。
+
+`packages/tui/` 仍是 TypeScript command engine 与 JSON report surface；默认的 setup/operator console 现在由 `packages/tui-go/` 的 Go Bubble Tea/Bubbles app 渲染。它仍然只是 V1 TUI client family 的一部分，不是 GUI、installer、daemon manager 或 authority surface。
 
 `supervisor start`、`supervisor stop` 和 `supervisor recover-stale-lock` 现在是显式命令表面，但只会 fail closed。它们先调用 `supervisor.status` 做只读观测，再校验 `supervisor-lifecycle-command` 报告，输出 `unsupported_fail_closed` 并以非零退出；不会启动/停止 daemon、kill process、修 stale lock、修改 Ledger、写 artifact、发 session/lease、解析 vault secret、授权 tool 或覆盖 policy。
 
@@ -135,7 +139,7 @@ pull request 和 push 到 `main` 会通过 GitHub Actions CI 运行同一组检�
 
 当前仓库已经超过纯文档阶段，包含可运行的本地终端原型。核心已包括合同验证、Rust supervisor POC、hash-chained Event Ledger、本地读写 policy/lease/approval 流、Memory/Capability/Sandbox/Hibernation/Surface 等 trace-backed 合同切片，以及 no-tools 模型调用的 hash-only 证据链。
 
-运行 `ether` 会打开当前 workspace 的只读 setup/onboarding panel，汇总 toolchain、repo 与 workspace readiness，并打印下一步命令；它不会初始化 `.aetherion`、安装依赖、运行长 verification、启动 daemon 或修改 workspace state。
+运行 `ether` 会打开当前 workspace 的只读 setup/onboarding operator console，汇总 toolchain、repo 与 workspace readiness，并打印下一步命令；它不会初始化 `.aetherion`、安装依赖、运行长 verification、启动 daemon 或修改 workspace state。TypeScript `ether` command engine 会把这个默认 setup surface 委托给一个很窄的 Go Bubble Tea/Bubbles app；带 authority 的 runtime path 仍是 TypeScript client 加 Rust supervisor。
 
 `prompt invoke-model` 支持以下 provider：
 

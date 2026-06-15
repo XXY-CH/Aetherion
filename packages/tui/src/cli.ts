@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { acceptCandidateFromRegistry, acceptMemoryCandidate, assembleContextPack, blockMemoryContext, buildEpisodicTimeline, createBasicUserModel, createMemoryCandidate, createMemoryDeleteTombstone, deriveMemoryCandidatesFromEvents, isMemoryCandidate, isMemoryCard, isMemoryTombstone, rejectMemoryCandidate } from "../../memory-os/src/index.ts";
 import { buildCausalEdges, buildWhyReport, counterfactualFromCheckpoint, rebuildCausalProjection, redactedSources } from "../../causal-memory/src/index.ts";
 import { approveRehearsal, assertWorkspaceRelativePath, createBranch, createCheckpoint, findBranch, findCheckpoint, isBranch, isCheckpoint, isRehearsal, rehearseFileWrite, sandboxWorkspacePath, type EventCheckpoint, type LedgerBranch, type SandboxRehearsal } from "../../sandbox/src/index.ts";
@@ -449,91 +448,48 @@ async function runSetup(options: CliOptions): Promise<void> {
   }
   const workspaceRoot = resolve(options.workspace);
   const report = await buildOnboardingPreflightReport(workspaceRoot);
-  console.log(formatSetupPanel(report));
-  if (!shouldPromptSetup()) {
-    return;
-  }
-
-  const readline = createInterface({
-    input: process.stdin,
-    output: process.stdout
+  const config = setupTuiConfig(report);
+  const input = `${JSON.stringify(config)}\n`;
+  const goArgs = ["run", "./packages/tui-go/cmd/ether-setup"];
+  const result = spawnSync("go", goArgs, {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      AETHERION_SETUP_NONINTERACTIVE: shouldPromptSetup() ? "0" : "1"
+    }
   });
-  try {
-    const choice = (await readline.question("Choose a setup action [1/2/3/h/q]: ")).trim().toLowerCase();
-    await runSetupChoice(choice, report, workspaceRoot);
-  } finally {
-    readline.close();
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.status !== 0) {
+    throw new Error(`Go Bubble Tea setup exited with status ${result.status ?? "unknown"}`);
   }
 }
 
-async function runSetupChoice(choice: string, report: OnboardingPreflightReport, workspaceRoot: string): Promise<void> {
-  switch (choice) {
-    case "":
-    case "q":
-    case "quit":
-      console.log("setup_action=quit");
-      return;
-    case "1":
-      console.log("setup_action=print_onboarding_json");
-      printRawJson(report);
-      return;
-    case "2":
-      console.log("setup_action=print_readiness_commands");
-      for (const command of setupReadinessCommands(workspaceRoot)) {
-        console.log(command);
-      }
-      return;
-    case "3":
-      console.log("setup_action=print_first_run_command");
-      console.log(`run_command=${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write`);
-      return;
-    case "h":
-    case "help":
-      console.log("setup_action=help");
-      printHelp();
-      return;
-    default:
-      console.log(`setup_action=unknown:${choice}`);
-      console.log("No action was run.");
-  }
-}
-
-function formatSetupPanel(report: OnboardingPreflightReport): string {
+function setupTuiConfig(report: OnboardingPreflightReport): Record<string, unknown> {
   const workspaceRoot = report.workspace_root;
-  return `Ether setup
-
-command=setup
-default_entry=ether
-workspace=${workspaceRoot}
-status=${report.status}
-scope=read_only
-mutates_workspace=false
-initializes_workspace=false
-installs_dependencies=false
-runs_verification_suite=false
-starts_daemon=false
-toolchain=${report.readiness_layers.toolchain_ready}
-repo=${report.readiness_layers.repo_ready}
-workspace_runtime=${report.readiness_layers.workspace_runtime_state}
-checks=pass:${report.summary.pass} warn:${report.summary.warn} fail:${report.summary.fail} not_applicable:${report.summary.not_applicable}
-
-Setup menu:
-  1  Print onboarding JSON
-  2  Print readiness commands
-  3  Print the first approval-gated local run command
-  h  Show help
-  q  Quit
-
-Next commands:
-${setupReadinessCommands(workspaceRoot).map((command) => `  ${command}`).join("\n")}
-
-First local run:
-  run_command=${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write
-
-Direct entry:
-  ether --workspace ${shellQuote(workspaceRoot)}
-  npm run ether -- --workspace ${shellQuote(workspaceRoot)}
-`;
+  return {
+    Snapshot: report,
+    NonInteractive: !shouldPromptSetup(),
+    DefaultEntry: "ether",
+    OnboardingCommand: setupCommand("onboarding check --workspace", workspaceRoot),
+    DoctorCommand: setupCommand("doctor --workspace", workspaceRoot),
+    SecurityCommand: setupCommand("security audit --workspace", workspaceRoot),
+    ReleaseCommand: setupCommand("release evidence --workspace", workspaceRoot),
+    RunCommand: `${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write`,
+    LLMReadLoopCommand: "next slice: prompt invoke-model -> response audit -> operator-restated file read -> fresh supervisor policy",
+    DirectEntry: `ether --workspace ${shellQuote(workspaceRoot)}`,
+    PackageEntry: `npm run ether -- --workspace ${shellQuote(workspaceRoot)}`
+  };
 }
 
 function setupReadinessCommands(workspaceRoot: string): string[] {
@@ -1056,6 +1012,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     ),
     commandVersionCheck("npm_available", "npm", ["--version"], "npm is available for lockfile install and audit commands.", "Install npm with Node.js 24.9.0 or newer."),
     commandVersionCheck("git_available", "git", ["--version"], "git is available for source checkout and evidence snapshots.", "Install git before using from-source onboarding."),
+    commandVersionCheck("go_available", "go", ["version"], "Go is available for the default Bubble Tea/Bubbles operator TUI.", "Install Go 1.25.x before using the default Ether setup console."),
     commandVersionCheck("rustc_available", "rustc", ["--version"], "rustc is available for Rust supervisor builds and checks.", "Install the Rust toolchain before running supervisor tests."),
     commandVersionCheck("cargo_available", "cargo", ["--version"], "cargo is available for Rust supervisor tests, clippy, and audit commands.", "Install Cargo with the Rust toolchain."),
     commandVersionCheck("cargo_audit_available", "cargo", ["audit", "--version"], "cargo-audit is available for the full dependency-audit gate.", "Install cargo-audit with: cargo install cargo-audit --locked --version 0.22.1", "warn"),
@@ -1089,6 +1046,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
     "node_runtime_version",
     "npm_available",
     "git_available",
+    "go_available",
     "rustc_available",
     "cargo_available",
     "cargo_audit_available"
@@ -1142,6 +1100,7 @@ async function buildOnboardingPreflightReport(workspaceRoot: string): Promise<On
       "npm ci --ignore-scripts",
       "npm audit --audit-level=high --json",
       "npm test",
+      "npm run test:go-tui",
       "cargo audit",
       "cargo test --locked",
       "cargo clippy --all-targets --all-features --locked -- -D warnings",
@@ -1399,6 +1358,8 @@ type ReleaseEvidenceReport = {
       node24_forced: boolean;
       checkout_v5: boolean;
       setup_node_v5: boolean;
+      setup_go_v6: boolean;
+      go_version_125: boolean;
       package_manager_cache_disabled: boolean;
       evidence: string[];
     };
@@ -1583,11 +1544,15 @@ async function buildReleaseEvidenceReport(workspaceRoot: string, remoteEvidenceP
         node24_forced: ciWorkflow.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"),
         checkout_v5: ciWorkflow.includes("actions/checkout@v5"),
         setup_node_v5: ciWorkflow.includes("actions/setup-node@v5"),
+        setup_go_v6: ciWorkflow.includes("actions/setup-go@v6"),
+        go_version_125: ciWorkflow.includes("go-version: 1.25.x"),
         package_manager_cache_disabled: ciWorkflow.includes("package-manager-cache: false"),
         evidence: [
           `node24_forced=${String(ciWorkflow.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"))}`,
           `checkout_v5=${String(ciWorkflow.includes("actions/checkout@v5"))}`,
           `setup_node_v5=${String(ciWorkflow.includes("actions/setup-node@v5"))}`,
+          `setup_go_v6=${String(ciWorkflow.includes("actions/setup-go@v6"))}`,
+          `go_version_125=${String(ciWorkflow.includes("go-version: 1.25.x"))}`,
           `package_manager_cache_disabled=${String(ciWorkflow.includes("package-manager-cache: false"))}`
         ]
       },
@@ -1762,6 +1727,7 @@ function releaseManifestDependencyLockfiles(checkItem?: DoctorCheck): ReleaseMan
 function releaseManifestTestGates(ciWorkflow: string, ciWorkflowGate?: DoctorCheck): ReleaseManifestPreview["test_gates"] {
   const gates = [
     ["npm_test_configured", "npm test"],
+    ["go_tui_test_configured", "go test ./packages/tui-go/..."],
     ["cargo_test_locked_configured", "cargo test --locked"],
     ["cargo_clippy_configured", "cargo clippy --all-targets --all-features --locked -- -D warnings"],
     ["cargo_fmt_configured", "cargo fmt --check"],
@@ -2427,7 +2393,7 @@ async function readVerifiedLedgerForReadOnlyCommand(workspaceRoot: string, comma
 }
 
 function repoDoctorChecks(): DoctorCheck[] {
-  const packageJson = readRepoJson("package.json") as { name?: string; license?: string; private?: boolean; engines?: { node?: string }; scripts?: Record<string, string> } | null;
+  const packageJson = readRepoJson("package.json") as { name?: string; version?: string; license?: string; private?: boolean; bin?: { ether?: string }; engines?: { node?: string }; scripts?: Record<string, string> } | null;
   const ciWorkflow = readRepoText(".github/workflows/ci.yml");
   const gitignore = readRepoText(".gitignore");
   const checks: DoctorCheck[] = [];
@@ -2440,38 +2406,54 @@ function repoDoctorChecks(): DoctorCheck[] {
     [`process.versions.node=${process.versions.node}`, "required=>=24.9.0"],
     "Run Ether with Node.js 24.9.0 or newer."
   ));
+  checks.push(commandVersionCheck(
+    "go_available",
+    "go",
+    ["version"],
+    "Go is available for the default Bubble Tea/Bubbles operator TUI.",
+    "Install Go 1.25.x before using the default Ether setup console."
+  ));
+  const packageMetadataOk = packageJson?.license === "MIT"
+    && packageJson.private === true
+    && packageJson.version === "0.0.0"
+    && packageJson.bin?.ether === "packages/tui/src/cli.ts"
+    && packageJson.engines?.node === ">=24.9.0";
   checks.push(check(
     "package_metadata",
-    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=24.9.0" ? "pass" : "fail",
-    packageJson?.license === "MIT" && packageJson.private === true && packageJson.engines?.node === ">=24.9.0" ? "info" : "error",
-    "Package metadata preserves the current private MIT Node 24.9 baseline.",
+    packageMetadataOk ? "pass" : "fail",
+    packageMetadataOk ? "info" : "error",
+    "Package metadata preserves the current private MIT Node 24.9 Ether bin baseline.",
     [
+      `name=${packageJson?.name ?? "missing"}`,
+      `version=${packageJson?.version ?? "missing"}`,
       `license=${packageJson?.license ?? "missing"}`,
       `private=${String(packageJson?.private ?? "missing")}`,
+      `bin_ether=${packageJson?.bin?.ether ?? "missing"}`,
       `node_engine=${packageJson?.engines?.node ?? "missing"}`
     ],
-    "Keep package.json license=MIT, private=true, and engines.node=>=24.9.0 unless the release policy changes."
+    "Keep package.json version=0.0.0, license=MIT, private=true, bin.ether=packages/tui/src/cli.ts, and engines.node=>=24.9.0 unless the release policy changes."
   ));
   checks.push(check(
     "package_scripts",
-    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "pass" : "fail",
-    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "info" : "error",
-    "Core verification and Ether scripts are present.",
+    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:go-tui"] && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "pass" : "fail",
+    Boolean(packageJson?.scripts?.test && packageJson.scripts["test:go-tui"] && packageJson.scripts["test:all"] && packageJson.scripts.ether) ? "info" : "error",
+    "Core verification, Go operator TUI, and Ether scripts are present.",
     [
       `test=${packageJson?.scripts?.test ?? "missing"}`,
+      `test_go_tui=${packageJson?.scripts?.["test:go-tui"] ?? "missing"}`,
       `test_all=${packageJson?.scripts?.["test:all"] ?? "missing"}`,
       `ether=${packageJson?.scripts?.ether ?? "missing"}`
     ],
-    "Restore npm scripts for test, test:all, and ether."
+    "Restore npm scripts for test, test:go-tui, test:all, and ether."
   ));
   checks.push(check(
     "ci_workflow_gate",
     ciWorkflow && ciGateNeedles().every((needle) => ciWorkflow.includes(needle)) ? "pass" : "fail",
     ciWorkflow ? "info" : "error",
-    "GitHub Actions workflow covers local quality gates, dependency audits, platform smoke evidence, release evidence, and the Node 24 action-runtime baseline.",
+    "GitHub Actions workflow covers local quality gates, Go Bubble Tea TUI tests, dependency audits, platform smoke evidence, release evidence, and the Node 24 action-runtime baseline.",
     [
       `.github/workflows/ci.yml=${ciWorkflow ? "present" : "missing"}`,
-      "required=node24 action runtime,npm ci,npm audit,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,onboarding check,doctor,ingress audit,security audit,release evidence,ubuntu/macos platform smoke"
+      "required=node24 action runtime,npm ci,npm audit,go setup,go tui test,cargo audit,npm test,cargo test --locked,cargo clippy --locked,cargo fmt,git diff --check,artifact guard,onboarding check,doctor,ingress audit,security audit,release evidence,ubuntu/macos platform smoke"
     ],
     "Update .github/workflows/ci.yml to mirror the documented local gate."
   ));
@@ -4044,11 +4026,14 @@ function ciGateNeedles(): string[] {
     "actions/checkout@v5",
     "actions/setup-node@v5",
     "package-manager-cache: false",
+    "actions/setup-go@v6",
+    "go-version: 1.25.x",
     "npm ci --ignore-scripts",
     "npm audit --audit-level=high --json",
     "cargo install cargo-audit --locked --version 0.22.1",
     "cargo audit",
     "npm test",
+    "go test ./packages/tui-go/...",
     "cargo test --locked",
     "cargo clippy --all-targets --all-features --locked -- -D warnings",
     "cargo fmt --check",
@@ -4068,10 +4053,10 @@ function ciGateNeedles(): string[] {
   ];
 }
 
-function dependencyLockfileState(packageJson: { name?: string; license?: string; engines?: { node?: string } } | null): { ok: boolean; evidence: string[] } {
+function dependencyLockfileState(packageJson: { name?: string; version?: string; license?: string; bin?: { ether?: string }; engines?: { node?: string } } | null): { ok: boolean; evidence: string[] } {
   const packageLock = readRepoJson("package-lock.json") as {
     lockfileVersion?: number;
-    packages?: Record<string, { name?: string; license?: string; engines?: { node?: string }; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> }>;
+    packages?: Record<string, { name?: string; version?: string; license?: string; bin?: { ether?: string }; engines?: { node?: string }; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> }>;
   } | null;
   const cargoLock = readRepoText("Cargo.lock");
   const rootPackage = packageLock?.packages?.[""];
@@ -4079,7 +4064,9 @@ function dependencyLockfileState(packageJson: { name?: string; license?: string;
   const rootDevDependencyCount = Object.keys(rootPackage?.devDependencies ?? {}).length;
   const packageLockOk = packageLock?.lockfileVersion === 3
     && rootPackage?.name === packageJson?.name
+    && rootPackage?.version === packageJson?.version
     && rootPackage?.license === packageJson?.license
+    && rootPackage?.bin?.ether === packageJson?.bin?.ether
     && rootPackage?.engines?.node === packageJson?.engines?.node;
   const cargoLockOk = Boolean(cargoLock?.includes("version = 4") && cargoLock.includes('name = "aetherion-supervisor"'));
   return {
@@ -4089,8 +4076,12 @@ function dependencyLockfileState(packageJson: { name?: string; license?: string;
       `package_lock_version=${packageLock?.lockfileVersion ?? "missing"}`,
       `package_lock_root_name=${rootPackage?.name ?? "missing"}`,
       `package_name=${packageJson?.name ?? "missing"}`,
+      `package_lock_root_version=${rootPackage?.version ?? "missing"}`,
+      `package_version=${packageJson?.version ?? "missing"}`,
       `package_lock_root_license=${rootPackage?.license ?? "missing"}`,
       `package_license=${packageJson?.license ?? "missing"}`,
+      `package_lock_bin_ether=${rootPackage?.bin?.ether ?? "missing"}`,
+      `package_bin_ether=${packageJson?.bin?.ether ?? "missing"}`,
       `package_lock_node_engine=${rootPackage?.engines?.node ?? "missing"}`,
       `package_node_engine=${packageJson?.engines?.node ?? "missing"}`,
       `package_lock_root_dependencies=${rootDependencyCount}`,
@@ -7472,7 +7463,7 @@ async function buildSecurityAuditReport(workspaceRoot: string): Promise<Security
       "repo.dependency_reproducibility",
       findings,
       "Root Node and Rust dependency lockfiles are present and match project metadata.",
-      dependencyLockfileState(readRepoJson("package.json") as { name?: string; license?: string; engines?: { node?: string } } | null).evidence
+      dependencyLockfileState(readRepoJson("package.json") as { name?: string; version?: string; license?: string; bin?: { ether?: string }; engines?: { node?: string } } | null).evidence
     ),
     checkForFindings(
       "runtime.raw_sensitive_artifacts",
@@ -7544,6 +7535,7 @@ function forbiddenTrackedRoots(): string[] {
   }
   return [
     ".aetherion",
+    ".claude",
     "target",
     "reports",
     "screenshots",
@@ -7605,7 +7597,7 @@ function trackedSecretFindings(): SecurityAuditFinding[] {
 }
 
 function dependencyReproducibilityFindings(): SecurityAuditFinding[] {
-  const packageJson = readRepoJson("package.json") as { name?: string; license?: string; engines?: { node?: string } } | null;
+  const packageJson = readRepoJson("package.json") as { name?: string; version?: string; license?: string; bin?: { ether?: string }; engines?: { node?: string } } | null;
   const state = dependencyLockfileState(packageJson);
   if (state.ok) {
     return [];

@@ -1,0 +1,53 @@
+# Local/runtime state and assistant orchestration files must never enter package tarballs.
+.aetherion/
+.claude/
+.codex/
+.agents/
+.omx/
+.omc/
+.gsd/
+.gsd-id
+.mcp.json
+.bg-shell/
+AGENTS.md
+CLAUDE.md
+
+# Secrets and local configuration
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Generated build, test, and report artifacts
+node_modules/
+promo/
+target/
+dist/
+build/
+out/
+coverage/
+artifacts/
+reports/
+screenshots/
+playwright-report/
+test-results/
+logs/
+tmp/
+temp/
+.cache/
+.tmp/
+
+# Local data stores
+vault/
+memory-vault/
+local-data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.duckdb
+*.parquet
