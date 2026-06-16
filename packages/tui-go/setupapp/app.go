@@ -213,6 +213,14 @@ const (
 	overlaySessions
 )
 
+type transcriptRefreshMode int
+
+const (
+	transcriptRefreshPreserve transcriptRefreshMode = iota
+	transcriptRefreshAppend
+	transcriptRefreshJumpBottom
+)
+
 type menuItem struct {
 	title string
 	desc  string
@@ -325,34 +333,35 @@ func (k keyMap) FullHelp() [][]key.Binding {
 }
 
 type Model struct {
-	cfg           Config
-	width         int
-	height        int
-	selected      panelID
-	focus         focusTarget
-	keys          keyMap
-	help          help.Model
-	menu          list.Model
-	readiness     table.Model
-	daemon        table.Model
-	replay        table.Model
-	transcriptVP  viewport.Model
-	providerInput textinput.Model
-	modelInput    textinput.Model
-	composer      textarea.Model
-	spinner       spinner.Model
-	statusMsg     string
-	chatBusy      bool
-	activePrompt  string
-	chatResult    *ChatResult
-	chatError     string
-	transcript    []transcriptEntry
-	queue         []queuedPrompt
-	completionIdx int
-	historyIndex  int
-	historyDraft  string
-	overlay       overlayMode
-	runner        CommandRunner
+	cfg              Config
+	width            int
+	height           int
+	selected         panelID
+	focus            focusTarget
+	keys             keyMap
+	help             help.Model
+	menu             list.Model
+	readiness        table.Model
+	daemon           table.Model
+	replay           table.Model
+	transcriptVP     viewport.Model
+	providerInput    textinput.Model
+	modelInput       textinput.Model
+	composer         textarea.Model
+	spinner          spinner.Model
+	statusMsg        string
+	chatBusy         bool
+	activePrompt     string
+	chatResult       *ChatResult
+	chatError        string
+	transcript       []transcriptEntry
+	queue            []queuedPrompt
+	transcriptUnread int
+	completionIdx    int
+	historyIndex     int
+	historyDraft     string
+	overlay          overlayMode
+	runner           CommandRunner
 }
 
 func NewModel(cfg Config) Model {
@@ -463,6 +472,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nextVP, cmd := m.transcriptVP.Update(msg)
 		m.transcriptVP = nextVP
 		cmds = append(cmds, cmd)
+		if m.transcriptVP.AtBottom() {
+			m.transcriptUnread = 0
+		}
 		m.statusMsg = fmt.Sprintf("transcript scroll %d%%", int(m.transcriptVP.ScrollPercent()*100))
 	case chatFinishedMsg:
 		m.chatBusy = false
@@ -475,7 +487,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.queue) > 0 {
 				m.overlay = overlayQueue
 			}
-			m.refreshTranscript()
+			m.refreshTranscriptAfterAppend()
 			return m, tea.Batch(cmds...)
 		}
 		m.chatResult = &msg.result
@@ -490,7 +502,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMsg = fmt.Sprintf("chat complete: provider=%s audit=%s raw_output_printed=%t", msg.result.ProviderRef, msg.result.ResponseAuditStatus, msg.result.RawOutputPrinted)
 		}
-		m.refreshTranscript()
+		m.refreshTranscriptAfterAppend()
 	case tea.KeyPressMsg:
 		switch {
 		case isCtrlC(msg):
@@ -581,6 +593,9 @@ func (m *Model) handleTranscriptNavigation(msg tea.KeyPressMsg) bool {
 		m.transcriptVP.ScrollDown(1)
 	default:
 		return false
+	}
+	if m.transcriptVP.AtBottom() {
+		m.transcriptUnread = 0
 	}
 	m.statusMsg = fmt.Sprintf("transcript scroll %d%%", int(m.transcriptVP.ScrollPercent()*100))
 	return true
@@ -805,9 +820,10 @@ func (m *Model) beginChat(task, provider, modelRef string, resetComposer bool) t
 	m.historyIndex = -1
 	m.historyDraft = ""
 	m.completionIdx = -1
+	m.transcriptUnread = 0
 	m.overlay = overlayNone
 	m.statusMsg = fmt.Sprintf("chat running: provider=%s model=%s", emptyAs(provider, "stub"), emptyAs(modelRef, "default"))
-	m.refreshTranscript()
+	m.refreshTranscriptToBottom()
 	return runChatCommand(m.runner, m.cfg.Snapshot.WorkspaceRoot, task, provider, modelRef)
 }
 
@@ -906,6 +922,7 @@ func (m *Model) handleSlashCommand(command string) {
 		m.overlay = overlayNone
 		m.chatResult = nil
 		m.chatError = ""
+		m.transcriptUnread = 0
 		m.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"}, {Role: "system", Text: "Transcript cleared. Governance artifacts already written by completed runs are not deleted.", Meta: "local"}}
 		m.statusMsg = "slash=/clear"
 	case "/new":
@@ -1055,12 +1072,37 @@ func replayRows(cfg Config) []table.Row {
 }
 
 func (m *Model) refreshTranscript() {
+	m.refreshTranscriptView(transcriptRefreshPreserve)
+}
+
+func (m *Model) refreshTranscriptAfterAppend() {
+	m.refreshTranscriptView(transcriptRefreshAppend)
+}
+
+func (m *Model) refreshTranscriptToBottom() {
+	m.refreshTranscriptView(transcriptRefreshJumpBottom)
+}
+
+func (m *Model) refreshTranscriptView(mode transcriptRefreshMode) {
+	oldOffset := m.transcriptVP.YOffset()
+	oldLines := m.transcriptVP.TotalLineCount()
+	wasAtBottom := m.transcriptVP.AtBottom()
+
 	m.transcriptVP.SetContent(m.renderTranscriptContent())
-	if len(m.transcript) > 1 || m.chatBusy || m.chatResult != nil || m.chatError != "" {
+	if len(m.transcript) <= 1 && !m.chatBusy && m.chatResult == nil && m.chatError == "" {
+		m.transcriptUnread = 0
+		m.transcriptVP.GotoTop()
+		return
+	}
+	if mode == transcriptRefreshJumpBottom || wasAtBottom || oldLines == 0 {
+		m.transcriptUnread = 0
 		m.transcriptVP.GotoBottom()
 		return
 	}
-	m.transcriptVP.GotoTop()
+	m.transcriptVP.SetYOffset(oldOffset)
+	if mode == transcriptRefreshAppend {
+		m.transcriptUnread++
+	}
 }
 
 func (m Model) render() string {
@@ -1207,13 +1249,23 @@ func (m Model) statusRule() string {
 		modelStatusLabel(m),
 		fmt.Sprintf("%d/%dm", 0, 1),
 		fmt.Sprintf("queue %d", len(m.queue)),
+		transcriptScrollLabel(m),
 		"overlay " + overlayName(m.overlay),
 		"voice off",
 		compactPath(m.cfg.Snapshot.WorkspaceRoot, 34),
 		"authority non_authorizing",
+		truncateInline(m.statusMsg, 72),
 		"status_rule=" + state,
 	}
 	return styles().statusRule.Width(max(76, m.width)).Render("─ " + strings.Join(segments, " │ ") + " ─")
+}
+
+func transcriptScrollLabel(m Model) string {
+	label := fmt.Sprintf("scroll %d%%", int(m.transcriptVP.ScrollPercent()*100))
+	if m.transcriptUnread > 0 {
+		label += fmt.Sprintf(" unread %d", m.transcriptUnread)
+	}
+	return label
 }
 
 func (m Model) overlayView() string {
@@ -1669,6 +1721,17 @@ func truncateForPanel(value string, limit int) string {
 		limit = 32
 	}
 	return value[:limit-16] + "\n... truncated ..."
+}
+
+func truncateInline(value string, limit int) string {
+	value = compactWhitespace(value)
+	if len(value) <= limit {
+		return value
+	}
+	if limit < 8 {
+		limit = 8
+	}
+	return value[:limit-1] + "…"
 }
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)

@@ -124,6 +124,58 @@ func TestTranscriptScrollAndComposerSizing(t *testing.T) {
 	}
 }
 
+func TestTranscriptAppendPreservesManualScroll(t *testing.T) {
+	model := NewModel(testConfig())
+	model.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"}}
+	for i := 0; i < 28; i++ {
+		model.transcript = append(model.transcript, transcriptEntry{Role: "assistant", Text: strings.Repeat("history ", 18), Meta: "fixture"})
+	}
+	model.resize()
+	model.transcriptVP.GotoTop()
+	start := model.transcriptVP.YOffset()
+
+	model.chatBusy = true
+	model.activePrompt = "background prompt"
+	payload, _ := json.Marshal(ChatResult{
+		SourceRunID:                 "run_model_chat_source_test",
+		ResponseID:                  "agent_model_response_test",
+		ResponseAuditID:             "agent_response_audit_test",
+		ProviderRef:                 "provider_local_stub",
+		ModelRef:                    "stub-deterministic-v1",
+		RawOutputPrinted:            true,
+		OutputText:                  "new response while reading history",
+		OutputTextSHA256:            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ResponsePayloadSHA256:       "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ResponseAuditEvidenceStatus: "matched",
+		ResponseAuditStatus:         "pass",
+	})
+	var result ChatResult
+	if err := json.Unmarshal(payload, &result); err != nil {
+		t.Fatalf("fixture decode: %v", err)
+	}
+	updated, _ := model.Update(chatFinishedMsg{result: result})
+	model = updated.(Model)
+
+	if got := model.transcriptVP.YOffset(); got != start {
+		t.Fatalf("append stole manual scroll: got %d want %d", got, start)
+	}
+	if model.transcriptUnread == 0 {
+		t.Fatalf("expected unread count after preserved append")
+	}
+	if !strings.Contains(model.StaticView(), "unread 1") {
+		t.Fatalf("status missing unread marker\n%s", model.StaticView())
+	}
+
+	updated, _ = model.Update(keyPress("end"))
+	model = updated.(Model)
+	if !model.transcriptVP.AtBottom() {
+		t.Fatal("expected end to jump to bottom")
+	}
+	if model.transcriptUnread != 0 {
+		t.Fatalf("expected unread cleared at bottom, got %d", model.transcriptUnread)
+	}
+}
+
 func lineIndexContaining(value, needle string) int {
 	for i, line := range strings.Split(value, "\n") {
 		if strings.Contains(line, needle) {

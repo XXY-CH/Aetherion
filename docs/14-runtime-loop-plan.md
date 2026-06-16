@@ -1521,3 +1521,29 @@ Matched source docs and corrections:
 Remaining boundary:
 
 - This is not a general long-running operator console, semantic verifier, durable queue, provider/tool execution loop, daemon manager, GUI, OAuth/login flow, connector setup, package execution path, or authority-bearing action surface.
+
+## Completed Increment: Conversation Viewport Scroll Anchoring
+
+Target: make the Go Bubble Tea/Bubbles Ether session surface behave more like a persistent conversation client by preserving manual transcript scroll position while new provider/status output arrives.
+
+Acceptance:
+
+- Transcript refreshes now distinguish preserve, append, and explicit jump-to-bottom modes.
+- Sending a prompt still jumps to the latest user turn and streaming/status line, but provider completion no longer steals the viewport when the operator has scrolled back into history.
+- The status rule now reports transcript scroll percentage and an unread count when new transcript output lands while the operator is reading earlier content.
+- Keyboard and mouse scrolling clear unread state once the transcript reaches the bottom.
+- Regression coverage proves manual scroll is preserved across appended chat results, unread state is visible, and `End` returns to the bottom and clears the unread marker.
+- PTY verification confirmed `/he` slash overlay renders in the transcript area without pushing the composer, Ctrl+C first clears a non-empty composer, and a second Ctrl+C exits.
+
+Matched source docs and corrections:
+
+- [Product Brief](00-product-brief.md): no drift; the work improves the V1 Ether TUI session surface and does not add GUI, mobile, IM, browser extension, browser automation, MCP/OAuth connector, cloud worker, or package-code execution.
+- [User Boundary Layer](02-user-boundary-layer.md): no drift; scroll state, overlays, and unread markers are client-surface state only and cannot authorize actions, issue leases, read secrets, or bypass Tool Policy Proxy.
+- [Roadmap](06-roadmap.md): no drift; this strengthens the minimal Ether terminal client inside Phase 1/2 before post-V1 computer harness, connector, GUI, or broader surface work.
+- [Technical Strategy](10-technical-strategy.md): no drift; Go remains the narrow Bubble Tea/Bubbles terminal UI, TypeScript remains the command/provider/evidence path, and Rust remains the authority boundary.
+- [Schema Runtime Governance](13-schema-runtime-governance.md): no drift; no schema surface, registry projection, or authority-bearing contract was added.
+- [Production Gap Closure Plan](15-production-gap-closure-plan.md): no drift; this advances the PGC client-surface usability gap while preserving V1 TUI-only and no-background-daemon constraints.
+
+Remaining boundary:
+
+- This is not streaming token rendering, semantic verifier UX, durable session storage, persistent background daemon behavior, provider tool execution, model-driven tool loops, connector setup, GUI, IM/browser/mobile surface, or any authority-bearing action path.

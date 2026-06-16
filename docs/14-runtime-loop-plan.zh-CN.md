@@ -1127,3 +1127,29 @@ response audit 从 stdout-only 变成独立 non-authorizing artifact 和 event�
 剩余边界：
 
 - 这不是 general long-running operator console、semantic verifier、durable queue、provider/tool execution loop、daemon manager、GUI、OAuth/login flow、connector setup、package execution path，或 authority-bearing action surface。
+
+## 已完成增量：会话 Transcript 滚动锚定
+
+目标：让 Go Bubble Tea/Bubbles Ether 会话表面更像可常驻的 conversation client；operator 手动滚动 transcript 历史时，新 provider/status 输出不会把 viewport 抢回底部。
+
+验收：
+
+- Transcript refresh 现在区分 preserve、append 和显式 jump-to-bottom 三种模式。
+- 发送 prompt 时仍跳到最新 user turn 与 streaming/status 行，但 provider 完成后，如果 operator 正在读历史，不再抢走 viewport。
+- status rule 现在显示 transcript scroll 百分比；当 operator 在历史位置时有新 transcript 输出，会显示 unread 计数。
+- 键盘和鼠标滚动到 transcript 底部后会清除 unread 状态。
+- 回归测试证明 appended chat result 会保留手动 scroll，unread 状态可见，`End` 会回到底部并清除 unread marker。
+- PTY 验证确认 `/he` slash overlay 渲染在 transcript 区域且不推开 composer；composer 非空时第一次 Ctrl+C 先清空，第二次 Ctrl+C 退出。
+
+匹配 source docs 与修正：
+
+- [产品简报](00-product-brief.zh-CN.md)：无 drift；本轮只改善 V1 Ether TUI session surface，没有新增 GUI、mobile、IM、browser extension、browser automation、MCP/OAuth connector、cloud worker 或 package-code execution。
+- [用户边界层](02-user-boundary-layer.zh-CN.md)：无 drift；scroll state、overlay 和 unread marker 都只是 client-surface state，不能授权 action、发 lease、读 secret 或绕过 Tool Policy Proxy。
+- [路线图](06-roadmap.zh-CN.md)：无 drift；本轮强化 Phase 1/2 内的 minimal Ether terminal client，没有进入 post-V1 computer harness、connector、GUI 或更宽 surface。
+- [技术策略](10-technical-strategy.zh-CN.md)：无 drift；Go 仍是 narrow Bubble Tea/Bubbles terminal UI，TypeScript 仍是 command/provider/evidence path，Rust 仍是 authority boundary。
+- [Schema 运行时治理](13-schema-runtime-governance.zh-CN.md)：无 drift；没有新增 schema surface、registry projection 或 authority-bearing contract。
+- [生产缺口补全计划](15-production-gap-closure-plan.zh-CN.md)：无 drift；本轮推进 PGC client-surface usability gap，同时保持 V1 TUI-only 和 no-background-daemon 约束。
+
+剩余边界：
+
+- 这不是 streaming token rendering、semantic verifier UX、durable session storage、persistent background daemon behavior、provider tool execution、model-driven tool loop、connector setup、GUI、IM/browser/mobile surface，或任何 authority-bearing action path。
