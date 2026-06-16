@@ -228,6 +228,10 @@ type keyMap struct {
 	Down    key.Binding
 	Left    key.Binding
 	Right   key.Binding
+	PageUp  key.Binding
+	PageDn  key.Binding
+	Home    key.Binding
+	End     key.Binding
 	Enter   key.Binding
 	Newline key.Binding
 	Tab     key.Binding
@@ -255,6 +259,22 @@ func defaultKeyMap() keyMap {
 		Right: key.NewBinding(
 			key.WithKeys("right", "l"),
 			key.WithHelp("→/l", "next provider"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "scroll up"),
+		),
+		PageDn: key.NewBinding(
+			key.WithKeys("pgdown"),
+			key.WithHelp("pgdn", "scroll down"),
+		),
+		Home: key.NewBinding(
+			key.WithKeys("home"),
+			key.WithHelp("home", "top"),
+		),
+		End: key.NewBinding(
+			key.WithKeys("end"),
+			key.WithHelp("end", "bottom"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -292,13 +312,14 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Enter, k.Newline, k.Tab, k.Up, k.Down, k.Palette, k.Blur, k.Quit}
+	return []key.Binding{k.Enter, k.Newline, k.Tab, k.PageUp, k.PageDn, k.Palette, k.Blur, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Enter, k.Newline, k.Tab, k.Palette},
 		{k.Up, k.Down, k.Left, k.Right},
+		{k.PageUp, k.PageDn, k.Home, k.End},
 		{k.Blur, k.Help, k.Quit},
 	}
 }
@@ -368,11 +389,12 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	composer := textarea.New()
 	composer.Prompt = ""
 	composer.Placeholder = "Ask Aetherion anything, or type /help"
-	composer.DynamicHeight = true
-	composer.MinHeight = 1
-	composer.MaxHeight = 6
+	composer.DynamicHeight = false
+	composer.MinHeight = 4
+	composer.MaxHeight = 10
 	composer.ShowLineNumbers = false
 	composer.SetWidth(88)
+	composer.SetHeight(4)
 	composer.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"), key.WithHelp("shift+enter", "newline"))
 
 	model := Model{
@@ -437,6 +459,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resize()
+	case tea.MouseWheelMsg:
+		nextVP, cmd := m.transcriptVP.Update(msg)
+		m.transcriptVP = nextVP
+		cmds = append(cmds, cmd)
+		m.statusMsg = fmt.Sprintf("transcript scroll %d%%", int(m.transcriptVP.ScrollPercent()*100))
 	case chatFinishedMsg:
 		m.chatBusy = false
 		m.activePrompt = ""
@@ -518,6 +545,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, m.keys.Tab):
 			m.handleTab()
+		case m.handleTranscriptNavigation(msg):
 		case key.Matches(msg, m.keys.Left) && m.overlay == overlayModel:
 			m.cycleProvider(-1)
 		case key.Matches(msg, m.keys.Right) && m.overlay == overlayModel:
@@ -526,9 +554,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Down) && m.handleCompletionNavigation(1):
 		case m.focus == focusComposer && m.handleComposerNavigation(msg):
 		default:
-			nextVP, vpCmd := m.transcriptVP.Update(msg)
-			m.transcriptVP = nextVP
-			cmds = append(cmds, vpCmd)
 			if m.focus != focusMenu {
 				updated, cmd := m.updateFocusedInput(msg)
 				m = updated
@@ -538,6 +563,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) handleTranscriptNavigation(msg tea.KeyPressMsg) bool {
+	switch {
+	case key.Matches(msg, m.keys.PageUp):
+		m.transcriptVP.PageUp()
+	case key.Matches(msg, m.keys.PageDn):
+		m.transcriptVP.PageDown()
+	case key.Matches(msg, m.keys.Home):
+		m.transcriptVP.GotoTop()
+	case key.Matches(msg, m.keys.End):
+		m.transcriptVP.GotoBottom()
+	case key.Matches(msg, m.keys.Up) && m.focus == focusComposer && strings.TrimSpace(m.composer.Value()) == "":
+		m.transcriptVP.ScrollUp(1)
+	case key.Matches(msg, m.keys.Down) && m.focus == focusComposer && strings.TrimSpace(m.composer.Value()) == "":
+		m.transcriptVP.ScrollDown(1)
+	default:
+		return false
+	}
+	m.statusMsg = fmt.Sprintf("transcript scroll %d%%", int(m.transcriptVP.ScrollPercent()*100))
+	return true
 }
 
 func (m Model) updateFocusedInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -777,6 +823,9 @@ func (m *Model) handleComposerNavigation(msg tea.KeyPressMsg) bool {
 }
 
 func (m *Model) browseHistory(direction int) bool {
+	if strings.TrimSpace(m.composer.Value()) == "" && m.historyIndex == -1 {
+		return false
+	}
 	if strings.Contains(m.composer.Value(), "\n") {
 		return false
 	}
@@ -931,12 +980,15 @@ func (m *Model) resize() {
 		m.height = 24
 	}
 	contentWidth := max(72, m.width-4)
-	transcriptHeight := max(8, m.height-11)
+	composerHeight := min(8, max(4, m.height/5))
+	chromeHeight := 10 + composerHeight
+	transcriptHeight := max(6, m.height-chromeHeight)
 	m.menu.SetSize(min(42, contentWidth), max(8, transcriptHeight-4))
 	m.help.SetWidth(m.width)
 	m.providerInput.SetWidth(max(24, contentWidth-18))
 	m.modelInput.SetWidth(max(24, contentWidth-18))
-	m.composer.SetWidth(max(24, contentWidth-4))
+	m.composer.SetWidth(max(36, contentWidth-6))
+	m.composer.SetHeight(composerHeight)
 	m.transcriptVP.SetWidth(contentWidth)
 	m.transcriptVP.SetHeight(transcriptHeight)
 	m.rebuildTables()
@@ -1057,12 +1109,12 @@ func (m Model) composerZone() string {
 		prompt = theme.prompt.Render("$")
 	}
 	composer := lipgloss.JoinHorizontal(lipgloss.Top, prompt+" ", m.composer.View())
-	rows = append(rows, composer)
+	rows = append(rows, theme.composerBox.Width(max(40, m.width-2)).Render(composer))
 	if m.overlay == overlayModel {
 		rows = append(rows, theme.modelFields.Render(strings.Join([]string{m.providerInput.View(), m.modelInput.View()}, "\n")))
 	}
 	if strings.TrimSpace(m.composer.Value()) == "" && m.overlay == overlayNone {
-		rows = append(rows, theme.muted.Render(`Try "/help" for commands`))
+		rows = append(rows, theme.muted.Render(`Try "/help" for commands · PgUp/PgDn scroll transcript · Shift+Enter newline`))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -1436,6 +1488,7 @@ type styleSet struct {
 	panel        lipgloss.Style
 	help         lipgloss.Style
 	prompt       lipgloss.Style
+	composerBox  lipgloss.Style
 	modelFields  lipgloss.Style
 	sessionPanel lipgloss.Style
 	sectionTitle lipgloss.Style
@@ -1459,6 +1512,7 @@ func styles() styleSet {
 		panel:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(1, 2).MarginRight(2),
 		help:         lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
 		prompt:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220")),
+		composerBox:  lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1).MarginTop(1),
 		modelFields:  lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1).MarginTop(1),
 		sessionPanel: lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("220")).Padding(1, 2).MarginTop(1).MarginBottom(1),
 		sectionTitle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220")),

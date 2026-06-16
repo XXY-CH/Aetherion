@@ -79,6 +79,31 @@ func TestSlashOverlayListsAllCommandsForBareSlash(t *testing.T) {
 	}
 }
 
+func TestTranscriptScrollAndComposerSizing(t *testing.T) {
+	model := NewModel(testConfig())
+	model.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"}}
+	for i := 0; i < 20; i++ {
+		model.transcript = append(model.transcript, transcriptEntry{Role: "assistant", Text: strings.Repeat("line ", 20)})
+	}
+	model.resize()
+
+	if model.composer.Height() < 4 {
+		t.Fatalf("composer height too small: %d", model.composer.Height())
+	}
+	model.transcriptVP.GotoTop()
+	start := model.transcriptVP.YOffset()
+	updated, _ := model.Update(keyPress("pgdown"))
+	model = updated.(Model)
+	if model.transcriptVP.YOffset() <= start {
+		t.Fatalf("expected page down to move transcript, got %d -> %d", start, model.transcriptVP.YOffset())
+	}
+	updated, _ = model.Update(keyPress("home"))
+	model = updated.(Model)
+	if model.transcriptVP.YOffset() != 0 {
+		t.Fatalf("expected home to return to top, got %d", model.transcriptVP.YOffset())
+	}
+}
+
 func TestKeyboardNavigationFocusesSettingsAndCyclesProvider(t *testing.T) {
 	model := NewModel(testConfig())
 	model.selected = panelChat
@@ -374,6 +399,10 @@ func keyPress(value string) tea.KeyPressMsg {
 		return tea.KeyPressMsg(tea.Key{Code: tea.KeyRight})
 	case "up":
 		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
+	case "home":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyHome})
+	case "pgdown":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown})
 	case "ctrl+k":
 		return tea.KeyPressMsg(tea.Key{Code: 'k', Mod: tea.ModCtrl})
 	case "ctrl+c":
