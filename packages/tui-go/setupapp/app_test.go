@@ -79,6 +79,26 @@ func TestSlashOverlayListsAllCommandsForBareSlash(t *testing.T) {
 	}
 }
 
+func TestSlashOverlayDoesNotPushComposer(t *testing.T) {
+	model := NewModel(testConfig())
+	model.composer.SetValue("before")
+	baseline := model.StaticView()
+	baseLine := lineIndexContaining(baseline, "❯ before")
+	if baseLine < 0 {
+		t.Fatalf("baseline missing composer\n%s", baseline)
+	}
+
+	model.composer.SetValue("/he")
+	view := model.StaticView()
+	overlayLine := lineIndexContaining(view, "❯ /he")
+	if overlayLine != baseLine {
+		t.Fatalf("overlay pushed composer: baseline=%d overlay=%d\n%s", baseLine, overlayLine, view)
+	}
+	if !strings.Contains(view, "Slash Commands") {
+		t.Fatalf("missing slash overlay\n%s", view)
+	}
+}
+
 func TestTranscriptScrollAndComposerSizing(t *testing.T) {
 	model := NewModel(testConfig())
 	model.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"}}
@@ -102,6 +122,15 @@ func TestTranscriptScrollAndComposerSizing(t *testing.T) {
 	if model.transcriptVP.YOffset() != 0 {
 		t.Fatalf("expected home to return to top, got %d", model.transcriptVP.YOffset())
 	}
+}
+
+func lineIndexContaining(value, needle string) int {
+	for i, line := range strings.Split(value, "\n") {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestKeyboardNavigationFocusesSettingsAndCyclesProvider(t *testing.T) {

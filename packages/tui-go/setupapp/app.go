@@ -1066,7 +1066,7 @@ func (m *Model) refreshTranscript() {
 func (m Model) render() string {
 	theme := styles()
 	top := m.topBrand()
-	body := m.transcriptVP.View()
+	body := m.transcriptWithOverlay()
 	composer := m.composerZone()
 	status := m.statusRule()
 	help := theme.help.Render(m.help.View(m.keys))
@@ -1077,6 +1077,15 @@ func (m Model) render() string {
 		status,
 		help,
 	)
+}
+
+func (m Model) transcriptWithOverlay() string {
+	body := m.transcriptVP.View()
+	overlay := m.overlayView()
+	if overlay == "" {
+		return body
+	}
+	return placeOverlayBottom(body, overlay, m.transcriptVP.Width())
 }
 
 func (m Model) topBrand() string {
@@ -1100,9 +1109,6 @@ func (m Model) composerZone() string {
 	}
 	if m.chatBusy {
 		rows = append(rows, m.streamingPreview())
-	}
-	if overlay := m.overlayView(); overlay != "" {
-		rows = append(rows, overlay)
 	}
 	prompt := theme.prompt.Render("❯")
 	if strings.HasPrefix(strings.TrimSpace(m.composer.Value()), "!") {
@@ -1258,7 +1264,31 @@ func (m Model) overlayView() string {
 			title = "Slash Commands"
 		}
 	}
-	return styles().overlay.Render(styles().sectionTitle.Render(title) + "\n" + body)
+	width := max(28, min(72, m.transcriptVP.Width()-4))
+	return styles().overlay.Width(width).Render(styles().sectionTitle.Render(title) + "\n" + body)
+}
+
+func placeOverlayBottom(base, overlay string, width int) string {
+	if strings.TrimSpace(overlay) == "" {
+		return base
+	}
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	if len(baseLines) == 0 || len(overlayLines) == 0 {
+		return base
+	}
+	if len(overlayLines) > len(baseLines) {
+		overlayLines = overlayLines[len(overlayLines)-len(baseLines):]
+	}
+	start := len(baseLines) - len(overlayLines)
+	placed := strings.Split(lipgloss.PlaceHorizontal(width, lipgloss.Left, strings.Join(overlayLines, "\n")), "\n")
+	for i := range placed {
+		if start+i >= len(baseLines) {
+			break
+		}
+		baseLines[start+i] = placed[i]
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 func section(title, desc, body string) string {
