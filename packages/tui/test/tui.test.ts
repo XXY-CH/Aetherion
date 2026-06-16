@@ -553,10 +553,12 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
 
   assert.match(help.stdout, /ether\n/);
   assert.match(help.stdout, /ether --workspace <path>/);
-  assert.match(help.stdout, /ether\s+Open the read-only setup\/onboarding panel/);
+  assert.match(help.stdout, /ether\s+Open the interactive Ether TUI/);
   assert.match(help.stdout, /V1 core:/);
   assert.match(help.stdout, /npm run ether -- boundary <run_id> --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- onboarding check --workspace <path>/);
+  assert.match(help.stdout, /npm run ether -- model status \[--model-provider <provider>\] \[--model <model_ref>\]/);
+  assert.match(help.stdout, /npm run ether -- model chat --workspace <path> --content <task> \[--model-provider <provider>\] \[--model <model_ref>\]/);
   assert.match(help.stdout, /npm run ether -- doctor --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- ingress audit --workspace <path>/);
   assert.match(help.stdout, /npm run ether -- release evidence --workspace <path>/);
@@ -587,6 +589,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   assert.match(help.stdout, /npm run ether -- audit security-fixtures --workspace <path>/);
   const v1Help = helpSection(help.stdout, "V1 core:", "Post-V1 / experimental local contract labs (not V1 release-critical):");
   assert.match(v1Help, /npm run ether -- run --workspace <path>/);
+  assert.match(v1Help, /npm run ether -- model chat --workspace <path>/);
   assert.match(v1Help, /npm run ether -- ingress audit --workspace <path>/);
   assert.match(v1Help, /npm run ether -- release evidence --workspace <path>/);
   for (const excluded of ["memory", "prompt", "capsule", "agent", "surface", "store", "audit"]) {
@@ -594,7 +597,7 @@ test("TUI help separates V1 core from post-V1 contract surfaces", async () => {
   }
 });
 
-test("Bare Ether opens the read-only setup panel without initializing a workspace", async () => {
+test("Bare Ether opens the interactive session TUI without initializing a workspace", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-setup-empty-"));
 
   const setup = await execFileAsync(process.execPath, [
@@ -603,23 +606,106 @@ test("Bare Ether opens the read-only setup panel without initializing a workspac
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /Ether Operator Console/);
-  assert.match(setup.stdout, /Bubble Tea\/Bubbles/);
+  assert.match(setup.stdout, /AETHERION/);
+  assert.match(setup.stdout, /Local-first Agent Harness Kernel/);
   assert.match(setup.stdout, /command=setup/);
   assert.match(setup.stdout, /default_entry=ether/);
-  assert.match(setup.stdout, /scope=read_only/);
+  assert.match(setup.stdout, /scope=chat/);
+  assert.match(setup.stdout, /layout=hermes_fullscreen_session/);
+  assert.match(setup.stdout, /composer=interactive/);
   assert.match(setup.stdout, /mutates_workspace=false/);
   assert.match(setup.stdout, /initializes_workspace=false/);
   assert.match(setup.stdout, /installs_dependencies=false/);
   assert.match(setup.stdout, /starts_daemon=false/);
-  assert.match(setup.stdout, /operator_panels=Runs,Timeline,Approvals,Context,Replay \/ Debug/);
-  assert.match(setup.stdout, /llm_read_loop=.*operator-restated file read.*fresh supervisor policy/);
-  assert.match(setup.stdout, /runtime\s+not_initialized/);
-  assert.match(setup.stdout, /first run\s+npm run ether -- run --/);
+  assert.match(setup.stdout, /panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue/);
+  assert.match(setup.stdout, /llm_read_loop=.*model chat.*--model-provider stub.*--model stub-deterministic-v1/);
+  assert.match(setup.stdout, /provider=stub/);
+  assert.match(setup.stdout, /credential_resolved=true/);
+  assert.match(setup.stdout, /settings_persisted=false/);
+  assert.match(setup.stdout, /runtime_authority_granted=false/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
-test("Installed Ether bin opens the setup panel without mutating workspace state", async () => {
+test("TUI model status reports provider credentials and aliases", async () => {
+  const status = await execFileAsync(process.execPath, [
+    cliPath,
+    "model",
+    "status",
+    "--model-provider",
+    "openai"
+  ], { env: { ...process.env, OPENAI_API_KEY: "test-key" } });
+
+  const parsed = JSON.parse(status.stdout) as {
+    provider_name: string;
+    provider_ref: string | null;
+    model_ref: string | null;
+    credential_required: boolean;
+    credential_env_refs: string[];
+    credential_resolved: boolean;
+    credential_source: string;
+    network_capable: boolean;
+    runtime_authority_granted: boolean;
+    model_output_can_authorize_actions: boolean;
+  };
+  assert.equal(parsed.provider_name, "openai_responses");
+  assert.equal(parsed.provider_ref, "provider_openai_responses");
+  assert.equal(parsed.model_ref, "gpt-5.4");
+  assert.equal(parsed.credential_required, true);
+  assert.ok(parsed.credential_env_refs.includes("OPENAI_API_KEY"));
+  assert.equal(parsed.credential_resolved, true);
+  assert.equal(parsed.credential_source, "env_present");
+  assert.equal(parsed.network_capable, true);
+  assert.equal(parsed.runtime_authority_granted, false);
+  assert.equal(parsed.model_output_can_authorize_actions, false);
+});
+
+test("TUI model chat calls the provider layer and keeps raw output out of artifacts", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-model-chat-"));
+  const chat = await execFileAsync(process.execPath, [
+    cliPath,
+    "model",
+    "chat",
+    "--workspace",
+    workspace,
+    "--content",
+    "Draft a local implementation plan.",
+    "--model-provider",
+    "stub",
+    "--model",
+    "stub-deterministic-v1"
+  ]);
+
+  const parsed = JSON.parse(chat.stdout) as {
+    source_run_created: boolean;
+    response_id: string;
+    provider_ref: string;
+    model_ref: string;
+    raw_output_printed: boolean;
+    output_text: string;
+    response_audit_status: string;
+    response_audit_evidence_status: string;
+    runtime_authority_granted: boolean;
+    tools_requested: boolean;
+  };
+  assert.equal(parsed.source_run_created, true);
+  assert.equal(parsed.provider_ref, "provider_local_stub");
+  assert.equal(parsed.model_ref, "stub-deterministic-v1");
+  assert.equal(parsed.raw_output_printed, true);
+  assert.match(parsed.output_text, /## Evidence Summary/);
+  assert.equal(parsed.response_audit_status, "pass");
+  assert.equal(parsed.response_audit_evidence_status, "matched");
+  assert.equal(parsed.runtime_authority_granted, false);
+  assert.equal(parsed.tools_requested, false);
+
+  const responseArtifactText = await readFile(join(workspace, ".aetherion", "artifacts", "agent", "model-response", `${parsed.response_id}.json`), "utf8");
+  assert.doesNotMatch(responseArtifactText, /## Evidence Summary/);
+  assert.doesNotMatch(responseArtifactText, /Draft a local implementation plan/);
+  const responseAuditArtifactText = await readFile(join(workspace, ".aetherion", "artifacts", "agent", "response-audit", `${parsed.response_id.replace(/^agent_model_response_/, "agent_response_audit_")}.json`), "utf8");
+  assert.doesNotMatch(responseAuditArtifactText, /## Evidence Summary/);
+  assert.doesNotMatch(responseAuditArtifactText, /Draft a local implementation plan/);
+});
+
+test("Installed Ether bin opens the session TUI without mutating workspace state", async () => {
   const installPrefix = await mkdtemp(join(tmpdir(), "aetherion-tui-bin-install-"));
   const workspace = await mkdtemp(join(tmpdir(), "aetherion-tui-bin-workspace-"));
   await execFileAsync("npm", [
@@ -636,13 +722,22 @@ test("Installed Ether bin opens the setup panel without mutating workspace state
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /Ether Operator Console/);
-  assert.match(setup.stdout, /Bubble Tea\/Bubbles/);
+  assert.match(setup.stdout, /AETHERION/);
+  assert.match(setup.stdout, /Local-first Agent Harness Kernel/);
   assert.match(setup.stdout, /command=setup/);
   assert.match(setup.stdout, /default_entry=ether/);
+  assert.match(setup.stdout, /scope=chat/);
+  assert.match(setup.stdout, /layout=hermes_fullscreen_session/);
+  assert.match(setup.stdout, /composer=interactive/);
   assert.match(setup.stdout, /mutates_workspace=false/);
-  assert.match(setup.stdout, /operator_panels=Runs,Timeline,Approvals,Context,Replay \/ Debug/);
-  assert.match(setup.stdout, /runtime\s+not_initialized/);
+  assert.match(setup.stdout, /initializes_workspace=false/);
+  assert.match(setup.stdout, /starts_daemon=false/);
+  assert.match(setup.stdout, /panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue/);
+  assert.match(setup.stdout, /llm_read_loop=.*model chat.*--model-provider stub.*--model stub-deterministic-v1/);
+  assert.match(setup.stdout, /provider=stub/);
+  assert.match(setup.stdout, /credential_resolved=true/);
+  assert.match(setup.stdout, /settings_persisted=false/);
+  assert.match(setup.stdout, /runtime_authority_granted=false/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 

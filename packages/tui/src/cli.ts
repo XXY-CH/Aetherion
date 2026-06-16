@@ -15,7 +15,7 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage, type StoreReplayEvidenceRecord } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWorkspace, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, writeWorkspaceRegistry, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
 
 type CliOptions = {
   command: string;
@@ -59,10 +59,13 @@ type CliOptions = {
   idempotencyKey?: string;
   checkWakeups: boolean;
   printOutput: boolean;
+  modelProvider?: ModelProviderName;
+  modelRef?: string;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 let activeOptions: CliOptions | undefined;
+type ModelProviderName = "stub" | "openai_responses" | "openai_chat_completions" | "anthropic" | "gemini";
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -318,6 +321,16 @@ function parseArgs(args: string[]): CliOptions {
       case "--print-output":
         options.printOutput = true;
         break;
+      case "--model-provider": {
+        const provider = parseModelProviderName(requireValue(arg, next));
+        options.modelProvider = provider;
+        index += 1;
+        break;
+      }
+      case "--model":
+        options.modelRef = requireValue(arg, next);
+        index += 1;
+        break;
       default:
         if (!arg.startsWith("--")) {
           continue;
@@ -331,7 +344,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token", "--remote-evidence", "--idempotency-key"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token", "--remote-evidence", "--idempotency-key", "--model-provider", "--model"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -362,6 +375,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       return true;
     case "prompt":
       await runPrompt(options);
+      return true;
+    case "model":
+      await runModel(options);
       return true;
     case "checkpoint":
       await runCheckpoint(options);
@@ -450,7 +466,7 @@ async function runSetup(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   const report = await buildOnboardingPreflightReport(workspaceRoot);
   const interactive = shouldPromptSetup();
-  const config = setupTuiConfig(report, interactive);
+  const config = setupTuiConfig(report, interactive, options);
   const input = `${JSON.stringify(config)}\n`;
   const goArgs = ["run", "./packages/tui-go/cmd/ether-setup"];
 
@@ -508,8 +524,9 @@ function writeSetupConfigFile(input: string): string {
   return file;
 }
 
-function setupTuiConfig(report: OnboardingPreflightReport, interactive = shouldPromptSetup()): Record<string, unknown> {
+function setupTuiConfig(report: OnboardingPreflightReport, interactive = shouldPromptSetup(), options?: Pick<CliOptions, "modelProvider" | "modelRef">): Record<string, unknown> {
   const workspaceRoot = report.workspace_root;
+  const modelStatus = buildModelStatus(options ?? {});
   return {
     Snapshot: report,
     NonInteractive: !interactive,
@@ -519,7 +536,8 @@ function setupTuiConfig(report: OnboardingPreflightReport, interactive = shouldP
     SecurityCommand: setupCommand("security audit --workspace", workspaceRoot),
     ReleaseCommand: setupCommand("release evidence --workspace", workspaceRoot),
     RunCommand: `${setupCommand("run --workspace", workspaceRoot)} --input README.md --output .aetherion/SUMMARY.md --approve-write`,
-    LLMReadLoopCommand: "next slice: prompt invoke-model -> response audit -> operator-restated file read -> fresh supervisor policy",
+    LLMReadLoopCommand: `${setupCommand("model chat --workspace", workspaceRoot)} --content <task> --model-provider ${modelStatus.provider_name} --model ${modelStatus.model_ref ?? "<model>"}`,
+    ModelStatus: modelStatus,
     DirectEntry: `ether --workspace ${shellQuote(workspaceRoot)}`,
     PackageEntry: `npm run ether -- --workspace ${shellQuote(workspaceRoot)}`
   };
@@ -4876,6 +4894,417 @@ async function runPrompt(options: CliOptions): Promise<void> {
   printRawJson(auditPromptResponse({ plan, response }));
 }
 
+async function runModel(options: CliOptions): Promise<void> {
+  if (options.topic === "status") {
+    printRawJson(buildModelStatus(options));
+    return;
+  }
+  if (options.topic !== "chat") {
+    throw new Error("model supports status and chat <workspace-run> --content <task>");
+  }
+  if (!options.content) {
+    throw new Error("model chat requires --content <task>");
+  }
+
+  const workspaceRoot = resolve(options.workspace);
+  const workspace = await ensureModelChatWorkspace(workspaceRoot);
+  const requestedRunId = options.target?.startsWith("run_") ? options.target : undefined;
+  const runManifest = requestedRunId ? await loadOptionalRunManifest(workspace, requestedRunId) : undefined;
+  let sourceRunId = requestedRunId ?? "";
+  let sourceRunCreated = false;
+
+  if (runManifest) {
+    sourceRunId = runManifest.id;
+  } else {
+    const source = await runSupervisorKernelLoop({
+      repoRoot,
+      workspaceRoot,
+      runId: `run_model_chat_source_${Date.now()}_${randomUUID().slice(0, 8)}`,
+      inputPath: "README.md",
+      outputPath: "AETHERION_MODEL_CHAT_SOURCE.md",
+      approveWrite: true,
+      summaryText: "Model chat source run completed; raw model output is not persisted by this source run."
+    });
+    sourceRunId = source.runId;
+    sourceRunCreated = true;
+  }
+
+  await ensureModelChatMemoryProvenance(workspaceRoot, sourceRunId);
+  const bindingRecord = await bindRuntimeForModelChat(workspaceRoot, sourceRunId, options.content);
+  const prepareRecord = await prepareModelRequestForChat(workspaceRoot, bindingRecord.invocation_id);
+  const invokeRecord = await invokeModelForChat(workspaceRoot, prepareRecord.request_id, options.content, options);
+  const responseId = String(invokeRecord.response_id ?? "");
+  const responseAuditId = String(invokeRecord.response_audit_id ?? "");
+  const responseAuditReport = await auditAgentResponseAuditEvidence(repoRoot, workspaceRoot, await readEvents(await openWorkspace(workspaceRoot)));
+  const responseFinding = responseAuditReport.findings.find((finding) => finding.audit_id === responseAuditId);
+
+  printRawJson({
+    source_run_id: sourceRunId,
+    source_run_created: sourceRunCreated,
+    invocation_id: bindingRecord.invocation_id,
+    request_id: prepareRecord.request_id,
+    response_id: responseId,
+    response_audit_id: responseAuditId,
+    provider_ref: invokeRecord.provider_ref,
+    model_ref: invokeRecord.model_ref,
+    raw_output_printed: invokeRecord.raw_output_printed,
+    output_text: invokeRecord.output_text ?? null,
+    output_text_sha256: invokeRecord.output_text_sha256,
+    response_payload_sha256: invokeRecord.response_payload_sha256,
+    response_audit_evidence_status: responseFinding?.status ?? "missing",
+    runtime_authority_granted: Boolean(invokeRecord.runtime_authority_granted),
+    tools_requested: Boolean(invokeRecord.tools_requested),
+    response_audit_required: Boolean(invokeRecord.response_audit_required),
+    response_audit_status: invokeRecord.response_audit_status,
+    response_audit_forbidden_claims: invokeRecord.response_audit_forbidden_claims,
+    response_audit_missing_blocks: invokeRecord.response_audit_missing_blocks,
+    response_audit_missing_citations: invokeRecord.response_audit_missing_citations
+  });
+}
+
+type ModelStatusReport = {
+  schema_version: "aetherion-ether-model-status-v1";
+  provider_name: string;
+  provider_ref: string | null;
+  model_ref: string | null;
+  network_capable: boolean;
+  credential_required: boolean;
+  credential_env_refs: string[];
+  credential_resolved: boolean;
+  credential_source: "not_required" | "env_present" | "missing" | "invalid_provider";
+  provider_error: string | null;
+  raw_secret_persisted: false;
+  settings_persisted: false;
+  tools_allowed: false;
+  runtime_authority_granted: false;
+  model_output_can_authorize_actions: false;
+};
+
+function buildModelStatus(options: Pick<CliOptions, "modelProvider" | "modelRef">, env: Record<string, string | undefined> = process.env): ModelStatusReport {
+  const providerName = canonicalModelProviderName(options.modelProvider ?? env.AETHERION_MODEL_PROVIDER ?? "stub");
+  const credentialEnvRefs = credentialEnvRefsForProvider(providerName);
+  const credentialResolved = credentialEnvRefs.some((name) => typeof env[name] === "string" && env[name] !== "");
+  try {
+    const provider = resolveModelProvider({
+      providerName,
+      modelRef: options.modelRef,
+      env
+    });
+    const credentialRequired = credentialEnvRefs.length > 0;
+    return {
+      schema_version: "aetherion-ether-model-status-v1",
+      provider_name: providerName,
+      provider_ref: provider.provider_ref,
+      model_ref: provider.model_ref,
+      network_capable: provider.network_capable,
+      credential_required: credentialRequired,
+      credential_env_refs: credentialEnvRefs,
+      credential_resolved: !credentialRequired || credentialResolved,
+      credential_source: credentialRequired ? credentialResolved ? "env_present" : "missing" : "not_required",
+      provider_error: null,
+      raw_secret_persisted: false,
+      settings_persisted: false,
+      tools_allowed: false,
+      runtime_authority_granted: false,
+      model_output_can_authorize_actions: false
+    };
+  } catch (error) {
+    return {
+      schema_version: "aetherion-ether-model-status-v1",
+      provider_name: providerName,
+      provider_ref: null,
+      model_ref: options.modelRef ?? env.AETHERION_MODEL_REF ?? null,
+      network_capable: false,
+      credential_required: credentialEnvRefs.length > 0,
+      credential_env_refs: credentialEnvRefs,
+      credential_resolved: false,
+      credential_source: "invalid_provider",
+      provider_error: error instanceof Error ? error.message : String(error),
+      raw_secret_persisted: false,
+      settings_persisted: false,
+      tools_allowed: false,
+      runtime_authority_granted: false,
+      model_output_can_authorize_actions: false
+    };
+  }
+}
+
+function credentialEnvRefsForProvider(providerName: string): string[] {
+  switch (canonicalModelProviderName(providerName)) {
+    case "openai_responses":
+    case "openai_chat_completions":
+      return ["OPENAI_API_KEY", "OPENAI_OAUTH_ACCESS_TOKEN"];
+    case "anthropic":
+      return ["ANTHROPIC_API_KEY"];
+    case "gemini":
+      return ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_OAUTH_ACCESS_TOKEN", "GOOGLE_OAUTH_ACCESS_TOKEN"];
+    default:
+      return [];
+  }
+}
+
+function canonicalModelProviderName(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  switch (normalized) {
+    case "openai":
+    case "openai_response":
+    case "openai_responses":
+    case "responses":
+      return "openai_responses";
+    case "openai_chat":
+    case "openai_chat_completion":
+    case "openai_chat_completions":
+    case "openai_completion":
+    case "openai_completions":
+    case "chat_completions":
+      return "openai_chat_completions";
+    case "google":
+    case "google_gemini":
+    case "gemini_generate_content":
+      return "gemini";
+    default:
+      return normalized;
+  }
+}
+
+function parseModelProviderName(value: string): ModelProviderName {
+  const providerName = canonicalModelProviderName(value);
+  if (providerName === "stub" || providerName === "openai_responses" || providerName === "openai_chat_completions" || providerName === "anthropic" || providerName === "gemini") {
+    return providerName;
+  }
+  throw new Error("--model-provider must be stub, openai_responses, openai_chat_completions, anthropic, or gemini");
+}
+
+async function ensureModelChatWorkspace(workspaceRoot: string): Promise<Awaited<ReturnType<typeof openWorkspace>>> {
+  mkdirSync(workspaceRoot, { recursive: true });
+  const readmePath = join(workspaceRoot, "README.md");
+  if (!existsSync(readmePath)) {
+    writeFileSync(readmePath, "# Aetherion workspace\n\nCreated by Ether onboarding for local model chat context.\n", { encoding: "utf8" });
+  }
+  try {
+    return await openWorkspace(workspaceRoot);
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
+    const workspace = await createWorkspace(workspaceRoot, workspaceIdForRoot(workspaceRoot));
+    await writeWorkspaceRegistry(repoRoot, workspace, "rust-supervisor");
+    return workspace;
+  }
+}
+
+async function ensureModelChatMemoryProvenance(workspaceRoot: string, sourceRunId: string): Promise<void> {
+  const workspace = await openWorkspace(workspaceRoot);
+  const existing = readRegistry(workspaceRoot, "memory-cards").filter(isMemoryCard);
+  if (existing.some((memory) => memory.id === `mem_${sourceRunId}_episode`)) {
+    return;
+  }
+  const candidates = deriveMemoryCandidatesFromEvents(await readEvents(workspace), sourceRunId);
+  if (candidates.length === 0) {
+    throw new Error(`No memory candidates can be derived from model chat source run ${sourceRunId}`);
+  }
+  for (const candidate of candidates) {
+    await recordMemoryLifecycleEvent(
+      workspaceRoot,
+      "memory.candidate.created",
+      "candidates",
+      candidate.id,
+      candidate,
+      `Recorded Memory Candidate ${candidate.id} from model chat source run ${sourceRunId}; registry projection is updated after the Ledger fact.`
+    );
+  }
+  upsertRegistryItems(workspaceRoot, "memory-candidates", candidates.map(registryItem));
+  const episodeId = `memcand_${sourceRunId}_episode`;
+  const { candidate, card } = acceptCandidateFromRegistry(candidates, episodeId);
+  await requireValidContract("memory-card.schema.json", card);
+  await recordMemoryLifecycleEvent(
+    workspaceRoot,
+    "memory.accepted",
+    "accept",
+    card.id,
+    card,
+    `Accepted model chat Memory Candidate ${candidate.id} as Memory Card ${card.id}; registry projection is updated after the Ledger fact.`
+  );
+  upsertRegistryItem(workspaceRoot, "memory-candidates", registryItem(candidate));
+  upsertRegistryItem(workspaceRoot, "memory-cards", registryItem(card));
+}
+
+async function bindRuntimeForModelChat(workspaceRoot: string, sourceRunId: string, task: string): Promise<{
+  invocation_id: string;
+  artifact_ref: string;
+  binding_run_id: string;
+  binding_event_id: string;
+}> {
+  const { workspace, plan } = await assemblePromptPlanForRun(workspaceRoot, sourceRunId, task);
+  const invocation = createAgentRuntimeInvocationArtifact(plan);
+  const artifactRef = await writeAgentRuntimeInvocationArtifact(repoRoot, workspace, invocation);
+  const bindingRunId = `run_runtime_binding_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Bound ${invocation.id} for source run ${sourceRunId}; no model, tool, or runtime authority was granted.`;
+  const manifest = await createRunManifest(repoRoot, workspace, bindingRunId, summary);
+  const bindingEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.runtime.bound", summary, artifactRef);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "agent.runtime.bound", payload_ref: artifactRef }
+  ]);
+  return {
+    invocation_id: invocation.id,
+    artifact_ref: artifactRef,
+    binding_run_id: bindingRunId,
+    binding_event_id: bindingEventId
+  };
+}
+
+async function prepareModelRequestForChat(workspaceRoot: string, invocationId: string): Promise<{ request_id: string }> {
+  const workspace = await openWorkspace(workspaceRoot);
+  const invocation = await readAgentRuntimeInvocationArtifact(workspaceRoot, invocationId);
+  if (!invocation) {
+    throw new Error(`Agent Runtime Invocation artifact ${invocationId} not found`);
+  }
+  const invocationRef = agentRuntimeInvocationArtifactRef(invocation.id);
+  const bindingEvent = (await readEvents(workspace)).find((event) =>
+    event.event_type === "agent.runtime.bound" && event.payload_ref === invocationRef
+  );
+  if (!bindingEvent) {
+    throw new Error(`Agent Runtime Invocation ${invocationId} has no agent.runtime.bound Ledger evidence`);
+  }
+  const requestId = `agent_model_request_${sanitizePathSegment(invocation.run_id)}_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const request = createAgentModelRequestArtifact(invocation, requestId);
+  const requestRef = await writeAgentModelRequestArtifact(repoRoot, workspace, request);
+  const requestRunId = `run_model_request_${sanitizePathSegment(invocation.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Prepared no-tools model request metadata for ${invocation.id}; no provider, network, tool, lease, or runtime authority was used.`;
+  const manifest = await createRunManifest(repoRoot, workspace, requestRunId, summary);
+  await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.model.requested", summary, requestRef);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "agent.model.requested", payload_ref: requestRef }
+  ]);
+  return { request_id: request.id };
+}
+
+async function invokeModelForChat(workspaceRoot: string, requestId: string, task: string, options: CliOptions): Promise<Record<string, unknown>> {
+  const request = await readAgentModelRequestArtifact(workspaceRoot, requestId);
+  if (!request) {
+    throw new Error(`Agent Model Request artifact ${requestId} not found`);
+  }
+  const requestRef = agentModelRequestArtifactRef(request.id);
+  const workspace = await openWorkspace(workspaceRoot);
+  const ledger = await readEvents(workspace);
+  const requestEvent = ledger.find((event) => event.event_type === "agent.model.requested" && event.payload_ref === requestRef);
+  if (!requestEvent) {
+    throw new Error(`Agent Model Request ${requestId} has no agent.model.requested Ledger evidence`);
+  }
+  const { plan } = await assemblePromptPlanForRun(workspaceRoot, request.run_id, task);
+  assertPromptMatchesBoundRequest(plan, request);
+
+  const provider = resolveModelProvider({
+    providerName: options.modelProvider,
+    modelRef: options.modelRef
+  });
+  const messages: ModelMessage[] = plan.messages.map((message) => ({ role: message.role, content: message.content }));
+  const result = await provider.invoke({
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_mode: request.request.output_mode,
+    messages,
+    max_output_tokens: 1024,
+    response_contract: {
+      required_blocks: plan.response_format.required_blocks.map((block) => ({ id: block.id, title: block.title })),
+      required_citation_ids: plan.response_audit_contract.required_citation_ids
+    }
+  });
+
+  const outputTextSha = sha256Hex(result.output_text);
+  const responsePayloadSha = sha256Hex(stableResponsePayload(result));
+  const responseId = modelResponseIdForRequest(request.id);
+  const response = createAgentModelResponseArtifact({
+    request,
+    responseId,
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    output_text_sha256: outputTextSha,
+    response_payload_sha256: responsePayloadSha,
+    finish_reason: result.finish_reason,
+    refusal_present: result.refusal_present,
+    tool_calls_present: result.tool_calls_present,
+    usage: result.usage
+  });
+  const responseRef = await writeAgentModelResponseArtifact(repoRoot, workspace, response);
+  const responseRunId = `run_model_response_${sanitizePathSegment(request.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const summary = `Recorded model response ${response.id} for ${request.id}; output is hash-only evidence, requires response audit, and cannot authorize actions.`;
+  const manifest = await createRunManifest(repoRoot, workspace, responseRunId, summary);
+  const responseEventId = await appendManagedRunEvent(workspaceRoot, workspace, manifest, "agent.model.responded", summary, responseRef);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, manifest, "completed", [
+    { event_type: "agent.model.responded", payload_ref: responseRef }
+  ]);
+
+  const audit = auditPromptResponse({ plan, response: result.output_text });
+  const auditId = responseAuditIdForResponse(response.id);
+  const auditArtifact = createAgentResponseAuditArtifact({
+    response,
+    auditId,
+    status: audit.status,
+    required_block_ids: audit.required_block_ids,
+    present_block_ids: audit.present_block_ids,
+    missing_block_ids: audit.missing_block_ids,
+    required_citation_ids: audit.required_citation_ids,
+    cited_source_event_ids: audit.cited_source_event_ids,
+    missing_citation_ids: audit.missing_citation_ids,
+    unknown_source_event_ids: audit.unknown_source_event_ids,
+    forbidden_claims_detected: audit.forbidden_claims_detected,
+    findings: audit.findings,
+    next_steps: audit.next_steps
+  });
+  const auditRef = await writeAgentResponseAuditArtifact(repoRoot, workspace, auditArtifact);
+  const auditRunId = `run_response_audit_${sanitizePathSegment(request.run_id)}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const auditSummary = `Recorded local response audit ${auditArtifact.id} for ${response.id}; audit output is non-authorizing and is not runtime verification.`;
+  const auditManifest = await createRunManifest(repoRoot, workspace, auditRunId, auditSummary);
+  const auditEventId = await appendManagedRunEvent(workspaceRoot, workspace, auditManifest, "agent.response.audit.recorded", auditSummary, auditRef);
+  await completeRunManifestWithEventSequence(repoRoot, workspace, auditManifest, "completed", [
+    { event_type: "agent.response.audit.recorded", payload_ref: auditRef }
+  ]);
+
+  return promptInvokeModelConsoleOutput({
+    response_id: response.id,
+    request_id: request.id,
+    source_run_id: request.run_id,
+    invocation_id: request.runtime_invocation_id,
+    request_artifact_ref: requestRef,
+    request_event_id: requestEvent.id,
+    response_artifact_ref: responseRef,
+    expected_response_artifact_ref: agentModelResponseArtifactRef(response.id),
+    response_run_id: responseRunId,
+    response_event_id: responseEventId,
+    response_audit_id: auditArtifact.id,
+    response_audit_artifact_ref: auditRef,
+    expected_response_audit_artifact_ref: agentResponseAuditArtifactRef(auditArtifact.id),
+    response_audit_run_id: auditRunId,
+    response_audit_event_id: auditEventId,
+    provider_ref: provider.provider_ref,
+    model_ref: provider.model_ref,
+    network_capable: provider.network_capable,
+    finish_reason: response.response.finish_reason,
+    refusal_present: response.response.refusal_present,
+    tool_calls_present: response.tool_gateway.tool_calls_present,
+    output_text_sha256: response.response.output_text_sha256,
+    response_payload_sha256: response.response.response_payload_sha256,
+    usage: response.usage,
+    model_invoked: true,
+    provider_called: true,
+    credential_resolved: false,
+    raw_response_persisted: false,
+    raw_prompt_persisted: false,
+    tools_requested: false,
+    tool_request_events_appended: false,
+    runtime_authority_granted: false,
+    response_audit_required: true,
+    response_audit_status: audit.status,
+    response_audit_missing_blocks: audit.missing_block_ids,
+    response_audit_missing_citations: audit.missing_citation_ids,
+    response_audit_unknown_source_events: audit.unknown_source_event_ids,
+    response_audit_forbidden_claims: audit.forbidden_claims_detected,
+    response_audit_can_authorize_actions: false,
+    response_audit_is_runtime_verification: false
+  }, result.output_text, { printOutput: true });
+}
+
 async function runPromptPrepareModelRequest(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   const workspace = await openWorkspace(workspaceRoot);
@@ -8841,6 +9270,8 @@ Usage:
   npm run ether -- supervisor recover-stale-lock --workspace <path>
   npm run ether -- supervisor status --workspace <path> --socket-path <socket> [--socket-auth-token <token>]
   npm run ether -- onboarding check --workspace <path>
+  npm run ether -- model status [--model-provider <provider>] [--model <model_ref>]
+  npm run ether -- model chat --workspace <path> --content <task> [--model-provider <provider>] [--model <model_ref>]
   npm run ether -- doctor --workspace <path>
   npm run ether -- ingress audit --workspace <path>
   npm run ether -- release evidence --workspace <path> [--remote-evidence <snapshot.json>]
@@ -8917,11 +9348,12 @@ Usage:
   npm run ether -- ingress audit --workspace <path>
 
 Commands:
-  ether                  Open the read-only setup/onboarding panel
+  ether                  Open the interactive Ether TUI for onboarding, settings, no-tools model chat, daemon status, and replay
   run/replay/trace       Phase 1 local kernel loop and replay
   boundary               Read-only User Boundary card from Ledger and run manifest
   supervisor             Read-only Rust supervisor status/preflight plus fail-closed unsupported lifecycle command reports
   onboarding             Read-only from-source onboarding preflight; no install, repair, daemon start, or workspace mutation
+  model                  V1 no-tools model status/chat path through the provider layer; raw output is stdout/TUI only, persisted artifacts stay hash-only
   doctor                 Read-only production readiness report for repo and workspace invariants
   ingress                Read-only local ingress envelope/rate-limit/idempotency readiness audit; no listener, session, remote connection, or action authority
   release                Read-only local/configured release evidence plus a gh-backed remote snapshot reader; no packaging, signing, publishing, workspace writes, or code-scanning alert query
