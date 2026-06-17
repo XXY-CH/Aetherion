@@ -1,6 +1,7 @@
 package setupapp
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -362,6 +363,18 @@ type Model struct {
 	historyDraft     string
 	overlay          overlayMode
 	runner           CommandRunner
+	// Agent-loop streaming state. Active when tools mode is on; the transcript
+	// renders each LoopEvent as it arrives and y/n resolves a pending approval.
+	toolsMode        bool
+	loopDepth        int
+	loopMaxDepth     int
+	loopTokens       int
+	loopToolCalls    int
+	pendingApproval  *ToolCallProposal
+	stdinWriter      io.WriteCloser
+	streamingCmd     *exec.Cmd
+	streamEvents     chan LoopEvent
+	assistantBuffer  string
 }
 
 func NewModel(cfg Config) Model {
@@ -426,7 +439,8 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 		transcript: []transcriptEntry{
 			{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"},
 		},
-		runner: runner,
+		runner:    runner,
+		toolsMode: true,
 	}
 	model.menu.Select(int(panelChat))
 	model.applyFocus()
@@ -454,6 +468,16 @@ type chatFinishedMsg struct {
 	result ChatResult
 	stderr string
 	err    error
+}
+
+// loopEventMsg carries one decoded agent-loop event for live rendering.
+type loopEventMsg struct {
+	event LoopEvent
+}
+
+// chatStreamDoneMsg signals the streaming subprocess exited.
+type chatStreamDoneMsg struct {
+	err error
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -503,6 +527,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("chat complete: provider=%s audit=%s raw_output_printed=%t", msg.result.ProviderRef, msg.result.ResponseAuditStatus, msg.result.RawOutputPrinted)
 		}
 		m.refreshTranscriptAfterAppend()
+	case loopEventMsg:
+		m.applyLoopEvent(msg.event)
+		m.refreshTranscriptAfterAppend()
+		// Re-arm the stream drain so the next event renders too.
+		cmds = append(cmds, drainStreamEvents(&m))
+	case chatStreamDoneMsg:
+		m.chatBusy = false
+		m.activePrompt = ""
+		m.pendingApproval = nil
+		m.stdinWriter = nil
+		m.streamingCmd = nil
+		if msg.err != nil {
+			m.chatError = msg.err.Error()
+			m.statusMsg = "agent loop stream ended with error"
+			m.transcript = append(m.transcript, transcriptEntry{Role: "error", Text: m.chatError, Meta: "stream"})
+		} else {
+			m.statusMsg = fmt.Sprintf("agent loop complete: turns=%d tools=%d tokens=%d", m.loopDepth, m.loopToolCalls, m.loopTokens)
+		}
+		m.refreshTranscriptAfterAppend()
 	case tea.KeyPressMsg:
 		switch {
 		case isCtrlC(msg):
@@ -520,6 +563,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case isCtrlD(msg):
 			return m, tea.Quit
+		case m.pendingApproval != nil && (msg.String() == "y" || msg.String() == "Y"):
+			m.resolveApproval(true)
+			m.statusMsg = "approval: approved"
+			m.refreshTranscriptAfterAppend()
+			return m, tea.Batch(cmds...)
+		case m.pendingApproval != nil && (msg.String() == "n" || msg.String() == "N"):
+			m.resolveApproval(false)
+			m.statusMsg = "approval: denied"
+			m.refreshTranscriptAfterAppend()
+			return m, tea.Batch(cmds...)
 		case key.Matches(msg, m.keys.Newline):
 			updated, cmd := m.updateFocusedInput(msg)
 			m = updated
@@ -822,8 +875,17 @@ func (m *Model) beginChat(task, provider, modelRef string, resetComposer bool) t
 	m.completionIdx = -1
 	m.transcriptUnread = 0
 	m.overlay = overlayNone
-	m.statusMsg = fmt.Sprintf("chat running: provider=%s model=%s", emptyAs(provider, "stub"), emptyAs(modelRef, "default"))
 	m.refreshTranscriptToBottom()
+	// When tools mode is on, launch the streaming agent-loop subprocess and
+	// drain JSON-lines events. Otherwise fall back to the one-shot runner path
+	// (used by tests with an injected CommandRunner mock).
+	if m.toolsMode {
+		m.statusMsg = fmt.Sprintf("agent loop running: provider=%s model=%s", emptyAs(provider, "stub"), emptyAs(modelRef, "default"))
+		updated, drainCmd := runStreamingChatCommand(*m, m.cfg.Snapshot.WorkspaceRoot, task, provider, modelRef)
+		*m = updated
+		return drainCmd
+	}
+	m.statusMsg = fmt.Sprintf("chat running: provider=%s model=%s", emptyAs(provider, "stub"), emptyAs(modelRef, "default"))
 	return runChatCommand(m.runner, m.cfg.Snapshot.WorkspaceRoot, task, provider, modelRef)
 }
 
@@ -975,6 +1037,203 @@ func runChatCommand(runner CommandRunner, workspaceRoot, task, provider, modelRe
 		}
 		return chatFinishedMsg{result: parsed, stderr: result.Stderr}
 	}
+}
+
+// runStreamingChatCommand launches the TS agent-loop subprocess with a piped
+// stdin (for approvals) and stdout (for JSON-lines events). It returns a tea.Cmd
+// that scans stdout line by line, emitting one loopEventMsg per event and a
+// terminal chatStreamDoneMsg. The caller stores the stdin writer on the Model
+// so approval keys can write decisions back.
+func runStreamingChatCommand(m Model, workspaceRoot, task, provider, modelRef string) (Model, tea.Cmd) {
+	args := []string{
+		"packages/tui/src/cli.ts",
+		"model",
+		"chat",
+		"--workspace",
+		workspaceRoot,
+		"--content",
+		task,
+		"--tools",
+		"--output-format",
+		"jsonl",
+		"--interactive",
+	}
+	if provider != "" {
+		args = append(args, "--model-provider", provider)
+	}
+	if modelRef != "" {
+		args = append(args, "--model", modelRef)
+	}
+	cmd := exec.Command("node", args...)
+	cmd.Env = os.Environ()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		m.chatBusy = false
+		m.chatError = err.Error()
+		return m, func() tea.Msg { return chatStreamDoneMsg{err: err} }
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		m.chatBusy = false
+		m.chatError = err.Error()
+		return m, func() tea.Msg { return chatStreamDoneMsg{err: err} }
+	}
+	if startErr := cmd.Start(); startErr != nil {
+		m.chatBusy = false
+		m.chatError = startErr.Error()
+		return m, func() tea.Msg { return chatStreamDoneMsg{err: startErr} }
+	}
+	m.stdinWriter = stdin
+	m.streamingCmd = cmd
+	m.toolsMode = true
+	m.loopDepth = 0
+	m.loopMaxDepth = 0
+	m.loopTokens = 0
+	m.loopToolCalls = 0
+	m.assistantBuffer = ""
+
+	// The scanner goroutine copies decoded events into a buffered channel. The
+	// drainCmd reads one event at a time (returning loopEventMsg) and is re-armed
+	// after each Update so the stream renders incrementally.
+	events := make(chan LoopEvent, 64)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			if event, ok := DecodeLoopEvent(line); ok {
+				events <- event
+			}
+		}
+		close(events)
+	}()
+	m.streamEvents = events
+	return m, drainStreamEvents(&m)
+}
+
+// drainStreamEvents returns a Cmd that pulls the next event off the stream
+// channel. On channel close it waits for the subprocess and reports completion.
+func drainStreamEvents(m *Model) tea.Cmd {
+	return func() tea.Msg {
+		if m.streamEvents == nil {
+			return chatStreamDoneMsg{}
+		}
+		event, open := <-m.streamEvents
+		if !open {
+			waitErr := error(nil)
+			if m.streamingCmd != nil {
+				waitErr = m.streamingCmd.Wait()
+			}
+			return chatStreamDoneMsg{err: waitErr}
+		}
+		return loopEventMsg{event: event}
+	}
+}
+
+// applyLoopEvent renders a single agent-loop event into the transcript and
+// updates loop counters. Called from the loopEventMsg case in Update.
+func (m *Model) applyLoopEvent(event LoopEvent) {
+	switch event.Type {
+	case "loop_started":
+		m.loopMaxDepth = event.MaxLoopDepth
+		m.statusMsg = fmt.Sprintf("agent loop started: max turns=%d", event.MaxLoopDepth)
+	case "turn_started":
+		m.loopDepth = event.Depth
+		m.assistantBuffer = ""
+	case "assistant_text":
+		m.assistantBuffer += event.Content
+	case "assistant_text_done":
+		text := event.Content
+		if len(strings.TrimSpace(text)) == 0 {
+			text = m.assistantBuffer
+		}
+		if strings.TrimSpace(text) != "" {
+			meta := "assistant"
+			if event.Usage != nil {
+				meta = fmt.Sprintf("assistant · %d tok", event.Usage.TotalTokens)
+				m.loopTokens += event.Usage.TotalTokens
+			}
+			m.transcript = append(m.transcript, transcriptEntry{Role: "assistant", Text: text, Meta: meta})
+		}
+		m.assistantBuffer = ""
+	case "tool_executing":
+		m.transcript = append(m.transcript, transcriptEntry{
+			Role: "tool",
+			Text: fmt.Sprintf("🔧 %s(%s)", event.ToolName, shortPath(event.Path)),
+			Meta: "executing",
+		})
+	case "tool_result":
+		success := "✓"
+		if !event.Success {
+			success = "✗"
+		}
+		m.transcript = append(m.transcript, transcriptEntry{
+			Role: "tool",
+			Text: fmt.Sprintf("📋 %s %s\n%s", event.ToolName, success, previewResult(event.Result)),
+			Meta: "result",
+		})
+		m.loopToolCalls++
+	case "tool_proposal":
+		m.pendingApproval = event.Proposal
+		m.transcript = append(m.transcript, transcriptEntry{
+			Role: "approval",
+			Text: fmt.Sprintf("⚠️ Approve %s on %s? [%s] [y/n]", event.Proposal.ToolName, shortPath(event.Proposal.Path), event.Proposal.RiskLevel),
+			Meta: "awaiting approval",
+		})
+	case "tool_approved":
+		m.pendingApproval = nil
+		m.transcript = append(m.transcript, transcriptEntry{Role: "approval", Text: "✓ approved", Meta: "approval"})
+	case "tool_denied":
+		m.pendingApproval = nil
+		m.transcript = append(m.transcript, transcriptEntry{Role: "approval", Text: "✗ denied: " + event.Reason, Meta: "approval"})
+	case "policy_denied":
+		m.transcript = append(m.transcript, transcriptEntry{Role: "error", Text: fmt.Sprintf("🚫 policy denied %s: %s", event.ToolName, event.Reason), Meta: "policy"})
+	case "loop_complete":
+		m.loopTokens = event.TotalTokens
+		m.loopToolCalls = event.TotalToolCalls
+		if strings.TrimSpace(event.FinalText) != "" {
+			m.transcript = append(m.transcript, transcriptEntry{Role: "assistant", Text: event.FinalText, Meta: "final"})
+		}
+	case "error":
+		m.transcript = append(m.transcript, transcriptEntry{Role: "error", Text: "⛔ " + event.Message, Meta: event.Code})
+	}
+}
+
+// resolveApproval writes the y/n decision to the subprocess stdin and clears the
+// pending approval card. Called when the user presses y or n during a proposal.
+func (m *Model) resolveApproval(approve bool) {
+	if m.pendingApproval == nil || m.stdinWriter == nil {
+		return
+	}
+	decision := ApprovalDecision{
+		Approve:    approve,
+		ProposalID: m.pendingApproval.ProposalID,
+	}
+	if !approve {
+		decision.Reason = "user denied in TUI"
+	}
+	line := EncodeApprovalDecision(decision) + "\n"
+	_, _ = io.WriteString(m.stdinWriter, line)
+	if !approve {
+		m.pendingApproval = nil
+	}
+}
+
+func shortPath(path string) string {
+	if len(path) <= 48 {
+		return path
+	}
+	return "…" + path[len(path)-47:]
+}
+
+func previewResult(result string) string {
+	if len(result) <= 240 {
+		return result
+	}
+	return result[:240] + "\n…[truncated]"
 }
 
 func (m Model) View() tea.View {
@@ -1232,8 +1491,25 @@ func (m Model) streamingPreview() string {
 	if !m.chatBusy {
 		return ""
 	}
+	theme := styles()
+	if m.toolsMode {
+		approval := ""
+		if m.pendingApproval != nil {
+			approval = " · ⚠️ awaiting approval [y/n]"
+		}
+		text := fmt.Sprintf("%s agent loop · turn %d/%d · tools %d · tokens %d · %s%s",
+			m.spinner.View(),
+			m.loopDepth, m.loopMaxDepth,
+			m.loopToolCalls, m.loopTokens,
+			truncateForPanel(m.activePrompt, 64),
+			approval)
+		if m.pendingApproval != nil {
+			return theme.warn.Render(text)
+		}
+		return theme.streaming.Render(text)
+	}
 	text := fmt.Sprintf("%s streaming/status: provider call running · active prompt=%s · response/audit artifacts hash-only", m.spinner.View(), truncateForPanel(m.activePrompt, 96))
-	return styles().streaming.Render(text)
+	return theme.streaming.Render(text)
 }
 
 func (m Model) statusRule() string {
@@ -1525,6 +1801,10 @@ func messageBlock(entry transcriptEntry) string {
 		return theme.response.Render(body)
 	case "error":
 		return theme.error.Render(body)
+	case "tool":
+		return theme.muted.Render(body)
+	case "approval":
+		return theme.warn.Render(body)
 	default:
 		return theme.transcript.Render(body)
 	}

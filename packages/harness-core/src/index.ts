@@ -14,6 +14,8 @@ export * from "./registry.ts";
 export * from "./run-local.ts";
 export * from "./run-supervisor.ts";
 export * from "./schema.ts";
+export * from "./agent-loop.ts";
 export * from "./supervisor-client.ts";
+export * from "./tool-registry.ts";
 export * from "./verify.ts";
 export * from "./workspace.ts";

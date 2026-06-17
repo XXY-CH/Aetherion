@@ -245,6 +245,7 @@ func TestBusyChatQueuesAndDrainsNextPrompt(t *testing.T) {
 	}
 
 	model := NewModelWithRunner(testConfig(), runner)
+	model.toolsMode = false
 	model.composer.SetValue("first prompt")
 	cmd := model.startChat()
 	if cmd == nil {
@@ -330,6 +331,7 @@ func TestChatSubmitRunsModelChatCommand(t *testing.T) {
 	}
 
 	model := NewModelWithRunner(testConfig(), runner)
+	model.toolsMode = false
 	model.selected = panelChat
 	model.menu.Select(int(panelChat))
 	model.composer.SetValue("Draft a local implementation plan.")
@@ -365,6 +367,7 @@ func TestChatSubmitReportsRunnerError(t *testing.T) {
 		return CommandResult{Stderr: "missing credential", Err: errors.New("exit status 1")}
 	}
 	model := NewModelWithRunner(testConfig(), runner)
+	model.toolsMode = false
 	model.selected = panelChat
 	model.composer.SetValue("Use a live provider.")
 	cmd := model.startChat()
@@ -502,3 +505,78 @@ func assertArgsContain(t *testing.T, got []string, want ...string) {
 		}
 	}
 }
+
+func TestDecodeLoopEventParsesAllEventTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		wantType string
+	}{
+		{"loop_started", `{"type":"loop_started","runId":"run_1","maxLoopDepth":10}`, "loop_started"},
+		{"turn_started", `{"type":"turn_started","depth":1}`, "turn_started"},
+		{"assistant_text", `{"type":"assistant_text","content":"hello"}`, "assistant_text"},
+		{"tool_result", `{"type":"tool_result","toolCallId":"c1","toolName":"local_file_read","path":"/x/README.md","result":"# hi","success":true}`, "tool_result"},
+		{"tool_proposal", `{"type":"tool_proposal","proposal":{"proposalId":"p1","toolName":"local_file_write","path":"/x/a.md","riskLevel":"L3"}}`, "tool_proposal"},
+		{"loop_complete", `{"type":"loop_complete","totalToolCalls":2,"totalTokens":300,"finalText":"done"}`, "loop_complete"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			event, ok := DecodeLoopEvent(tc.line)
+			if !ok {
+				t.Fatalf("expected ok decode for %s", tc.name)
+			}
+			if event.Type != tc.wantType {
+				t.Fatalf("type=%s want=%s", event.Type, tc.wantType)
+			}
+		})
+	}
+	// Malformed lines are rejected, not fatal.
+	if _, ok := DecodeLoopEvent("not json"); ok {
+		t.Fatal("expected malformed line to be rejected")
+	}
+	if _, ok := DecodeLoopEvent(`{"noType":true}`); ok {
+		t.Fatal("expected missing type to be rejected")
+	}
+}
+
+func TestApplyLoopEventRendersToolAndApprovalBlocks(t *testing.T) {
+	model := NewModel(testConfig())
+	model.applyLoopEvent(LoopEvent{Type: "loop_started", MaxLoopDepth: 8})
+	if model.loopMaxDepth != 8 {
+		t.Fatalf("loopMaxDepth=%d want 8", model.loopMaxDepth)
+	}
+	model.applyLoopEvent(LoopEvent{Type: "turn_started", Depth: 1})
+	model.applyLoopEvent(LoopEvent{Type: "tool_executing", ToolName: "local_file_read", Path: "/ws/README.md"})
+	model.applyLoopEvent(LoopEvent{Type: "tool_result", ToolName: "local_file_read", Result: "# title", Success: true})
+	if model.loopToolCalls != 1 {
+		t.Fatalf("loopToolCalls=%d want 1", model.loopToolCalls)
+	}
+
+	// Proposal sets pendingApproval and renders an approval block.
+	model.applyLoopEvent(LoopEvent{Type: "tool_proposal", Proposal: &ToolCallProposal{ProposalID: "p1", ToolName: "local_file_write", Path: "/ws/out.md", RiskLevel: "L3"}})
+	if model.pendingApproval == nil {
+		t.Fatal("expected pendingApproval set")
+	}
+	hasApproval := false
+	for _, entry := range model.transcript {
+		if entry.Role == "approval" {
+			hasApproval = true
+		}
+	}
+	if !hasApproval {
+		t.Fatal("expected an approval transcript entry")
+	}
+}
+
+func TestApprovalDecisionEncodingRoundTrips(t *testing.T) {
+	decision := ApprovalDecision{Approve: true, ProposalID: "p1"}
+	line := EncodeApprovalDecision(decision)
+	var decoded ApprovalDecision
+	if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !decoded.Approve || decoded.ProposalID != "p1" {
+		t.Fatalf("decoded=%#v", decoded)
+	}
+}
+

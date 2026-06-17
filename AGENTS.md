@@ -79,36 +79,60 @@ Before claiming completion:
 <claude-mem-context>
 # Memory Context
 
-# [Aetherion] recent context, 2026-06-08 1:23pm GMT+8
+# [Aetherion] recent context, 2026-06-16 10:34pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 6 obs (1,151t read) | 77,157t work | 99% savings
+Stats: 24 obs (5,165t read) | 207,299t work | 98% savings
 
 ### Jun 8, 2026
-**769** 10:38a ✅ **Updated .gitignore to reflect new ignored files**
-Running git status --short --branch revealed that the .gitignore file has been modified locally, indicating changes to ignored patterns that affect which files are tracked by the repository.
-~124t 🛠️ 4,039
-
+769 10:38a ✅ Updated .gitignore to reflect new ignored files
 770 " 🔵 Discovered project structure via rg --files
-**771** " 🔵 **Learned project progress and risks from review**
-The review of the project status shows that Aetherion has advanced beyond initial contract-first proof of concept to a local terminal user interface driven prototype encompassing multiple modules, while the primary risk has shifted from insufficient documentation to overly rapid feature expansion without adequate runtime depth.
-~198t 🔍 12,061
+771 " 🔵 Learned project progress and risks from review
+772 " 🔵 Reviewed README to understand project goals and architecture
+773 " 🔵 Discovered package.json configuration
+774 " ✅ Updated .gitignore to ignore CLAUDE.md
+### Jun 9, 2026
+775 8:56a 🟣 Added test helper functions for child read event sequences
+### Jun 11, 2026
+783 8:27a 🔵 Verified presence of core Aetherion documentation files
+782 " 🔵 Working directory shows local modifications
+784 " 🔵 AGENTS.md modified with 9 insertions and 7 deletions
+781 8:28a 🔵 Audit initiated for Aetherion codebase
+785 8:31a 🔵 Identified core security audit rule categories for Aetherion
+786 " 🔵 No changes observed in the session
+787 8:32a 🔵 Verified presence and content of core Aetherion documentation files
+### Jun 12, 2026
+S204 Implement OpenAI completion and response interfaces, Anthropic interface, Gemini interface, and add OAuth support for all three providers (Jun 12 at 8:09 PM)
+797 8:09p ✅ AGENTS.md modified in working directory
+798 10:49p 🔵 Initial inspection scope defined for Aetherion production readiness
+### Jun 15, 2026
+822 8:19p ⚖️ Untitled
+823 " 🔵 AGENTS.md shows local modifications
+824 " 🔵 Discovered release evidence reporting implementation
+**826** " 🔵 **Discovered bilingual documentation verification implementation**
+While examining lines 3380-3455 of packages/tui/src/cli.ts, the user discovered the implementation of bilingual documentation verification and governance file checks. These functions are used by the doctor's repository health checks to ensure primary documentation has corresponding companion files with reciprocal language links and that all required governance files are present. This directly supports the current step of reviewing docs readiness acceptance criteria and informs the pending implementation of read-only docs deployment readiness checks.
+~285t 🔍 20,928
 
-**772** " 🔵 **Reviewed README to understand project goals and architecture**
-Reading the README revealed that Aetherion aims to be a governed control plane between users, devices, data, tools, and autonomous agents, emphasizing local-first design, human-readable governance, and a split between TypeScript contracts and Rust authority. The project is structured in phases, with a working TUI and Rust supervisor already implemented and further modules providing contract-locked local prototypes.
-~302t 🔍 17,908
+**825** 8:32p 🔵 **Discovered bilingual documentation doctor check**
+While examining the doctor checks implementation in packages/tui/src/cli.ts (lines 2040-2165), the user discovered an existing bilingual documentation verification check. This check ensures primary documentation files have corresponding companion files in the other language (English/Chinese), which directly relates to the current step of reviewing docs readiness acceptance criteria and informs the pending implementation of read-only docs deployment readiness checks.
+~254t 🔍 19,066
 
-**773** " 🔵 **Discovered package.json configuration**
-Inspection of package.json shows that the project is a TypeScript monorepo with a Node version requirement of 25 or higher, and provides npm scripts for running tests (both TypeScript and Rust) and launching the Ether TUI interface via the CLI package.
-~150t 🔍 18,852
+### Jun 16, 2026
+**834** 5:50p 🔵 **Hermes TUI source files not found in Aetherion repository**
+The user ran a recursive glob search to locate the Hermes TUI implementation files for comparison with the existing Go TUI app.go. The search only returned the Go TUI file and the repository's package.json, indicating that the Hermes TUI source files are absent from the current Aetherion repository (or not located under the searched paths). This discovery informs the subsequent analysis that a direct file‑by‑file comparison cannot be performed; instead, the review must rely on the described Hermes TUI structure from documentation or memory.
+~297t 🔍 2,962
 
-**774** " ✅ **Updated .gitignore to ignore CLAUDE.md**
-The .gitignore file was updated to ignore CLAUDE.md, indicating that this file (likely related to Claude AI interactions) should not be tracked in the repository.
-~115t 🛠️ 17,739
+**835** " 🔵 **Searched Hermes agent source for TUI-related patterns**
+The user needed to benchmark Hermes TUI without modifying Aetherion. They cloned the Hermes agent repository into a temporary location and searched for TUI-related keywords to locate relevant source files, such as transcript/history, composer, status/overlay/queue, sidebar/panes, slash commands, history navigation, streaming/status, overlay/queue interactions.
+~195t 🔍 3,888
+
+**843** 5:53p 🔵 **Documentation files identified for alignment check**
+The user requested a read-only inspection of specific documentation files to align with the current demand for a real Go Bubble Tea TUI for ether, onboarding/settings/chat/model workflow, no fake daemon, real provider integration, and V1 TUI-only scope. The executed command listed all matching documentation files in both English and Chinese, confirming their presence for further review.
+~247t 🔍 5,113
 
 
-Access 77k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 207k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

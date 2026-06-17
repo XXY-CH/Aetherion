@@ -53,8 +53,8 @@
       "properties": {
         "model_invoked": { "type": "boolean", "enum": [true] },
         "provider_called": { "type": "boolean", "enum": [true] },
-        "tools_requested": { "type": "boolean", "enum": [false] },
-        "tool_execution_allowed": { "type": "boolean", "enum": [false] },
+        "tools_requested": { "type": "boolean" },
+        "tool_execution_allowed": { "type": "boolean" },
         "raw_response_persisted": { "type": "boolean", "enum": [false] },
         "raw_prompt_persisted": { "type": "boolean", "enum": [false] },
         "raw_payload_artifacts_read": { "type": "boolean", "enum": [false] },

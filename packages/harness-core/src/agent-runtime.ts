@@ -127,7 +127,7 @@ export type AgentModelRequestArtifact = {
   scope: {
     model_invoked: false;
     provider_called: false;
-    tools_requested: false;
+    tools_requested: boolean;
     raw_prompt_persisted: false;
     raw_context_persisted: false;
     raw_payload_artifacts_read: false;
@@ -143,7 +143,7 @@ export type AgentModelRequestArtifact = {
     network_call_attempted: false;
   };
   request: {
-    mode: "no_tools_model_preview";
+    mode: "no_tools_model_preview" | "tool_use_agent_loop";
     output_mode: "plan" | "answer" | "patch";
     message_order: Array<"system" | "developer" | "user">;
     prompt_bundle_id: string;
@@ -168,8 +168,13 @@ export type AgentModelRequestArtifact = {
     raw_payload_artifacts_read: false;
   };
   tool_gateway: {
-    declared_tools: [];
-    tool_choice: "none";
+    declared_tools: Array<{
+      name: string;
+      description: string;
+      verb: "read" | "write";
+      parameters?: Record<string, unknown>;
+    }>;
+    tool_choice: "none" | "auto";
     may_propose_tool_requests: boolean;
     tool_request_events_appended: false;
     execution_without_policy_allowed: false;
@@ -206,8 +211,8 @@ export type AgentModelResponseArtifact = {
   scope: {
     model_invoked: true;
     provider_called: true;
-    tools_requested: false;
-    tool_execution_allowed: false;
+    tools_requested: boolean;
+    tool_execution_allowed: boolean;
     raw_response_persisted: false;
     raw_prompt_persisted: false;
     raw_payload_artifacts_read: false;
@@ -512,6 +517,132 @@ export function createAgentModelRequestArtifact(
   };
 }
 
+export type ToolModeRequestInput = {
+  invocation: AgentRuntimeInvocationArtifact;
+  requestId: string;
+  declaredTools: Array<{
+    name: string;
+    description: string;
+    verb: "read" | "write";
+    parameters?: Record<string, unknown>;
+  }>;
+};
+
+// Builds a model request artifact that declares tools and sets tool_choice to
+// "auto", enabling the agent loop. Every authority gate is identical to the
+// no-tools request: model output still cannot authorize actions, tool execution
+// still requires a scoped lease, and side effects still require policy or
+// approval. Declaring a tool to the model does not grant it permission to run.
+export function createToolModeModelRequestArtifact(input: ToolModeRequestInput): AgentModelRequestArtifact {
+  const { invocation, requestId, declaredTools } = input;
+  const payloadFingerprint = {
+    mode: "tool_use_agent_loop",
+    output_mode: invocation.entry.output_mode,
+    message_order: invocation.prompt.message_order,
+    prompt_bundle_id: invocation.prompt.bundle_id,
+    prompt_preview_sha256: invocation.prompt.preview_sha256,
+    prompt_hashes: invocation.prompt.message_hashes,
+    context: {
+      source_event_ids: invocation.context.source_event_ids,
+      selected_memory_ids: invocation.context.selected_memory_ids,
+      excluded_memory_ids: invocation.context.excluded_memory_ids,
+      memory_source_event_ids: invocation.context.memory_source_event_ids,
+      capability_card_ids: invocation.context.capability_card_ids,
+      active_permission_ids: invocation.context.active_permission_ids,
+      artifact_refs: invocation.context.artifact_refs
+    },
+    tools: {
+      declared_tools: declaredTools,
+      tool_choice: "auto"
+    }
+  };
+  const withoutHash: Omit<AgentModelRequestArtifact, "request_sha256"> = {
+    id: requestId,
+    run_id: invocation.run_id,
+    runtime_invocation_id: invocation.id,
+    runtime_invocation_artifact_ref: agentRuntimeInvocationArtifactRef(invocation.id),
+    prompt_plan_id: invocation.prompt_plan_id,
+    schema_version: "aetherion-agent-model-request-v1",
+    status: "request_prepared",
+    scope: {
+      model_invoked: false,
+      provider_called: false,
+      tools_requested: true,
+      raw_prompt_persisted: false,
+      raw_context_persisted: false,
+      raw_payload_artifacts_read: false,
+      secrets_resolved: false,
+      runtime_authority_granted: false
+    },
+    provider: {
+      provider_configured: false,
+      provider_ref: null,
+      model_ref: null,
+      credential_ref: null,
+      credential_resolved: false,
+      network_call_attempted: false
+    },
+    request: {
+      mode: "tool_use_agent_loop",
+      output_mode: invocation.entry.output_mode,
+      message_order: [...invocation.prompt.message_order],
+      prompt_bundle_id: invocation.prompt.bundle_id,
+      prompt_preview_sha256: invocation.prompt.preview_sha256,
+      request_payload_sha256: sha256(stableStringify(payloadFingerprint)),
+      raw_request_payload_persisted: false
+    },
+    prompt_hashes: invocation.prompt.message_hashes.map((message) => ({
+      role: message.role,
+      content_sha256: message.content_sha256,
+      section_ids: [...message.section_ids],
+      source_event_ids: [...message.source_event_ids]
+    })),
+    context: {
+      source_event_ids: [...invocation.context.source_event_ids],
+      selected_memory_ids: [...invocation.context.selected_memory_ids],
+      excluded_memory_ids: [...invocation.context.excluded_memory_ids],
+      memory_source_event_ids: [...invocation.context.memory_source_event_ids],
+      capability_card_ids: [...invocation.context.capability_card_ids],
+      active_permission_ids: [...invocation.context.active_permission_ids],
+      artifact_refs: [...invocation.context.artifact_refs],
+      raw_payload_artifacts_read: false
+    },
+    tool_gateway: {
+      declared_tools: declaredTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        verb: tool.verb,
+        ...(tool.parameters ? { parameters: tool.parameters } : {})
+      })),
+      tool_choice: "auto",
+      may_propose_tool_requests: invocation.tool_gateway.may_propose_tool_requests,
+      tool_request_events_appended: false,
+      execution_without_policy_allowed: false
+    },
+    authority_gates: {
+      local_supervisor_required: true,
+      prompt_can_authorize_actions: false,
+      context_can_authorize_actions: false,
+      memory_can_authorize_actions: false,
+      capability_cards_can_grant_permissions: false,
+      model_request_can_authorize_actions: false,
+      tool_execution_requires_scoped_lease: true,
+      side_effects_require_policy_or_approval: true
+    },
+    response_expectations: {
+      response_artifact_required: true,
+      response_audit_required: true,
+      required_block_ids: [...invocation.response_audit.required_block_ids],
+      required_citation_ids: [...invocation.response_audit.required_citation_ids],
+      forbidden_claim_checks: [...invocation.response_audit.forbidden_claim_checks]
+    }
+  };
+  return {
+    ...withoutHash,
+    request_sha256: sha256(stableStringify(withoutHash))
+  };
+}
+
 export async function writeAgentRuntimeInvocationArtifact(
   repoRoot: string,
   workspace: Workspace,
@@ -579,6 +710,11 @@ export type AgentModelResponseInput = {
   refusal_present: boolean;
   tool_calls_present: boolean;
   usage: AgentModelResponseArtifact["usage"];
+  // Tool-loop provenance. Default to false so the existing no-tools callers
+  // are unchanged. tool_execution_allowed is true only when a tool actually ran
+  // under a scoped lease during the turn that produced this response.
+  tools_requested?: boolean;
+  tool_execution_allowed?: boolean;
 };
 
 // Builds the durable evidence that a model was actually invoked. Per
@@ -598,8 +734,8 @@ export function createAgentModelResponseArtifact(input: AgentModelResponseInput)
     scope: {
       model_invoked: true,
       provider_called: true,
-      tools_requested: false,
-      tool_execution_allowed: false,
+      tools_requested: input.tools_requested ?? false,
+      tool_execution_allowed: input.tool_execution_allowed ?? false,
       raw_response_persisted: false,
       raw_prompt_persisted: false,
       raw_payload_artifacts_read: false,
