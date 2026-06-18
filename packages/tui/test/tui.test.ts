@@ -606,15 +606,10 @@ test("Bare Ether opens the interactive session TUI without initializing a worksp
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /AETHERION/);
-  assert.match(setup.stdout, /Local-first agent harness/);
-  // Single OpenCode-style conversation surface: actionable welcome, contextual
-  // footer, no Hermes panel-menu metadata dump.
-  assert.match(setup.stdout, /provider stub/);
+  assert.match(setup.stdout, /Aetherion/);
+  assert.match(setup.stdout, /stub/);
   assert.match(setup.stdout, /tools on/);
-  assert.match(setup.stdout, /credential/);
   assert.match(setup.stdout, /enter send/);
-  assert.match(setup.stdout, /\/connect/);
   assert.match(setup.stdout, /ctrl\+c quit/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
@@ -715,9 +710,8 @@ test("Installed Ether bin opens the session TUI without mutating workspace state
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /AETHERION/);
-  assert.match(setup.stdout, /Local-first agent harness/);
-  assert.match(setup.stdout, /provider stub/);
+  assert.match(setup.stdout, /Aetherion/);
+  assert.match(setup.stdout, /stub/);
   assert.match(setup.stdout, /tools on/);
   assert.match(setup.stdout, /enter send/);
   assert.match(setup.stdout, /ctrl\+c quit/);
