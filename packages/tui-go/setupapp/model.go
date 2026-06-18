@@ -70,12 +70,14 @@ type Model struct {
 	wm *windowManager
 
 	// UX state.
-	statusMsg     string
-	quitRequested bool
-	treeExpanded  bool
-	historyIndex  int
-	historyDraft  string
-	completionIdx int
+	statusMsg      string
+	quitRequested  bool
+	treeExpanded   bool
+	historyIndex   int
+	historyDraft   string
+	completionIdx  int
+	activePane     string // "conversation", "rail", "tree", "composer"
+	clickFlash     int    // decremented each frame for click-feedback animation
 }
 
 // Message types for the agent-loop engine (carried from legacy).
@@ -152,6 +154,7 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 		wm:            newWindowManager(),
 		startTime:     time.Now(),
 		tokenHistory:  []tokenSample{},
+		activePane:    "composer",
 		transcript: []transcriptEntry{
 			{Role: "intro", Text: "Aetherion", Meta: "welcome"},
 		},

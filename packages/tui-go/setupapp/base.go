@@ -19,6 +19,10 @@ import (
 //
 // Floating windows + modals are composited on top via wm.renderWindows().
 func (m Model) render() string {
+	// Decrement click-flash animation counter each render.
+	if m.clickFlash > 0 {
+		m.clickFlash--
+	}
 	m.loadTreeNodesIfEmpty()
 
 	treeW := m.treeWidth()
@@ -124,8 +128,16 @@ func (m Model) renderConversationPane(width, height int) string {
 	m.transcriptVP.SetHeight(maxInt(4, height-2))
 	m.refreshTranscript()
 	header := theme.sectionTitle.Render(" CONVERSATION")
-	box := theme.transcript.Width(width).Height(height)
-	return lipgloss.JoinVertical(lipgloss.Left, header, box.Render(m.transcriptVP.View()))
+	// Active pane gets a blue accent border; click flash adds gold flash.
+	boxStyle := theme.transcript
+	if m.activePane == "conversation" {
+		borderColor := lipgloss.Color("#89B4FA")
+		if m.clickFlash > 0 {
+			borderColor = lipgloss.Color("#FFD700")
+		}
+		boxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(borderColor).Padding(0, 1).Background(lipgloss.Color("#181825"))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, header, boxStyle.Width(width).Height(height).Render(m.transcriptVP.View()))
 }
 
 // renderTranscriptContent builds the string shown inside the conversation viewport.
@@ -154,24 +166,24 @@ func (m Model) renderTranscriptContent() string {
 // renderWelcome is the actionable first-run welcome (not metadata dump).
 func (m Model) renderWelcome() string {
 	theme := styles()
-	cred := theme.status.Render("✓ credential")
+	cred := theme.status.Render("✓")
 	if !credentialPresent(m.provider()) {
-		cred = theme.warn.Render("✗ credential — type /connect")
+		cred = theme.warn.Render("✗ /connect")
 	}
 	lines := []string{
 		theme.title.Render("✦ Aetherion"),
 		"",
-		theme.muted.Render("Local-first agent harness. Read and write files through an"),
-		theme.muted.Render("approval-gated tool loop. Model output never authorizes actions."),
+		theme.muted.Render("Local-first agent harness."),
+		theme.muted.Render("Approval-gated tool loop."),
 		"",
-		theme.meta.Render(fmt.Sprintf("provider %s · model %s · %s", m.provider(), m.modelRef(), cred)),
+		theme.meta.Render(m.provider() + "/" + m.modelRef() + " " + cred),
 		"",
 		theme.sectionTitle.Render("Get started"),
-		theme.meta.Render("  /connect    set up a provider credential"),
-		theme.meta.Render("  /model      pick a provider + model"),
-		theme.meta.Render("  type a message and press enter to start"),
+		theme.meta.Render(" /connect  provider setup"),
+		theme.meta.Render(" /model    pick a model"),
+		theme.meta.Render(" type → enter to start"),
 		"",
-		theme.muted.Render("enter send · shift+enter newline · /policy /lease /trace · ctrl+c quit"),
+		theme.muted.Render("[/] tree · /policy · ctrl+c quit"),
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -255,6 +267,15 @@ func roleBg(role string) string {
 // --- Right rail ---
 
 func (m Model) renderRightRail(width, height int) string {
+	railActive := m.activePane == "rail"
+	railBorder := lipgloss.Color("#45475A")
+	if railActive {
+		railBorder = lipgloss.Color("#89B4FA")
+		if m.clickFlash > 0 {
+			railBorder = lipgloss.Color("#FFD700")
+		}
+	}
+	_ = railBorder // panels use their own border; this is for future per-block highlight
 	statusH := 6
 	ledgerH := maxInt(4, height-statusH-6-2) // status + risk + padding
 

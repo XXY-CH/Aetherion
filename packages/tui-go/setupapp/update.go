@@ -252,9 +252,24 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg, cmds []tea.Cmd) (tea.Mode
 		m.wm.beginDrag(msg.X, msg.Y)
 		return m, tea.Batch(cmds...)
 	}
-	// Click on the base: check approval bar buttons.
+	// Click on the base: determine which pane was clicked and set focus.
+	treeW := m.treeWidth()
+	if msg.X < treeW {
+		m.activePane = "tree"
+		m.clickFlash = 3
+	} else {
+		// Right of gutter: conversation (left ~55%) vs rail (right ~45%).
+		restW := m.width - treeW
+		conversationW := restW * 55 / 100
+		if msg.X < treeW+conversationW {
+			m.activePane = "conversation"
+		} else {
+			m.activePane = "rail"
+		}
+		m.clickFlash = 3
+	}
+	// Check approval bar buttons (bottom area when pending).
 	if m.pendingApproval != nil {
-		// Simplified: any click in the bottom area with a pending approval.
 		m.wm.focus("")
 	}
 	return m, tea.Batch(cmds...)
