@@ -2,6 +2,7 @@ package setupapp
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -176,23 +177,78 @@ func (m Model) renderWelcome() string {
 }
 
 // messageBlock renders one transcript entry with role-appropriate styling.
+// Modern look: colored role label, subtle background tint per role.
 func messageBlock(entry transcriptEntry) string {
 	theme := styles()
-	label := strings.ToUpper(emptyAs(entry.Role, "system"))
-	body := theme.muted.Render(label) + "\n" + entry.Text
-	switch entry.Role {
+	label := roleLabel(entry.Role)
+	labelColor := roleColor(entry.Role)
+	labelStyled := lipgloss.NewStyle().Bold(true).Foreground(labelColor).Render(label)
+	metaStyled := ""
+	if entry.Meta != "" {
+		metaStyled = " " + theme.muted.Render(entry.Meta)
+	}
+	header := labelStyled + metaStyled
+	body := header + "\n" + entry.Text
+
+	// Role-tinted backgrounds for visual grouping.
+	bgTint := roleBg(entry.Role)
+	contentStyle := lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).BorderForeground(labelColor)
+	if bgTint != "" {
+		contentStyle = contentStyle.Background(lipgloss.Color(bgTint))
+	}
+	return contentStyle.Render(body) + "\n"
+}
+
+func roleLabel(role string) string {
+	switch role {
 	case "user":
-		return theme.transcript.Render(body)
+		return "YOU"
 	case "assistant":
-		return theme.response.Render(body)
-	case "error":
-		return theme.errorStyle.Render(body)
+		return "ETHER"
 	case "tool":
-		return theme.muted.Render(body)
+		return "TOOL"
 	case "approval":
-		return theme.warn.Render(body)
+		return "APPROVAL"
+	case "error":
+		return "ERROR"
+	case "system":
+		return "SYSTEM"
 	default:
-		return theme.transcript.Render(body)
+		return strings.ToUpper(role)
+	}
+}
+
+func roleColor(role string) color.Color {
+	switch role {
+	case "user":
+		return lipgloss.Color("#89B4FA") // blue
+	case "assistant":
+		return lipgloss.Color("#A6E3A1") // green
+	case "tool":
+		return lipgloss.Color("#94E2D5") // teal
+	case "approval":
+		return lipgloss.Color("#FAB387") // peach
+	case "error":
+		return lipgloss.Color("#F38BA8") // red
+	case "system":
+		return lipgloss.Color("#6C7086") // overlay0
+	default:
+		return lipgloss.Color("#CDD6F4")
+	}
+}
+
+func roleBg(role string) string {
+	switch role {
+	case "assistant":
+		return "#1A2A1E" // subtle green tint
+	case "tool":
+		return "#1A2228" // subtle teal tint
+	case "error":
+		return "#2A1A1E" // subtle red tint
+	case "approval":
+		return "#2A2418" // subtle peach tint
+	default:
+		return ""
 	}
 }
 
@@ -348,7 +404,7 @@ func (m Model) renderFooter(width int) string {
 	case m.chatError != "":
 		text = "✗ error · /clear · ctrl+c quit"
 	default:
-		text = "enter send · shift+enter newline · /policy /lease /trace · ←→ tree · ctrl+c quit"
+		text = "enter send · shift+enter newline · [/] tree nav · /policy /lease /trace · ctrl+c quit"
 	}
 	if m.transcriptUnread > 0 {
 		text = fmt.Sprintf("↓ unread %d · ", m.transcriptUnread) + text

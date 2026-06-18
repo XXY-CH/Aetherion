@@ -37,33 +37,46 @@ type styleSet struct {
 }
 
 func styles() styleSet {
+	// Catppuccin Mocha palette — modern, elegant, geeky.
+	// Base: #1E1E2E (base) · #181825 (mantle) · #313244 (surface0)
+	// Text: #CDD6F4 (text) · #6C7086 (overlay0) · #45475A (surface1)
+	// Accents: #89B4FA(blue) #A6E3A1(green) #F9E2AF(yellow) #FAB387(peach)
+	//          #F38BA8(red) #CBA6F7(mauve) #F5C2E7(pink) #94E2D5(teal)
+	// Brand: #FFD700 (gold accent)
+	base := lipgloss.Color("#1E1E2E")
+	mantle := lipgloss.Color("#181825")
+	surface0 := lipgloss.Color("#313244")
+	surface1 := lipgloss.Color("#45475A")
+	accent := lipgloss.Color("#89B4FA") // blue — active focus indicator
+
 	s := styleSet{
 		title:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700")),
-		badge:        lipgloss.NewStyle().Foreground(lipgloss.Color("#1E1E2E")).Background(lipgloss.Color("#FFD700")).Padding(0, 1),
+		badge:        lipgloss.NewStyle().Foreground(base).Background(lipgloss.Color("#FFD700")).Padding(0, 1),
 		muted:        lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")),
 		meta:         lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")),
-		panel:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
+		panel:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(surface1).Padding(0, 1).Background(mantle),
 		help:         lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")),
 		prompt:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700")),
-		composerBox:  lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		modelFields:  lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		sessionPanel: lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1),
-		sectionTitle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700")),
-		status:       lipgloss.NewStyle().Foreground(lipgloss.Color("#5DFF8F")),
-		warn:         lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAE5D")),
-		errorStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FF3B3B")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#FF3B3B")).Padding(0, 1),
-		response:     lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		result:       lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#5DFF8F")).Padding(0, 1),
-		streaming:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		transcript:   lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		overlay:      lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1),
-		statusRule:   lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Background(lipgloss.Color("#181825")).Padding(0, 1),
+		composerBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1).Background(mantle),
+		modelFields:  lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(surface1).Padding(0, 1),
+		sessionPanel: lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1).Background(mantle),
+		sectionTitle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")),
+		status:       lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")),
+		warn:         lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")),
+		errorStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#F38BA8")).Padding(0, 1).Background(mantle),
+		response:     lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(surface1).Padding(0, 1).Background(mantle),
+		result:       lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#A6E3A1")).Padding(0, 1).Background(mantle),
+		streaming:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")),
+		transcript:   lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.RoundedBorder()).BorderForeground(surface1).Padding(0, 1).Background(mantle),
+		overlay:      lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1).Background(base),
+		statusRule:   lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")).Background(mantle).Padding(0, 1),
 		treeBase:     lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")),
-		treeCursor:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#56D4FF")),
-		floatFocused: lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1),
-		floatBlurred: lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
-		modalBox:     lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(1, 2).Background(lipgloss.Color("#1E1E2E")),
+		treeCursor:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")),
+		floatFocused: lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(0, 1).Background(base),
+		floatBlurred: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(surface1).Padding(0, 1).Background(mantle),
+		modalBox:     lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Padding(1, 2).Background(base),
 	}
+	_ = surface0 // reserved for hover/active states
 	return s
 }
 

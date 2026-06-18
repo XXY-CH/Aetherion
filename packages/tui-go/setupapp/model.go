@@ -16,6 +16,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Model is the workbench state. Lean — no dead menu/table fields.
@@ -132,7 +133,8 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	composer.SetHeight(4)
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	sp.Spinner = spinner.MiniDot
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA"))
 
 	vp := viewport.New()
 

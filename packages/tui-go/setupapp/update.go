@@ -167,19 +167,20 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		m.wm.cycleFocus()
 		return m, tea.Batch(cmds...)
 
-	// Tree gutter navigation.
-	case msg.String() == "left" || msg.String() == "h":
+	// Tree gutter navigation: use [ and ] (intuitive, unambiguous, never block
+	// typing) instead of h/l/j/k which must type into the composer.
+	case msg.String() == "[":
 		if m.treeCursor > 0 {
 			m.treeCursor--
 		}
 		return m, tea.Batch(cmds...)
-	case msg.String() == "right" || msg.String() == "l":
+	case msg.String() == "]":
 		if m.treeCursor < len(m.treeNodes)-1 {
 			m.treeCursor++
 		}
 		return m, tea.Batch(cmds...)
 
-	// Submit / newline / scroll in composer.
+	// Submit / newline in composer.
 	case msg.String() == "enter":
 		cmd := m.startChat()
 		return m, tea.Batch(append(cmds, cmd)...)
@@ -192,12 +193,7 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		cmd := m.startChat()
 		return m, tea.Batch(append(cmds, cmd)...)
 
-	case msg.String() == "up" || msg.String() == "k":
-		m.transcriptVP.ScrollUp(1)
-		return m, tea.Batch(cmds...)
-	case msg.String() == "down" || msg.String() == "j":
-		m.transcriptVP.ScrollDown(1)
-		return m, tea.Batch(cmds...)
+	// Transcript scrolling uses page keys only — plain letters/j/k must type.
 	case msg.String() == "pgup":
 		m.transcriptVP.HalfPageUp()
 		return m, tea.Batch(cmds...)
