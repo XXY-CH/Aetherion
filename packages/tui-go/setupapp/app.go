@@ -375,6 +375,10 @@ type Model struct {
 	streamingCmd     *exec.Cmd
 	streamEvents     chan LoopEvent
 	assistantBuffer  string
+	// UX shell state for the OpenCode-style single surface.
+	sidebarOpen      bool
+	interruptRequested bool
+	quitRequested    bool
 }
 
 func NewModel(cfg Config) Model {
@@ -549,15 +553,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case isCtrlC(msg):
+			// ctrl+c is contextual: quit when idle, interrupt when busy, then quit.
 			if m.chatBusy {
-				m.statusMsg = "interrupt requested; provider call will finish or fail closed"
-				m.overlay = overlayQueue
+				m.interruptRequested = true
+				m.statusMsg = "interrupt requested — press ctrl+c again to quit"
 				return m, tea.Batch(cmds...)
+			}
+			if m.interruptRequested {
+				return m, tea.Quit
 			}
 			if strings.TrimSpace(m.composer.Value()) != "" {
 				m.composer.Reset()
 				m.historyIndex = -1
-				m.statusMsg = "composer cleared"
+				m.statusMsg = "composer cleared — ctrl+c again to quit"
 				return m, tea.Batch(cmds...)
 			}
 			return m, tea.Quit
@@ -604,6 +612,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyFocus()
 				m.statusMsg = "focus=composer"
 			}
+		case msg.String() == "ctrl+b":
+			m.sidebarOpen = !m.sidebarOpen
+			m.statusMsg = fmt.Sprintf("sidebar %s", boolAs(m.sidebarOpen, "open", "closed"))
+			return m, tea.Batch(cmds...)
 		case key.Matches(msg, m.keys.Submit), msg.Keystroke() == "ctrl+s", key.Matches(msg, m.keys.Enter):
 			if cmd := m.startChat(); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -847,6 +859,10 @@ func (m *Model) startChat() tea.Cmd {
 	if strings.HasPrefix(task, "/") {
 		m.handleSlashCommand(task)
 		m.refreshTranscript()
+		if m.quitRequested {
+			m.quitRequested = false
+			return tea.Quit
+		}
 		return nil
 	}
 	provider := strings.TrimSpace(m.providerInput.Value())
@@ -954,6 +970,21 @@ func (m *Model) handleSlashCommand(command string) {
 		return
 	}
 	switch fields[0] {
+	case "/exit", "/quit":
+		m.statusMsg = "slash=/exit"
+		m.composer.Reset()
+		m.completionIdx = -1
+		// Signal quit via a sentinel the caller checks; tea.Quit is returned by
+		// the Update caller, so we mark a flag and the key path issues Quit.
+		m.quitRequested = true
+		return
+	case "/connect":
+		m.overlay = overlayNone
+		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: connectGuidance(m), Meta: "connect"})
+		m.statusMsg = "slash=/connect"
+	case "/sidebar":
+		m.sidebarOpen = !m.sidebarOpen
+		m.statusMsg = fmt.Sprintf("sidebar %s", boolAs(m.sidebarOpen, "open", "closed"))
 	case "/help":
 		m.overlay = overlayHelp
 		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: "Opened help overlay.", Meta: "slash"})
@@ -985,7 +1016,7 @@ func (m *Model) handleSlashCommand(command string) {
 		m.chatResult = nil
 		m.chatError = ""
 		m.transcriptUnread = 0
-		m.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "session panel"}, {Role: "system", Text: "Transcript cleared. Governance artifacts already written by completed runs are not deleted.", Meta: "local"}}
+		m.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion Agent", Meta: "welcome"}, {Role: "system", Text: "Transcript cleared. Governance artifacts already written by completed runs are not deleted.", Meta: "local"}}
 		m.statusMsg = "slash=/clear"
 	case "/new":
 		m.chatResult = nil
@@ -1365,19 +1396,18 @@ func (m *Model) refreshTranscriptView(mode transcriptRefreshMode) {
 }
 
 func (m Model) render() string {
-	theme := styles()
 	top := m.topBrand()
-	body := m.transcriptWithOverlay()
 	composer := m.composerZone()
 	status := m.statusRule()
-	help := theme.help.Render(m.help.View(m.keys))
-	return lipgloss.JoinVertical(lipgloss.Left,
-		top,
-		body,
-		composer,
-		status,
-		help,
-	)
+	body := m.transcriptWithOverlay()
+	// When the sidebar is open, split the body horizontally: conversation left,
+	// sidebar right.
+	if m.sidebarOpen {
+		sidebar := m.sidebarView()
+		joined := lipgloss.JoinHorizontal(lipgloss.Top, body, sidebar)
+		return lipgloss.JoinVertical(lipgloss.Left, top, joined, composer, status)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, top, body, composer, status)
 }
 
 func (m Model) transcriptWithOverlay() string {
@@ -1392,14 +1422,77 @@ func (m Model) transcriptWithOverlay() string {
 func (m Model) topBrand() string {
 	theme := styles()
 	title := theme.title.Render("✦ AETHERION")
-	subtitle := theme.muted.Render("✦ Local-first Agent Harness Kernel · Ether TUI")
-	meta := []string{
-		fmt.Sprintf("command=setup default_entry=%s scope=chat layout=hermes_fullscreen_session composer=interactive panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue", emptyAs(m.cfg.DefaultEntry, "ether")),
-		fmt.Sprintf("provider=%s credential_resolved=%t settings_persisted=%t runtime_authority_granted=%t tools_allowed=%t model_output_authorizes=%t", emptyAs(m.providerInput.Value(), "stub"), m.cfg.ModelStatus.CredentialResolved, m.cfg.ModelStatus.SettingsPersisted, m.cfg.ModelStatus.RuntimeAuthorityGranted, m.cfg.ModelStatus.ToolsAllowed, m.cfg.ModelStatus.ModelOutputCanAuthorizeActions),
-		"llm_read_loop=" + emptyAs(m.cfg.LLMReadLoopCommand, "model chat through no-tools provider path"),
-		"workspace=" + compactPath(m.cfg.Snapshot.WorkspaceRoot, max(24, m.width-48)),
+	// Single contextual line: provider/model, credential state, workspace.
+	provider := emptyAs(m.providerInput.Value(), "stub")
+	modelRef := emptyAs(m.modelInput.Value(), "stub-deterministic-v1")
+	credOk := credentialPresent(provider)
+	cred := theme.status.Render("credential ✓")
+	if !credOk && provider != "stub" {
+		cred = theme.warn.Render("credential ✗ — /connect")
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, subtitle, theme.meta.Render(strings.Join(meta, "\n")))
+	model := theme.meta.Render(fmt.Sprintf("%s / %s", provider, modelRef))
+	tools := theme.muted.Render("tools on")
+	ws := theme.muted.Render("· " + compactPath(m.cfg.Snapshot.WorkspaceRoot, max(16, m.width-60)))
+	if m.sidebarOpen {
+		ws = theme.muted.Render("· sidebar ⦉")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", model, "  ", cred, "  ", tools, "  ", ws)
+}
+
+// credentialPresent reports whether the active provider's credential env var is
+// set in the current process environment. The stub needs none.
+func credentialPresent(provider string) bool {
+	if canonicalProvider(provider) == "stub" {
+		return true
+	}
+	for _, name := range providerCredentialEnv(provider) {
+		if v := os.Getenv(name); strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sidebarView renders the toggleable right column: model/credential, loop
+// stats, readiness summary, and queue preview. OpenCode-style.
+func (m Model) sidebarView() string {
+	theme := styles()
+	width := max(26, m.width/3)
+	var sections []string
+
+	// Model + credential
+	provider := emptyAs(m.providerInput.Value(), "stub")
+	modelRef := emptyAs(m.modelInput.Value(), "stub-deterministic-v1")
+	cred := "✓"
+	if !credentialPresent(provider) {
+		cred = "✗"
+	}
+	sections = append(sections, theme.sectionTitle.Render("Model"))
+	sections = append(sections, theme.meta.Render(fmt.Sprintf("%s / %s", provider, modelRef)))
+	sections = append(sections, theme.muted.Render("credential "+cred+"  tools on"))
+
+	// Agent-loop stats
+	sections = append(sections, "")
+	sections = append(sections, theme.sectionTitle.Render("Loop"))
+	stats := "idle"
+	if m.chatBusy {
+		stats = fmt.Sprintf("running turn %d/%d", m.loopDepth, m.loopMaxDepth)
+	}
+	sections = append(sections, theme.meta.Render(stats))
+	sections = append(sections, theme.muted.Render(fmt.Sprintf("tool calls %d · tokens %d", m.loopToolCalls, m.loopTokens)))
+	if len(m.queue) > 0 {
+		sections = append(sections, theme.warn.Render(fmt.Sprintf("queued %d", len(m.queue))))
+	}
+
+	// Readiness summary (from the snapshot data already on the config)
+	sections = append(sections, "")
+	sections = append(sections, theme.sectionTitle.Render("Readiness"))
+	snap := m.cfg.Snapshot
+	sections = append(sections, theme.muted.Render(fmt.Sprintf("toolchain %s · repo %s", snap.ReadinessLayers.ToolchainReady, snap.ReadinessLayers.RepoReady)))
+	sections = append(sections, theme.muted.Render(fmt.Sprintf("checks pass:%d warn:%d fail:%d", snap.Summary.Pass, snap.Summary.Warn, snap.Summary.Fail)))
+
+	body := strings.Join(sections, "\n")
+	return theme.overlay.Width(width).Render(body)
 }
 
 func (m Model) composerZone() string {
@@ -1451,22 +1544,26 @@ func (m Model) renderTranscriptContent() string {
 func (m Model) introPanel() string {
 	theme := styles()
 	width := max(42, min(86, m.width-8))
+	provider := emptyAs(m.providerInput.Value(), "stub")
+	modelRef := emptyAs(m.modelInput.Value(), "stub-deterministic-v1")
+	cred := "credential ✓"
+	if !credentialPresent(provider) && provider != "stub" {
+		cred = theme.warn.Render("credential ✗ — type /connect to set up")
+	}
 	lines := []string{
-		centerText("Aetherion Agent", width-4),
+		centerText("✦ Aetherion", width-4),
 		"",
-		theme.sectionTitle.Render("▾ Available Tools"),
-		theme.muted.Render("local_file.read, local_file.write_preview, policy.decide, lease.issue, trace.replay"),
+		theme.muted.Render("Local-first agent harness. Read and write files in this workspace through an"),
+		theme.muted.Render("approval-gated tool loop. Model output never authorizes actions on its own."),
 		"",
-		theme.sectionTitle.Render("▾ Available Skills"),
-		theme.muted.Render("onboarding, model chat, supervisor status, replay/debug, release evidence"),
+		theme.meta.Render(fmt.Sprintf("provider %s · model %s · %s", provider, modelRef, cred)),
 		"",
-		theme.muted.Render("0 delegated tool grants · model output authorizes false · /help for commands"),
-		theme.warn.Render("! Local Supervisor remains the root authority; this TUI is only a client surface"),
+		theme.sectionTitle.Render("Get started"),
+		theme.meta.Render("  /connect    set up a provider credential"),
+		theme.meta.Render("  /model      pick a provider + model"),
+		theme.meta.Render("  type a message and press enter to start"),
 		"",
-		theme.meta.Render(fmt.Sprintf("provider=%s model=%s credential_resolved=%t", emptyAs(m.providerInput.Value(), "stub"), emptyAs(m.modelInput.Value(), "stub-deterministic-v1"), m.cfg.ModelStatus.CredentialResolved)),
-		theme.meta.Render("mutates_workspace=false initializes_workspace=false installs_dependencies=false starts_daemon=false mutates_secrets=false"),
-		theme.meta.Render("panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue"),
-		theme.meta.Render("llm_read_loop=" + emptyAs(m.cfg.LLMReadLoopCommand, "model chat through no-tools provider path")),
+		theme.muted.Render("enter send · shift+enter newline · ctrl+b sidebar · /help · ctrl+c quit"),
 	}
 	return theme.sessionPanel.Width(width).Render(strings.Join(lines, "\n"))
 }
@@ -1513,27 +1610,32 @@ func (m Model) streamingPreview() string {
 }
 
 func (m Model) statusRule() string {
-	state := "ready"
-	if m.chatBusy {
-		state = "running"
+	theme := styles()
+	// Contextual one-line footer (OpenCode style). The body changes by state.
+	var text string
+	switch {
+	case m.pendingApproval != nil:
+		text = "⚠ approve " + m.pendingApproval.ToolName + "?  [y] yes  [n] no  · esc cancel"
+	case m.chatBusy:
+		tools := fmt.Sprintf("turn %d/%d · tools %d · tokens %d", m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens)
+		text = "⏺ running " + tools + " · esc interrupt · ctrl+c quit"
+	case m.chatError != "":
+		text = "✗ error: " + truncateInline(m.chatError, m.width-24) + " · /clear · ctrl+c quit"
+	case strings.TrimSpace(m.composer.Value()) != "":
+		text = "enter send · shift+enter newline · ctrl+c quit"
+	default:
+		if m.sidebarOpen {
+			text = "enter send · shift+enter newline · /help · ctrl+b hide sidebar · ctrl+c quit"
+		} else {
+			text = "enter send · shift+enter newline · /help · /connect · ctrl+b sidebar · ctrl+c quit"
+		}
 	}
-	if m.chatError != "" {
-		state = "error"
+	// When there are unread transcript lines (scrolled up), surface a marker so
+	// the user knows new content arrived below the viewport.
+	if m.transcriptUnread > 0 {
+		text = fmt.Sprintf("↓ unread %d · ", m.transcriptUnread) + text
 	}
-	segments := []string{
-		state,
-		modelStatusLabel(m),
-		fmt.Sprintf("%d/%dm", 0, 1),
-		fmt.Sprintf("queue %d", len(m.queue)),
-		transcriptScrollLabel(m),
-		"overlay " + overlayName(m.overlay),
-		"voice off",
-		compactPath(m.cfg.Snapshot.WorkspaceRoot, 34),
-		"authority non_authorizing",
-		truncateInline(m.statusMsg, 72),
-		"status_rule=" + state,
-	}
-	return styles().statusRule.Width(max(76, m.width)).Render("─ " + strings.Join(segments, " │ ") + " ─")
+	return theme.statusRule.Width(max(76, m.width)).Render(text)
 }
 
 func transcriptScrollLabel(m Model) string {
@@ -1555,13 +1657,15 @@ func (m Model) overlayView() string {
 		title = "Command Palette"
 		body = strings.Join([]string{
 			"/chat       focus transcript composer",
-			"/settings   provider and model fields",
+			"/connect    set up a provider credential",
 			"/model      model picker and credential status",
+			"/sidebar    toggle the right sidebar",
 			"/sessions   local session switcher",
 			"/queue      queued prompt overlay",
 			"/status     daemon/supervisor boundary",
 			"/clear      clear visible transcript",
 			"/new        start a fresh local session view",
+			"/exit       quit the TUI",
 		}, "\n")
 	case overlayHelp:
 		title = "Help"
@@ -1571,11 +1675,25 @@ func (m Model) overlayView() string {
 		body = queueText(m.queue)
 	case overlayModel:
 		title = "Model Picker"
+		current := canonicalProvider(strings.TrimSpace(m.providerInput.Value()))
+		providerRows := []string{}
+		for _, p := range supportedProviders() {
+			marker := "  "
+			if canonicalProvider(p) == current {
+				marker = "▸ "
+			}
+			cred := "✗"
+			if credentialPresent(p) {
+				cred = "✓"
+			}
+			providerRows = append(providerRows, fmt.Sprintf("%s%-26s credential %s", marker, p, cred))
+		}
 		body = strings.Join([]string{
-			"provider " + m.providerInput.Value(),
-			"model    " + m.modelInput.Value(),
-			fmt.Sprintf("credential_resolved=%t credential_source=%s", m.cfg.ModelStatus.CredentialResolved, emptyAs(m.cfg.ModelStatus.CredentialSource, "not_recorded")),
-			"tools_allowed=false runtime_authority_granted=false",
+			strings.Join(providerRows, "\n"),
+			"",
+			"current model: " + m.modelInput.Value(),
+			"← / →  cycle provider    /model <ref>  set model",
+			"/connect for credential setup",
 		}, "\n")
 	case overlaySessions:
 		title = "Session Switcher"
@@ -1734,13 +1852,16 @@ func slashHelp() []string {
 	return []string{
 		"/help      show local TUI commands",
 		"/chat      focus the transcript composer",
+		"/connect   set up a provider credential (env-var guidance)",
+		"/model     pick a provider + model; optional: /model <model_ref>",
 		"/settings  jump to provider/model settings",
-		"/model     print current provider/model status; optional: /model <model_ref>",
+		"/sidebar   toggle the right sidebar (ctrl+b)",
 		"/status    show daemon/supervisor status boundary",
 		"/queue     preview local pending provider turn queue",
 		"/sessions  open local session switcher overlay",
 		"/clear     clear visible transcript only",
 		"/new       start a fresh local TUI session view",
+		"/exit      quit the TUI (also ctrl+c / ctrl+d)",
 	}
 }
 
@@ -1779,6 +1900,84 @@ func statusReport(m *Model) string {
 		fmt.Sprintf("credential_resolved=%t", m.cfg.ModelStatus.CredentialResolved),
 		"onboarding=" + emptyAs(m.cfg.OnboardingCommand, "not_recorded"),
 		"doctor=" + emptyAs(m.cfg.DoctorCommand, "not_recorded"),
+	}
+	return strings.Join(lines, "\n")
+}
+
+// providerCredentialEnv maps a provider name to the env vars that satisfy its
+// credential, mirroring cli.ts credentialEnvRefsForProvider.
+func providerCredentialEnv(provider string) []string {
+	switch canonicalProvider(provider) {
+	case "openai_responses", "openai_chat_completions":
+		return []string{"OPENAI_API_KEY", "OPENAI_OAUTH_ACCESS_TOKEN"}
+	case "anthropic":
+		return []string{"ANTHROPIC_API_KEY"}
+	case "gemini":
+		return []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_OAUTH_ACCESS_TOKEN", "GOOGLE_OAUTH_ACCESS_TOKEN"}
+	default:
+		return nil
+	}
+}
+
+func canonicalProvider(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	switch normalized {
+	case "openai", "openai_response", "openai_responses", "responses":
+		return "openai_responses"
+	case "openai_chat", "openai_chat_completion", "openai_chat_completions",
+		"openai_completion", "openai_completions", "chat_completions":
+		return "openai_chat_completions"
+	case "google", "google_gemini", "gemini_generate_content":
+		return "gemini"
+	default:
+		return normalized
+	}
+}
+
+// connectGuidance renders the /connect onboarding card: for the active provider
+// it shows whether the credential env var is set and the exact export line to
+// run if it is missing. Never echoes a secret value, only presence.
+func connectGuidance(m *Model) string {
+	provider := canonicalProvider(emptyAs(m.providerInput.Value(), "stub"))
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Provider: %s", emptyAs(m.providerInput.Value(), "stub")))
+	lines = append(lines, fmt.Sprintf("Model: %s", emptyAs(m.modelInput.Value(), "stub-deterministic-v1")))
+
+	if provider == "stub" {
+		lines = append(lines, "")
+		lines = append(lines, "The stub provider works offline with no credential. To use a real model, set a provider and its key:")
+		lines = append(lines, "  /model openai_chat_completions   then /connect")
+		lines = append(lines, "")
+		lines = append(lines, "Supported providers: stub, openai_responses, openai_chat_completions, anthropic, gemini")
+		return strings.Join(lines, "\n")
+	}
+
+	envVars := providerCredentialEnv(provider)
+	missing := []string{}
+	present := []string{}
+	for _, name := range envVars {
+		if v := os.Getenv(name); strings.TrimSpace(v) != "" {
+			present = append(present, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	lines = append(lines, "")
+	if len(present) > 0 {
+		lines = append(lines, fmt.Sprintf("✓ credential present: %s (value never shown or stored)", strings.Join(present, ", ")))
+	} else {
+		lines = append(lines, fmt.Sprintf("✗ no credential found for %s", provider))
+	}
+	if len(missing) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, "Set one of these in your shell, then restart the TUI:")
+		for _, name := range missing {
+			lines = append(lines, fmt.Sprintf("  export %s=<your-key>", name))
+		}
+		lines = append(lines, "")
+		lines = append(lines, "Aetherion reads credentials from the environment only — it never persists them.")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1973,6 +2172,13 @@ func emptyAs(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func boolAs(value bool, whenTrue, whenFalse string) string {
+	if value {
+		return whenTrue
+	}
+	return whenFalse
 }
 
 func quote(value string) string {

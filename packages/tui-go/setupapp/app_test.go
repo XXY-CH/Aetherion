@@ -15,19 +15,13 @@ func TestStaticViewRendersInteractiveOperatorPanels(t *testing.T) {
 
 	for _, want := range []string{
 		"AETHERION",
-		"Local-first Agent Harness Kernel",
-		"layout=hermes_fullscreen_session",
-		"composer=interactive",
-		"panels=conversation,composer,slash_commands",
-		"Available Tools",
-		"Available Skills",
-		"status_rule=ready",
-		"model output authorizes false",
-		"starts_daemon=false",
-		"credential_resolved=true",
-		"provider=stub",
+		"Local-first agent harness",
+		"provider stub",
+		"tools on",
 		"enter send",
-		"ctrl+k queue/send next",
+		"/connect",
+		"ctrl+b sidebar",
+		"ctrl+c quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("static view missing %q\n%s", want, view)
@@ -297,7 +291,7 @@ func TestCommandPaletteOverlay(t *testing.T) {
 	updated, _ := model.Update(keyPress("ctrl+k"))
 	model = updated.(Model)
 	view := model.StaticView()
-	for _, want := range []string{"Command Palette", "/sessions", "/model", "overlay palette"} {
+	for _, want := range []string{"Command Palette", "/sessions", "/model", "/connect"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("palette view missing %q\n%s", want, view)
 		}
@@ -579,4 +573,104 @@ func TestApprovalDecisionEncodingRoundTrips(t *testing.T) {
 		t.Fatalf("decoded=%#v", decoded)
 	}
 }
+
+func TestExitSlashCommandQuits(t *testing.T) {
+	model := NewModel(testConfig())
+	model.composer.SetValue("/exit")
+	cmd := model.startChat()
+	if cmd == nil {
+		t.Fatal("expected a quit command from /exit")
+	}
+}
+
+func TestCtrlCQuitsWhenIdle(t *testing.T) {
+	model := NewModel(testConfig())
+	updated, cmd := model.Update(keyPress("ctrl+c"))
+	if cmd == nil {
+		t.Fatal("expected ctrl+c to quit when idle with empty composer")
+	}
+	_ = updated
+}
+
+func TestCtrlCClearsComposerThenQuits(t *testing.T) {
+	model := NewModel(testConfig())
+	model.composer.SetValue("a draft")
+	updated, first := model.Update(keyPress("ctrl+c"))
+	if first != nil {
+		t.Fatal("first ctrl+c should clear composer, not quit")
+	}
+	model = updated.(Model)
+	if model.composer.Value() != "" {
+		t.Fatalf("composer not cleared: %q", model.composer.Value())
+	}
+	_, second := model.Update(keyPress("ctrl+c"))
+	if second == nil {
+		t.Fatal("second ctrl+c should quit")
+	}
+}
+
+func TestConnectSlashCommandRendersEnvGuidance(t *testing.T) {
+	model := NewModel(testConfig())
+	model.composer.SetValue("/connect")
+	_ = model.startChat()
+	// The connect card is appended as a system transcript entry.
+	found := false
+	for _, entry := range model.transcript {
+		if entry.Meta == "connect" && strings.Contains(entry.Text, "Provider:") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("connect card not appended to transcript: %#v", model.transcript)
+	}
+}
+
+func TestSidebarToggle(t *testing.T) {
+	model := NewModel(testConfig())
+	if model.sidebarOpen {
+		t.Fatal("sidebar should start closed")
+	}
+	updated, _ := model.Update(keyPress("ctrl+b"))
+	model = updated.(Model)
+	if !model.sidebarOpen {
+		t.Fatal("ctrl+b should open sidebar")
+	}
+	view := model.StaticView()
+	if !strings.Contains(view, "Loop") || !strings.Contains(view, "Readiness") {
+		t.Fatalf("sidebar view missing sections\n%s", view)
+	}
+	updated, _ = model.Update(keyPress("ctrl+b"))
+	model = updated.(Model)
+	if model.sidebarOpen {
+		t.Fatal("second ctrl+b should close sidebar")
+	}
+}
+
+func TestFooterShowsApprovalHint(t *testing.T) {
+	model := NewModel(testConfig())
+	model.pendingApproval = &ToolCallProposal{ToolName: "local_file_write"}
+	model.chatBusy = true
+	view := model.StaticView()
+	if !strings.Contains(view, "approve") || !strings.Contains(view, "[y]") {
+		t.Fatalf("footer missing approval hint\n%s", view)
+	}
+}
+
+func TestWelcomeIsActionableNotMetadata(t *testing.T) {
+	model := NewModel(testConfig())
+	view := model.StaticView()
+	// The new welcome names the entry commands; the old metadata dump is gone.
+	for _, want := range []string{"/connect", "type a message"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("welcome missing %q\n%s", want, view)
+		}
+	}
+	for _, stale := range []string{"layout=hermes_fullscreen_session", "Available Tools", "status_rule=ready"} {
+		if strings.Contains(view, stale) {
+			t.Fatalf("welcome still contains stale metadata %q\n%s", stale, view)
+		}
+	}
+}
+
 
