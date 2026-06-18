@@ -286,26 +286,29 @@ func (m Model) renderRightRail(width, height int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, status, ledger, risk)
 }
 
-// renderStatusBlock renders the AGENT status section.
+// renderStatusBlock renders the AGENT status section with progress components.
 func (m Model) renderStatusBlock(width, height int) string {
 	theme := styles()
-	state := "○ idle"
+	state := theme.muted.Render("○ idle")
 	if m.chatBusy {
-		state = "⏺ running"
+		state = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Render("⏺ running")
 	}
 	if m.chatError != "" {
-		state = "⊘ blocked"
+		state = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("⊘ blocked")
 	}
 	turn := fmt.Sprintf("turn %d/%d", m.loopDepth, m.loopMaxDepth)
-	turnBar := Gauge(float64(m.loopDepth)/float64(maxInt(1, m.loopMaxDepth)), 8, '▓', '░',
-		lipgloss.Color("#56D4FF"), lipgloss.Color("#45475A"))
+	turnFrac := 0.0
+	if m.loopMaxDepth > 0 {
+		turnFrac = float64(m.loopDepth) / float64(m.loopMaxDepth)
+	}
+	turnBar := m.turnProgress.ViewAs(turnFrac)
 	elapsed := int(time.Since(m.startTime).Seconds())
-	elapsedBar := Gauge(float64(elapsed)/float64(maxInt(1, elapsed+1)), 8, '█', '░',
-		lipgloss.Color("#5DFF8F"), lipgloss.Color("#45475A"))
+	elapsedFrac := float64(elapsed%60) / 60.0
+	elapsedBar := m.elapsedProgress.ViewAs(elapsedFrac)
 
 	content := strings.Join([]string{
 		theme.sectionTitle.Render("AGENT"),
-		theme.meta.Render(state),
+		state,
 		theme.muted.Render(turn) + " " + turnBar,
 		theme.muted.Render(fmt.Sprintf("tools %d · %ds", m.loopToolCalls, elapsed)) + " " + elapsedBar,
 	}, "\n")

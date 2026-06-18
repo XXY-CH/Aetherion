@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
@@ -28,13 +29,15 @@ type Model struct {
 	height int
 
 	// Components.
-	keys          keyMap
-	help          help.Model
-	providerInput textinput.Model
-	modelInput    textinput.Model
-	composer      textarea.Model
-	spinner       spinner.Model
-	transcriptVP  viewport.Model
+	keys            keyMap
+	help            help.Model
+	providerInput   textinput.Model
+	modelInput      textinput.Model
+	composer        textarea.Model
+	spinner         spinner.Model
+	transcriptVP    viewport.Model
+	turnProgress    progress.Model
+	elapsedProgress progress.Model
 
 	// Conversation.
 	transcript       []transcriptEntry
@@ -70,14 +73,14 @@ type Model struct {
 	wm *windowManager
 
 	// UX state.
-	statusMsg      string
-	quitRequested  bool
-	treeExpanded   bool
-	historyIndex   int
-	historyDraft   string
-	completionIdx  int
-	activePane     string // "conversation", "rail", "tree", "composer"
-	clickFlash     int    // decremented each frame for click-feedback animation
+	statusMsg     string
+	quitRequested bool
+	treeExpanded  bool
+	historyIndex  int
+	historyDraft  string
+	completionIdx int
+	activePane    string // "conversation", "rail", "tree", "composer"
+	clickFlash    int    // decremented each frame for click-feedback animation
 }
 
 // Message types for the agent-loop engine (carried from legacy).
@@ -140,21 +143,36 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 
 	vp := viewport.New()
 
+	tp := progress.New(
+		progress.WithColors(lipgloss.Color("#89B4FA")),
+		progress.WithFillCharacters('█', '░'),
+		progress.WithoutPercentage(),
+		progress.WithWidth(8),
+	)
+	ep := progress.New(
+		progress.WithColors(lipgloss.Color("#A6E3A1")),
+		progress.WithFillCharacters('█', '░'),
+		progress.WithoutPercentage(),
+		progress.WithWidth(8),
+	)
+
 	m := Model{
-		cfg:           cfg,
-		keys:          defaultKeyMap(),
-		help:          help.New(),
-		providerInput: providerInput,
-		modelInput:    modelInput,
-		composer:      composer,
-		spinner:       sp,
-		transcriptVP:  vp,
-		runner:        runner,
-		toolsMode:     true,
-		wm:            newWindowManager(),
-		startTime:     time.Now(),
-		tokenHistory:  []tokenSample{},
-		activePane:    "composer",
+		cfg:             cfg,
+		keys:            defaultKeyMap(),
+		help:            help.New(),
+		providerInput:   providerInput,
+		modelInput:      modelInput,
+		composer:        composer,
+		spinner:         sp,
+		transcriptVP:    vp,
+		turnProgress:    tp,
+		elapsedProgress: ep,
+		runner:          runner,
+		toolsMode:       true,
+		wm:              newWindowManager(),
+		startTime:       time.Now(),
+		tokenHistory:    []tokenSample{},
+		activePane:      "composer",
 		transcript: []transcriptEntry{
 			{Role: "intro", Text: "Aetherion", Meta: "welcome"},
 		},
