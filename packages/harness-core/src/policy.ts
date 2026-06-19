@@ -126,27 +126,81 @@ export function createFileWriteRequest(runId: string, path: string): ToolRequest
   };
 }
 
-export function evaluateSeedPolicy(workspaceRoot: string, request: ToolRequest): PolicyDecision {
-  const targetPath = request.operation.target.uri.replace("file://", "");
-  const resolvedWorkspace = resolve(workspaceRoot);
-  const resolvedTarget = resolve(targetPath);
-  const relativeTarget = relative(resolvedWorkspace, resolvedTarget);
-  const insideWorkspace = relativeTarget !== "" && !relativeTarget.startsWith("..") && !relativeTarget.startsWith("/");
-  const risk = composeRisk(request);
+// ── Policy pipeline ──────────────────────────────────────────────────────
+// Ordered steps inspired by OpenClaw's tool-policy-pipeline. Steps are created
+// by factory functions that close over the workspaceRoot, so boundary checks
+// stay pure and testable. Kept to two layers; do not grow without three
+// concrete duplicates.
 
-  if (request.operation.verb !== "read") {
-    if (request.operation.verb === "write") {
-      return ask(request, "Workspace file write requires explicit approval in the seed harness.");
+export type PolicyPipelineStep = {
+  name: string;
+  evaluate: (request: ToolRequest, prior: PolicyDecision | null) => PolicyDecision | null;
+};
+
+export function createBoundaryPolicyStep(workspaceRoot: string): PolicyPipelineStep {
+  return {
+    name: "boundary",
+    evaluate(request, _prior) {
+      // The seed policy only enforces boundary + egress on reads. Write requests
+      // defer to the operation step (which returns ask), and the true workspace
+      // containment check for writes runs later in approveWriteWithConsent.
+      if (request.operation.verb !== "read") {
+        return null;
+      }
+      const boundary = workspaceBoundary(workspaceRoot, request.operation.target.uri.replace("file://", ""));
+      if (!boundary.insideWorkspace) {
+        return deny(request, "Target is outside the workspace boundary.");
+      }
+      if (request.risk_inputs.data_egress_destination !== "local_response") {
+        return deny(request, "Seed policy only allows local response egress.");
+      }
+      return null;
     }
-    return deny(request, "Only read and approval-gated write are implemented in the seed harness.");
-  }
-  if (!insideWorkspace) {
-    return deny(request, "Target is outside the workspace boundary.");
-  }
-  if (request.risk_inputs.data_egress_destination !== "local_response") {
-    return deny(request, "Seed policy only allows local response egress.");
-  }
+  };
+}
 
+export function createOperationPolicyStep(_workspaceRoot: string): PolicyPipelineStep {
+  return {
+    name: "operation",
+    evaluate(request, _prior) {
+      if (request.operation.verb === "read") {
+        return allowRead(request);
+      }
+      if (request.operation.verb === "write") {
+        return ask(request, "Workspace file write requires explicit approval in the seed harness.");
+      }
+      return deny(request, "Only read and approval-gated write are implemented in the seed harness.");
+    }
+  };
+}
+
+export function createDefaultSeedPolicyPipeline(workspaceRoot: string): PolicyPipelineStep[] {
+  return [createBoundaryPolicyStep(workspaceRoot), createOperationPolicyStep(workspaceRoot)];
+}
+
+export function runPolicyPipeline(
+  workspaceRoot: string,
+  request: ToolRequest,
+  steps?: PolicyPipelineStep[]
+): PolicyDecision {
+  const pipeline = steps ?? createDefaultSeedPolicyPipeline(workspaceRoot);
+  let prior: PolicyDecision | null = null;
+  for (const step of pipeline) {
+    const decision = step.evaluate(request, prior);
+    if (decision) {
+      return decision;
+    }
+  }
+  return deny(request, "No policy step decided for this request.");
+}
+
+export function evaluateSeedPolicy(workspaceRoot: string, request: ToolRequest): PolicyDecision {
+  return runPolicyPipeline(workspaceRoot, request);
+}
+
+function allowRead(request: ToolRequest): PolicyDecision {
+  const risk = composeRisk(request);
+  const resolvedTarget = request.operation.target.uri.replace("file://", "");
   return {
     id: `policy_${request.run_id}_allow_read`,
     tool_request_id: request.id,
