@@ -1,5 +1,6 @@
 import { readEvents, verifyEventHashChain } from "./ledger.ts";
 import type { Workspace } from "./ledger.ts";
+import type { RunManifest } from "./workspace.ts";
 
 export type ReconstructedTrace = {
   run_id: string;
@@ -9,6 +10,8 @@ export type ReconstructedTrace = {
   head_event_hash?: string;
   chain_valid: boolean;
   live_side_effects_replayed: false;
+  manifest_event_ids: string[];
+  missing_event_ids: string[];
 };
 
 export type ReplayRecord = {
@@ -27,11 +30,16 @@ export type ReplayRecord = {
   };
 };
 
-export async function reconstructTrace(workspace: Workspace, runId: string): Promise<ReconstructedTrace> {
+export async function reconstructTrace(workspace: Workspace, runId: string, manifest?: RunManifest): Promise<ReconstructedTrace> {
   const ledger = await readEvents(workspace);
   const events = ledger.filter((event) => event.run_id === runId);
   const lastRunEventIndex = ledger.findLastIndex((event) => event.run_id === runId);
   const verifiedPrefix = lastRunEventIndex >= 0 ? ledger.slice(0, lastRunEventIndex + 1) : [];
+  const manifestEventIds = manifest?.event_ids ?? [];
+  const ledgerEventIds = new Set(events.map((event) => event.id));
+  const missingEventIds = manifestEventIds
+    .filter((id) => !ledgerEventIds.has(id))
+    .sort((a, b) => a.localeCompare(b));
   return {
     run_id: runId,
     event_count: events.length,
@@ -39,7 +47,9 @@ export async function reconstructTrace(workspace: Workspace, runId: string): Pro
     head_event_id: events.at(-1)?.id,
     head_event_hash: events.at(-1)?.event_hash,
     chain_valid: events.length > 0 && verifyEventHashChain(verifiedPrefix).valid,
-    live_side_effects_replayed: false
+    live_side_effects_replayed: false,
+    manifest_event_ids: [...manifestEventIds].sort((a, b) => a.localeCompare(b)),
+    missing_event_ids: missingEventIds
   };
 }
 
