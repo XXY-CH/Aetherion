@@ -182,6 +182,11 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 
 	// Submit / newline in composer.
 	case msg.String() == "enter":
+		// If slash completion is active, accept the selected command instead of sending.
+		if m.slashActive {
+			m.acceptSlashCompletion()
+			return m, tea.Batch(cmds...)
+		}
 		cmd := m.startChat()
 		return m, tea.Batch(append(cmds, cmd)...)
 
@@ -202,11 +207,67 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		return m, tea.Batch(cmds...)
 	}
 
+	// Slash completion navigation (when popup is active).
+	if m.slashActive {
+		switch msg.String() {
+		case "up":
+			if m.completionIdx > 0 {
+				m.completionIdx--
+			}
+			return m, tea.Batch(cmds...)
+		case "down":
+			if m.completionIdx < len(m.slashMatches)-1 {
+				m.completionIdx++
+			}
+			return m, tea.Batch(cmds...)
+		case "tab":
+			m.acceptSlashCompletion()
+			return m, tea.Batch(cmds...)
+		case "esc":
+			m.slashActive = false
+			m.slashMatches = nil
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	// Default: forward to the composer textarea.
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
+	// After each keystroke, check if composer starts with "/" for autocomplete.
+	m.updateSlashCompletion()
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+// updateSlashCompletion filters the slash command list based on the current
+// composer content and shows/hides the autocomplete popup.
+func (m *Model) updateSlashCompletion() {
+	val := m.composer.Value()
+	if strings.HasPrefix(val, "/") && !strings.Contains(val, "\n") {
+		m.slashMatches = filterSlashCommands(val)
+		m.slashActive = len(m.slashMatches) > 0
+		if m.completionIdx >= len(m.slashMatches) {
+			m.completionIdx = 0
+		}
+	} else {
+		m.slashActive = false
+		m.slashMatches = nil
+	}
+}
+
+// acceptSlashCompletion replaces the composer content with the selected command.
+func (m *Model) acceptSlashCompletion() {
+	if !m.slashActive || len(m.slashMatches) == 0 {
+		return
+	}
+	idx := m.completionIdx
+	if idx < 0 || idx >= len(m.slashMatches) {
+		idx = 0
+	}
+	m.composer.SetValue(m.slashMatches[idx].Name + " ")
+	m.slashActive = false
+	m.slashMatches = nil
+	m.completionIdx = -1
 }
 
 // handleModalKey routes keys when a modal is open.

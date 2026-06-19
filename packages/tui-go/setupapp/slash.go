@@ -111,6 +111,45 @@ func (m *Model) handleSlashCommand(command string) {
 	_ = tea.Quit
 }
 
+// slashCommand is one command entry for autocomplete.
+type slashCommand struct {
+	Name        string
+	Description string
+}
+
+// allSlashCommands returns the full list of commands for autocomplete filtering.
+func allSlashCommands() []slashCommand {
+	return []slashCommand{
+		{"/exit", "quit"},
+		{"/quit", "quit"},
+		{"/connect", "set up provider credential"},
+		{"/model", "pick a provider + model"},
+		{"/policy", "policy + risk inspector"},
+		{"/lease", "active leases"},
+		{"/capsules", "capability capsules"},
+		{"/trace", "trace replay"},
+		{"/usage", "token usage"},
+		{"/checkpoint", "mark git-tree checkpoint"},
+		{"/undo", "fork from checkpoint"},
+		{"/tree", "toggle tree expand"},
+		{"/status", "status summary"},
+		{"/clear", "clear transcript"},
+		{"/new", "new session"},
+		{"/help", "this help"},
+	}
+}
+
+// filterSlashCommands returns commands whose Name starts with the given prefix.
+func filterSlashCommands(prefix string) []slashCommand {
+	var matches []slashCommand
+	for _, cmd := range allSlashCommands() {
+		if strings.HasPrefix(cmd.Name, prefix) {
+			matches = append(matches, cmd)
+		}
+	}
+	return matches
+}
+
 func slashHelpText() string {
 	return strings.Join([]string{
 		"/exit        quit",

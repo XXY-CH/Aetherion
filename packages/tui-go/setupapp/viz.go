@@ -161,3 +161,15 @@ func clampInt(v, lo, hi int) int {
 	}
 	return v
 }
+
+// contentWidth computes the inner content width given the outer box width,
+// border (left+right chars), padding (left+right cells), and any extra inline
+// decoration (e.g. a "❯ " prompt). Prevents the lipgloss no-truncate overflow
+// where inner content is wider than the box can hold.
+func contentWidth(outerW, borderW, paddingW, extraW int) int {
+	w := outerW - borderW - paddingW - extraW
+	if w < 4 {
+		w = 4
+	}
+	return w
+}

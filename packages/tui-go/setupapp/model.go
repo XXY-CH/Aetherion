@@ -81,6 +81,8 @@ type Model struct {
 	completionIdx int
 	activePane    string // "conversation", "rail", "tree", "composer"
 	clickFlash    int    // decremented each frame for click-feedback animation
+	slashMatches  []slashCommand
+	slashActive   bool
 }
 
 // Message types for the agent-loop engine (carried from legacy).
@@ -138,8 +140,8 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	composer.SetHeight(4)
 
 	sp := spinner.New()
-	sp.Spinner = spinner.MiniDot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA"))
+	sp.Spinner = spinner.Points
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
 
 	vp := viewport.New()
 

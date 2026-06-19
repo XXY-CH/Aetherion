@@ -39,7 +39,7 @@ func (m Model) render() string {
 	composerH := clampInt(m.height/5, 4, 8)
 	bodyH := maxInt(6, m.height-1-1-approvalH-composerH-1-1) // topBar + footer + approval + composer + padding
 	conversationW := restW * 55 / 100
-	railW := restW - conversationW - 1
+	railW := restW - conversationW
 
 	conversation := m.renderConversationPane(conversationW, bodyH)
 	rail := m.renderRightRail(railW, bodyH)
@@ -54,11 +54,17 @@ func (m Model) render() string {
 	// --- Composer ---
 	composer := m.renderComposer(restW, composerH)
 
+	// --- Slash completion popup (above composer) ---
+	slashPopup := ""
+	if m.slashActive && len(m.slashMatches) > 0 {
+		slashPopup = m.renderSlashPopup(restW)
+	}
+
 	// --- Footer ---
 	footer := m.renderFooter(restW)
 
 	// Assemble the right-of-gutter column.
-	rightCol := lipgloss.JoinVertical(lipgloss.Left, topBar, body, approval, composer, footer)
+	rightCol := lipgloss.JoinVertical(lipgloss.Left, topBar, body, approval, slashPopup, composer, footer)
 
 	// Gutter on the far left.
 	gutter := m.renderTreeGutter(treeW, bodyH+1+approvalH+composerH+1+1+1)
@@ -123,21 +129,23 @@ func (m Model) renderTopBar(width int) string {
 // --- Conversation pane ---
 
 func (m Model) renderConversationPane(width, height int) string {
-	theme := styles()
-	m.transcriptVP.SetWidth(maxInt(20, width-2))
-	m.transcriptVP.SetHeight(maxInt(4, height-2))
+	// border 2 + padding 2 = 4 cells of frame.
+	m.transcriptVP.SetWidth(contentWidth(width, 2, 2, 0))
+	m.transcriptVP.SetHeight(contentWidth(height, 2, 2, 0))
 	m.refreshTranscript()
-	header := theme.sectionTitle.Render(" CONVERSATION")
-	// Active pane gets a blue accent border; click flash adds gold flash.
-	boxStyle := theme.transcript
+	// Focus = border color, never background fill (lazygit principle).
+	borderColor := lipgloss.Color("#45475A")
 	if m.activePane == "conversation" {
-		borderColor := lipgloss.Color("#89B4FA")
+		borderColor = lipgloss.Color("#89B4FA")
 		if m.clickFlash > 0 {
 			borderColor = lipgloss.Color("#FFD700")
 		}
-		boxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(borderColor).Padding(0, 1).Background(lipgloss.Color("#181825"))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, boxStyle.Width(width).Height(height).Render(m.transcriptVP.View()))
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1)
+	return boxStyle.Width(width).Height(height).Render(m.transcriptVP.View())
 }
 
 // renderTranscriptContent builds the string shown inside the conversation viewport.
@@ -151,14 +159,15 @@ func (m Model) renderTranscriptContent() string {
 		b.WriteString(messageBlock(entry))
 		b.WriteString("\n")
 	}
+	// Spinner attached to the current streaming turn (not a separate row).
 	if m.chatBusy {
-		b.WriteString(styles().streaming.Render(fmt.Sprintf(" %s streaming… turn %d/%d · tools %d · tokens %d",
-			m.spinner.View(), m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens)))
-		b.WriteString("\n")
+		spinnerSym := lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render(m.spinner.View())
+		statusText := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(
+			fmt.Sprintf(" turn %d/%d · tools %d · %dt", m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens))
+		b.WriteString(spinnerSym + statusText + "\n")
 	}
 	if m.chatError != "" {
-		b.WriteString(styles().errorStyle.Render(" ✗ " + m.chatError))
-		b.WriteString("\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("✗ "+m.chatError) + "\n")
 	}
 	return b.String()
 }
@@ -267,52 +276,119 @@ func roleBg(role string) string {
 // --- Right rail ---
 
 func (m Model) renderRightRail(width, height int) string {
-	railActive := m.activePane == "rail"
-	railBorder := lipgloss.Color("#45475A")
-	if railActive {
-		railBorder = lipgloss.Color("#89B4FA")
-		if m.clickFlash > 0 {
-			railBorder = lipgloss.Color("#FFD700")
-		}
-	}
-	_ = railBorder // panels use their own border; this is for future per-block highlight
-	statusH := 6
-	ledgerH := maxInt(4, height-statusH-6-2) // status + risk + padding
+	// Fixed-height cards + flexible ledger.
+	statusH := 4
+	authH := 5
+	leaseH := 5
+	tokenH := 5
+	riskH := 4
+	fixedH := statusH + authH + leaseH + tokenH + riskH
+	ledgerH := maxInt(4, height-fixedH)
 
 	status := m.renderStatusBlock(width, statusH)
+	auth := m.renderAuthorityGates(width, authH)
+	lease := m.renderActiveLeases(width, leaseH)
+	tokens := m.renderTokenUsage(width, tokenH)
 	ledger := m.renderLedgerBlock(width, ledgerH)
-	risk := m.renderRiskBlock(width, 6)
+	risk := m.renderRiskBlock(width, riskH)
 
-	return lipgloss.JoinVertical(lipgloss.Left, status, ledger, risk)
+	return lipgloss.JoinVertical(lipgloss.Left, status, auth, lease, tokens, ledger, risk)
 }
 
-// renderStatusBlock renders the AGENT status section with progress components.
+// renderStatusBlock renders the compact AGENT status pill + progress.
 func (m Model) renderStatusBlock(width, height int) string {
-	theme := styles()
-	state := theme.muted.Render("○ idle")
+	// Compact single-char status pill (k9s/btop principle).
+	stateSym := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("● idle")
 	if m.chatBusy {
-		state = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Render("⏺ running")
+		stateSym = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A6E3A1")).Render("● run " + fmt.Sprintf("%d/%d", m.loopDepth, m.loopMaxDepth))
 	}
 	if m.chatError != "" {
-		state = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("⊘ blocked")
+		stateSym = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F38BA8")).Render("● error")
 	}
-	turn := fmt.Sprintf("turn %d/%d", m.loopDepth, m.loopMaxDepth)
 	turnFrac := 0.0
 	if m.loopMaxDepth > 0 {
 		turnFrac = float64(m.loopDepth) / float64(m.loopMaxDepth)
 	}
 	turnBar := m.turnProgress.ViewAs(turnFrac)
 	elapsed := int(time.Since(m.startTime).Seconds())
-	elapsedFrac := float64(elapsed%60) / 60.0
-	elapsedBar := m.elapsedProgress.ViewAs(elapsedFrac)
 
 	content := strings.Join([]string{
-		theme.sectionTitle.Render("AGENT"),
-		state,
-		theme.muted.Render(turn) + " " + turnBar,
-		theme.muted.Render(fmt.Sprintf("tools %d · %ds", m.loopToolCalls, elapsed)) + " " + elapsedBar,
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("AGENT") + " " + stateSym,
+		turnBar,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(fmt.Sprintf("tools %d · %ds · %dt", m.loopToolCalls, elapsed, m.loopTokens)),
 	}, "\n")
-	return theme.panel.Width(width).Render(content)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(content)
+}
+
+// renderAuthorityGates shows the 3 security invariants.
+func (m Model) renderAuthorityGates(width, height int) string {
+	redX := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F38BA8")).Render("✗")
+	greenCheck := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("AUTHORITY") + " " + dim.Render("gates"),
+		redX + dim.Render(" model_output_auth"),
+		greenCheck + dim.Render(" exec_requires_lease"),
+		greenCheck + dim.Render(" side_effects_approve"),
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderActiveLeases shows leases with TTL countdown gauges.
+func (m Model) renderActiveLeases(width, height int) string {
+	leaseEvents := []ledgerEvent{}
+	for _, e := range readLedgerEvents(m.workspaceRoot(), 100) {
+		if e.EventType == "lease.issued" {
+			leaseEvents = append(leaseEvents, e)
+		}
+	}
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("LEASES") + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(fmt.Sprintf("(%d)", len(leaseEvents)))
+	if len(leaseEvents) == 0 {
+		return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(header + "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("— none —"))
+	}
+	var lines []string
+	lines = append(lines, header)
+	maxShow := minInt(len(leaseEvents), 2)
+	for range leaseEvents[:maxShow] {
+		frac := 0.8 // default; real TTL would parse expires_at
+		bar := Gauge(frac, 10, '█', '░', ttlGaugeColor(frac), lipgloss.Color("#45475A"))
+		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Render("●")+" "+bar)
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderTokenUsage shows input/output breakdown + trend sparkline.
+func (m Model) renderTokenUsage(width, height int) string {
+	inToks, outToks := 0, 0
+	for _, s := range m.tokenHistory {
+		inToks += s.Input
+		outToks += s.Output
+	}
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("TOKENS") + " " + dim.Render(fmt.Sprintf("Σ%d", m.loopTokens))
+
+	lines := []string{header}
+	if len(m.tokenHistory) > 0 {
+		barW := contentWidth(width, 2, 2, 6)
+		inBar := Gauge(float64(inToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', lipgloss.Color("#89B4FA"), lipgloss.Color("#313244"))
+		outBar := Gauge(float64(outToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', lipgloss.Color("#A6E3A1"), lipgloss.Color("#313244"))
+		lines = append(lines, dim.Render("in ")+inBar)
+		lines = append(lines, dim.Render("out ")+outBar)
+		// Trend sparkline
+		vals := make([]float64, len(m.tokenHistory))
+		var hi float64
+		for i, s := range m.tokenHistory {
+			vals[i] = float64(s.Total)
+			if float64(s.Total) > hi {
+				hi = float64(s.Total)
+			}
+		}
+		spark := Sparkline(vals, 0, hi, lipgloss.Color("#5DFF8F"), lipgloss.Color("#56D4FF"))
+		lines = append(lines, dim.Render("trend ")+spark)
+	} else {
+		lines = append(lines, dim.Render("— no data —"))
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 // renderLedgerBlock renders the LEDGER tail section.
@@ -419,9 +495,10 @@ func (m Model) renderApprovalBar(width int) string {
 // --- Composer ---
 
 func (m Model) renderComposer(width, height int) string {
-	m.composer.SetWidth(maxInt(20, width-4))
-	m.composer.SetHeight(height)
-	// Active composer gets a blue accent border; flash gold on click.
+	// border 2 + padding 2 + prompt 3 = 7 cells of frame.
+	m.composer.SetWidth(contentWidth(width, 2, 2, 3))
+	m.composer.SetHeight(contentWidth(height, 2, 0, 0))
+	// Focus = border color (lazygit principle).
 	borderColor := lipgloss.Color("#45475A")
 	if m.activePane == "composer" || m.activePane == "" {
 		borderColor = lipgloss.Color("#89B4FA")
@@ -434,8 +511,7 @@ func (m Model) renderComposer(width, height int) string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Padding(0, 1).
-		Background(lipgloss.Color("#181825"))
+		Padding(0, 1)
 	return boxStyle.Width(width).Render(content)
 }
 
@@ -459,6 +535,34 @@ func (m Model) renderFooter(width int) string {
 		text = fmt.Sprintf("↓ unread %d · ", m.transcriptUnread) + text
 	}
 	return theme.statusRule.Width(width).Render(text)
+}
+
+// --- Slash completion popup ---
+
+// renderSlashPopup renders the slash command autocomplete list above the composer.
+// Each row: command name (accent) + description (dim). Selected row highlighted.
+func (m Model) renderSlashPopup(width int) string {
+	if len(m.slashMatches) == 0 {
+		return ""
+	}
+	maxShow := minInt(len(m.slashMatches), 8)
+	var lines []string
+	for i, cmd := range m.slashMatches[:maxShow] {
+		nameStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true).Render(cmd.Name)
+		descStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(" " + cmd.Description)
+		row := nameStyled + descStyled
+		if i == m.completionIdx {
+			row = lipgloss.NewStyle().Background(lipgloss.Color("#313244")).Render(row)
+		}
+		lines = append(lines, row)
+	}
+	content := strings.Join(lines, "\n")
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#89B4FA")).
+		Padding(0, 1).
+		Width(width).
+		Render(content)
 }
 
 // --- Event helpers ---

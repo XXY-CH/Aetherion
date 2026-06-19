@@ -58,8 +58,8 @@ func TestStaticViewRendersWorkbench(t *testing.T) {
 	view := model.StaticView()
 	for _, want := range []string{
 		"Aetherion",
-		"CONVERSATION",
 		"AGENT",
+		"AUTHORITY",
 		"enter send",
 	} {
 		if !strings.Contains(view, want) {
