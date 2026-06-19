@@ -97,6 +97,9 @@ test-results/
 docker-compose.override.yml
 .docker/
 
+# Quarantine zone for imported external repos (OpenClaw baseline study, etc.)
+.quarantine/
+
 # Aetherion local runtime state
 .aetherion/
 !.aetherion/README.md

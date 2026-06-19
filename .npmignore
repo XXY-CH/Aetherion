@@ -1,5 +1,6 @@
 # Local/runtime state and assistant orchestration files must never enter package tarballs.
 .aetherion/
+.quarantine/
 .claude/
 .codex/
 .agents/
