@@ -329,18 +329,18 @@ func dimString(s string) string {
 }
 
 // renderWindowContent renders a single window with a title bar (title + × close),
-// border, and body. Focused windows get a gold double border; blurred get gray.
+// border, and body. Focused windows use ink-weight instead of glow.
 func (wm *windowManager) renderWindowContent(win *window) string {
 	theme := styles()
 	isFocused := win.id == wm.focused
 
 	// Title bar: centered title + × in the top-right.
-	titleColor := lipgloss.Color("#45475A")
+	titleColor := cloudMedium
 	if isFocused {
-		titleColor = lipgloss.Color("#FFD700")
+		titleColor = ivoryLight
 	}
 	titleStyled := lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(" " + win.title + " ")
-	closeStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render(" × ")
+	closeStyled := lipgloss.NewStyle().Foreground(clay).Render(" × ")
 
 	// Pad the title bar to fill the width.
 	titleBarWidth := win.width - 2 // border chars on each side

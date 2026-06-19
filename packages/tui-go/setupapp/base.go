@@ -92,13 +92,13 @@ func (m Model) treeWidth() int {
 
 func (m Model) renderTopBar(width int) string {
 	theme := styles()
-	title := theme.title.Render("✦ Aetherion")
+	title := theme.title.Render("Aetherion")
 	provider := theme.meta.Render(fmt.Sprintf(" %s/%s", m.provider(), m.modelRef()))
-	cred := theme.status.Render(" ✓cred")
+	cred := theme.status.Render(" cred:yes")
 	if !credentialPresent(m.provider()) {
-		cred = theme.warn.Render(" ✗cred")
+		cred = theme.warn.Render(" cred:no")
 	}
-	tools := theme.muted.Render(" · tools on")
+	tools := theme.muted.Render(" · tools on · policy-gated")
 
 	// Token sparkline (last 12 turns).
 	var spark string
@@ -111,14 +111,14 @@ func (m Model) renderTopBar(width int) string {
 				hi = float64(s.Total)
 			}
 		}
-		spark = theme.muted.Render(" · ") + Sparkline(vals, 0, hi, lipgloss.Color("#5DFF8F"), lipgloss.Color("#56D4FF"))
+		spark = theme.muted.Render(" · ") + Sparkline(vals, 0, hi, cloudMedium, ivoryLight)
 		spark += theme.muted.Render(fmt.Sprintf(" %dt", m.loopTokens))
 	}
 
 	// Running indicator.
 	runIndicator := ""
 	if m.chatBusy {
-		runIndicator = theme.streaming.Render(fmt.Sprintf(" · ⏺ run %d/%d", m.loopDepth, m.loopMaxDepth))
+		runIndicator = theme.streaming.Render(fmt.Sprintf(" · run %d/%d", m.loopDepth, m.loopMaxDepth))
 	}
 
 	bar := title + provider + cred + tools + spark + runIndicator
@@ -133,18 +133,20 @@ func (m Model) renderConversationPane(width, height int) string {
 	m.transcriptVP.SetWidth(contentWidth(width, 2, 2, 0))
 	m.transcriptVP.SetHeight(contentWidth(height, 2, 2, 0))
 	m.refreshTranscript()
-	// Focus = border color, never background fill (lazygit principle).
-	borderColor := lipgloss.Color("#45475A")
+	// Focus = border color while keeping the workbench on a dark surface.
+	borderColor := slateLight
 	if m.activePane == "conversation" {
-		borderColor = lipgloss.Color("#89B4FA")
+		borderColor = ivoryLight
 		if m.clickFlash > 0 {
-			borderColor = lipgloss.Color("#FFD700")
+			borderColor = clay
 		}
 	}
 	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderColor).
-		Padding(0, 1)
+		Padding(0, 1).
+		Foreground(ivoryLight).
+		Background(slateDark)
 	return boxStyle.Width(width).Height(height).Render(m.transcriptVP.View())
 }
 
@@ -161,13 +163,13 @@ func (m Model) renderTranscriptContent() string {
 	}
 	// Spinner attached to the current streaming turn (not a separate row).
 	if m.chatBusy {
-		spinnerSym := lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render(m.spinner.View())
-		statusText := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(
+		spinnerSym := lipgloss.NewStyle().Foreground(clay).Render(m.spinner.View())
+		statusText := lipgloss.NewStyle().Foreground(cloudMedium).Render(
 			fmt.Sprintf(" turn %d/%d · tools %d · %dt", m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens))
 		b.WriteString(spinnerSym + statusText + "\n")
 	}
 	if m.chatError != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("✗ "+m.chatError) + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(ember).Render("✗ "+m.chatError) + "\n")
 	}
 	return b.String()
 }
@@ -180,7 +182,7 @@ func (m Model) renderWelcome() string {
 		cred = theme.warn.Render("✗ /connect")
 	}
 	lines := []string{
-		theme.title.Render("✦ Aetherion"),
+		theme.title.Render("Aetherion"),
 		"",
 		theme.muted.Render("Local-first agent harness."),
 		theme.muted.Render("Approval-gated tool loop."),
@@ -197,8 +199,8 @@ func (m Model) renderWelcome() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// messageBlock renders one transcript entry with role-appropriate styling.
-// Modern look: colored role label, subtle background tint per role.
+// messageBlock renders one transcript entry as a flat note with a typographic
+// role label. Color is reserved for state, not for every speaker.
 func messageBlock(entry transcriptEntry) string {
 	theme := styles()
 	label := roleLabel(entry.Role)
@@ -211,12 +213,11 @@ func messageBlock(entry transcriptEntry) string {
 	header := labelStyled + metaStyled
 	body := header + "\n" + entry.Text
 
-	// Role-tinted backgrounds for visual grouping.
-	bgTint := roleBg(entry.Role)
-	contentStyle := lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).BorderForeground(labelColor)
-	if bgTint != "" {
-		contentStyle = contentStyle.Background(lipgloss.Color(bgTint))
-	}
+	contentStyle := lipgloss.NewStyle().
+		PaddingLeft(1).
+		BorderLeft(true).
+		BorderForeground(labelColor).
+		Foreground(ivoryLight)
 	return contentStyle.Render(body) + "\n"
 }
 
@@ -242,34 +243,19 @@ func roleLabel(role string) string {
 func roleColor(role string) color.Color {
 	switch role {
 	case "user":
-		return lipgloss.Color("#89B4FA") // blue
+		return ivoryLight
 	case "assistant":
-		return lipgloss.Color("#A6E3A1") // green
+		return ivoryDark
 	case "tool":
-		return lipgloss.Color("#94E2D5") // teal
+		return sky
 	case "approval":
-		return lipgloss.Color("#FAB387") // peach
+		return clay
 	case "error":
-		return lipgloss.Color("#F38BA8") // red
+		return ember
 	case "system":
-		return lipgloss.Color("#6C7086") // overlay0
+		return cloudMedium
 	default:
-		return lipgloss.Color("#CDD6F4")
-	}
-}
-
-func roleBg(role string) string {
-	switch role {
-	case "assistant":
-		return "#1A2A1E" // subtle green tint
-	case "tool":
-		return "#1A2228" // subtle teal tint
-	case "error":
-		return "#2A1A1E" // subtle red tint
-	case "approval":
-		return "#2A2418" // subtle peach tint
-	default:
-		return ""
+		return cloudLight
 	}
 }
 
@@ -297,13 +283,14 @@ func (m Model) renderRightRail(width, height int) string {
 
 // renderStatusBlock renders the compact AGENT status pill + progress.
 func (m Model) renderStatusBlock(width, height int) string {
+	theme := styles()
 	// Compact single-char status pill (k9s/btop principle).
-	stateSym := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("● idle")
+	stateSym := lipgloss.NewStyle().Foreground(cloudMedium).Render("● idle")
 	if m.chatBusy {
-		stateSym = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A6E3A1")).Render("● run " + fmt.Sprintf("%d/%d", m.loopDepth, m.loopMaxDepth))
+		stateSym = lipgloss.NewStyle().Bold(true).Foreground(clay).Render("● run " + fmt.Sprintf("%d/%d", m.loopDepth, m.loopMaxDepth))
 	}
 	if m.chatError != "" {
-		stateSym = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F38BA8")).Render("● error")
+		stateSym = lipgloss.NewStyle().Bold(true).Foreground(ember).Render("● error")
 	}
 	turnFrac := 0.0
 	if m.loopMaxDepth > 0 {
@@ -313,67 +300,68 @@ func (m Model) renderStatusBlock(width, height int) string {
 	elapsed := int(time.Since(m.startTime).Seconds())
 
 	content := strings.Join([]string{
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("AGENT") + " " + stateSym,
+		theme.sectionTitle.Render("AGENT") + " " + stateSym,
 		turnBar,
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(fmt.Sprintf("tools %d · %ds · %dt", m.loopToolCalls, elapsed, m.loopTokens)),
+		theme.muted.Render(fmt.Sprintf("tools %d · %ds · %dt", m.loopToolCalls, elapsed, m.loopTokens)),
 	}, "\n")
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(content)
+	return theme.panel.Width(width).Height(height).Render(content)
 }
 
 // renderAuthorityGates shows the 3 security invariants.
 func (m Model) renderAuthorityGates(width, height int) string {
-	redX := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F38BA8")).Render("✗")
-	greenCheck := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
+	theme := styles()
+	redX := lipgloss.NewStyle().Bold(true).Foreground(ember).Render("✗")
+	greenCheck := lipgloss.NewStyle().Bold(true).Foreground(olive).Render("✓")
 	lines := []string{
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("AUTHORITY") + " " + dim.Render("gates"),
-		redX + dim.Render(" model_output_auth"),
-		greenCheck + dim.Render(" exec_requires_lease"),
-		greenCheck + dim.Render(" side_effects_approve"),
+		theme.sectionTitle.Render("AUTHORITY") + " " + theme.muted.Render("gates"),
+		redX + theme.muted.Render(" model_output_auth"),
+		greenCheck + theme.muted.Render(" exec_requires_lease"),
+		greenCheck + theme.muted.Render(" side_effects_approve"),
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return theme.panel.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 // renderActiveLeases shows leases with TTL countdown gauges.
 func (m Model) renderActiveLeases(width, height int) string {
+	theme := styles()
 	leaseEvents := []ledgerEvent{}
 	for _, e := range readLedgerEvents(m.workspaceRoot(), 100) {
 		if e.EventType == "lease.issued" {
 			leaseEvents = append(leaseEvents, e)
 		}
 	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("LEASES") + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(fmt.Sprintf("(%d)", len(leaseEvents)))
+	header := theme.sectionTitle.Render("LEASES") + " " + theme.muted.Render(fmt.Sprintf("(%d)", len(leaseEvents)))
 	if len(leaseEvents) == 0 {
-		return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(header + "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("— none —"))
+		return theme.panel.Width(width).Height(height).Render(header + "\n" + theme.muted.Render("— none —"))
 	}
 	var lines []string
 	lines = append(lines, header)
 	maxShow := minInt(len(leaseEvents), 2)
 	for range leaseEvents[:maxShow] {
 		frac := 0.8 // default; real TTL would parse expires_at
-		bar := Gauge(frac, 10, '█', '░', ttlGaugeColor(frac), lipgloss.Color("#45475A"))
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Render("●")+" "+bar)
+		bar := Gauge(frac, 10, '█', '░', ttlGaugeColor(frac), slateLight)
+		lines = append(lines, lipgloss.NewStyle().Foreground(clay).Render("●")+" "+bar)
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return theme.panel.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 // renderTokenUsage shows input/output breakdown + trend sparkline.
 func (m Model) renderTokenUsage(width, height int) string {
+	theme := styles()
 	inToks, outToks := 0, 0
 	for _, s := range m.tokenHistory {
 		inToks += s.Input
 		outToks += s.Output
 	}
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89B4FA")).Render("TOKENS") + " " + dim.Render(fmt.Sprintf("Σ%d", m.loopTokens))
+	header := theme.sectionTitle.Render("TOKENS") + " " + theme.muted.Render(fmt.Sprintf("Σ%d", m.loopTokens))
 
 	lines := []string{header}
 	if len(m.tokenHistory) > 0 {
 		barW := contentWidth(width, 2, 2, 6)
-		inBar := Gauge(float64(inToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', lipgloss.Color("#89B4FA"), lipgloss.Color("#313244"))
-		outBar := Gauge(float64(outToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', lipgloss.Color("#A6E3A1"), lipgloss.Color("#313244"))
-		lines = append(lines, dim.Render("in ")+inBar)
-		lines = append(lines, dim.Render("out ")+outBar)
+		inBar := Gauge(float64(inToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', ivoryLight, slateLight)
+		outBar := Gauge(float64(outToks)/float64(maxInt(1, inToks+outToks)), barW, '█', '░', cloudMedium, slateLight)
+		lines = append(lines, theme.muted.Render("in ")+inBar)
+		lines = append(lines, theme.muted.Render("out ")+outBar)
 		// Trend sparkline
 		vals := make([]float64, len(m.tokenHistory))
 		var hi float64
@@ -383,12 +371,12 @@ func (m Model) renderTokenUsage(width, height int) string {
 				hi = float64(s.Total)
 			}
 		}
-		spark := Sparkline(vals, 0, hi, lipgloss.Color("#5DFF8F"), lipgloss.Color("#56D4FF"))
-		lines = append(lines, dim.Render("trend ")+spark)
+		spark := Sparkline(vals, 0, hi, cloudMedium, ivoryLight)
+		lines = append(lines, theme.muted.Render("trend ")+spark)
 	} else {
-		lines = append(lines, dim.Render("— no data —"))
+		lines = append(lines, theme.muted.Render("— no data —"))
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1).Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return theme.panel.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 // renderLedgerBlock renders the LEDGER tail section.
@@ -426,9 +414,9 @@ func formatLedgerLine(evt ledgerEvent) string {
 	// Append status/risk indicators based on event type.
 	switch evt.EventType {
 	case "policy.decided":
-		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
+		return pill + " " + lipgloss.NewStyle().Foreground(olive).Render("✓")
 	case "policy.denied":
-		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("✗")
+		return pill + " " + lipgloss.NewStyle().Foreground(ember).Render("✗")
 	case "risk.composed":
 		if containsAny(evt.Summary, "L0", "L1", "L2", "L3", "L4", "L5") {
 			lvl := extractRiskLevel(evt.Summary)
@@ -436,11 +424,11 @@ func formatLedgerLine(evt ledgerEvent) string {
 		}
 		return pill
 	case "lease.issued":
-		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Render("⏱")
+		return pill + " " + lipgloss.NewStyle().Foreground(clay).Render("⏱")
 	case "tool.result":
-		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("ok")
+		return pill + " " + lipgloss.NewStyle().Foreground(cloudMedium).Render("ok")
 	case "agent.loop.completed":
-		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
+		return pill + " " + lipgloss.NewStyle().Foreground(olive).Render("✓")
 	default:
 		return pill
 	}
@@ -485,9 +473,10 @@ func (m Model) renderApprovalBar(width int) string {
 	}
 	p := m.pendingApproval
 	badge := RiskBadge(p.RiskLevel)
-	left := theme.warn.Render("⚠ APPROVE ") + theme.meta.Render(p.ToolName) +
+	left := theme.warn.Render("APPROVE ") + lipgloss.NewStyle().Foreground(ivoryLight).Render(p.ToolName) +
 		"(" + shortPath(p.Path) + ") " + badge + "  scope:" + p.Verb
-	buttons := theme.status.Render(" [y]✓ ") + theme.errorStyle.Render(" [n]✗")
+	buttons := lipgloss.NewStyle().Foreground(ivoryLight).Underline(true).Render(" [y] approve ") +
+		lipgloss.NewStyle().Foreground(clay).Render(" [n] deny ")
 	content := lipgloss.JoinHorizontal(lipgloss.Center, left, buttons)
 	return theme.overlay.Width(width).Render(content)
 }
@@ -498,20 +487,22 @@ func (m Model) renderComposer(width, height int) string {
 	// border 2 + padding 2 + prompt 3 = 7 cells of frame.
 	m.composer.SetWidth(contentWidth(width, 2, 2, 3))
 	m.composer.SetHeight(contentWidth(height, 2, 0, 0))
-	// Focus = border color (lazygit principle).
-	borderColor := lipgloss.Color("#45475A")
+	// Focus = border color.
+	borderColor := slateLight
 	if m.activePane == "composer" || m.activePane == "" {
-		borderColor = lipgloss.Color("#89B4FA")
+		borderColor = ivoryLight
 		if m.clickFlash > 0 {
-			borderColor = lipgloss.Color("#FFD700")
+			borderColor = clay
 		}
 	}
-	prompt := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700")).Render(" ❯ ")
+	prompt := lipgloss.NewStyle().Bold(true).Foreground(clay).Render(" ❯ ")
 	content := lipgloss.JoinHorizontal(lipgloss.Top, prompt, m.composer.View())
 	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderColor).
-		Padding(0, 1)
+		Padding(0, 1).
+		Foreground(ivoryLight).
+		Background(slateDark)
 	return boxStyle.Width(width).Render(content)
 }
 
@@ -548,19 +539,21 @@ func (m Model) renderSlashPopup(width int) string {
 	maxShow := minInt(len(m.slashMatches), 8)
 	var lines []string
 	for i, cmd := range m.slashMatches[:maxShow] {
-		nameStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true).Render(cmd.Name)
-		descStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render(" " + cmd.Description)
+		nameStyled := lipgloss.NewStyle().Foreground(ivoryLight).Bold(true).Underline(true).Render(cmd.Name)
+		descStyled := lipgloss.NewStyle().Foreground(cloudMedium).Render(" " + cmd.Description)
 		row := nameStyled + descStyled
 		if i == m.completionIdx {
-			row = lipgloss.NewStyle().Background(lipgloss.Color("#313244")).Render(row)
+			row = lipgloss.NewStyle().Foreground(clay).Underline(true).Render(row)
 		}
 		lines = append(lines, row)
 	}
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#89B4FA")).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(ivoryLight).
 		Padding(0, 1).
+		Foreground(ivoryLight).
+		Background(slateDark).
 		Width(width).
 		Render(content)
 }

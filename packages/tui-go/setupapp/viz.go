@@ -65,11 +65,11 @@ func Gauge(pct float64, total int, full, empty rune, fullColor, emptyColor color
 func ttlGaugeColor(frac float64) color.Color {
 	switch {
 	case frac > 0.5:
-		return lipgloss.Color("#5DFF8F")
+		return olive
 	case frac > 0.2:
-		return lipgloss.Color("#FFE75D")
+		return clay
 	default:
-		return lipgloss.Color("#FF3B3B")
+		return ember
 	}
 }
 
@@ -107,7 +107,7 @@ func BarChart(bars []RiskBar, maxBar int) string {
 // RiskBadge renders a colored "[Lx]" pill.
 func RiskBadge(level string) string {
 	c := riskColor(level)
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#1E1E2E")).Background(c).Padding(0, 1).Render(level)
+	return lipgloss.NewStyle().Bold(true).Foreground(c).Render(level)
 }
 
 // Segment is a fixed-width segment in a StatusStrip.

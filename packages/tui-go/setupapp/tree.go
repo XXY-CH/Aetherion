@@ -67,7 +67,7 @@ func (m Model) renderTreeGutter(width, height int) string {
 
 		// Run boundary marker when a new run starts.
 		if i > 0 && node.RunID != visible[i-1].RunID {
-			boundary := theme.muted.Render(indent + "╶╶ " + compactRunID(node.RunID) + " ╶╶")
+			boundary := theme.muted.Render(indent + "── " + compactRunID(node.RunID) + " ──")
 			lines = append(lines, boundary)
 		}
 
@@ -119,7 +119,7 @@ func (m Model) renderTreeGutter(width, height int) string {
 		// Build the line.
 		line := indent + connector + symbolStyled + " " + typeStyled + laneTag + timeStr + riskStr
 		if isCursor {
-			line = lipgloss.NewStyle().Background(lipgloss.Color("#313244")).Render(line)
+			line = lipgloss.NewStyle().Foreground(clay).Underline(true).Render(line)
 			line = theme.treeCursor.Render("▸") + line
 		} else {
 			// Add trunk connector for non-last, non-branch nodes.
@@ -138,7 +138,7 @@ func (m Model) renderTreeGutter(width, height int) string {
 	}
 
 	content := strings.Join(lines, "\n")
-	box := theme.treeBase.Width(width).Height(height).Background(lipgloss.Color("#181825"))
+	box := theme.treeBase.Width(width).Height(height).Background(slateDark)
 	return box.Render(content)
 }
 
@@ -167,31 +167,31 @@ func isMergeNode(node treeNode, all []treeNode, idx int) bool {
 
 // laneColor returns a distinct color for each parallel lane.
 func laneColor(lane int) color.Color {
-	laneColors := []string{"#89B4FA", "#F9E2AF", "#A6E3A1", "#F5C2E7", "#94E2D5"}
+	laneColors := []color.Color{cloudLight, cloudMedium, cactus, sky, fig}
 	if lane > 0 && lane <= len(laneColors) {
-		return lipgloss.Color(laneColors[lane-1])
+		return laneColors[lane-1]
 	}
-	return lipgloss.Color("#6C7086")
+	return cloudDark
 }
 
 // nodeSymbol returns the display symbol and color for a tree node.
 func nodeSymbol(node treeNode) (string, color.Color) {
 	if node.IsHead {
-		return "▸", lipgloss.Color("#56D4FF")
+		return "▸", clay
 	}
 	if node.IsBranch {
 		switch node.BranchStatus {
 		case "sandbox":
-			return "◇", lipgloss.Color("#FFAE5D")
+			return "◇", clay
 		case "approved":
-			return "✦", lipgloss.Color("#5DFF8F")
+			return "✦", olive
 		case "discarded":
-			return "✕", lipgloss.Color("#6C7086")
+			return "✕", cloudDark
 		}
-		return "◇", lipgloss.Color("#FFAE5D")
+		return "◇", clay
 	}
 	if node.IsCheckpoint {
-		return "◆", lipgloss.Color("#FFD700")
+		return "◆", ivoryLight
 	}
 	return "●", eventTypeColor(node.EventType)
 }
@@ -200,29 +200,29 @@ func nodeSymbol(node treeNode) (string, color.Color) {
 func eventTypeColor(eventType string) color.Color {
 	switch {
 	case strings.HasPrefix(eventType, "run."):
-		return lipgloss.Color("#89B4FA") // blue
+		return ivoryLight
 	case strings.HasPrefix(eventType, "user."):
-		return lipgloss.Color("#F9E2AF") // yellow
+		return ivoryDark
 	case strings.HasPrefix(eventType, "tool."):
-		return lipgloss.Color("#A6E3A1") // green
+		return olive
 	case strings.HasPrefix(eventType, "policy."):
-		return lipgloss.Color("#94E2D5") // teal
+		return ivoryLight
 	case strings.HasPrefix(eventType, "risk."):
-		return lipgloss.Color("#FAB387") // peach
+		return clay
 	case strings.HasPrefix(eventType, "lease."):
-		return lipgloss.Color("#CBA6F7") // mauve
+		return clay
 	case strings.HasPrefix(eventType, "agent."):
-		return lipgloss.Color("#F5C2E7") // pink
+		return cloudLight
 	case strings.HasPrefix(eventType, "consent."):
-		return lipgloss.Color("#89DCEB") // sky
+		return sky
 	case strings.HasPrefix(eventType, "action."):
-		return lipgloss.Color("#EBA0AC") // maroon
+		return clay
 	case strings.HasPrefix(eventType, "verification."):
-		return lipgloss.Color("#A6E3A1") // green
+		return olive
 	case strings.HasPrefix(eventType, "security."), strings.HasPrefix(eventType, "poisoning."):
-		return lipgloss.Color("#F38BA8") // red
+		return ember
 	default:
-		return lipgloss.Color("#6C7086") // gray
+		return cloudMedium
 	}
 }
 

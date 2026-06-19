@@ -126,10 +126,12 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	providerInput := textinput.New()
 	providerInput.Prompt = ""
 	providerInput.SetValue(emptyAs(cfg.ModelStatus.ProviderName, "stub"))
+	providerInput.SetStyles(workbenchTextInputStyles())
 
 	modelInput := textinput.New()
 	modelInput.Prompt = ""
 	modelInput.SetValue(emptyAs(cfg.ModelStatus.ModelRef, "stub-deterministic-v1"))
+	modelInput.SetStyles(workbenchTextInputStyles())
 
 	composer := textarea.New()
 	composer.Prompt = ""
@@ -138,21 +140,22 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	composer.ShowLineNumbers = false
 	composer.SetWidth(80)
 	composer.SetHeight(4)
+	composer.SetStyles(workbenchTextareaStyles())
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
+	sp.Style = lipgloss.NewStyle().Foreground(clay)
 
 	vp := viewport.New()
 
 	tp := progress.New(
-		progress.WithColors(lipgloss.Color("#89B4FA")),
+		progress.WithColors(ivoryLight),
 		progress.WithFillCharacters('█', '░'),
 		progress.WithoutPercentage(),
 		progress.WithWidth(8),
 	)
 	ep := progress.New(
-		progress.WithColors(lipgloss.Color("#A6E3A1")),
+		progress.WithColors(cloudMedium),
 		progress.WithFillCharacters('█', '░'),
 		progress.WithoutPercentage(),
 		progress.WithWidth(8),
@@ -181,6 +184,40 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 	}
 	m.composer.Focus()
 	return m
+}
+
+func workbenchTextInputStyles() textinput.Styles {
+	s := textinput.DefaultDarkStyles()
+	base := lipgloss.NewStyle().Foreground(ivoryLight).Background(slateDark)
+	s.Focused.Text = base
+	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(clay).Background(slateDark)
+	s.Focused.Suggestion = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Blurred.Text = base
+	s.Blurred.Placeholder = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Blurred.Prompt = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Blurred.Suggestion = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Cursor.Color = clay
+	return s
+}
+
+func workbenchTextareaStyles() textarea.Styles {
+	s := textarea.DefaultDarkStyles()
+	base := lipgloss.NewStyle().Foreground(ivoryLight).Background(slateDark)
+	s.Focused.Base = base
+	s.Focused.Text = base
+	s.Focused.CursorLine = lipgloss.NewStyle().Foreground(ivoryLight).Background(slateDark)
+	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(clay).Background(slateDark)
+	s.Focused.EndOfBuffer = lipgloss.NewStyle().Foreground(slateDark).Background(slateDark)
+	s.Blurred.Base = base
+	s.Blurred.Text = base
+	s.Blurred.CursorLine = lipgloss.NewStyle().Foreground(ivoryLight).Background(slateDark)
+	s.Blurred.Placeholder = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Blurred.Prompt = lipgloss.NewStyle().Foreground(cloudMedium).Background(slateDark)
+	s.Blurred.EndOfBuffer = lipgloss.NewStyle().Foreground(slateDark).Background(slateDark)
+	s.Cursor.Color = clay
+	return s
 }
 
 // Init starts the spinner.
@@ -221,6 +258,12 @@ func Run(cfg Config, out io.Writer) error {
 
 // StaticView returns a plain-text render for non-interactive mode (no ANSI).
 func (m Model) StaticView() string {
+	if m.width == 0 {
+		m.width = 120
+	}
+	if m.height == 0 {
+		m.height = 34
+	}
 	return stripANSI(m.render())
 }
 

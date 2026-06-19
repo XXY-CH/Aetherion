@@ -6,7 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // Update is the core state machine. Routes keyboard input, mouse events, and
@@ -467,7 +466,7 @@ func (m Model) renderUsageWindow() string {
 		}
 		lines = append(lines, "")
 		lines = append(lines, "TREND")
-		lines = append(lines, "  "+Sparkline(vals, 0, hi, lipgloss.Color("#5DFF8F"), lipgloss.Color("#56D4FF")))
+		lines = append(lines, "  "+Sparkline(vals, 0, hi, cloudDark, slateDark))
 	}
 	return strings.Join(lines, "\n")
 }
