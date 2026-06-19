@@ -11,7 +11,11 @@ export function createWriteConsentRecord(input: {
   path: string;
   userId?: string;
   approvedAt?: string;
+  ttlSeconds?: number;
 }): ConsentRecord {
+  const approvedAt = input.approvedAt ?? new Date().toISOString();
+  const ttlSeconds = input.ttlSeconds ?? 300;
+  const expiresAt = new Date(Date.parse(approvedAt) + ttlSeconds * 1000).toISOString();
   return {
     id: `consent_${input.runId}_write`,
     user_id: input.userId ?? "user_local",
@@ -19,8 +23,8 @@ export function createWriteConsentRecord(input: {
     tool_request_id: input.toolRequestId,
     decision: "approved",
     risk_level: "L3",
-    approved_at: input.approvedAt ?? new Date().toISOString(),
-    expires_at: null,
+    approved_at: approvedAt,
+    expires_at: expiresAt,
     scope: {
       actions: ["write"],
       paths: [input.path]

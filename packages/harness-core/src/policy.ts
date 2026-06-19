@@ -231,6 +231,9 @@ export function approveWriteWithConsent(workspaceRoot: string, request: ToolRequ
   if (consent.tool_request_id !== request.id || consent.decision !== "approved") {
     return deny(request, "Write request lacks matching explicit consent.");
   }
+  if (consent.expires_at !== null && Date.parse(consent.expires_at) <= Date.now()) {
+    return deny(request, "Write consent has expired.");
+  }
   return {
     id: `policy_${request.run_id}_allow_write`,
     tool_request_id: request.id,

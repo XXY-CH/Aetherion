@@ -3104,7 +3104,8 @@ test("user request -> policy decision -> local file read/write -> verification -
     workspaceId: workspace.id,
     toolRequestId: writeRequest.id,
     path: summaryPath,
-    approvedAt: "2026-06-05T20:00:01.000Z"
+    approvedAt: "2026-06-05T20:00:01.000Z",
+    ttlSeconds: 60 * 60 * 24 * 365
   });
   const consentValidation = await validateAgainstSchema(repoRoot, "consent-record.schema.json", consent);
   assert.equal(consentValidation.valid, true, consentValidation.errors.join("; "));
