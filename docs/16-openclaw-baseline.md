@@ -157,3 +157,21 @@ Every ponytail iteration follows:
 3. **Write a phase plan document** (`docs/phases/NN-<slug>.md`) — scope, contracts, tests, exit criteria. No Plan mode; write the doc and proceed.
 4. **TDD development** — test first, then minimum implementation (ponytail rung 5 only after rungs 1–4 are exhausted).
 5. **Test + document progress + git commit** — leave a trace.
+
+---
+
+## Iteration Log
+
+### Phase 01 — Tool Policy Pipeline (§11 item 3)
+Refactored `evaluateSeedPolicy` from a monolithic function into an ordered `PolicyPipelineStep[]` (boundary + operation layers). Factory functions close over `workspaceRoot`. Behavior byte-identical (3 golden tests). 10 new tests. Commit `b4e1a86`.
+
+### Phase 02 — Lease Scope Enforcement (§4)
+Added `scope.tools` and `scope.egress` checks to `readLocalFileThroughPolicy` and `writeLocalFileThroughPolicy` — defense in depth so the executor enforces the full lease, not just paths. Unknown verbs fail closed. 7 new tests. Commit `d7dd6be`.
+
+### Phase 03 — Replay Integrity (§5)
+`reconstructTrace` now cross-checks the run manifest's `event_ids` against the ledger and reports `manifest_event_ids` + `missing_event_ids`. Lightweight alternative to OpenClaw's lifecycle-generation UUID (avoids a new hash version). Backward compatible. 4 new tests. Commit `f50c610`.
+
+### Phase 04 — Consent Expiry (§4)
+`createWriteConsentRecord` now computes `expires_at` from a TTL (default 300s, matching lease + approval card). `approveWriteWithConsent` rejects expired consents. `null` expires_at stays backward compatible. 6 new tests. Commit `e34813b`.
+
+**Running total:** 27 new tests (174 → 201). Full suite 201/201 green. 0 regressions.

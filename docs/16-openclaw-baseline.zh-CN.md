@@ -157,3 +157,21 @@ OpenClaw 有三个独立的记录系统，而 Aetherion 有一个统一账本：
 3. **编写 phase 计划文档**（`docs/phases/NN-<slug>.md`）——范围、契约、测试、退出标准。不进 Plan 模式；写文档即推进。
 4. **TDD 开发**——测试先行，然后最小实现（ponytail 第 5 级仅在穷尽第 1–4 级后）。
 5. **测试 + 文档进度 + git 提交**——留下痕迹。
+
+---
+
+## 迭代日志
+
+### Phase 01 — 工具策略流水线（§11 第 3 项）
+将 `evaluateSeedPolicy` 从单一函数重构为有序 `PolicyPipelineStep[]`（boundary + operation 两层）。工厂函数闭包持有 `workspaceRoot`。行为字节级一致（3 个 golden 测试）。10 个新测试。提交 `b4e1a86`。
+
+### Phase 02 — 租约作用域执行强制（§4）
+在 `readLocalFileThroughPolicy` 和 `writeLocalFileThroughPolicy` 中添加 `scope.tools` 和 `scope.egress` 检查——纵深防御，让执行层强制完整租约约束，不仅是路径。未知动词 fail closed。7 个新测试。提交 `d7dd6be`。
+
+### Phase 03 — 重放完整性（§5）
+`reconstructTrace` 现在将 run manifest 的 `event_ids` 与账本交叉校验，报告 `manifest_event_ids` + `missing_event_ids`。OpenClaw lifecycle-generation UUID 的轻量替代（避免新 hash 版本）。向后兼容。4 个新测试。提交 `f50c610`。
+
+### Phase 04 — 同意过期强制（§4）
+`createWriteConsentRecord` 现在从 TTL 计算过期时间（默认 300 秒，与租约+审批卡一致）。`approveWriteWithConsent` 拒绝过期同意。`null` expires_at 保持向后兼容。6 个新测试。提交 `e34813b`。
+
+**累计：** 27 个新测试（174 → 201）。全套 201/201 绿。零回归。
