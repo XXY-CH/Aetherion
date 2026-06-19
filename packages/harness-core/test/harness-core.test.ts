@@ -1607,12 +1607,15 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
 
   const modelRequest = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8"));
   modelRequest.scope.raw_prompt_persisted = true;
+  // A bare string is not a valid tool declaration: the schema now allows tool
+  // objects only in tool-use mode, so a string entry is rejected by the item
+  // schema rather than by a maxItems cap.
   modelRequest.tool_gateway.declared_tools = ["filesystem.read"];
   modelRequest.authority_gates.model_request_can_authorize_actions = true;
   const modelRequestValidation = await validateAgainstSchema(repoRoot, "agent-model-request.schema.json", modelRequest);
   assert.equal(modelRequestValidation.valid, false);
   assert.ok(modelRequestValidation.errors.some((error) => error.includes("expected one of false")));
-  assert.ok(modelRequestValidation.errors.some((error) => error.includes("expected at most 0 items")));
+  assert.ok(modelRequestValidation.errors.some((error) => error.includes('expected type "object", got string')));
 
   const modelRequestRoleOrder = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-request.json"), "utf8"));
   modelRequestRoleOrder.prompt_hashes = [
@@ -1626,7 +1629,10 @@ test("contract validation rejects inherited Soul Fork authority and duplicate fo
   assert.ok(modelRequestRoleOrderValidation.errors.some((error) => error.includes("expected one of developer")));
 
   const modelResponse = JSON.parse(await readFile(join(repoRoot, "examples", "contracts", "agent-model-response.json"), "utf8"));
-  modelResponse.scope.tool_execution_allowed = true;
+  // tool_execution_allowed may now be true in a tool-use loop (gated by lease
+  // + policy), so this contract relies on the two permanently-locked authority
+  // gates to prove a response cannot self-authorize actions or pose as
+  // verified runtime evidence.
   modelResponse.authority_gates.model_output_can_authorize_actions = true;
   modelResponse.response_audit.may_present_as_verified_runtime_evidence = true;
   const modelResponseValidation = await validateAgainstSchema(repoRoot, "agent-model-response.schema.json", modelResponse);

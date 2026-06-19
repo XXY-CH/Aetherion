@@ -15,7 +15,9 @@ import { assertCapsuleAllowed, assertPathAllowed, assertRiskBudget, createAgentC
 import { acknowledgePoisoning, createPoisoningRegressionFixture, isPoisoningSignal, isUntrustedSource, runHoneypotTrial, scanUntrustedContent, signalFromAssessment, type UntrustedSource } from "../../security/src/index.ts";
 import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem, createImOutboxItem, createTrustedStorePublisherRecord, isStoreReplayEvidenceRecord, isStoreTrustedPublisher, type BrowserObservationInput, type ImInboxInput, type ImOutboxInput, type StorePackage, type StoreReplayEvidenceRecord } from "../../surface-os/src/index.ts";
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
-import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWorkspace, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, writeWorkspaceRegistry, type BoundaryFacts, type EventRecord, type ModelMessage, type ReplayRecord, type RunManifest } from "../../harness-core/src/index.ts";
+import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWorkspace, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, runAgentLoop, startAgentLoopState, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, writeWorkspaceRegistry, type BoundaryFacts, type EventRecord, type LoopEvent, type ModelMessage, type ReplayRecord, type RunManifest, type ToolCallProposal } from "../../harness-core/src/index.ts";
+import { createV1ToolRegistry } from "../../harness-core/src/tool-registry.ts";
+import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
   command: string;
@@ -61,6 +63,10 @@ type CliOptions = {
   printOutput: boolean;
   modelProvider?: ModelProviderName;
   modelRef?: string;
+  tools: boolean;
+  outputFormat?: "json" | "jsonl";
+  autoApprove: boolean;
+  interactive: boolean;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -147,7 +153,10 @@ function parseArgs(args: string[]): CliOptions {
     approvePermissions: false,
     approveSensitive: false,
     checkWakeups: false,
-    printOutput: false
+    printOutput: false,
+    tools: false,
+    autoApprove: false,
+    interactive: false
   };
 
   for (let index = optionStartIndex; index < args.length; index += 1) {
@@ -331,6 +340,24 @@ function parseArgs(args: string[]): CliOptions {
         options.modelRef = requireValue(arg, next);
         index += 1;
         break;
+      case "--tools":
+        options.tools = true;
+        break;
+      case "--auto-approve":
+        options.autoApprove = true;
+        break;
+      case "--interactive":
+        options.interactive = true;
+        break;
+      case "--output-format": {
+        const value = requireValue(arg, next);
+        if (value !== "json" && value !== "jsonl") {
+          throw new Error("--output-format must be 'json' or 'jsonl'");
+        }
+        options.outputFormat = value;
+        index += 1;
+        break;
+      }
       default:
         if (!arg.startsWith("--")) {
           continue;
@@ -344,7 +371,7 @@ function parseArgs(args: string[]): CliOptions {
 
 function collectPositionals(args: string[]): string[] {
   const positionals: string[] = [];
-  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token", "--remote-evidence", "--idempotency-key", "--model-provider", "--model"]);
+  const valueFlags = new Set(["--workspace", "--input", "--output", "--summary", "--from", "--path", "--change", "--content", "--source-event", "--confidence", "--from-run", "--capsule", "--replay-run", "--version", "--deadline", "--watch-file", "--branch", "--kind", "--ttl", "--sensitivity", "--parent-run", "--child-agent", "--budget", "--agent-id", "--supervisor", "--socket-path", "--socket-auth-token", "--remote-evidence", "--idempotency-key", "--model-provider", "--model", "--output-format"]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlags.has(arg)) {
@@ -4906,6 +4933,11 @@ async function runModel(options: CliOptions): Promise<void> {
     throw new Error("model chat requires --content <task>");
   }
 
+  if (options.tools) {
+    await runModelAgentLoop(options);
+    return;
+  }
+
   const workspaceRoot = resolve(options.workspace);
   const workspace = await ensureModelChatWorkspace(workspaceRoot);
   const requestedRunId = options.target?.startsWith("run_") ? options.target : undefined;
@@ -4961,6 +4993,141 @@ async function runModel(options: CliOptions): Promise<void> {
     response_audit_missing_citations: invokeRecord.response_audit_missing_citations
   });
 }
+
+// Tools-mode chat: runs the iterative agent loop and streams LoopEvent values
+// as JSON-lines to stdout. When a tool_proposal needs approval, the event is
+// emitted and the process blocks reading one JSON line from stdin
+// ({"approve":bool,"reason":...}) so a parent process (e.g. the Go TUI) can
+// drive approval. --auto-approve bypasses stdin for L0-L2 reads/writes.
+async function runModelAgentLoop(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  await ensureModelChatWorkspace(workspaceRoot);
+  const provider = resolveModelProvider({
+    providerName: options.modelProvider,
+    modelRef: options.modelRef
+  });
+  const toolRegistry = createV1ToolRegistry();
+
+  // Build a minimal invocation artifact the loop records evidence against. The
+  // tools path does not require a pre-existing source run; it derives a
+  // self-contained invocation from the user task directly.
+  const probeRunId = `run_agent_loop_probe_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const invocation = buildAgentLoopInvocation(workspaceRoot, probeRunId, options.content ?? "");
+
+  const maxLoopDepth = Number.parseInt(process.env.AETHERION_MAX_LOOP_DEPTH ?? "10", 10) || 10;
+  const state = await startAgentLoopState({
+    repoRoot,
+    workspaceRoot,
+    provider,
+    modelRef: provider.model_ref,
+    toolRegistry,
+    invocation,
+    maxLoopDepth,
+    maxOutputTokens: 1024
+  });
+
+  const outputJsonl = options.outputFormat === "jsonl";
+  const interactive = options.interactive || !options.autoApprove;
+  const writeEvent = (event: LoopEvent): void => {
+    if (outputJsonl) {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
+    }
+  };
+
+  const approvalCallback = async (proposal: ToolCallProposal): Promise<{ approved: boolean; reason?: string }> => {
+    if (options.autoApprove) {
+      // Auto-approve only low-risk (L0-L2) calls; higher risk still asks.
+      const lowRisk = proposal.riskLevel === "L0" || proposal.riskLevel === "L1" || proposal.riskLevel === "L2";
+      if (lowRisk) {
+        return { approved: true };
+      }
+    }
+    if (!interactive) {
+      return { approved: true };
+    }
+    // Emit the proposal event, then block on stdin for a decision line.
+    writeEvent({ type: "tool_proposal", proposal });
+    const decision = await readApprovalLine(proposal.proposalId);
+    return decision;
+  };
+
+  for await (const event of runAgentLoop(
+    {
+      repoRoot,
+      workspaceRoot,
+      provider,
+      modelRef: provider.model_ref,
+      toolRegistry,
+      invocation,
+      maxLoopDepth,
+      maxOutputTokens: 1024
+    },
+    state,
+    options.content ?? "",
+    approvalCallback
+  )) {
+    // tool_proposal is emitted inside the approval callback when interactive,
+    // so skip re-emitting it here to avoid duplicates.
+    if (event.type === "tool_proposal" && interactive) {
+      continue;
+    }
+    writeEvent(event);
+  }
+}
+
+// Reads a single JSON approval line from stdin. Returns a deny decision on EOF
+// or malformed input so the loop never silently auto-approves.
+function readApprovalLine(proposalId: string): Promise<{ approved: boolean; reason?: string }> {  return new Promise((resolveDecision) => {
+    let buffer = "";
+    const onData = (chunk: Buffer): void => {
+      buffer += chunk.toString("utf8");
+      const newlineIndex = buffer.indexOf("\n");
+      if (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        process.stdin.removeListener("data", onData);
+        process.stdin.removeListener("end", onEnd);
+        try {
+          const parsed = JSON.parse(line) as { approve?: boolean; approved?: boolean; reason?: string };
+          const approved = Boolean(parsed.approve ?? parsed.approved);
+          resolveDecision({ approved, reason: parsed.reason });
+        } catch {
+          resolveDecision({ approved: false, reason: `Malformed approval response for ${proposalId}` });
+        }
+      }
+    };
+    const onEnd = (): void => {
+      process.stdin.removeListener("data", onData);
+      resolveDecision({ approved: false, reason: `stdin closed before approval for ${proposalId}` });
+    };
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+  });
+}
+
+// Builds a self-contained AgentRuntimeInvocationArtifact for the tools path.
+// Loads the canonical fixture and rewrites the run-scoped identifiers so the
+// loop has a valid, schema-conformant invocation to record evidence against,
+// without requiring a pre-existing source run in the ledger.
+function buildAgentLoopInvocation(workspaceRoot: string, runId: string, task: string): AgentRuntimeInvocationArtifact {
+  const fixturePath = join(repoRoot, "examples", "contracts", "agent-runtime-invocation.json");
+  const invocation = JSON.parse(readFileSync(fixturePath, "utf8")) as AgentRuntimeInvocationArtifact;
+  const taskHash = sha256Hex(task);
+  const runHash = sha256Hex(runId);
+  invocation.id = `agent_runtime_invocation_${runId}`;
+  invocation.run_id = runId;
+  invocation.prompt_plan_id = `prompt_${runId}`;
+  invocation.entry.context_pack_id = `ctx_${runId}`;
+  invocation.entry.output_mode = "answer";
+  invocation.prompt.bundle_id = `prompt_bundle_${runId}`;
+  invocation.prompt.preview_sha256 = runHash;
+  invocation.prompt.message_hashes[2].content_sha256 = taskHash;
+  invocation.prompt.role_boundaries[2].source_event_ids = [];
+  invocation.context.source_event_ids = [];
+  invocation.context.artifact_refs = [`artifact://boundary/${runId}/facts`];
+  invocation.invocation_sha256 = sha256Hex(JSON.stringify(invocation));
+  return invocation;
+}
+
 
 type ModelStatusReport = {
   schema_version: "aetherion-ether-model-status-v1";

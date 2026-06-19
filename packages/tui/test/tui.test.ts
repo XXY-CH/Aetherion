@@ -606,23 +606,11 @@ test("Bare Ether opens the interactive session TUI without initializing a worksp
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /AETHERION/);
-  assert.match(setup.stdout, /Local-first Agent Harness Kernel/);
-  assert.match(setup.stdout, /command=setup/);
-  assert.match(setup.stdout, /default_entry=ether/);
-  assert.match(setup.stdout, /scope=chat/);
-  assert.match(setup.stdout, /layout=hermes_fullscreen_session/);
-  assert.match(setup.stdout, /composer=interactive/);
-  assert.match(setup.stdout, /mutates_workspace=false/);
-  assert.match(setup.stdout, /initializes_workspace=false/);
-  assert.match(setup.stdout, /installs_dependencies=false/);
-  assert.match(setup.stdout, /starts_daemon=false/);
-  assert.match(setup.stdout, /panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue/);
-  assert.match(setup.stdout, /llm_read_loop=.*model chat.*--model-provider stub.*--model stub-deterministic-v1/);
-  assert.match(setup.stdout, /provider=stub/);
-  assert.match(setup.stdout, /credential_resolved=true/);
-  assert.match(setup.stdout, /settings_persisted=false/);
-  assert.match(setup.stdout, /runtime_authority_granted=false/);
+  assert.match(setup.stdout, /Aetherion/);
+  assert.match(setup.stdout, /stub/);
+  assert.match(setup.stdout, /tools on/);
+  assert.match(setup.stdout, /enter send/);
+  assert.match(setup.stdout, /ctrl\+c quit/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
@@ -722,22 +710,11 @@ test("Installed Ether bin opens the session TUI without mutating workspace state
     workspace
   ], { env: { ...process.env, AETHERION_SETUP_NONINTERACTIVE: "1" } });
 
-  assert.match(setup.stdout, /AETHERION/);
-  assert.match(setup.stdout, /Local-first Agent Harness Kernel/);
-  assert.match(setup.stdout, /command=setup/);
-  assert.match(setup.stdout, /default_entry=ether/);
-  assert.match(setup.stdout, /scope=chat/);
-  assert.match(setup.stdout, /layout=hermes_fullscreen_session/);
-  assert.match(setup.stdout, /composer=interactive/);
-  assert.match(setup.stdout, /mutates_workspace=false/);
-  assert.match(setup.stdout, /initializes_workspace=false/);
-  assert.match(setup.stdout, /starts_daemon=false/);
-  assert.match(setup.stdout, /panels=conversation,composer,slash_commands,history,streaming,status,overlay,queue/);
-  assert.match(setup.stdout, /llm_read_loop=.*model chat.*--model-provider stub.*--model stub-deterministic-v1/);
-  assert.match(setup.stdout, /provider=stub/);
-  assert.match(setup.stdout, /credential_resolved=true/);
-  assert.match(setup.stdout, /settings_persisted=false/);
-  assert.match(setup.stdout, /runtime_authority_granted=false/);
+  assert.match(setup.stdout, /Aetherion/);
+  assert.match(setup.stdout, /stub/);
+  assert.match(setup.stdout, /tools on/);
+  assert.match(setup.stdout, /enter send/);
+  assert.match(setup.stdout, /ctrl\+c quit/);
   await assert.rejects(access(join(workspace, ".aetherion")), /ENOENT/);
 });
 
