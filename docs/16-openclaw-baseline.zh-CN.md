@@ -1,6 +1,6 @@
 # OpenClaw 基线对比文档
 
-[English version](16-openclaw-baseline.md)
+[English](16-openclaw-baseline.md)
 
 本文档是每一轮 ponytail 迭代的对比锚点。每轮迭代开始时重读本基线，选择对齐方向，编写 phase 计划。结构刻意做成「发现 + 差距 + 结论」，以便迭代计划引用具体章节。
 
