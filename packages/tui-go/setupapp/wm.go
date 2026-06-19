@@ -1,6 +1,8 @@
 package setupapp
 
 import (
+	"strings"
+
 	"charm.land/lipgloss/v2"
 )
 
@@ -310,15 +312,39 @@ func (wm *windowManager) renderWindows(base string, termW, termH int) string {
 	return comp.Render()
 }
 
-// renderWindowContent renders a single window with its title bar and border.
+// renderWindowContent renders a single window with a title bar (title + × close),
+// border, and body. Focused windows get a gold double border; blurred get gray.
 func (wm *windowManager) renderWindowContent(win *window) string {
 	theme := styles()
-	border := theme.floatBlurred
-	if win.id == wm.focused {
-		border = theme.floatFocused
+	isFocused := win.id == wm.focused
+
+	// Title bar: centered title + × in the top-right.
+	titleColor := lipgloss.Color("#45475A")
+	if isFocused {
+		titleColor = lipgloss.Color("#FFD700")
 	}
-	body := border.Width(win.width).Height(win.height).Render(win.content)
-	return body
+	titleStyled := lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(" " + win.title + " ")
+	closeStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render(" × ")
+
+	// Pad the title bar to fill the width.
+	titleBarWidth := win.width - 2 // border chars on each side
+	titleLen := lipgloss.Width(titleStyled)
+	closeLen := lipgloss.Width(closeStyled)
+	padLen := titleBarWidth - titleLen - closeLen
+	if padLen < 0 {
+		padLen = 0
+	}
+	titleBar := titleStyled + strings.Repeat(" ", padLen) + closeStyled
+
+	// Body content below the title bar.
+	bodyContent := win.content
+	fullContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, bodyContent)
+
+	borderStyle := theme.floatBlurred
+	if isFocused {
+		borderStyle = theme.floatFocused
+	}
+	return borderStyle.Width(win.width).Height(win.height).Render(fullContent)
 }
 
 // updateContent refreshes the content of a window of the given kind.
@@ -335,20 +361,6 @@ var windowIDCounter int
 
 func randomID() string {
 	windowIDCounter++
-	// fmt-free: build from counter + kind context at call site
+	// itoaSimple is defined in tree.go (shared helper)
 	return "w" + itoaSimple(windowIDCounter)
-}
-
-func itoaSimple(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }

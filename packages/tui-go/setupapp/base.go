@@ -337,23 +337,36 @@ func (m Model) renderLedgerBlock(width, height int) string {
 	return theme.panel.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
-// formatLedgerLine renders one ledger event as a compact line.
+// formatLedgerLine renders one ledger event as a compact colored pill.
 func formatLedgerLine(evt ledgerEvent) string {
-	theme := styles()
+	typeColor := eventTypeColor(evt.EventType)
 	abbrev := eventAbbrev(evt.EventType)
+
+	// Colored pill: abbrev in event-type color on subtle background.
+	pill := lipgloss.NewStyle().
+		Foreground(typeColor).
+		Render(abbrev)
+
+	// Append status/risk indicators based on event type.
 	switch evt.EventType {
 	case "policy.decided":
-		return theme.muted.Render(abbrev) + " " + theme.status.Render("✓")
+		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
+	case "policy.denied":
+		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Render("✗")
 	case "risk.composed":
 		if containsAny(evt.Summary, "L0", "L1", "L2", "L3", "L4", "L5") {
 			lvl := extractRiskLevel(evt.Summary)
-			return theme.muted.Render(abbrev) + " " + RiskBadge(lvl)
+			return pill + " " + miniRiskBadge(lvl)
 		}
-		return theme.muted.Render(abbrev)
+		return pill
 	case "lease.issued":
-		return theme.muted.Render(abbrev) + " " + theme.status.Render("⏱")
+		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Render("⏱")
+	case "tool.result":
+		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Render("ok")
+	case "agent.loop.completed":
+		return pill + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render("✓")
 	default:
-		return theme.muted.Render(abbrev)
+		return pill
 	}
 }
 
