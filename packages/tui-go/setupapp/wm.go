@@ -288,18 +288,28 @@ func (wm *windowManager) positionWindows(termW, termH int) {
 
 // renderWindows returns a Compositor-rendered string of all floating/modal
 // windows composited on top of the base content. If no windows are open, it
-// returns the base unchanged.
+// returns the base unchanged. When a modal is open, the base + floating windows
+// are dimmed for visual separation.
 func (wm *windowManager) renderWindows(base string, termW, termH int) string {
 	if len(wm.windows) == 0 {
 		return base
 	}
 	wm.positionWindows(termW, termH)
 
+	// Dim the base when a modal is open.
+	if wm.hasModal() {
+		base = dimString(base)
+	}
+
 	// Build layers: base is the root, each window is a child Layer.
 	root := lipgloss.NewLayer(base)
 	var layers []*lipgloss.Layer
 	for _, win := range wm.windows {
+		// Dim floating windows when a modal is on top.
 		content := wm.renderWindowContent(win)
+		if wm.hasModal() && win.tier != tierModal {
+			content = dimString(content)
+		}
 		layer := lipgloss.NewLayer(content).
 			ID(win.id).
 			X(win.x).
@@ -310,6 +320,12 @@ func (wm *windowManager) renderWindows(base string, termW, termH int) string {
 	root.AddLayers(layers...)
 	comp := lipgloss.NewCompositor(root)
 	return comp.Render()
+}
+
+// dimString reduces the visual prominence of a string by wrapping it in a
+// faint style. This simulates modal dimming without per-cell manipulation.
+func dimString(s string) string {
+	return lipgloss.NewStyle().Faint(true).Render(s)
 }
 
 // renderWindowContent renders a single window with a title bar (title + × close),

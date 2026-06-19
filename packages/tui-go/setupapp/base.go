@@ -419,12 +419,24 @@ func (m Model) renderApprovalBar(width int) string {
 // --- Composer ---
 
 func (m Model) renderComposer(width, height int) string {
-	theme := styles()
 	m.composer.SetWidth(maxInt(20, width-4))
 	m.composer.SetHeight(height)
-	prompt := theme.prompt.Render(" ❯ ")
+	// Active composer gets a blue accent border; flash gold on click.
+	borderColor := lipgloss.Color("#45475A")
+	if m.activePane == "composer" || m.activePane == "" {
+		borderColor = lipgloss.Color("#89B4FA")
+		if m.clickFlash > 0 {
+			borderColor = lipgloss.Color("#FFD700")
+		}
+	}
+	prompt := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700")).Render(" ❯ ")
 	content := lipgloss.JoinHorizontal(lipgloss.Top, prompt, m.composer.View())
-	return theme.composerBox.Width(width).Render(content)
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Background(lipgloss.Color("#181825"))
+	return boxStyle.Width(width).Render(content)
 }
 
 // --- Footer ---
