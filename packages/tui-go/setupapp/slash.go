@@ -88,13 +88,18 @@ func (m *Model) handleSlashCommand(command string) {
 		m.chatError = ""
 		m.transcriptUnread = 0
 		m.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion", Meta: "welcome"}}
+		m.persistTranscript()
+		m.refreshTranscriptToBottom()
 		m.statusMsg = "slash=/clear"
 
 	case "/new":
 		m.chatResult = nil
 		m.chatError = ""
 		m.queue = nil
+		m.transcript = []transcriptEntry{{Role: "intro", Text: "Aetherion", Meta: "welcome"}}
 		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: "New session started.", Meta: "new"})
+		m.persistTranscript()
+		m.refreshTranscriptToBottom()
 		m.statusMsg = "slash=/new"
 
 	default:

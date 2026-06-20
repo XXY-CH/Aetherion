@@ -180,6 +180,8 @@ func (m *Model) applyLoopEvent(event LoopEvent) {
 	}
 	// After each event, reload the git-tree so it reflects new ledger events.
 	m.loadTreeNodes()
+	// Persist transcript so it survives restart.
+	m.persistTranscript()
 }
 
 // resolveApproval writes the y/n decision to the subprocess stdin.
@@ -234,6 +236,7 @@ func (m *Model) beginChat(task, provider, modelRef string, resetComposer bool) t
 	m.chatError = ""
 	m.activePrompt = task
 	m.transcript = append(m.transcript, transcriptEntry{Role: "user", Text: task, Meta: fmt.Sprintf("%s / %s", provider, modelRef)})
+	m.persistTranscript()
 	if resetComposer {
 		m.composer.Reset()
 	}

@@ -161,6 +161,17 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 		progress.WithWidth(8),
 	)
 
+	// Load persisted transcript from disk; fall back to default intro.
+	persisted, err := loadTranscript(cfg.Snapshot.WorkspaceRoot)
+	var initialTranscript []transcriptEntry
+	if err == nil && len(persisted) > 0 {
+		initialTranscript = persisted
+	} else {
+		initialTranscript = []transcriptEntry{
+			{Role: "intro", Text: "Aetherion", Meta: "welcome"},
+		}
+	}
+
 	m := Model{
 		cfg:             cfg,
 		keys:            defaultKeyMap(),
@@ -178,9 +189,7 @@ func NewModelWithRunner(cfg Config, runner CommandRunner) Model {
 		startTime:       time.Now(),
 		tokenHistory:    []tokenSample{},
 		activePane:      "composer",
-		transcript: []transcriptEntry{
-			{Role: "intro", Text: "Aetherion", Meta: "welcome"},
-		},
+		transcript:      initialTranscript,
 	}
 	m.composer.Focus()
 	return m
