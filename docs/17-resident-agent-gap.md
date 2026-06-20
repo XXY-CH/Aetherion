@@ -10,10 +10,10 @@ This document maps the gap between Aetherion's current agent runtime and OpenCla
 
 | # | Capability | OpenClaw | Aetherion | Gap Severity |
 |---|---|---|---|---|
-| 1 | Always-on daemon | Full (launchd/systemd/schtasks, KeepAlive) | None (CLI one-shot by design) | **Critical** |
-| 2 | Inbound channels (~30) | Full (Telegram/WhatsApp/Discord/Slack/...) | TUI only; IM is hash-only stub | Deferred (V1 = TUI) |
-| 3 | Outbound proactive | Full (message tool, cron announce, heartbeat) | Blocked (outbox never delivers) | **High** |
-| 4 | Cron/scheduling | Full (at/every/cron, persistent, retries) | Data model only, no watcher | **Critical** |
+| 1 | Always-on daemon | Full (launchd/systemd/schtasks, KeepAlive) | Foreground daemon mode (`ether daemon`) with REPL + wakeup polling + session resume | **Medium** (was Critical) |
+| 2 | Inbound channels (~30) | Full (Telegram/WhatsApp/Discord/Slack/...) | TUI + daemon stdin; IM is hash-only stub | Deferred (V1 = TUI) |
+| 3 | Outbound proactive | Full (message tool, cron announce, heartbeat) | Wakeup triggers poll in daemon; outbox delivery still blocked | **High** |
+| 4 | Cron/scheduling | Full (at/every/cron, persistent, retries) | Wakeup trigger polling (deadline/file) in daemon; no full cron | **High** (was Critical) |
 | 5 | Background tasks | Full (exec/process + task ledger) | None | **High** |
 | 6 | Persistent memory | Full (MEMORY.md + vector + dreaming) | Model auto-injected into loop (cards + prefs); no vector search | **High** (was Critical) |
 | 7 | Tool execution | 100+ tools (shell/files/web/browser/media/MCP) | 4 tools (read/write file, shell exec, web fetch) | **High** (was Critical) |
@@ -35,11 +35,11 @@ These were the highest-value gaps. All three are now implemented:
 2. ✅ **Web fetch tool** (phase 07) — `web_fetch` tool, read-only network fetch, 15s timeout, truncated output.
 3. ✅ **Memory injection into agent loop** (phase 08) — accepted `MemoryCard` entries + `UserModel` preferences loaded into system prompt. Falls back to default when empty.
 
-### P1 — Make the agent persistent (daemon + scheduling)
+### P1 — Make the agent persistent (daemon + scheduling) ✅ COMPLETE
 
-4. **Foreground daemon mode** — `ether daemon --workspace .` runs the agent loop in a long-lived process (not a system service yet; just a foreground process that stays alive and accepts input).
-5. **Deadline trigger watcher** — poll `hibernation` wakeups on an interval. The data model (`createDeadlineTrigger`) exists; just needs a watcher loop.
-6. **Session resume** — reload the last conversation from ledger + transcript on daemon startup.
+4. ✅ **Foreground daemon mode** (phase 09) — `ether daemon --workspace .` runs a REPL that stays alive across multiple inputs. Auto-approve L0-L2, L3+ prompts. SIGINT = graceful shutdown.
+5. ✅ **Deadline trigger watcher** (phase 09, integrated) — daemon polls wakeup triggers every 60s. Deadline and file-change triggers from the hibernation registry are surfaced when eligible.
+6. ✅ **Session resume** (phase 10) — daemon loads the last 20 ledger events on startup and injects them as "Recent Session" context. Shows "session resumed" banner.
 
 ### P2 — Make the agent proactive (outbound + notifications)
 
