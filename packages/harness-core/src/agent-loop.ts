@@ -383,6 +383,40 @@ async function* processToolCall(
     return { kind: "executed", toolName: toolCall.name, path: "", result: resultText, success };
   }
 
+  // Web fetch is a read-only network tool (L2 risk). It does not use the
+  // file-system pipeline — no lease, no approval. The URL is fetched and the
+  // response body returned as truncated text.
+  if (definition.verb === "fetch") {
+    const args = parseToolArguments(toolCall.arguments);
+    if (!args.url) {
+      const reason = `Tool '${toolCall.name}' call is missing required 'url' argument.`;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+      yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
+      return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+    }
+
+    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.url}.`, undefined);
+    yield { type: "tool_executing", toolName: toolCall.name, path: args.url };
+
+    let resultText: string;
+    let success = true;
+    try {
+      const response = await fetch(args.url, { signal: AbortSignal.timeout(15_000) });
+      const body = await response.text();
+      resultText = `HTTP ${response.status} ${response.statusText}\n\n${truncateForModel(body)}`;
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `Fetched ${args.url}: HTTP ${response.status}, ${body.length} chars.`, undefined);
+    } catch (error) {
+      success = false;
+      resultText = `Fetch failed: ${error instanceof Error ? error.message : String(error)}`;
+      await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
+    }
+
+    state.totalToolCalls += 1;
+    state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: resultText, success });
+    yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: args.url, result: resultText, success };
+    return { kind: "executed", toolName: toolCall.name, path: args.url, result: resultText, success };
+  }
+
   const args = parseToolArguments(toolCall.arguments);
   if (!args.path) {
     const reason = `Tool '${toolCall.name}' call is missing required 'path' argument.`;

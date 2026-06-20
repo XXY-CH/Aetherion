@@ -481,6 +481,7 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
   const wantsRead = /read|inspect|show|contents? of|first|lines? of/.test(intent) && toolNames.includes("local_file_read");
   const wantsWrite = /write|create|save|update|replace/.test(intent) && toolNames.includes("local_file_write");
   const wantsExec = /\b(run|exec|execute|shell)\b/.test(intent) && toolNames.includes("shell_exec");
+  const wantsFetch = /\b(fetch|url|http|https|look up|lookup)\b/.test(intent) && toolNames.includes("web_fetch");
   const input_tokens = estimateTokens(request.messages.map((message) => message.content).join("\n"));
 
   // Once a tool has run, summarize instead of looping forever.
@@ -550,7 +551,24 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
       }
     };
   }
-  const output_text = "I would read the relevant workspace files to answer this, but no read/write/exec intent was detected in the stub simulation. Provide a phrase like 'read README.md' or 'run echo hello' to exercise a tool call.";
+  if (wantsFetch) {
+    // Extract the URL from the user text.
+    const urlMatch = userText.match(/(https?:\/\/[^\s]+)/i);
+    const url = urlMatch?.[1] ?? "https://example.com";
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_fetch_1", name: "web_fetch", arguments: JSON.stringify({ url }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: {
+        input_tokens,
+        output_tokens: estimateTokens(`fetch ${url}`),
+        total_tokens: input_tokens + estimateTokens(`fetch ${url}`),
+        usage_source: "locally_estimated"
+      }
+    };
+  }
+  const output_text = "I would read the relevant workspace files to answer this, but no read/write/exec/fetch intent was detected in the stub simulation. Provide a phrase like 'read README.md', 'run echo hello', or 'fetch https://example.com' to exercise a tool call.";
   return {
     output_text,
     tool_calls: [],

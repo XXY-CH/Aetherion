@@ -29,7 +29,8 @@ export type ToolDefinition = {
   // matching ToolRequest without re-deriving intent from the model output.
   // "exec" is a sibling target family (AGENTS.md §13) — side-effecting,
   // always approval-gated, same pipeline as write.
-  verb: "read" | "write" | "exec";
+  // "fetch" is a read-only network fetch — no side effects, L2 risk.
+  verb: "read" | "write" | "exec" | "fetch";
 };
 
 export type ToolRegistry = {
@@ -58,8 +59,8 @@ export function createToolRegistry(tools: ToolDefinition[]): ToolRegistry {
     if (!tool.parameters || typeof tool.parameters !== "object") {
       throw new Error(`ToolRegistry: tool '${tool.name}' requires a parameters schema object`);
     }
-    if (tool.verb !== "read" && tool.verb !== "write" && tool.verb !== "exec") {
-      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read', 'write', or 'exec'`);
+    if (tool.verb !== "read" && tool.verb !== "write" && tool.verb !== "exec" && tool.verb !== "fetch") {
+      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read', 'write', 'exec', or 'fetch'`);
     }
   }
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -153,6 +154,23 @@ export function createV1ToolRegistry(): ToolRegistry {
         },
         required: ["command"]
       }
+    },
+    {
+      name: "web_fetch",
+      description:
+        "Fetch the content of a URL and return the response body as text. Read-only, no side effects. Output is truncated to 10000 characters.",
+      verb: "fetch",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          url: {
+            type: "string",
+            description: "The HTTP(S) URL to fetch."
+          }
+        },
+        required: ["url"]
+      }
     }
   ]);
 }
@@ -196,6 +214,7 @@ export type ParsedToolArguments = {
   content?: string;
   command?: string;
   timeout_ms?: number;
+  url?: string;
 };
 
 export function parseToolArguments(raw: string | Record<string, unknown> | undefined): ParsedToolArguments {
@@ -235,6 +254,9 @@ export function parseToolArguments(raw: string | Record<string, unknown> | undef
   }
   if (typeof obj.timeout_ms === "number") {
     out.timeout_ms = obj.timeout_ms;
+  }
+  if (typeof obj.url === "string") {
+    out.url = obj.url;
   }
   return out;
 }
