@@ -481,6 +481,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
     case "boundary":
       await runBoundary(options);
       return true;
+    case "daemon":
+      await runDaemon(options);
+      return true;
     default:
       return false;
   }
@@ -5135,6 +5138,155 @@ function readApprovalLine(proposalId: string): Promise<{ approved: boolean; reas
     process.stdin.on("data", onData);
     process.stdin.on("end", onEnd);
   });
+}
+
+// ── Daemon mode ─────────────────────────────────────────────────────────
+// A foreground REPL that keeps the agent alive. Each stdin line triggers one
+// agent loop turn. Wakeup triggers are polled every 60s. SIGINT exits cleanly.
+
+async function runDaemon(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  await ensureModelChatWorkspace(workspaceRoot);
+
+  const provider = resolveModelProvider({
+    providerName: options.modelProvider,
+    modelRef: options.modelRef
+  });
+  const toolRegistry = createV1ToolRegistry();
+  const maxLoopDepth = Number.parseInt(process.env.AETHERION_MAX_LOOP_DEPTH ?? "10", 10) || 10;
+
+  // Auto-approve L0-L2 in daemon mode; L3+ requires explicit y/n on stdin.
+  const approvalCallback = async (proposal: ToolCallProposal): Promise<{ approved: boolean; reason?: string }> => {
+    const lowRisk = proposal.riskLevel === "L0" || proposal.riskLevel === "L1" || proposal.riskLevel === "L2";
+    if (lowRisk) {
+      return { approved: true };
+    }
+    process.stdout.write(`⚠️ Approve ${proposal.toolName}? [L${proposal.riskLevel}] [y/n] `);
+    const decision = await readApprovalLine(proposal.proposalId);
+    return decision;
+  };
+
+  const writeEvent = (event: LoopEvent): void => {
+    process.stdout.write(`${JSON.stringify(event)}\n`);
+  };
+
+  // Wakeup poller: check deadline/file triggers every 60s.
+  let poller: NodeJS.Timeout | undefined;
+  const pollWakeups = (): void => {
+    try {
+      const triggers = readRegistry(workspaceRoot, "wakeups").filter(isWakeupTrigger);
+      const hibernations = readRegistry(workspaceRoot, "hibernations").filter(isHibernationRecord);
+      for (const trigger of triggers) {
+        if (trigger.status === "expired" || trigger.status === "discarded") {
+          continue;
+        }
+        const evaluated = evaluateWakeup(trigger, hibernations, new Date().toISOString());
+        if (evaluated.trigger.status === "eligible" || evaluated.trigger.status === "queued") {
+          writeEvent({
+            type: "tool_result",
+            toolCallId: `wakeup_${trigger.id}`,
+            toolName: "wakeup",
+            path: "",
+            result: `⏰ Wakeup triggered: ${trigger.reason}`,
+            success: true
+          } as LoopEvent);
+        }
+      }
+    } catch {
+      // Registry may not exist — that's fine.
+    }
+  };
+  poller = setInterval(pollWakeups, 60_000);
+
+  // Graceful shutdown.
+  const shutdown = (): void => {
+    if (poller) {
+      clearInterval(poller);
+    }
+    process.stdout.write("\n[aetherion daemon] shutting down.\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+
+  // REPL loop.
+  process.stdout.write("[aetherion daemon] ready. Type a message and press Enter. Ctrl+C to exit.\n");
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  for await (const line of rl) {
+    const input = line.trim();
+    if (!input) {
+      continue;
+    }
+    if (input === "/exit" || input === "/quit") {
+      break;
+    }
+
+    const runId = `run_daemon_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const invocation = buildAgentLoopInvocation(workspaceRoot, runId, input);
+
+    let systemPrompt: string | undefined;
+    try {
+      const memRegistry = readRegistry(workspaceRoot, "memory-cards");
+      const cards = memRegistry.filter(isMemoryCard).filter((c) => c.review === "accepted");
+      if (cards.length > 0) {
+        const knownFacts = cards.map((c) => `- ${c.statement}`).join("\n");
+        systemPrompt = [
+          "You are Aetherion, a local-first agent harness.",
+          "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
+          "",
+          "## Persistent Memory",
+          knownFacts,
+          "",
+          "Answer directly when you have enough information."
+        ].join("\n");
+      }
+    } catch {
+      // No memory registry yet.
+    }
+
+    let state;
+    try {
+      state = await startAgentLoopState({
+        repoRoot,
+        workspaceRoot,
+        provider,
+        modelRef: provider.model_ref,
+        toolRegistry,
+        invocation,
+        maxLoopDepth,
+        maxOutputTokens: 1024,
+        systemPrompt
+      });
+    } catch (err) {
+      process.stdout.write(`[error] failed to start loop: ${err instanceof Error ? err.message : String(err)}\n`);
+      continue;
+    }
+
+    try {
+      for await (const event of runAgentLoop(
+        {
+          repoRoot,
+          workspaceRoot,
+          provider,
+          modelRef: provider.model_ref,
+          toolRegistry,
+          invocation,
+          maxLoopDepth,
+          maxOutputTokens: 1024
+        },
+        state,
+        input,
+        approvalCallback
+      )) {
+        writeEvent(event);
+      }
+    } catch (err) {
+      process.stdout.write(`[error] loop failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  shutdown();
 }
 
 // Builds a self-contained AgentRuntimeInvocationArtifact for the tools path.
