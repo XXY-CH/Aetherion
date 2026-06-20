@@ -5015,6 +5015,38 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
   const invocation = buildAgentLoopInvocation(workspaceRoot, probeRunId, options.content ?? "");
 
   const maxLoopDepth = Number.parseInt(process.env.AETHERION_MAX_LOOP_DEPTH ?? "10", 10) || 10;
+
+  // Load persisted memory cards and inject them into the system prompt so the
+  // agent has context from prior interactions.
+  let systemPrompt: string | undefined;
+  try {
+    const memRegistry = readRegistry(workspaceRoot, "memory-cards");
+    const cards = memRegistry.filter(isMemoryCard);
+    if (cards.length > 0) {
+      const userModel = createBasicUserModel(cards);
+      const knownFacts = cards
+        .filter((c) => c.review === "accepted")
+        .map((c) => `- ${c.statement}${c.sources && c.sources.length > 0 ? ` (source: ${c.sources[0]})` : ""}`)
+        .join("\n");
+      const userPrefs = userModel.preferences.length > 0
+        ? userModel.preferences.map((p) => `- ${p}`).join("\n")
+        : "";
+      systemPrompt = [
+        "You are Aetherion, a local-first agent harness operating inside a single workspace boundary.",
+        "You have four tools: local_file_read, local_file_write (needs approval), shell_exec (needs approval), web_fetch (read-only).",
+        "Never claim authority you do not have. Model output cannot authorize actions.",
+        "",
+        "## Persistent Memory",
+        knownFacts || "(no accepted memories yet)",
+        userPrefs ? `\n## User Preferences\n${userPrefs}` : "",
+        "",
+        "When you have enough information, answer the user directly without calling a tool."
+      ].join("\n");
+    }
+  } catch {
+    // Memory registry may not exist on first run — that's fine, use default prompt.
+  }
+
   const state = await startAgentLoopState({
     repoRoot,
     workspaceRoot,
@@ -5023,7 +5055,8 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
     toolRegistry,
     invocation,
     maxLoopDepth,
-    maxOutputTokens: 1024
+    maxOutputTokens: 1024,
+    systemPrompt
   });
 
   const outputJsonl = options.outputFormat === "jsonl";
