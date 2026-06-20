@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aetherion.local/schemas/tree-snapshot.schema.json",
+  "title": "TreeSnapshot",
+  "description": "A snapshot of all tracked workspace files as a path→sha256 map, analogous to a Git tree object.",
+  "type": "object",
+  "required": ["tree_hash", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "tree_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 hash of the sorted path→hash entries, identifying this tree state."
+    },
+    "entries": {
+      "type": "object",
+      "description": "Map of workspace-relative file paths to their content sha256 hashes.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    }
+  }
+}
