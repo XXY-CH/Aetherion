@@ -142,11 +142,17 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
   const runId = input.runId ?? `run_agent_loop_${Date.now()}_${createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 8)}`;
   const manifest = await createRunManifest(input.repoRoot, workspace, runId, `Aetherion agent loop: tool-calling turn sequence.`);
   const systemPrompt = input.systemPrompt ?? defaultSystemPrompt();
+  // Append dynamic environment block to the system prompt.
+  let fullSystemPrompt = systemPrompt;
+  try {
+    const envBlock = await buildEnvironmentBlock(input.workspaceRoot);
+    fullSystemPrompt = systemPrompt + "\n\n" + envBlock;
+  } catch { /* best-effort */ }
   return {
     workspace,
     runId,
     manifest,
-    conversation: [{ role: "system", content: systemPrompt }],
+    conversation: [{ role: "system", content: fullSystemPrompt }],
     totalTokens: 0,
     totalToolCalls: 0
   };
@@ -155,14 +161,45 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
 function defaultSystemPrompt(): string {
   return [
     "You are Aetherion, a local-first agent harness operating inside a single workspace boundary.",
-    "You have four tools:",
+    "You have five tools:",
     "- local_file_read: read a workspace file (allowed directly)",
     "- local_file_write: write a workspace file (requires human approval)",
     "- shell_exec: run a shell command in the workspace (requires human approval, L4 risk)",
     "- web_fetch: fetch a URL and return the page content (read-only)",
+    "- agent_spawn: delegate a sub-task to a child agent (requires approval, L4 risk)",
     "Never claim authority you do not have. Model output cannot authorize actions.",
     "When you have enough information, answer the user directly without calling a tool."
   ].join("\n");
+}
+
+// Build a dynamic environment block injected into the system prompt.
+// Inspired by OpenCode's `environment()` function — gives the model context
+// about its working directory, platform, git status, and the current date.
+export async function buildEnvironmentBlock(workspaceRoot: string): Promise<string> {
+  const lines: string[] = ["<environment>"];
+  lines.push(`workspace: ${workspaceRoot}`);
+
+  // Platform
+  const platform = process.platform;
+  const arch = process.arch;
+  lines.push(`platform: ${platform}/${arch}`);
+
+  // Date
+  lines.push(`date: ${new Date().toISOString().slice(0, 10)}`);
+
+  // Git status (best-effort)
+  try {
+    const { execSync } = await import("node:child_process");
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: workspaceRoot, encoding: "utf8", timeout: 3000 }).trim();
+    lines.push(`git_branch: ${branch}`);
+    const dirty = execSync("git status --porcelain", { cwd: workspaceRoot, encoding: "utf8", timeout: 3000 }).trim();
+    lines.push(`git_clean: ${dirty.length === 0 ? "true" : "false"}`);
+  } catch {
+    lines.push("git: not a git repo (or git unavailable)");
+  }
+
+  lines.push("</environment>");
+  return lines.join("\n");
 }
 
 // The core loop. Yields LoopEvent values as the turn progresses; the caller
