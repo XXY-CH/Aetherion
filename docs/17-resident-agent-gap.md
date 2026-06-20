@@ -17,11 +17,11 @@ This document maps the gap between Aetherion's current agent runtime and OpenCla
 | 5 | Background tasks | Full (exec/process + task ledger) | None | **High** |
 | 6 | Persistent memory | Full (MEMORY.md + vector + dreaming) | Model auto-injected into loop (cards + prefs); no vector search | **High** (was Critical) |
 | 7 | Tool execution | 100+ tools (shell/files/web/browser/media/MCP) | 4 tools (read/write file, shell exec, web fetch) | **High** (was Critical) |
-| 8 | Multi-agent/subagents | Full (isolated agents + spawn + ACP) | 1 hard-coded read op | Medium |
-| 9 | Notifications | Full (APNs/web push/channel delivery) | None | Medium |
-| 10 | State persistence | Full (SQLite + JSONL) | Mature for evidence; zero for liveness | **High** |
-| 11 | Config/persona | Full (SOUL.md + JSON5 + hot reload) | Mature model, NOT live-influencing | **High** |
-| 12 | Skills/custom cmds | Full (57 skills + hooks + plugins) | Capsules = docs only | Medium |
+| 8 | Multi-agent/subagents | Full (isolated agents + spawn + ACP) | `agent_spawn` tool (nested child loop, budget-constrained, approval-gated) | **Low** (was Medium) |
+| 9 | Notifications | Full (APNs/web push/channel delivery) | Cross-platform desktop notifications in daemon | **Low** (was Medium) |
+| 10 | State persistence | Full (SQLite + JSONL) | Ledger (evidence) + transcript.json + daemon session resume | **Low** (was High) |
+| 11 | Config/persona | Full (SOUL.md + JSON5 + hot reload) | SOUL.md + IDENTITY.md + PersonaAnchors injected into prompt | **Low** (was High) |
+| 12 | Skills/custom cmds | Full (57 skills + hooks + plugins) | Lazy SKILL.md loader injected into prompt | **Low** (was Medium) |
 
 ## Priority Order (by user-perceived value × feasibility)
 
@@ -47,11 +47,11 @@ These were the highest-value gaps. All three are now implemented:
 8. **Proactive opportunity lifecycle** — implement the inhibition-gated proactive surface (quiet hours, confidence threshold, tainted source blocking).
 9. **Desktop notifications** — native OS notification on task completion / approval request.
 
-### P3 — Make the agent extensible (skills + multi-agent)
+### P3 — Make the agent extensible (skills + multi-agent) ✅ COMPLETE
 
-10. **Skill loading** — lazy-load `SKILL.md` files into the system prompt (OpenClaw pattern: inject name/description only, model reads on demand).
-11. **Subagent spawn** — let the agent delegate a sub-task to a child agent under a budget.
-12. **Persona injection** — load `PersonaAnchor` / `SOUL.md` into the system prompt.
+10. ✅ **Skill loading** (phase 13) — `scanSkills()` scans workspace `skills/` for `SKILL.md`, injects name + description + path into prompt. Model reads full content on demand via `local_file_read`.
+11. ✅ **Subagent spawn** (phase 15) — `agent_spawn` tool delegates a sub-task to a nested child agent loop. Budget-constrained (maxLoopDepth=5, 512 output tokens), approval-gated (L4). Returns child's final text.
+12. ✅ **Persona injection** (phase 14) — `loadPersonaFiles()` reads `SOUL.md` + `IDENTITY.md` from workspace. Accepted `PersonaAnchor` entries loaded from registry. All injected into daemon system prompt.
 
 ## What This Document Replaces
 
