@@ -83,6 +83,13 @@ func (m *Model) handleSlashCommand(command string) {
 		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: statusReport(*m), Meta: "status"})
 		m.statusMsg = "slash=/status"
 
+	case "/vcs":
+		subCmd := ""
+		if len(fields) > 1 {
+			subCmd = fields[1]
+		}
+		m.handleVcsSlash(subCmd, fields[2:])
+
 	case "/clear":
 		m.chatResult = nil
 		m.chatError = ""
@@ -138,6 +145,7 @@ func allSlashCommands() []slashCommand {
 		{"/undo", "fork from checkpoint"},
 		{"/tree", "toggle tree expand"},
 		{"/status", "status summary"},
+		{"/vcs", "VCS: status, snapshot, rollback, branch"},
 		{"/clear", "clear transcript"},
 		{"/new", "new session"},
 		{"/help", "this help"},
@@ -169,6 +177,7 @@ func slashHelpText() string {
 		"/undo        fork from checkpoint",
 		"/tree        toggle tree expand",
 		"/status      status summary",
+		"/vcs         VCS operations (status/snapshot/rollback/branch)",
 		"/clear       clear transcript",
 		"/help        this help",
 	}, "\n")
