@@ -15,8 +15,8 @@ This document maps the gap between Aetherion's current agent runtime and OpenCla
 | 3 | Outbound proactive | Full (message tool, cron announce, heartbeat) | Blocked (outbox never delivers) | **High** |
 | 4 | Cron/scheduling | Full (at/every/cron, persistent, retries) | Data model only, no watcher | **Critical** |
 | 5 | Background tasks | Full (exec/process + task ledger) | None | **High** |
-| 6 | Persistent memory | Full (MEMORY.md + vector + dreaming) | Mature model, NOT auto-fed to loop | **Critical** |
-| 7 | Tool execution | 100+ tools (shell/files/web/browser/media/MCP) | 2 tools (read/write file) | **Critical** |
+| 6 | Persistent memory | Full (MEMORY.md + vector + dreaming) | Model auto-injected into loop (cards + prefs); no vector search | **High** (was Critical) |
+| 7 | Tool execution | 100+ tools (shell/files/web/browser/media/MCP) | 4 tools (read/write file, shell exec, web fetch) | **High** (was Critical) |
 | 8 | Multi-agent/subagents | Full (isolated agents + spawn + ACP) | 1 hard-coded read op | Medium |
 | 9 | Notifications | Full (APNs/web push/channel delivery) | None | Medium |
 | 10 | State persistence | Full (SQLite + JSONL) | Mature for evidence; zero for liveness | **High** |
@@ -27,13 +27,13 @@ This document maps the gap between Aetherion's current agent runtime and OpenCla
 
 Each item below is a phase. Phases are ordered by what makes the agent feel "alive" vs "a script."
 
-### P0 — Make the agent loop actually useful (tools + memory)
+### P0 — Make the agent loop actually useful (tools + memory) ✅ COMPLETE
 
-These are blocked right now: the agent can only read/write files and has no memory injected. Fixing these makes every conversation better immediately.
+These were the highest-value gaps. All three are now implemented:
 
-1. **Shell execution tool** — `exec` tool that runs a command and returns stdout/stderr. Policy-gated (L4 risk), approval-gated for side effects. Without this, the agent can't DO anything beyond file I/O.
-2. **Web fetch tool** — fetch a URL and return markdown/text. Read-only, L2 risk. Without this, the agent can't look anything up.
-3. **Memory injection into agent loop** — load `MemoryCard` + `UserModel` into the system prompt at loop start. The data model exists (`memory-os`), just not wired.
+1. ✅ **Shell execution tool** (phase 06) — `shell_exec` tool, L4 risk, approval-gated, 30s timeout, runs in workspace dir.
+2. ✅ **Web fetch tool** (phase 07) — `web_fetch` tool, read-only network fetch, 15s timeout, truncated output.
+3. ✅ **Memory injection into agent loop** (phase 08) — accepted `MemoryCard` entries + `UserModel` preferences loaded into system prompt. Falls back to default when empty.
 
 ### P1 — Make the agent persistent (daemon + scheduling)
 
