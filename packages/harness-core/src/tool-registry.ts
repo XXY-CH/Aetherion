@@ -171,6 +171,23 @@ export function createV1ToolRegistry(): ToolRegistry {
         },
         required: ["url"]
       }
+    },
+    {
+      name: "agent_spawn",
+      description:
+        "Spawn a child agent to handle a sub-task synchronously. The child runs with a constrained budget (1000 tokens, 5 tool calls, 30s wall time, L2 max risk) and returns its final answer. Requires human approval (L4 risk — delegates authority to a child).",
+      verb: "exec",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          task: {
+            type: "string",
+            description: "The task description for the child agent."
+          }
+        },
+        required: ["task"]
+      }
     }
   ]);
 }
@@ -215,6 +232,7 @@ export type ParsedToolArguments = {
   command?: string;
   timeout_ms?: number;
   url?: string;
+  task?: string;
 };
 
 export function parseToolArguments(raw: string | Record<string, unknown> | undefined): ParsedToolArguments {
@@ -257,6 +275,9 @@ export function parseToolArguments(raw: string | Record<string, unknown> | undef
   }
   if (typeof obj.url === "string") {
     out.url = obj.url;
+  }
+  if (typeof obj.task === "string") {
+    out.task = obj.task;
   }
   return out;
 }

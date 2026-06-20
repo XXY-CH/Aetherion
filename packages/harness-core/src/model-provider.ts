@@ -482,6 +482,7 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
   const wantsWrite = /write|create|save|update|replace/.test(intent) && toolNames.includes("local_file_write");
   const wantsExec = /\b(run|exec|execute|shell)\b/.test(intent) && toolNames.includes("shell_exec");
   const wantsFetch = /\b(fetch|url|http|https|look up|lookup)\b/.test(intent) && toolNames.includes("web_fetch");
+  const wantsSpawn = /\b(spawn|delegate|sub.?agent|child agent)\b/.test(intent) && toolNames.includes("agent_spawn");
   const input_tokens = estimateTokens(request.messages.map((message) => message.content).join("\n"));
 
   // Once a tool has run, summarize instead of looping forever.
@@ -568,7 +569,23 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
       }
     };
   }
-  const output_text = "I would read the relevant workspace files to answer this, but no read/write/exec/fetch intent was detected in the stub simulation. Provide a phrase like 'read README.md', 'run echo hello', or 'fetch https://example.com' to exercise a tool call.";
+  if (wantsSpawn) {
+    const taskMatch = userText.match(/\b(?:spawn|delegate)\s+(?:a\s+)?(?:sub.?)?agent\s+(?:to\s+)?(.+)/i);
+    const task = taskMatch?.[1]?.trim() ?? "summarize the workspace";
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_spawn_1", name: "agent_spawn", arguments: JSON.stringify({ task }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: {
+        input_tokens,
+        output_tokens: estimateTokens(`spawn ${task}`),
+        total_tokens: input_tokens + estimateTokens(`spawn ${task}`),
+        usage_source: "locally_estimated"
+      }
+    };
+  }
+  const output_text = "I would read the relevant workspace files to answer this, but no read/write/exec/fetch/spawn intent was detected in the stub simulation. Provide a phrase like 'read README.md', 'run echo hello', 'fetch https://example.com', or 'spawn agent to summarize' to exercise a tool call.";
   return {
     output_text,
     tool_calls: [],

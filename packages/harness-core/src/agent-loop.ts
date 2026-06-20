@@ -319,6 +319,94 @@ async function* processToolCall(
   // the file-system ToolRequest pipeline — it has its own approval + execute
   // path inline below. All other verbs (read/write) flow through the file pipeline.
   if (definition.verb === "exec") {
+    // agent_spawn: delegate a sub-task to a child agent loop.
+    if (toolCall.name === "agent_spawn") {
+      const args = parseToolArguments(toolCall.arguments);
+      if (!args.task) {
+        const reason = `Tool '${toolCall.name}' call is missing required 'task' argument.`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
+        return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+      }
+
+      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested agent_spawn: ${args.task}.`, undefined);
+
+      const proposal: ToolCallProposal = {
+        proposalId: `approval_${state.runId}_spawn_${depth}`,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        arguments: args,
+        path: "",
+        verb: "exec",
+        riskLevel: "L4",
+        decisionHint: "ask",
+        policyDecision: undefined,
+        proposedContent: args.task
+      };
+      yield { type: "tool_proposal", proposal };
+
+      const decision = await approvalCallback(proposal);
+      if (!decision.approved) {
+        const reason = decision.reason ?? "User denied the agent_spawn approval.";
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: `Spawn denied: ${reason}`, success: false });
+        yield { type: "tool_denied", proposalId: proposal.proposalId, reason };
+        await appendLoopEvent(config.repoRoot, state, "tool.denied", `agent_spawn denied by user.`, undefined);
+        return { kind: "denied", toolCallId: toolCall.id, reason };
+      }
+
+      yield { type: "tool_approved", proposalId: proposal.proposalId };
+      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `agent_spawn approved for: ${args.task}.`, undefined);
+      yield { type: "tool_executing", toolName: toolCall.name, path: "" };
+
+      // Run the child agent loop synchronously (nested).
+      const childRunId = `${state.runId}_child_${depth}`;
+      const childInvocation = {
+        ...config.invocation,
+        run_id: childRunId,
+        id: `agent_runtime_invocation_${childRunId}`
+      };
+      const childConfig: AgentLoopConfig = {
+        ...config,
+        invocation: childInvocation,
+        maxLoopDepth: Math.min(config.maxLoopDepth, 5)
+      };
+      const childState = await startAgentLoopState({
+        repoRoot: config.repoRoot,
+        workspaceRoot: config.workspaceRoot,
+        provider: config.provider,
+        modelRef: config.modelRef,
+        toolRegistry: config.toolRegistry,
+        invocation: childInvocation,
+        maxLoopDepth: Math.min(config.maxLoopDepth, 5),
+        maxOutputTokens: 512,
+        systemPrompt: `You are a child agent handling a delegated sub-task. Be concise. Task: ${args.task}`
+      });
+
+      let childResult = "";
+      let childSuccess = true;
+      try {
+        for await (const childEvent of runAgentLoop(childConfig, childState, args.task, async () => ({ approved: true }))) {
+          if (childEvent.type === "assistant_text") {
+            const at = childEvent as Extract<LoopEvent, { type: "assistant_text" }>;
+            childResult += at.text;
+          }
+        }
+        if (!childResult) {
+          childResult = "(child agent produced no text output)";
+        }
+        childResult = truncateForModel(childResult);
+      } catch (error) {
+        childSuccess = false;
+        childResult = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${childResult.length} chars.`, undefined);
+      state.totalToolCalls += 1;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: childResult, success: childSuccess });
+      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
+      return { kind: "executed", toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
+    }
+
     const args = parseToolArguments(toolCall.arguments);
     if (!args.command) {
       const reason = `Tool '${toolCall.name}' call is missing required 'command' argument.`;
