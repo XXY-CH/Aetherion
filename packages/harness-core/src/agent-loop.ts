@@ -95,10 +95,10 @@ export type ToolCallProposal = {
   toolName: string;
   arguments: Record<string, unknown>;
   path: string;
-  verb: "read" | "write";
+  verb: "read" | "write" | "exec";
   riskLevel: "L0" | "L1" | "L2" | "L3" | "L4" | "L5";
   decisionHint: "allow" | "ask" | "deny" | "sandbox_only";
-  policyDecision: PolicyDecision;
+  policyDecision?: PolicyDecision;
   // For writes only: the content the model proposed to write.
   proposedContent?: string;
 };
@@ -310,6 +310,77 @@ async function* processToolCall(
     state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
     yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
     return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+  }
+
+  // Shell exec is a sibling target family (AGENTS.md §13). It does not use
+  // the file-system ToolRequest pipeline — it has its own approval + execute
+  // path inline below. All other verbs (read/write) flow through the file pipeline.
+  if (definition.verb === "exec") {
+    const args = parseToolArguments(toolCall.arguments);
+    if (!args.command) {
+      const reason = `Tool '${toolCall.name}' call is missing required 'command' argument.`;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+      yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
+      return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+    }
+
+    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
+
+    const proposal: ToolCallProposal = {
+      proposalId: `approval_${state.runId}_exec_${depth}`,
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      arguments: args,
+      path: "",
+      verb: "exec",
+      riskLevel: "L4",
+      decisionHint: "ask",
+      policyDecision: undefined,
+      proposedContent: args.command
+    };
+    yield { type: "tool_proposal", proposal };
+
+    const decision = await approvalCallback(proposal);
+    if (!decision.approved) {
+      const reason = decision.reason ?? "User denied the shell exec approval.";
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: `Exec denied: ${reason}`, success: false });
+      yield { type: "tool_denied", proposalId: proposal.proposalId, reason };
+      await appendLoopEvent(config.repoRoot, state, "tool.denied", `Exec ${definition.name} denied by user.`, undefined);
+      return { kind: "denied", toolCallId: toolCall.id, reason };
+    }
+
+    yield { type: "tool_approved", proposalId: proposal.proposalId };
+    await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Exec approved by user for: ${args.command}.`, undefined);
+
+    yield { type: "tool_executing", toolName: toolCall.name, path: "" };
+
+    const timeoutMs = Math.min(args.timeout_ms ?? 30_000, 60_000);
+    let resultText: string;
+    let success = true;
+    try {
+      const { execSync } = await import("node:child_process");
+      const stdout = execSync(args.command, {
+        cwd: config.workspaceRoot,
+        timeout: timeoutMs,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+        maxBuffer: 1024 * 1024
+      });
+      resultText = truncateForModel(stdout);
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `Exec completed: ${resultText.length} chars output.`, undefined);
+    } catch (error) {
+      success = false;
+      const execError = error as NodeJS.ErrnoException & { stderr?: string; status?: number };
+      const stderr = execError.stderr ?? "";
+      const exitInfo = execError.status !== undefined ? ` (exit ${execError.status})` : "";
+      resultText = truncateForModel(`Command failed${exitInfo}: ${execError.message}${stderr ? `\n${stderr}` : ""}`);
+      await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
+    }
+
+    state.totalToolCalls += 1;
+    state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: resultText, success });
+    yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: resultText, success };
+    return { kind: "executed", toolName: toolCall.name, path: "", result: resultText, success };
   }
 
   const args = parseToolArguments(toolCall.arguments);

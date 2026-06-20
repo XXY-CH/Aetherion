@@ -61,11 +61,12 @@ async function prepareWorkspace(workspaceRoot: string, invocation: AgentRuntimeI
   invocation.id = "agent_runtime_invocation_run_example";
 }
 
-test("tool registry registers local_file_read and local_file_write and converts to provider formats", () => {
+test("tool registry registers local_file_read, local_file_write, and shell_exec and converts to provider formats", () => {
   const registry = createV1ToolRegistry();
-  assert.equal(registry.tools.length, 2);
+  assert.equal(registry.tools.length, 3);
   assert.ok(registry.has("local_file_read"));
   assert.ok(registry.has("local_file_write"));
+  assert.ok(registry.has("shell_exec"));
 
   const openai = registry.toProviderFormat("openai_chat_completions");
   assert.deepEqual(Object.keys(openai[0] as object).sort(), ["function", "type"]);

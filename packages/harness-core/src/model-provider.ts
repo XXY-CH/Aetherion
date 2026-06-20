@@ -480,6 +480,7 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
   const intent = userText.toLowerCase();
   const wantsRead = /read|inspect|show|contents? of|first|lines? of/.test(intent) && toolNames.includes("local_file_read");
   const wantsWrite = /write|create|save|update|replace/.test(intent) && toolNames.includes("local_file_write");
+  const wantsExec = /\b(run|exec|execute|shell)\b/.test(intent) && toolNames.includes("shell_exec");
   const input_tokens = estimateTokens(request.messages.map((message) => message.content).join("\n"));
 
   // Once a tool has run, summarize instead of looping forever.
@@ -532,7 +533,24 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
       }
     };
   }
-  const output_text = "I would read the relevant workspace files to answer this, but no read/write intent was detected in the stub simulation. Provide a phrase like 'read README.md' to exercise a tool call.";
+  if (wantsExec) {
+    // Extract the command after "run"/"exec"/"execute"/"shell" keywords.
+    const match = intent.match(/\b(?:run|exec|execute|shell)\s+(.+)/);
+    const command = match?.[1]?.trim() ?? "echo hello";
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_exec_1", name: "shell_exec", arguments: JSON.stringify({ command }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: {
+        input_tokens,
+        output_tokens: estimateTokens(`exec ${command}`),
+        total_tokens: input_tokens + estimateTokens(`exec ${command}`),
+        usage_source: "locally_estimated"
+      }
+    };
+  }
+  const output_text = "I would read the relevant workspace files to answer this, but no read/write/exec intent was detected in the stub simulation. Provide a phrase like 'read README.md' or 'run echo hello' to exercise a tool call.";
   return {
     output_text,
     tool_calls: [],

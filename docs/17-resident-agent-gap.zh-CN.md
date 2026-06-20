@@ -1,6 +1,6 @@
 # 常驻 Agent 能力差距分析
 
-[English version](17-resident-agent-gap.md)
+[English](17-resident-agent-gap.md)
 
 本文档映射 Aetherion 当前 Agent 运行时与 OpenClaw 常驻 Agent 能力之间的差距。它是所有未来 ponytail 迭代的优先级待办列表，目标是功能对齐。
 

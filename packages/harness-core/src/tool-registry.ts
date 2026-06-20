@@ -27,7 +27,9 @@ export type ToolDefinition = {
   parameters: ToolParametersSchema;
   // Maps the tool back to the seed-policy verb so the loop can build the
   // matching ToolRequest without re-deriving intent from the model output.
-  verb: "read" | "write";
+  // "exec" is a sibling target family (AGENTS.md §13) — side-effecting,
+  // always approval-gated, same pipeline as write.
+  verb: "read" | "write" | "exec";
 };
 
 export type ToolRegistry = {
@@ -56,8 +58,8 @@ export function createToolRegistry(tools: ToolDefinition[]): ToolRegistry {
     if (!tool.parameters || typeof tool.parameters !== "object") {
       throw new Error(`ToolRegistry: tool '${tool.name}' requires a parameters schema object`);
     }
-    if (tool.verb !== "read" && tool.verb !== "write") {
-      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read' or 'write'`);
+    if (tool.verb !== "read" && tool.verb !== "write" && tool.verb !== "exec") {
+      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read', 'write', or 'exec'`);
     }
   }
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -130,6 +132,27 @@ export function createV1ToolRegistry(): ToolRegistry {
         },
         required: ["path", "content"]
       }
+    },
+    {
+      name: "shell_exec",
+      description:
+        "Run a shell command in the workspace directory. Returns stdout, stderr, and exit code. Requires explicit human approval (L4 risk — irreversible side effects possible). Timeout defaults to 30 seconds.",
+      verb: "exec",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          command: {
+            type: "string",
+            description: "The shell command to execute."
+          },
+          timeout_ms: {
+            type: "number",
+            description: "Maximum execution time in milliseconds. Default 30000, max 60000."
+          }
+        },
+        required: ["command"]
+      }
     }
   ]);
 }
@@ -171,6 +194,8 @@ function toGeminiTool(tool: ToolDefinition): unknown {
 export type ParsedToolArguments = {
   path?: string;
   content?: string;
+  command?: string;
+  timeout_ms?: number;
 };
 
 export function parseToolArguments(raw: string | Record<string, unknown> | undefined): ParsedToolArguments {
@@ -204,6 +229,12 @@ export function parseToolArguments(raw: string | Record<string, unknown> | undef
   }
   if (typeof obj.content === "string") {
     out.content = obj.content;
+  }
+  if (typeof obj.command === "string") {
+    out.command = obj.command;
+  }
+  if (typeof obj.timeout_ms === "number") {
+    out.timeout_ms = obj.timeout_ms;
   }
   return out;
 }
