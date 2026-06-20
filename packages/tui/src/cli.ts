@@ -17,6 +17,7 @@ import { createBrowserObservation, createCapsuleInstallRecord, createImInboxItem
 import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationArtifact, type PromptPlan } from "../../orchestrator/src/index.ts";
 import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWorkspace, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, runAgentLoop, startAgentLoopState, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, writeWorkspaceRegistry, type BoundaryFacts, type EventRecord, type LoopEvent, type ModelMessage, type ReplayRecord, type RunManifest, type ToolCallProposal } from "../../harness-core/src/index.ts";
 import { createV1ToolRegistry } from "../../harness-core/src/tool-registry.ts";
+import { notify } from "../../harness-core/src/notify.ts";
 import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
@@ -61,6 +62,7 @@ type CliOptions = {
   idempotencyKey?: string;
   checkWakeups: boolean;
   printOutput: boolean;
+  quiet: boolean;
   modelProvider?: ModelProviderName;
   modelRef?: string;
   tools: boolean;
@@ -153,6 +155,7 @@ function parseArgs(args: string[]): CliOptions {
     approvePermissions: false,
     approveSensitive: false,
     checkWakeups: false,
+    quiet: false,
     printOutput: false,
     tools: false,
     autoApprove: false,
@@ -345,6 +348,9 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--auto-approve":
         options.autoApprove = true;
+        break;
+      case "--quiet":
+        options.quiet = true;
         break;
       case "--interactive":
         options.interactive = true;
@@ -5190,6 +5196,7 @@ async function runDaemon(options: CliOptions): Promise<void> {
             result: `⏰ Wakeup triggered: ${trigger.reason}`,
             success: true
           } as LoopEvent);
+          notify("Aetherion — Wakeup", trigger.reason, { quiet: options.quiet });
         }
       }
     } catch {
@@ -5315,6 +5322,21 @@ async function runDaemon(options: CliOptions): Promise<void> {
         approvalCallback
       )) {
         writeEvent(event);
+        // Desktop notifications for important events.
+        if (!options.quiet) {
+          if (event.type === "tool_proposal") {
+            const p = (event as Extract<LoopEvent, { type: "tool_proposal" }>).proposal;
+            const needsNotify = p.riskLevel === "L3" || p.riskLevel === "L4" || p.riskLevel === "L5";
+            if (needsNotify) {
+              notify("Aetherion — Approval needed", `${p.toolName} (${p.riskLevel})`);
+            }
+          } else if (event.type === "loop_complete") {
+            const lc = event as Extract<LoopEvent, { type: "loop_complete" }>;
+            if (lc.totalToolCalls > 0) {
+              notify("Aetherion — Task complete", `${lc.totalToolCalls} tool call(s), ${lc.totalTokens} tokens`);
+            }
+          }
+        }
       }
     } catch (err) {
       process.stdout.write(`[error] loop failed: ${err instanceof Error ? err.message : String(err)}\n`);
