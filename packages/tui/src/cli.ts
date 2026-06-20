@@ -24,6 +24,7 @@ import { captureTreeSnapshot, diffTrees, readTreeSnapshot } from "../../harness-
 import { rollbackToSnapshot, findNearestSnapshot } from "../../harness-core/src/vcs/rollback.ts";
 import * as vcsBranch from "../../harness-core/src/vcs/branch.ts";
 import { readEvents as readLedgerEvents } from "../../harness-core/src/ledger.ts";
+import { readProviderConfig, writeProviderConfig, redactApiKey, SUPPORTED_PROVIDERS } from "../../harness-core/src/provider-config.ts";
 import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
@@ -477,6 +478,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       return true;
     case "vcs":
       await runVcs(options);
+      return true;
+    case "provider":
+      await runProvider(options);
       return true;
     case "audit":
       await runAudit(options);
@@ -5022,7 +5026,8 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
   await ensureModelChatWorkspace(workspaceRoot);
   const provider = resolveModelProvider({
     providerName: options.modelProvider,
-    modelRef: options.modelRef
+    modelRef: options.modelRef,
+    workspaceRoot
   });
   const toolRegistry = createV1ToolRegistry();
 
@@ -5165,7 +5170,8 @@ async function runDaemon(options: CliOptions): Promise<void> {
 
   const provider = resolveModelProvider({
     providerName: options.modelProvider,
-    modelRef: options.modelRef
+    modelRef: options.modelRef,
+    workspaceRoot
   });
   const toolRegistry = createV1ToolRegistry();
   const maxLoopDepth = Number.parseInt(process.env.AETHERION_MAX_LOOP_DEPTH ?? "10", 10) || 10;
@@ -5639,7 +5645,8 @@ async function invokeModelForChat(workspaceRoot: string, requestId: string, task
 
   const provider = resolveModelProvider({
     providerName: options.modelProvider,
-    modelRef: options.modelRef
+    modelRef: options.modelRef,
+    workspaceRoot
   });
   const messages: ModelMessage[] = plan.messages.map((message) => ({ role: message.role, content: message.content }));
   const result = await provider.invoke({
@@ -5842,7 +5849,7 @@ async function runPromptInvokeModel(options: CliOptions): Promise<void> {
   const { plan } = await assemblePromptPlanForRun(workspaceRoot, request.run_id, options.content);
   assertPromptMatchesBoundRequest(plan, request);
 
-  const provider = resolveModelProvider();
+  const provider = resolveModelProvider({ workspaceRoot });
   const messages: ModelMessage[] = plan.messages.map((message) => ({ role: message.role, content: message.content }));
   const result = await provider.invoke({
     provider_ref: provider.provider_ref,
@@ -9828,6 +9835,87 @@ Options:
   --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
   --print-output     Explicitly include raw model output in prompt invoke-model stdout.
 `);
+}
+
+// ── Provider commands ────────────────────────────────────────────────────
+
+async function runProvider(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  const subcommand = options.topic ?? "show";
+
+  if (subcommand === "show") {
+    const config = readProviderConfig(workspaceRoot);
+    if (!config) {
+      process.stdout.write("No provider configured. Use 'ether provider set' to configure.\n");
+      process.stdout.write("Default: stub (offline testing)\n");
+    } else {
+      process.stdout.write(JSON.stringify(redactApiKey(config), null, 2) + "\n");
+    }
+    return;
+  }
+
+  if (subcommand === "set") {
+    const providerName = options.target;
+    if (!providerName) {
+      process.stderr.write("Available providers:\n");
+      for (const p of SUPPORTED_PROVIDERS) {
+        process.stderr.write(`  ${p.name.padEnd(25)} ${p.label}\n`);
+      }
+      process.stderr.write("\nUsage: ether provider set <provider> [--model <model-ref>] [--api-key <key>]\n");
+      process.exitCode = 1;
+      return;
+    }
+
+    const known = SUPPORTED_PROVIDERS.find((p) => p.name === providerName);
+    if (!known) {
+      process.stderr.write(`Unknown provider: ${providerName}\n`);
+      process.stderr.write(`Available: ${SUPPORTED_PROVIDERS.map((p) => p.name).join(", ")}\n`);
+      process.exitCode = 1;
+      return;
+    }
+
+    // Model ref: from --model flag or default for provider
+    const modelRef = options.modelRef ?? defaultModelForProvider(providerName);
+
+    // API key: from --api-key flag, or prompt, or skip for stub
+    let apiKey: string | undefined;
+    if (known.needsKey) {
+      const flagKey = process.argv.includes("--api-key") ?
+        process.argv[process.argv.indexOf("--api-key") + 1] : undefined;
+      if (flagKey) {
+        apiKey = flagKey;
+      } else {
+        // Check if key already in env
+        const envKey = process.env[known.keyEnv!];
+        if (envKey) {
+          apiKey = envKey;
+          process.stdout.write(`Using ${known.keyEnv} from environment.\n`);
+        } else {
+          process.stderr.write(`API key required for ${providerName}. Set ${known.keyEnv} env var or use --api-key.\n`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+    }
+
+    writeProviderConfig(workspaceRoot, { provider: providerName, model_ref: modelRef, api_key: apiKey });
+    process.stdout.write(`Provider configured: ${providerName} / ${modelRef}\n`);
+    process.stdout.write(`Config saved to ${join(workspaceRoot, ".aetherion", "provider-config.json")}\n`);
+    return;
+  }
+
+  process.stderr.write(`Unknown provider subcommand: ${subcommand}. Use: show, set\n`);
+  process.exitCode = 1;
+}
+
+function defaultModelForProvider(provider: string): string {
+  switch (provider) {
+    case "anthropic": return "claude-sonnet-4-20250514";
+    case "openai_responses": return "gpt-4o";
+    case "openai_chat_completions": return "gpt-4o";
+    case "gemini": return "gemini-2.0-flash";
+    default: return "stub-deterministic-v1";
+  }
 }
 
 // ── VCS commands ────────────────────────────────────────────────────────

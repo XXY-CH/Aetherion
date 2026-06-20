@@ -384,11 +384,41 @@ const ANTHROPIC_API_VERSION = "2023-06-01";
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 
-export function resolveModelProvider(options: ResolveModelProviderOptions = {}): ToolCapableProvider {
+import { readProviderConfig } from "./provider-config.ts";
+
+function apiKeyEnvForProvider(provider: string): string {
+  switch (provider) {
+    case "anthropic": return "ANTHROPIC_API_KEY";
+    case "openai_responses":
+    case "openai_chat_completions": return "OPENAI_API_KEY";
+    case "gemini": return "GEMINI_API_KEY";
+    default: return "";
+  }
+}
+
+export function resolveModelProvider(options: ResolveModelProviderOptions & { workspaceRoot?: string } = {}): ToolCapableProvider {
   const env = options.env ?? process.env;
-  const providerName = normalizeProviderName(options.providerName ?? env.AETHERION_MODEL_PROVIDER ?? "stub");
+  // Try config file as fallback when no explicit provider/model specified.
+  let configProvider = options.providerName;
+  let configModelRef = options.modelRef;
+  if (!configProvider && !env.AETHERION_MODEL_PROVIDER && options.workspaceRoot) {
+    try {
+      const cfg = readProviderConfig(options.workspaceRoot);
+      if (cfg && cfg.provider !== "stub") {
+        configProvider = cfg.provider;
+        configModelRef = configModelRef ?? cfg.model_ref;
+        if (cfg.api_key) {
+          const envKey = apiKeyEnvForProvider(cfg.provider);
+          if (envKey && !env[envKey]) {
+            env[envKey] = cfg.api_key;
+          }
+        }
+      }
+    } catch { /* config file optional */ }
+  }
+  const providerName = normalizeProviderName(configProvider ?? env.AETHERION_MODEL_PROVIDER ?? "stub");
   if (providerName === "stub") {
-    return createStubProvider(options.modelRef ?? env.AETHERION_MODEL_REF ?? "stub-deterministic-v1");
+    return createStubProvider(configModelRef ?? env.AETHERION_MODEL_REF ?? "stub-deterministic-v1");
   }
   if (providerName === "openai_responses") {
     return createOpenAIResponsesProvider(options.modelRef ?? env.AETHERION_MODEL_REF ?? DEFAULT_OPENAI_MODEL, env);
