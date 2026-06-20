@@ -20,6 +20,10 @@ import { createV1ToolRegistry } from "../../harness-core/src/tool-registry.ts";
 import { notify } from "../../harness-core/src/notify.ts";
 import { scanSkills, formatSkillsForPrompt } from "../../harness-core/src/skills.ts";
 import { loadPersonaFiles, formatPersonaForPrompt } from "../../harness-core/src/persona.ts";
+import { captureTreeSnapshot, diffTrees, readTreeSnapshot } from "../../harness-core/src/vcs/tree-snapshot.ts";
+import { rollbackToSnapshot, findNearestSnapshot } from "../../harness-core/src/vcs/rollback.ts";
+import * as vcsBranch from "../../harness-core/src/vcs/branch.ts";
+import { readEvents as readLedgerEvents } from "../../harness-core/src/ledger.ts";
 import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
@@ -470,6 +474,9 @@ async function runUtilityCommand(options: CliOptions): Promise<boolean> {
       return true;
     case "store":
       await runStore(options);
+      return true;
+    case "vcs":
+      await runVcs(options);
       return true;
     case "audit":
       await runAudit(options);
@@ -9821,6 +9828,140 @@ Options:
   --check-wakeups    Preview sleeper wakeup eligibility without queueing or mutating registries.
   --print-output     Explicitly include raw model output in prompt invoke-model stdout.
 `);
+}
+
+// ── VCS commands ────────────────────────────────────────────────────────
+
+async function runVcs(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolve(options.workspace);
+  // VCS subcommands: ether vcs <subcommand> [args...]
+  // options.topic is the first positional after "vcs", options.target is the second.
+  const subcommand = options.topic ?? "status";
+  const arg1 = options.target; // first argument to subcommand
+
+  switch (subcommand) {
+    case "status": {
+      const snap = captureTreeSnapshot(workspaceRoot);
+      const treePath = join(workspaceRoot, ".aetherion", "trees", snap.tree_hash.replace("sha256:", "tree_") + ".json");
+      process.stdout.write(`Workspace tree: ${snap.tree_hash}\n`);
+      process.stdout.write(`Tracked files: ${Object.keys(snap.entries).length}\n`);
+      process.stdout.write(`Tree manifest: ${existsSync(treePath) ? "persisted" : "not persisted"}\n`);
+      break;
+    }
+    case "snapshot": {
+      const snap = captureTreeSnapshot(workspaceRoot);
+      process.stdout.write(JSON.stringify({ tree_hash: snap.tree_hash, file_count: Object.keys(snap.entries).length }, null, 2) + "\n");
+      break;
+    }
+    case "diff": {
+      const treeHash = arg1;
+      if (!treeHash) {
+        process.stderr.write("Usage: ether vcs diff <tree_hash>\n");
+        process.exitCode = 1;
+        return;
+      }
+      const before = readTreeSnapshot(workspaceRoot, treeHash);
+      const after = captureTreeSnapshot(workspaceRoot);
+      const changes = diffTrees(before, after);
+      if (changes.length === 0) {
+        process.stdout.write("No differences.\n");
+      } else {
+        for (const c of changes) {
+          process.stdout.write(`${c.change.padEnd(10)} ${c.path}\n`);
+        }
+      }
+      break;
+    }
+    case "rollback": {
+      const target = arg1;
+      if (!target) {
+        process.stderr.write("Usage: ether vcs rollback <tree_hash|event_id>\n");
+        process.exitCode = 1;
+        return;
+      }
+      let treeHash = target;
+      // If it looks like an event id, find the nearest snapshot
+      if (target.startsWith("evt_")) {
+        const workspace = await openWorkspace(workspaceRoot);
+        const events = readLedgerEvents(workspace);
+        const found = findNearestSnapshot(events, target);
+        if (!found) {
+          process.stderr.write(`No snapshot found before event ${target}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        treeHash = found;
+      }
+      const result = rollbackToSnapshot(workspaceRoot, treeHash);
+      process.stdout.write(`Rolled back to ${result.target_tree_hash}\n`);
+      process.stdout.write(`Restored: ${result.restored_files.length} files\n`);
+      process.stdout.write(`Deleted: ${result.deleted_files.length} files\n`);
+      if (result.restored_files.length > 0) {
+        process.stdout.write(result.restored_files.map((f) => `  + ${f}`).join("\n") + "\n");
+      }
+      if (result.deleted_files.length > 0) {
+        process.stdout.write(result.deleted_files.map((f) => `  - ${f}`).join("\n") + "\n");
+      }
+      break;
+    }
+    case "branch": {
+      const branchAction = arg1 ?? "list";
+      // For branch create/checkout/merge, the branch name is the third positional
+      // which we need to extract from process.argv manually
+      const vcsArgs = process.argv.slice(2).filter((a) => !a.startsWith("--") && a !== "vcs" && a !== "branch");
+      // After filtering: [subcommand_or_action, branch_name?, ...]
+      // For "vcs branch create foo": vcsArgs = ["create", "foo"] (branch action, name)
+      if (branchAction === "list") {
+        const branches = vcsBranch.listBranches(workspaceRoot);
+        if (branches.length === 0) {
+          process.stdout.write("No branches.\n");
+        } else {
+          for (const b of branches) {
+            process.stdout.write(`${b.name.padEnd(30)} tree=${b.head.tree_hash.slice(0, 20)}... events=${b.head.event_count}\n`);
+          }
+        }
+      } else if (branchAction === "create") {
+        const branchName = vcsArgs[1];
+        if (!branchName) {
+          process.stderr.write("Usage: ether vcs branch create <name>\n");
+          process.exitCode = 1;
+          return;
+        }
+        const snap = captureTreeSnapshot(workspaceRoot);
+        vcsBranch.createBranch(workspaceRoot, branchName, snap.tree_hash);
+        process.stdout.write(`Created branch '${branchName}' at tree ${snap.tree_hash}\n`);
+      } else if (branchAction === "checkout") {
+        const branchName = vcsArgs[1];
+        if (!branchName) {
+          process.stderr.write("Usage: ether vcs branch checkout <name>\n");
+          process.exitCode = 1;
+          return;
+        }
+        vcsBranch.checkoutBranch(workspaceRoot, branchName);
+        process.stdout.write(`Checked out branch '${branchName}' to main workspace\n`);
+      } else if (branchAction === "merge") {
+        const branchName = vcsArgs[1];
+        if (!branchName) {
+          process.stderr.write("Usage: ether vcs branch merge <name>\n");
+          process.exitCode = 1;
+          return;
+        }
+        const result = vcsBranch.mergeBranch(workspaceRoot, branchName);
+        process.stdout.write(`Merged branch '${branchName}' into main\n`);
+        process.stdout.write(`Changed files: ${result.changed_files.length}\n`);
+        for (const f of result.changed_files) {
+          process.stdout.write(`  ${f}\n`);
+        }
+      } else {
+        process.stderr.write(`Unknown branch action: ${branchAction}. Use: list, create, checkout, merge\n`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    default:
+      process.stderr.write(`Unknown vcs subcommand: ${subcommand}. Use: status, snapshot, diff, rollback, branch\n`);
+      process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {
