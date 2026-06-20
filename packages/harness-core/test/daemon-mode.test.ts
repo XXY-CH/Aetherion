@@ -67,3 +67,18 @@ test("daemon stays alive across multiple inputs", async () => {
   const loopStarts = events.filter((e) => e.type === "loop_started");
   assert.ok(loopStarts.length >= 2, `expected >=2 loop_started events, got ${loopStarts.length}`);
 });
+
+test("daemon resumes session when prior ledger events exist", async () => {
+  const ws = await makeWorkspace();
+  // First run: produce some ledger events.
+  runDaemon(ws, "hello from first session\n/exit\n");
+  // Second run: should detect prior events and show "session resumed".
+  const output = runDaemon(ws, "/exit\n");
+  assert.match(output, /session resumed/);
+});
+
+test("daemon starts fresh when no prior ledger events", async () => {
+  const ws = await makeWorkspace();
+  const output = runDaemon(ws, "/exit\n");
+  assert.doesNotMatch(output, /session resumed/);
+});

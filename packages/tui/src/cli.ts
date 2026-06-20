@@ -5208,8 +5208,34 @@ async function runDaemon(options: CliOptions): Promise<void> {
   };
   process.on("SIGINT", shutdown);
 
+  // Load recent ledger events for session context (resume).
+  let sessionContext = "";
+  try {
+    const ledgerPath = join(workspaceRoot, ".aetherion", "events", "events.jsonl");
+    const ledgerText = readFileSync(ledgerPath, "utf8");
+    const allEvents = ledgerText.trim().split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as EventRecord)
+      .filter((e) => e && typeof e.event_type === "string");
+    const recent = allEvents.slice(-20);
+    const relevant = recent.filter(
+      (e) => e.event_type === "tool.result" ||
+             e.event_type === "action.recorded" ||
+             e.event_type === "agent.loop.completed"
+    );
+    if (relevant.length > 0) {
+      const lines = relevant.map((e) => `- [${e.event_type}] ${e.summary ?? ""}`);
+      sessionContext = `\n\n## Recent Session\n${lines.join("\n")}`;
+    }
+  } catch {
+    // No prior ledger — fresh start.
+  }
+
   // REPL loop.
-  process.stdout.write("[aetherion daemon] ready. Type a message and press Enter. Ctrl+C to exit.\n");
+  const readyMsg = sessionContext
+    ? "[aetherion daemon] ready (session resumed). Type a message and press Enter. Ctrl+C to exit.\n"
+    : "[aetherion daemon] ready. Type a message and press Enter. Ctrl+C to exit.\n";
+  process.stdout.write(readyMsg);
   const readline = await import("node:readline/promises");
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -5237,6 +5263,15 @@ async function runDaemon(options: CliOptions): Promise<void> {
           "",
           "## Persistent Memory",
           knownFacts,
+          sessionContext,
+          "",
+          "Answer directly when you have enough information."
+        ].join("\n");
+      } else if (sessionContext) {
+        systemPrompt = [
+          "You are Aetherion, a local-first agent harness.",
+          "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
+          sessionContext,
           "",
           "Answer directly when you have enough information."
         ].join("\n");
