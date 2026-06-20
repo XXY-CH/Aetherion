@@ -72,7 +72,11 @@
         "im.outbox.queued",
         "store.publisher.trusted",
         "capsule.store.installed",
-        "run.completed"
+        "run.completed",
+        "vcs.snapshot.created",
+        "vcs.rollback.applied",
+        "vcs.branch.created",
+        "vcs.branch.merged"
       ]
     },
     "actor": {

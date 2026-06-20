@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { assertLeaseActive } from "./lease.ts";
+import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
 import type { PolicyDecision, ToolRequest } from "./policy.ts";
 
 const verbToTool: Record<string, string> = {
@@ -48,6 +50,7 @@ export async function readLocalFileThroughPolicy(request: ToolRequest, decision:
 export type FileWriteResult = {
   path: string;
   bytes: number;
+  pre_write_tree_hash?: string;
 };
 
 export async function writeLocalFileThroughPolicy(request: ToolRequest, decision: PolicyDecision, contents: string): Promise<FileWriteResult> {
@@ -63,7 +66,33 @@ export async function writeLocalFileThroughPolicy(request: ToolRequest, decision
   if (!decision.lease.scope.paths.includes(targetPath)) {
     throw new Error(`Policy lease does not include target path ${targetPath}`);
   }
+  // Capture pre-write tree snapshot for VCS rollback.
+  // The workspace root is derived from the lease scope paths (first path's ancestor).
+  let preWriteTreeHash: string | undefined;
+  try {
+    const workspaceRoot = inferWorkspaceRoot(targetPath);
+    if (workspaceRoot) {
+      const snap = captureTreeSnapshot(workspaceRoot);
+      preWriteTreeHash = snap.tree_hash;
+    }
+  } catch {
+    // Snapshot is best-effort — never block a write because snapshot failed.
+  }
   await mkdir(dirname(targetPath), { recursive: true });
   await writeFile(targetPath, contents);
-  return { path: targetPath, bytes: Buffer.byteLength(contents, "utf8") };
+  return { path: targetPath, bytes: Buffer.byteLength(contents, "utf8"), pre_write_tree_hash: preWriteTreeHash };
+}
+
+// Infer workspace root from a target path by looking for .aetherion/ in ancestors.
+function inferWorkspaceRoot(targetPath: string): string | null {
+  let current = targetPath;
+  for (let i = 0; i < 20; i++) {
+    const parent = dirname(current);
+    if (parent === current) return null;
+    if (existsSync(join(parent, ".aetherion"))) {
+      return parent;
+    }
+    current = parent;
+  }
+  return null;
 }

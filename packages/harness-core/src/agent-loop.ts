@@ -45,6 +45,7 @@ import {
 import { composeRisk } from "./risk.ts";
 import { readLocalFileThroughPolicy, writeLocalFileThroughPolicy } from "./local-file.ts";
 import { verifyFileContains } from "./verify.ts";
+import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
 import {
   asToolCapable,
   isAssistantTurn,
@@ -445,6 +446,15 @@ async function* processToolCall(
 
     yield { type: "tool_executing", toolName: toolCall.name, path: "" };
 
+    // Capture pre-exec tree snapshot for VCS rollback. Best-effort.
+    let preExecTreeHash: string | undefined;
+    try {
+      const snap = captureTreeSnapshot(config.workspaceRoot);
+      preExecTreeHash = snap.tree_hash;
+      await appendLoopEvent(config.repoRoot, state, "vcs.snapshot.created",
+        `Pre-exec snapshot: ${preExecTreeHash}.`, preExecTreeHash);
+    } catch { /* best-effort */ }
+
     const timeoutMs = Math.min(args.timeout_ms ?? 30_000, 60_000);
     let resultText: string;
     let success = true;
@@ -604,7 +614,7 @@ async function* processToolCall(
       const contentToWrite = args.content ?? "";
       const writeResult = await writeLocalFileThroughPolicy(toolRequest, effectiveDecision, contentToWrite);
       resultText = `Wrote ${writeResult.bytes} bytes to ${writeResult.path}.`;
-      await appendLoopEvent(config.repoRoot, state, "action.recorded", resultText, undefined);
+      await appendLoopEvent(config.repoRoot, state, "action.recorded", resultText, writeResult.pre_write_tree_hash);
       // Verify the write landed.
       const { verification } = await verifyFileContains({
         runId: state.runId,
