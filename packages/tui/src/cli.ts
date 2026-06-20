@@ -19,6 +19,7 @@ import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentRespo
 import { createV1ToolRegistry } from "../../harness-core/src/tool-registry.ts";
 import { notify } from "../../harness-core/src/notify.ts";
 import { scanSkills, formatSkillsForPrompt } from "../../harness-core/src/skills.ts";
+import { loadPersonaFiles, formatPersonaForPrompt } from "../../harness-core/src/persona.ts";
 import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
@@ -5261,6 +5262,19 @@ async function runDaemon(options: CliOptions): Promise<void> {
 
     let systemPrompt: string | undefined;
     const skillSection = formatSkillsForPrompt(scanSkills(workspaceRoot));
+    const personaFiles = loadPersonaFiles(workspaceRoot);
+    let personaAnchors: string[] = [];
+    try {
+      const anchorRegistry = readRegistry(workspaceRoot, "persona-anchors");
+      personaAnchors = anchorRegistry
+        .filter((a) => a.review === "accepted" || a.status === "accepted")
+        .map((a) => a.statement ?? a.anchor_text ?? String(a));
+    } catch { /* no anchors */ }
+    const personaSection = formatPersonaForPrompt({
+      soul: personaFiles.soul,
+      identity: personaFiles.identity,
+      anchors: personaAnchors
+    });
     try {
       const memRegistry = readRegistry(workspaceRoot, "memory-cards");
       const cards = memRegistry.filter(isMemoryCard).filter((c) => c.review === "accepted");
@@ -5269,6 +5283,9 @@ async function runDaemon(options: CliOptions): Promise<void> {
         "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
         ""
       ];
+      if (personaSection) {
+        sections.push(personaSection, "");
+      }
       if (cards.length > 0) {
         const knownFacts = cards.map((c) => `- ${c.statement}`).join("\n");
         sections.push("## Persistent Memory", knownFacts, "");
@@ -5282,13 +5299,14 @@ async function runDaemon(options: CliOptions): Promise<void> {
       sections.push("Answer directly when you have enough information.");
       systemPrompt = sections.join("\n");
     } catch {
-      // No memory registry yet — build prompt with skills + session only.
-      if (skillSection || sessionContext) {
+      // No memory registry yet — build prompt with persona + skills + session.
+      if (personaSection || skillSection || sessionContext) {
         const sections: string[] = [
           "You are Aetherion, a local-first agent harness.",
           "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
           ""
         ];
+        if (personaSection) sections.push(personaSection, "");
         if (skillSection) sections.push(skillSection, "");
         if (sessionContext) sections.push(sessionContext, "");
         sections.push("Answer directly when you have enough information.");
