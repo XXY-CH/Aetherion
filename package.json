@@ -12,7 +12,9 @@
     "test:go-tui": "GOCACHE=/tmp/aetherion-go-build-cache go test ./packages/tui-go/...",
     "test:rust": "cargo test --locked",
     "test:all": "npm test && npm run test:go-tui && cargo test --locked",
-    "ether": "node packages/tui/src/cli.ts"
+    "ether": "node packages/tui/src/cli.ts",
+    "ether:setup": "node packages/tui/src/cli.ts setup",
+    "ether:workbench": "node packages/tui/src/cli.ts setup"
   },
   "engines": {
     "node": ">=24.9.0"
