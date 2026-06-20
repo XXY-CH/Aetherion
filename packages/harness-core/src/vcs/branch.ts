@@ -42,7 +42,7 @@ function branchDir(workspaceRoot: string, branchName: string): string {
   return join(worktreeRoot(workspaceRoot), branchName);
 }
 
-function branchWorkspace(workspaceRoot: string, branchName: string): string {
+export function branchWorkspace(workspaceRoot: string, branchName: string): string {
   return join(branchDir(workspaceRoot, branchName), "workspace");
 }
 
