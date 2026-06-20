@@ -1,6 +1,6 @@
 # TUI 可用性基线 — Hermes / OpenCode / Codex 对比
 
-[English version](18-tui-usability-baseline.md)
+[English](18-tui-usability-baseline.md)
 
 参考仓库（隔离于 `.quarantine/`）：
 - Hermes：`.quarantine/hermes/` — Python，prompt_toolkit REPL + 可选 Ink TUI
