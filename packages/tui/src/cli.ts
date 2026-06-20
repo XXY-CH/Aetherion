@@ -18,6 +18,7 @@ import { assemblePromptPlan, auditPromptResponse, createAgentRuntimeInvocationAr
 import { agentModelRequestArtifactRef, agentModelResponseArtifactRef, agentResponseAuditArtifactRef, agentRuntimeInvocationArtifactRef, agentToolRequestProposalArtifactRef, appendEvent, approvedWritePromotionEventSequence, auditAgentRegistryRebuild, auditAgentResponseAuditEvidence, auditCapsuleRegistryRebuild, auditHibernationRegistryRebuild, auditLedgerPayloadRefs, auditMemoryRegistryRebuild, auditPromptModelArtifactEvidence, auditRegistryProvenance, auditReplayRecordRegistryRebuild, auditSandboxRegistryRebuild, auditSecurityFixtureEvidence, auditStoreRegistryRebuild, auditSurfaceRegistryRebuild, browserObservationEventSequence, callSupervisorRpc, childReadCompletedEventSequence, childReadPolicyDeniedEventSequence, childReadPostSupervisorBreakerEventSequence, childReadPreExecutionBreakerEventSequence, childReadRepeatedDenialEventSequence, completeRunManifest, completeRunManifestWithEventSequence, consentRecordArtifactRef, createAgentModelRequestArtifact, createAgentModelResponseArtifact, createAgentResponseAuditArtifact, createAgentToolRequestProposalArtifact, createBoundaryFacts, createRunManifest, createTraceReplayRecord, createWorkspace, createWriteConsentRecord, eventRecord, imOutboxEventSequence, isRegistryItem, loadRunManifest, loadWorkspaceFromRegistry, readAgentModelRequestArtifact, readAgentResponseAuditArtifact, readAgentRuntimeInvocationArtifact, readAgentToolRequestProposalArtifact, readBoundaryFactsArtifact, readEvents, readRegistry, reconstructTrace, recordRunEvent, replayRecordRunEventSequence, removeRegistryItem, resolveModelProvider, rpcResult, runLocalKernelLoop, runSupervisorKernelLoop, runAgentLoop, startAgentLoopState, securityScanBlockedEventSequence, securityScanCleanEventSequence, upsertRegistryItem, upsertRegistryItems, validateAgainstSchema, verifyEventHashChain, wakeupQueueRunEventSequence, workspaceIdForRoot, writeAgentModelRequestArtifact, writeAgentModelResponseArtifact, writeAgentResponseAuditArtifact, writeAgentRuntimeInvocationArtifact, writeAgentToolRequestProposalArtifact, writeBoundaryFactsArtifact, writeWorkspaceRegistry, type BoundaryFacts, type EventRecord, type LoopEvent, type ModelMessage, type ReplayRecord, type RunManifest, type ToolCallProposal } from "../../harness-core/src/index.ts";
 import { createV1ToolRegistry } from "../../harness-core/src/tool-registry.ts";
 import { notify } from "../../harness-core/src/notify.ts";
+import { scanSkills, formatSkillsForPrompt } from "../../harness-core/src/skills.ts";
 import type { AgentRuntimeInvocationArtifact } from "../../harness-core/src/agent-runtime.ts";
 
 type CliOptions = {
@@ -5259,32 +5260,40 @@ async function runDaemon(options: CliOptions): Promise<void> {
     const invocation = buildAgentLoopInvocation(workspaceRoot, runId, input);
 
     let systemPrompt: string | undefined;
+    const skillSection = formatSkillsForPrompt(scanSkills(workspaceRoot));
     try {
       const memRegistry = readRegistry(workspaceRoot, "memory-cards");
       const cards = memRegistry.filter(isMemoryCard).filter((c) => c.review === "accepted");
+      const sections: string[] = [
+        "You are Aetherion, a local-first agent harness.",
+        "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
+        ""
+      ];
       if (cards.length > 0) {
         const knownFacts = cards.map((c) => `- ${c.statement}`).join("\n");
-        systemPrompt = [
-          "You are Aetherion, a local-first agent harness.",
-          "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
-          "",
-          "## Persistent Memory",
-          knownFacts,
-          sessionContext,
-          "",
-          "Answer directly when you have enough information."
-        ].join("\n");
-      } else if (sessionContext) {
-        systemPrompt = [
-          "You are Aetherion, a local-first agent harness.",
-          "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
-          sessionContext,
-          "",
-          "Answer directly when you have enough information."
-        ].join("\n");
+        sections.push("## Persistent Memory", knownFacts, "");
       }
+      if (skillSection) {
+        sections.push(skillSection, "");
+      }
+      if (sessionContext) {
+        sections.push(sessionContext, "");
+      }
+      sections.push("Answer directly when you have enough information.");
+      systemPrompt = sections.join("\n");
     } catch {
-      // No memory registry yet.
+      // No memory registry yet — build prompt with skills + session only.
+      if (skillSection || sessionContext) {
+        const sections: string[] = [
+          "You are Aetherion, a local-first agent harness.",
+          "Tools: local_file_read, local_file_write (approval), shell_exec (approval), web_fetch.",
+          ""
+        ];
+        if (skillSection) sections.push(skillSection, "");
+        if (sessionContext) sections.push(sessionContext, "");
+        sections.push("Answer directly when you have enough information.");
+        systemPrompt = sections.join("\n");
+      }
     }
 
     let state;
