@@ -172,6 +172,27 @@ function defaultSystemPrompt(): string {
   ].join("\n");
 }
 
+// Compute a short diff summary between two file contents.
+// Returns a compact string like " (+3 -1 ~2 lines)" for the TUI.
+function computeDiffSummary(before: string, after: string): string {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  const beforeSet = new Set(beforeLines);
+  const afterSet = new Set(afterLines);
+  let added = 0, removed = 0;
+  for (const line of afterLines) {
+    if (!beforeSet.has(line)) added++;
+  }
+  for (const line of beforeLines) {
+    if (!afterSet.has(line)) removed++;
+  }
+  const parts: string[] = [];
+  if (added > 0) parts.push(`+${added}`);
+  if (removed > 0) parts.push(`-${removed}`);
+  if (parts.length === 0) return " (unchanged)";
+  return ` (${parts.join(" ")} lines)`;
+}
+
 // Build a dynamic environment block injected into the system prompt.
 // Inspired by OpenCode's `environment()` function — gives the model context
 // about its working directory, platform, git status, and the current date.
@@ -650,7 +671,23 @@ async function* processToolCall(
     } else {
       const contentToWrite = args.content ?? "";
       const writeResult = await writeLocalFileThroughPolicy(toolRequest, effectiveDecision, contentToWrite);
-      resultText = `Wrote ${writeResult.bytes} bytes to ${writeResult.path}.`;
+      // Build a short diff summary from the pre-write snapshot.
+      let diffSummary = "";
+      try {
+        if (writeResult.pre_write_tree_hash) {
+          const { readTreeSnapshot, readBlob } = await import("./vcs/tree-snapshot.ts");
+          const tree = readTreeSnapshot(config.workspaceRoot, writeResult.pre_write_tree_hash);
+          const relPath = targetPath.replace(config.workspaceRoot + "/", "").replace(config.workspaceRoot, "");
+          const beforeHash = tree.entries[relPath];
+          if (beforeHash) {
+            const beforeContent = readBlob(config.workspaceRoot, beforeHash);
+            diffSummary = computeDiffSummary(beforeContent, contentToWrite);
+          } else {
+            diffSummary = ` (+${contentToWrite.split("\n").length} lines new file)`;
+          }
+        }
+      } catch { /* best-effort diff */ }
+      resultText = `Wrote ${writeResult.bytes} bytes to ${writeResult.path}${diffSummary}.`;
       await appendLoopEvent(config.repoRoot, state, "action.recorded", resultText, writeResult.pre_write_tree_hash);
       // Verify the write landed.
       const { verification } = await verifyFileContains({
