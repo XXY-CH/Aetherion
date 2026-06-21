@@ -86,6 +86,7 @@ type Model struct {
 	connectModelInput textinput.Model
 	connectSelectedProvider string
 	connectSelectedModel string
+	modelPickerActive bool
 	completionIdx int
 	activePane    string // "conversation", "rail", "tree", "composer"
 	clickFlash    int    // decremented each frame for click-feedback animation

@@ -161,6 +161,7 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		return m, tea.Batch(cmds...)
 
 	case msg.String() == "ctrl+o":
+		m.modelPickerActive = true
 		m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
 		return m, tea.Batch(cmds...)
 
@@ -280,19 +281,40 @@ func (m *Model) acceptSlashCompletion() {
 
 // handleModalKey routes keys when a modal is open.
 func (m Model) handleModalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Model picker: left/right cycles providers, enter confirms + saves config.
+	if m.wm.hasModal() && m.modelPickerActive {
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.wm.closeModals()
+			m.modelPickerActive = false
+			return m, tea.Batch(cmds...)
+		case "left":
+			m.cycleProvider(-1)
+			m.wm.closeModals()
+			m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
+			return m, tea.Batch(cmds...)
+		case "right":
+			m.cycleProvider(1)
+			m.wm.closeModals()
+			m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
+			return m, tea.Batch(cmds...)
+		case "enter":
+			m.confirmModelSelection()
+			m.wm.closeModals()
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		m.wm.closeModals()
 		return m, tea.Batch(cmds...)
 	case "enter":
-		// For the model picker modal, confirm selection.
 		m.wm.closeModals()
 		return m, tea.Batch(cmds...)
 	case "tab":
-		// Cycle modal buttons (no-op for now).
 		return m, tea.Batch(cmds...)
 	}
-	// Forward text to the composer (so typing isn't blocked).
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
 	cmds = append(cmds, cmd)

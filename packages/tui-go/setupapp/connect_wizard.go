@@ -310,6 +310,81 @@ func providerEnvKey(provider string) string {
 	return ""
 }
 
+// cycleProvider cycles the active provider in the model picker.
+func (m *Model) cycleProvider(dir int) {
+	providers := supportedProviders()
+	current := canonicalProvider(m.provider())
+	idx := -1
+	for i, p := range providers {
+		if canonicalProvider(p) == current {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	idx = (idx + dir + len(providers)) % len(providers)
+	newProvider := providers[idx]
+	m.cfg.ModelStatus.ProviderName = newProvider
+	// Update model ref to provider default
+	m.cfg.ModelStatus.ModelRef = defaultModelForProviderGo(newProvider)
+	m.cfg.ModelStatus.NetworkCapable = newProvider != "stub"
+}
+
+// confirmModelSelection saves the selected provider/model to config and closes.
+func (m *Model) confirmModelSelection() {
+	m.modelPickerActive = false
+	wsRoot := m.cfg.Snapshot.WorkspaceRoot
+	configPath := filepath.Join(wsRoot, ".aetherion", "provider-config.json")
+	os.MkdirAll(filepath.Dir(configPath), 0755)
+
+	providerName := m.cfg.ModelStatus.ProviderName
+	if providerName == "" {
+		providerName = "stub"
+	}
+	modelRef := m.cfg.ModelStatus.ModelRef
+	if modelRef == "" {
+		modelRef = defaultModelForProviderGo(providerName)
+	}
+
+	config := map[string]string{
+		"provider":  providerName,
+		"model_ref": modelRef,
+	}
+	// Include API key if available in env
+	envKey := providerEnvKey(providerName)
+	if envKey != "" {
+		if key := os.Getenv(envKey); key != "" {
+			config["api_key"] = key
+		}
+	}
+
+	data, _ := json.MarshalIndent(config, "", "  ")
+	data = append(data, '\n')
+	os.WriteFile(configPath, data, 0600)
+
+	m.transcript = append(m.transcript, transcriptEntry{
+		Role: "system",
+		Text: fmt.Sprintf("Model: %s / %s", providerName, modelRef),
+		Meta: "model changed",
+	})
+	m.refreshTranscriptToBottom()
+}
+
+func defaultModelForProviderGo(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "claude-sonnet-4-20250514"
+	case "openai_responses", "openai_chat_completions", "openai":
+		return "gpt-4o"
+	case "gemini", "google":
+		return "gemini-2.0-flash"
+	default:
+		return "stub-deterministic-v1"
+	}
+}
+
 // newTextInput creates a configured text input model.
 func newTextInput() textinput.Model {
 	ti := textinput.New()
