@@ -624,6 +624,45 @@ async function* processToolCall(
   let consent: ConsentRecord | undefined;
 
   if (definition.verb === "write") {
+    // file_edit: read current file, apply search-replace, then use result as content.
+    if (toolCall.name === "file_edit") {
+      const editPath = args.path ?? "";
+      const oldText = args.old_text ?? "";
+      const newText = args.new_text ?? "";
+      try {
+        const { readFileSync, existsSync } = await import("node:fs");
+        const fullPath = editPath.startsWith("/") ? editPath : join(config.workspaceRoot, editPath);
+        if (!existsSync(fullPath)) {
+          if (oldText === "") {
+            args.content = newText;
+            args.path = editPath;
+          } else {
+            throw new Error(`File not found: ${editPath}`);
+          }
+        } else {
+          const current = readFileSync(fullPath, "utf8");
+          if (oldText === "") {
+            args.content = newText;
+          } else {
+            const matchCount = current.split(oldText).length - 1;
+            if (matchCount === 0) {
+              throw new Error(`old_text not found in ${editPath}`);
+            }
+            if (matchCount > 1) {
+              throw new Error(`old_text appears ${matchCount} times in ${editPath} — must be unique`);
+            }
+            args.content = current.replace(oldText, newText);
+          }
+          args.path = editPath;
+        }
+      } catch (editErr) {
+        const reason = `file_edit failed: ${editErr instanceof Error ? editErr.message : String(editErr)}`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: editPath, result: reason, success: false };
+        return { kind: "executed", toolName: toolCall.name, path: editPath, result: reason, success: false };
+      }
+    }
+
     const approvalCard = createApprovalCard(toolRequest, policyDecision);
     await appendLoopEvent(config.repoRoot, state, "policy.decided", `Approval card ${approvalCard.id} presented for ${definition.name}.`, undefined);
 

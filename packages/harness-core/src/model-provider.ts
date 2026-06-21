@@ -510,6 +510,7 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
   const intent = userText.toLowerCase();
   const wantsRead = /read|inspect|show|contents? of|first|lines? of/.test(intent) && toolNames.includes("local_file_read");
   const wantsWrite = /write|create|save|update|replace/.test(intent) && toolNames.includes("local_file_write");
+  const wantsEdit = /\b(edit|modify|change|fix|update)\b/.test(intent) && toolNames.includes("file_edit") && !wantsWrite;
   const wantsExec = /\b(run|exec|execute|shell)\b/.test(intent) && toolNames.includes("shell_exec");
   const wantsFetch = /\b(fetch|url|http|https|look up|lookup)\b/.test(intent) && toolNames.includes("web_fetch");
   const wantsSpawn = /\b(spawn|delegate|sub.?agent|child agent)\b/.test(intent) && toolNames.includes("agent_spawn");
@@ -530,6 +531,21 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
         input_tokens,
         output_tokens: estimateTokens(summary),
         total_tokens: input_tokens + estimateTokens(summary),
+        usage_source: "locally_estimated"
+      }
+    };
+  }
+  if (wantsEdit) {
+    const target = extractStubPath(userText) ?? "README.md";
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_edit_1", name: "file_edit", arguments: JSON.stringify({ path: target, old_text: "# Test Workspace", new_text: "# Updated Workspace" }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: {
+        input_tokens,
+        output_tokens: estimateTokens(`edit ${target}`),
+        total_tokens: input_tokens + estimateTokens(`edit ${target}`),
         usage_source: "locally_estimated"
       }
     };
