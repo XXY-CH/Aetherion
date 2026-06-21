@@ -69,10 +69,17 @@ Reference repos (quarantined at `.quarantine/`):
 8. **No `/compact`.** Context window fills up with no compression mechanism.
 
 ### P2 — Polish
-9. **No `@` context references.** Can't reference files/diffs/URLs inline.
-10. **No `/init`.** Can't bootstrap a project with AGENTS.md.
-11. **No personality system.** Agent tone is fixed.
-12. **No conversation history search.** Ledger has data but TUI can't search it.
+9. ~~**No `@` context references.**~~ ✅ **Implemented** (phase 28): `@file:`, `@diff`, `@staged`, `@url:` references expand inline before agent loop.
+10. ~~**No `/init`.**~~ ✅ **Implemented** (phase 29): `/init` bootstraps AGENTS.md.
+11. ~~**No personality system.**~~ ✅ **Implemented** (phase 29-30): `/personality` sets tone, injected via `AETHERION_PERSONALITY` env var into system prompt.
+12. ~~**No conversation history search.**~~ ✅ **Implemented** (phase 31): `/sessions` lists run history, `/resume <id>` loads events into transcript.
+
+### Post-baseline additions (beyond original P0-P2)
+- **Interactive `/connect` wizard** ✅ — multi-step provider/key/model setup inside TUI
+- **`/model` real provider switching** ✅ — left/right cycles providers, saves config
+- **Visual diff in tool approval** ✅ — write proposals auto-open diff panel
+- **`/retry` `/copy` `/compact` `/diff` `/history` `/tools`** ✅ — utility commands
+- Slash command count: **26** (was 12)
 
 ---
 
