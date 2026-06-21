@@ -269,6 +269,10 @@ func (m Model) userHistory() []string {
 }
 
 func (m Model) env() []string {
-	// Inherit the current process environment (credentials live there).
-	return append([]string{}, osEnv()...)
+	env := append([]string{}, osEnv()...)
+	// Inject personality override into the child process env.
+	if m.personalityOverride != "" {
+		env = append(env, "AETHERION_PERSONALITY="+m.personalityOverride)
+	}
+	return env
 }

@@ -142,11 +142,17 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
   const runId = input.runId ?? `run_agent_loop_${Date.now()}_${createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 8)}`;
   const manifest = await createRunManifest(input.repoRoot, workspace, runId, `Aetherion agent loop: tool-calling turn sequence.`);
   const systemPrompt = input.systemPrompt ?? defaultSystemPrompt();
+  // Inject personality override if set via env var (from TUI /personality command).
+  let promptWithPersonality = systemPrompt;
+  const personalityOverride = process.env.AETHERION_PERSONALITY;
+  if (personalityOverride) {
+    promptWithPersonality = systemPrompt + "\n\n## Personality\n" + personalityOverride;
+  }
   // Append dynamic environment block to the system prompt.
-  let fullSystemPrompt = systemPrompt;
+  let fullSystemPrompt = promptWithPersonality;
   try {
     const envBlock = await buildEnvironmentBlock(input.workspaceRoot);
-    fullSystemPrompt = systemPrompt + "\n\n" + envBlock;
+    fullSystemPrompt = promptWithPersonality + "\n\n" + envBlock;
   } catch { /* best-effort */ }
   return {
     workspace,
@@ -234,7 +240,14 @@ export async function* runAgentLoop(
   const toolCapable = asToolCapable(config.provider);
   const tools = config.toolRegistry.toProviderFormat(providerNameFor(config.provider));
 
-  state.conversation.push({ role: "user", content: userInput });
+  // Expand @-context references (@file:, @diff, @staged, @url:) before processing.
+  let expandedInput = userInput;
+  try {
+    const { expandContextReferences } = await import("./context-refs.ts");
+    const expansion = expandContextReferences(userInput, config.workspaceRoot);
+    expandedInput = expansion.text;
+  } catch { /* best-effort — use raw input */ }
+  state.conversation.push({ role: "user", content: expandedInput });
   yield { type: "loop_started", runId: state.runId, maxLoopDepth: config.maxLoopDepth };
 
   let depth = 0;
