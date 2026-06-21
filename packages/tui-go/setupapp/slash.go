@@ -25,7 +25,7 @@ func (m *Model) handleSlashCommand(command string) {
 
 	case "/connect":
 		m.wm.closeModals()
-		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: connectGuidance(m.provider(), m.modelRef()), Meta: "connect"})
+		m.startConnectWizard()
 		m.statusMsg = "slash=/connect"
 
 	case "/sidebar", "/tree":

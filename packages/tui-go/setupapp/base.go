@@ -484,6 +484,17 @@ func (m Model) renderApprovalBar(width int) string {
 // --- Composer ---
 
 func (m Model) renderComposer(width, height int) string {
+	// Connect wizard replaces the composer when active.
+	if m.connectMode != "" {
+		theme := styles()
+		boxStyle := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(clay).
+			Padding(0, 1).
+			Foreground(ivoryLight).
+			Background(slateDark)
+		return boxStyle.Width(width).Render(theme.streaming.Render(m.renderConnectWizard()))
+	}
 	// border 2 + padding 2 + prompt 3 = 7 cells of frame.
 	m.composer.SetWidth(contentWidth(width, 2, 2, 3))
 	m.composer.SetHeight(contentWidth(height, 2, 0, 0))

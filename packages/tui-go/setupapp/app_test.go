@@ -188,14 +188,9 @@ func TestSlashCommandConnectAppendsGuidance(t *testing.T) {
 	model := NewModel(testConfig())
 	model.composer.SetValue("/connect")
 	_ = model.startChat()
-	found := false
-	for _, entry := range model.transcript {
-		if entry.Meta == "connect" && strings.Contains(entry.Text, "Provider:") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("connect card not appended: %#v", model.transcript)
+	// /connect now starts the interactive wizard instead of appending guidance.
+	if model.connectMode != "select_provider" {
+		t.Fatalf("connect wizard not started, connectMode=%q", model.connectMode)
 	}
 }
 

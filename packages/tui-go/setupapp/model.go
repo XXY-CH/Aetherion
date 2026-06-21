@@ -78,6 +78,14 @@ type Model struct {
 	treeExpanded  bool
 	historyIndex  int
 	historyDraft  string
+
+	// Connect wizard state.
+	connectMode    string // "" | "select_provider" | "enter_key" | "confirm" | "enter_model"
+	connectCursor  int    // cursor in provider list
+	connectKeyInput textinput.Model
+	connectModelInput textinput.Model
+	connectSelectedProvider string
+	connectSelectedModel string
 	completionIdx int
 	activePane    string // "conversation", "rail", "tree", "composer"
 	clickFlash    int    // decremented each frame for click-feedback animation

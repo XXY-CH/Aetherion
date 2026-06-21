@@ -111,6 +111,15 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		return m.handleModalKey(msg, cmds)
 	}
 
+	// Connect wizard takes priority when active.
+	if m.connectMode != "" {
+		keyMsg := tea.KeyMsg(msg)
+		consumed := m.handleConnectKey(keyMsg)
+		if consumed {
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	// Approval y/n takes priority.
 	if m.pendingApproval != nil {
 		switch msg.String() {
