@@ -137,6 +137,16 @@ func (m *Model) handleSlashCommand(command string) {
 		}
 		m.handlePersonalitySlash(personality)
 
+	case "/sessions":
+		m.handleSessionsSlash()
+
+	case "/resume":
+		sessionId := ""
+		if len(fields) > 1 {
+			sessionId = fields[1]
+		}
+		m.handleResumeSlash(sessionId)
+
 	default:
 		m.transcript = append(m.transcript, transcriptEntry{
 			Role: "system",
@@ -184,6 +194,8 @@ func allSlashCommands() []slashCommand {
 		{"/tools", "list available tools"},
 		{"/init", "bootstrap AGENTS.md"},
 		{"/personality", "set agent personality"},
+		{"/sessions", "list past sessions"},
+		{"/resume", "resume a session [id]"},
 		{"/help", "this help"},
 	}
 }
@@ -223,6 +235,8 @@ func slashHelpText() string {
 		"/tools       available tools",
 		"/init        bootstrap AGENTS.md",
 		"/personality set agent personality",
+		"/sessions    list past sessions",
+		"/resume      resume a session",
 		"/sidebar     toggle sidebar",
 		"/help        this help",
 	}, "\n")

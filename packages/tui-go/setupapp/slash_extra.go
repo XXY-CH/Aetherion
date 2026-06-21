@@ -1,6 +1,7 @@
 package setupapp
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -171,6 +172,112 @@ func (m *Model) handlePersonalitySlash(name string) {
 	}
 	m.refreshTranscriptToBottom()
 	m.statusMsg = "slash=/personality"
+}
+
+// handleSessionsSlash lists past run sessions from .aetherion/runs/.
+func (m *Model) handleSessionsSlash() {
+	wsRoot := m.cfg.Snapshot.WorkspaceRoot
+	runsDir := filepath.Join(wsRoot, ".aetherion", "runs")
+	entries, err := os.ReadDir(runsDir)
+	if err != nil || len(entries) == 0 {
+		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: "No sessions found.", Meta: "sessions"})
+		m.refreshTranscriptToBottom()
+		m.statusMsg = "slash=/sessions"
+		return
+	}
+
+	// Sort by modification time (newest first), show last 10
+	type sessionInfo struct {
+		id   string
+		time string
+	}
+	var sessions []sessionInfo
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, sessionInfo{
+			id:   strings.TrimSuffix(e.Name(), ".json"),
+			time: info.ModTime().Format("2006-01-02 15:04"),
+		})
+	}
+
+	// Reverse (newest first)
+	for i, j := 0, len(sessions)-1; i < j; i, j = i+1, j-1 {
+		sessions[i], sessions[j] = sessions[j], sessions[i]
+	}
+
+	lines := []string{"Sessions (newest first):"}
+	limit := 10
+	if len(sessions) < limit {
+		limit = len(sessions)
+	}
+	for i := 0; i < limit; i++ {
+		s := sessions[i]
+		lines = append(lines, fmt.Sprintf("  %s  %s", s.time, truncateForDisplay(s.id, 40)))
+	}
+	lines = append(lines, "", "Use /resume <session-id> to load transcript from a session.")
+	m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: strings.Join(lines, "\n"), Meta: "sessions"})
+	m.refreshTranscriptToBottom()
+	m.statusMsg = "slash=/sessions"
+}
+
+// handleResumeSlash loads the transcript from a specific session.
+func (m *Model) handleResumeSlash(sessionId string) {
+	if sessionId == "" {
+		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: "Usage: /resume <session-id>\n\nUse /sessions to see available session IDs.", Meta: "resume"})
+		m.refreshTranscriptToBottom()
+		m.statusMsg = "slash=/resume"
+		return
+	}
+
+	wsRoot := m.cfg.Snapshot.WorkspaceRoot
+	// Read ledger events for this run
+	ledgerPath := filepath.Join(wsRoot, ".aetherion", "events", "events.jsonl")
+	data, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		m.transcript = append(m.transcript, transcriptEntry{Role: "error", Text: "Cannot read ledger: " + err.Error(), Meta: "resume"})
+		m.refreshTranscriptToBottom()
+		m.statusMsg = "slash=/resume"
+		return
+	}
+
+	// Parse events and filter to this run
+	var entries []transcriptEntry
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var evt map[string]any
+		if json.Unmarshal([]byte(line), &evt) != nil {
+			continue
+		}
+		rid, _ := evt["run_id"].(string)
+		if !strings.Contains(sessionId, rid) && !strings.Contains(rid, sessionId) {
+			continue
+		}
+		summary, _ := evt["summary"].(string)
+		etype, _ := evt["event_type"].(string)
+		if etype == "user.message" {
+			entries = append(entries, transcriptEntry{Role: "user", Text: summary, Meta: "resumed"})
+		} else if etype == "tool.result" || etype == "action.recorded" {
+			entries = append(entries, transcriptEntry{Role: "tool", Text: summary, Meta: "resumed"})
+		}
+	}
+
+	if len(entries) == 0 {
+		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: fmt.Sprintf("No events found for session '%s'.", sessionId), Meta: "resume"})
+	} else {
+		m.transcript = append(m.transcript[:0], entries...)
+		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: fmt.Sprintf("✓ Resumed session '%s' (%d events loaded).", sessionId, len(entries)), Meta: "resume"})
+	}
+	m.refreshTranscriptToBottom()
+	m.statusMsg = "slash=/resume"
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
