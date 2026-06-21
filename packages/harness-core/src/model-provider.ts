@@ -509,6 +509,8 @@ function toolNameOf(tool: unknown): string {
 function simulateStubToolTurn(userText: string, toolNames: string[], request: ModelInvocationRequest, hasPriorToolResult: boolean): ModelToolCallResult {
   const intent = userText.toLowerCase();
   const wantsRead = /read|inspect|show|contents? of|first|lines? of/.test(intent) && toolNames.includes("local_file_read");
+  const wantsSearch = /\b(search|grep|find|look for)\b/.test(intent) && toolNames.includes("search_files");
+  const wantsList = /\b(list|ls|directory|files in)\b/.test(intent) && toolNames.includes("list_files");
   const wantsWrite = /write|create|save|update|replace/.test(intent) && toolNames.includes("local_file_write");
   const wantsEdit = /\b(edit|modify|change|fix|update)\b/.test(intent) && toolNames.includes("file_edit") && !wantsWrite;
   const wantsExec = /\b(run|exec|execute|shell)\b/.test(intent) && toolNames.includes("shell_exec");
@@ -548,6 +550,26 @@ function simulateStubToolTurn(userText: string, toolNames: string[], request: Mo
         total_tokens: input_tokens + estimateTokens(`edit ${target}`),
         usage_source: "locally_estimated"
       }
+    };
+  }
+  if (wantsSearch) {
+    const match = intent.match(/\b(?:search|grep|find|look for)\s+(?:for\s+)?(.+)/);
+    const pattern = match?.[1]?.trim() ?? "function";
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_search_1", name: "search_files", arguments: JSON.stringify({ pattern }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: { input_tokens, output_tokens: estimateTokens(`search ${pattern}`), total_tokens: input_tokens + estimateTokens(`search ${pattern}`), usage_source: "locally_estimated" }
+    };
+  }
+  if (wantsList) {
+    return {
+      output_text: "",
+      tool_calls: [{ id: "stub_call_list_1", name: "list_files", arguments: JSON.stringify({ path: ".", recursive: false }) }],
+      finish_reason: "tool_call",
+      refusal_present: false,
+      usage: { input_tokens, output_tokens: 10, total_tokens: input_tokens + 10, usage_source: "locally_estimated" }
     };
   }
 

@@ -156,6 +156,52 @@ export function createV1ToolRegistry(): ToolRegistry {
       }
     },
     {
+      name: "file_edit",
+      description:
+        "Edit a file by finding old_text and replacing it with new_text. The old_text must appear exactly once in the file. If old_text is empty and the file doesn't exist, creates the file. Requires human approval (L3 risk).",
+      verb: "write",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", description: "Workspace-relative or absolute path to the file to edit." },
+          old_text: { type: "string", description: "The exact text to find in the file. Must be unique." },
+          new_text: { type: "string", description: "The text to replace old_text with." }
+        },
+        required: ["path", "old_text", "new_text"]
+      }
+    },
+    {
+      name: "search_files",
+      description:
+        "Search for text patterns in workspace files using grep. Returns matching lines with file paths and line numbers. Read-only, auto-approved (L1 risk).",
+      verb: "read",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          pattern: { type: "string", description: "Regular expression pattern to search for." },
+          glob: { type: "string", description: "Optional file glob pattern to limit search (e.g. '*.ts', 'src/**')." }
+        },
+        required: ["pattern"]
+      }
+    },
+    {
+      name: "list_files",
+      description:
+        "List files in a directory, optionally filtered by glob pattern. Read-only (L1 risk).",
+      verb: "read",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", description: "Directory path to list. Defaults to workspace root." },
+          recursive: { type: "boolean", description: "Whether to list recursively. Default false." }
+        },
+        required: []
+      }
+    },
+    {
       name: "web_fetch",
       description:
         "Fetch the content of a URL and return the response body as text. Read-only, no side effects. Output is truncated to 10000 characters.",
@@ -188,34 +234,10 @@ export function createV1ToolRegistry(): ToolRegistry {
         },
         required: ["task"]
       }
-    },
-    {
-      name: "file_edit",
-      description:
-        "Edit a file by finding old_text and replacing it with new_text. The old_text must appear exactly once in the file. If old_text is empty and the file doesn't exist, creates the file. Requires human approval (L3 risk).",
-      verb: "write",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          path: {
-            type: "string",
-            description: "Workspace-relative or absolute path to the file to edit."
-          },
-          old_text: {
-            type: "string",
-            description: "The exact text to find in the file. Must be unique."
-          },
-          new_text: {
-            type: "string",
-            description: "The text to replace old_text with."
-          }
-        },
-        required: ["path", "old_text", "new_text"]
-      }
     }
   ]);
-}function toOpenAITool(tool: ToolDefinition): unknown {
+}
+function toOpenAITool(tool: ToolDefinition): unknown {
   return {
     type: "function",
     function: {

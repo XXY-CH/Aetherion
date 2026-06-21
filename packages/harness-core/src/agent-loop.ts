@@ -178,6 +178,69 @@ function defaultSystemPrompt(): string {
   ].join("\n");
 }
 
+// Process search_files tool call — grep workspace files for a pattern.
+async function* processSearchFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
+  const pattern = rawArgs?.pattern ?? "";
+  const globFilter = rawArgs?.glob ?? "";
+
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Search: /${pattern}/ ${globFilter}`, undefined);
+  yield { type: "tool_executing", toolName: "search_files", path: "" };
+
+  let resultText: string;
+  let success = true;
+  try {
+    const { execSync } = await import("node:child_process");
+    const grepCmd = globFilter
+      ? `grep -rn --include="${globFilter}" "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`
+      : `grep -rn "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`;
+    const output = execSync(grepCmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 10000 }).trim();
+    resultText = output || `No matches found for /${pattern}/`;
+  } catch (error) {
+    success = false;
+    resultText = `Search failed: ${error instanceof Error ? error.message : String(error)}`;
+    if (resultText.includes("status 1")) {
+      // grep exit code 1 = no matches, not an error
+      success = true;
+      resultText = `No matches found for /${pattern}/`;
+    }
+  }
+
+  await appendLoopEvent(config.repoRoot, state, "tool.result", `Search: ${resultText.length} chars output.`, undefined);
+  state.totalToolCalls += 1;
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "search_files", content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "search_files", path: "", result: truncateForModel(resultText), success };
+}
+
+// Process list_files tool call — list directory contents.
+async function* processListFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
+  const dirPath = rawArgs?.path ?? ".";
+  const recursive = rawArgs?.recursive ?? false;
+
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `List: ${dirPath} (recursive=${recursive})`, undefined);
+  yield { type: "tool_executing", toolName: "list_files", path: dirPath };
+
+  let resultText: string;
+  let success = true;
+  try {
+    const { execSync } = await import("node:child_process");
+    const cmd = recursive
+      ? `find "${dirPath}" -type f -not -path '*/.aetherion/*' -not -path '*/node_modules/*' -not -path '*/.git/*' | head -100`
+      : `ls -la "${dirPath}"`;
+    const output = execSync(cmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 5000 }).trim();
+    resultText = output || `Empty directory: ${dirPath}`;
+  } catch (error) {
+    success = false;
+    resultText = `List failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  await appendLoopEvent(config.repoRoot, state, "tool.result", `List: ${resultText.length} chars output.`, undefined);
+  state.totalToolCalls += 1;
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "list_files", content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "list_files", path: dirPath, result: truncateForModel(resultText), success };
+}
+
 // Compute a short diff summary between two file contents.
 // Returns a compact string like " (+3 -1 ~2 lines)" for the TUI.
 function computeDiffSummary(before: string, after: string): string {
@@ -595,6 +658,17 @@ async function* processToolCall(
     state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
     yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
     return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+  }
+
+  // search_files and list_files are read-only workspace tools that don't
+  // need a specific file path — they operate on the whole workspace.
+  if (toolCall.name === "search_files") {
+    yield* processSearchFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "search completed", success: true };
+  }
+  if (toolCall.name === "list_files") {
+    yield* processListFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "list completed", success: true };
   }
 
   const targetPath = resolve(config.workspaceRoot, args.path);
