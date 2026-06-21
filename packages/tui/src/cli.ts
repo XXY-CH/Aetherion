@@ -5261,15 +5261,23 @@ async function runDaemon(options: CliOptions): Promise<void> {
   const readline = await import("node:readline/promises");
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  for await (const line of rl) {
-    const input = line.trim();
-    if (!input) {
-      continue;
-    }
-    if (input === "/exit" || input === "/quit") {
-      break;
-    }
+  // Background task queue: user input is enqueued immediately, processed
+  // sequentially by a worker. This lets the user queue messages while the
+  // agent is busy without blocking stdin.
+  const taskQueue: string[] = [];
+  let processing = false;
 
+  async function processQueue(): Promise<void> {
+    if (processing) return;
+    processing = true;
+    while (taskQueue.length > 0) {
+      const input = taskQueue.shift()!;
+      await processDaemonInput(input);
+    }
+    processing = false;
+  }
+
+  async function processDaemonInput(input: string): Promise<void> {
     const runId = `run_daemon_${Date.now()}_${randomUUID().slice(0, 8)}`;
     const invocation = buildAgentLoopInvocation(workspaceRoot, runId, input);
 
@@ -5342,7 +5350,7 @@ async function runDaemon(options: CliOptions): Promise<void> {
       });
     } catch (err) {
       process.stdout.write(`[error] failed to start loop: ${err instanceof Error ? err.message : String(err)}\n`);
-      continue;
+      return;
     }
 
     try {
@@ -5381,6 +5389,24 @@ async function runDaemon(options: CliOptions): Promise<void> {
     } catch (err) {
       process.stdout.write(`[error] loop failed: ${err instanceof Error ? err.message : String(err)}\n`);
     }
+  } // end processDaemonInput
+
+  // REPL loop: enqueue user input, trigger background processing.
+  for await (const line of rl) {
+    const input = line.trim();
+    if (!input) continue;
+    if (input === "/exit" || input === "/quit") break;
+
+    taskQueue.push(input);
+    if (taskQueue.length > 1) {
+      process.stdout.write(`[queued] position ${taskQueue.length - 1} in queue\n`);
+    }
+    void processQueue();
+  }
+
+  // Wait for any pending tasks to complete before shutting down.
+  while (processing) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
   }
 
   shutdown();
