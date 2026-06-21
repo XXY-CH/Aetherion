@@ -156,9 +156,11 @@ func (m *Model) applyLoopEvent(event LoopEvent) {
 		m.loopToolCalls++
 	case "tool_proposal":
 		m.pendingApproval = event.Proposal
+		// Auto-open policy window to show diff for write operations.
+		m.wm.open(winPolicy, "APPROVAL", m.renderPolicyWindow(), 56, 28)
 		m.transcript = append(m.transcript, transcriptEntry{
 			Role: "approval",
-			Text: fmt.Sprintf("⚠️ Approve %s on %s? [%s] [y/n]", event.Proposal.ToolName, shortPath(event.Proposal.Path), event.Proposal.RiskLevel),
+			Text: fmt.Sprintf("⚠️ Approve %s on %s? [%s] [y/n]\n(Diff shown in policy window — press y/n)", event.Proposal.ToolName, shortPath(event.Proposal.Path), event.Proposal.RiskLevel),
 			Meta: "awaiting approval",
 		})
 	case "tool_approved":

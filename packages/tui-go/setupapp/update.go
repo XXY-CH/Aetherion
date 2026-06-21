@@ -416,6 +416,24 @@ func (m Model) renderPolicyWindow() string {
 	lines = append(lines, "  model_output_can_authorize  ✗ locked")
 	lines = append(lines, "  tool_exec_requires_lease    ✓ required")
 	lines = append(lines, "  side_effects_require_approval ✓")
+
+	// For write operations, show a unified diff of before/after content.
+	if p.Verb == "write" && p.Path != "" {
+		diff := renderApprovalDiff(p.Path, p.ProposedContent)
+		if diff != "" {
+			lines = append(lines, "")
+			lines = append(lines, "PROPOSED CHANGES")
+			lines = append(lines, diff)
+		}
+	}
+
+	// For exec operations, show the command.
+	if p.Verb == "exec" && p.ProposedContent != "" {
+		lines = append(lines, "")
+		lines = append(lines, "COMMAND")
+		lines = append(lines, "  $ "+p.ProposedContent)
+	}
+
 	return strings.Join(lines, "\n")
 }
 
