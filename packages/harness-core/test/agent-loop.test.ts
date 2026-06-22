@@ -61,9 +61,9 @@ async function prepareWorkspace(workspaceRoot: string, invocation: AgentRuntimeI
   invocation.id = "agent_runtime_invocation_run_example";
 }
 
-test("tool registry registers local_file_read, local_file_write, shell_exec, web_fetch, and agent_spawn and converts to provider formats", () => {
+test("tool registry registers local_file_read, local_file_write, shell_exec, web_fetch, agent_spawn, and file_edit and converts to provider formats", () => {
   const registry = createV1ToolRegistry();
-  assert.equal(registry.tools.length, 5);
+  assert.equal(registry.tools.length, 8);
   assert.ok(registry.has("local_file_read"));
   assert.ok(registry.has("local_file_write"));
   assert.ok(registry.has("shell_exec"));

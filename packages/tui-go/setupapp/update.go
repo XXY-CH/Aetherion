@@ -111,6 +111,15 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		return m.handleModalKey(msg, cmds)
 	}
 
+	// Connect wizard takes priority when active.
+	if m.connectMode != "" {
+		keyMsg := tea.KeyMsg(msg)
+		consumed := m.handleConnectKey(keyMsg)
+		if consumed {
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	// Approval y/n takes priority.
 	if m.pendingApproval != nil {
 		switch msg.String() {
@@ -152,6 +161,7 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		return m, tea.Batch(cmds...)
 
 	case msg.String() == "ctrl+o":
+		m.modelPickerActive = true
 		m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
 		return m, tea.Batch(cmds...)
 
@@ -271,19 +281,40 @@ func (m *Model) acceptSlashCompletion() {
 
 // handleModalKey routes keys when a modal is open.
 func (m Model) handleModalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Model picker: left/right cycles providers, enter confirms + saves config.
+	if m.wm.hasModal() && m.modelPickerActive {
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.wm.closeModals()
+			m.modelPickerActive = false
+			return m, tea.Batch(cmds...)
+		case "left":
+			m.cycleProvider(-1)
+			m.wm.closeModals()
+			m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
+			return m, tea.Batch(cmds...)
+		case "right":
+			m.cycleProvider(1)
+			m.wm.closeModals()
+			m.wm.openModal("modal_model", "SELECT MODEL", m.renderModelPicker(), 48, 14)
+			return m, tea.Batch(cmds...)
+		case "enter":
+			m.confirmModelSelection()
+			m.wm.closeModals()
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		m.wm.closeModals()
 		return m, tea.Batch(cmds...)
 	case "enter":
-		// For the model picker modal, confirm selection.
 		m.wm.closeModals()
 		return m, tea.Batch(cmds...)
 	case "tab":
-		// Cycle modal buttons (no-op for now).
 		return m, tea.Batch(cmds...)
 	}
-	// Forward text to the composer (so typing isn't blocked).
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
 	cmds = append(cmds, cmd)
@@ -385,6 +416,24 @@ func (m Model) renderPolicyWindow() string {
 	lines = append(lines, "  model_output_can_authorize  ✗ locked")
 	lines = append(lines, "  tool_exec_requires_lease    ✓ required")
 	lines = append(lines, "  side_effects_require_approval ✓")
+
+	// For write operations, show a unified diff of before/after content.
+	if p.Verb == "write" && p.Path != "" {
+		diff := renderApprovalDiff(p.Path, p.ProposedContent)
+		if diff != "" {
+			lines = append(lines, "")
+			lines = append(lines, "PROPOSED CHANGES")
+			lines = append(lines, diff)
+		}
+	}
+
+	// For exec operations, show the command.
+	if p.Verb == "exec" && p.ProposedContent != "" {
+		lines = append(lines, "")
+		lines = append(lines, "COMMAND")
+		lines = append(lines, "  $ "+p.ProposedContent)
+	}
+
 	return strings.Join(lines, "\n")
 }
 

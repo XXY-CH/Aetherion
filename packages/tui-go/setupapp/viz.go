@@ -81,10 +81,12 @@ type RiskBar struct {
 }
 
 // BarChart renders a horizontal bar chart. maxBar is the character width for
-// the longest bar.
+// the longest bar. It is clamped to at least 2 so a narrow caller never gets a
+// zero/negative width that would previously fall back to a hardcoded 20 and
+// overflow the card.
 func BarChart(bars []RiskBar, maxBar int) string {
-	if maxBar <= 0 {
-		maxBar = 20
+	if maxBar < 2 {
+		maxBar = 2
 	}
 	total := 0
 	for _, b := range bars {
@@ -96,9 +98,13 @@ func BarChart(bars []RiskBar, maxBar int) string {
 	var rows []string
 	for _, b := range bars {
 		width := int(math.Round(float64(b.Count) / float64(total) * float64(maxBar)))
-		label := lipgloss.NewStyle().Width(4).Bold(true).Foreground(b.Color).Render(b.Label)
+		// Label column is a fixed 3 cells ("L5" + 1 trailing space) so the bar
+		// origin aligns across all rows regardless of count.
+		label := lipgloss.NewStyle().Width(3).Bold(true).Foreground(b.Color).Render(b.Label)
 		bar := lipgloss.NewStyle().Foreground(b.Color).Render(strings.Repeat("█", max(0, width)))
-		count := lipgloss.NewStyle().Foreground(b.Color).Render(fmt.Sprintf(" %4d", b.Count))
+		// Count column is a fixed 6 cells (" %5d") to support up to 99999 without
+		// misaligning the rows.
+		count := lipgloss.NewStyle().Foreground(b.Color).Render(fmt.Sprintf(" %5d", b.Count))
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Center, label, bar, count))
 	}
 	return strings.Join(rows, "\n")

@@ -25,7 +25,7 @@ func (m *Model) handleSlashCommand(command string) {
 
 	case "/connect":
 		m.wm.closeModals()
-		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: connectGuidance(m.provider(), m.modelRef()), Meta: "connect"})
+		m.startConnectWizard()
 		m.statusMsg = "slash=/connect"
 
 	case "/sidebar", "/tree":
@@ -83,6 +83,13 @@ func (m *Model) handleSlashCommand(command string) {
 		m.transcript = append(m.transcript, transcriptEntry{Role: "system", Text: statusReport(*m), Meta: "status"})
 		m.statusMsg = "slash=/status"
 
+	case "/vcs":
+		subCmd := ""
+		if len(fields) > 1 {
+			subCmd = fields[1]
+		}
+		m.handleVcsSlash(subCmd, fields[2:])
+
 	case "/clear":
 		m.chatResult = nil
 		m.chatError = ""
@@ -101,6 +108,44 @@ func (m *Model) handleSlashCommand(command string) {
 		m.persistTranscript()
 		m.refreshTranscriptToBottom()
 		m.statusMsg = "slash=/new"
+
+	case "/retry":
+		m.handleRetrySlash()
+
+	case "/copy":
+		m.handleCopySlash()
+
+	case "/compact":
+		m.handleCompactSlash()
+
+	case "/diff":
+		m.handleDiffSlash()
+
+	case "/history":
+		m.handleHistorySlash()
+
+	case "/tools":
+		m.handleToolsSlash()
+
+	case "/init":
+		m.handleInitSlash()
+
+	case "/personality":
+		personality := ""
+		if len(fields) > 1 {
+			personality = fields[1]
+		}
+		m.handlePersonalitySlash(personality)
+
+	case "/sessions":
+		m.handleSessionsSlash()
+
+	case "/resume":
+		sessionId := ""
+		if len(fields) > 1 {
+			sessionId = fields[1]
+		}
+		m.handleResumeSlash(sessionId)
 
 	default:
 		m.transcript = append(m.transcript, transcriptEntry{
@@ -138,8 +183,19 @@ func allSlashCommands() []slashCommand {
 		{"/undo", "fork from checkpoint"},
 		{"/tree", "toggle tree expand"},
 		{"/status", "status summary"},
+		{"/vcs", "VCS: status, snapshot, rollback, branch"},
 		{"/clear", "clear transcript"},
 		{"/new", "new session"},
+		{"/retry", "resend last user message"},
+		{"/copy", "copy last assistant reply"},
+		{"/compact", "show context usage"},
+		{"/diff", "show workspace changes"},
+		{"/history", "recent session history"},
+		{"/tools", "list available tools"},
+		{"/init", "bootstrap AGENTS.md"},
+		{"/personality", "set agent personality"},
+		{"/sessions", "list past sessions"},
+		{"/resume", "resume a session [id]"},
 		{"/help", "this help"},
 	}
 }
@@ -166,10 +222,22 @@ func slashHelpText() string {
 		"/trace       trace replay",
 		"/usage       token usage",
 		"/checkpoint  mark git-tree checkpoint",
-		"/undo        fork from checkpoint",
-		"/tree        toggle tree expand",
+		"/undo        mark rollback point",
 		"/status      status summary",
+		"/vcs         VCS operations",
 		"/clear       clear transcript",
+		"/new         new session",
+		"/retry       resend last message",
+		"/copy        copy last reply",
+		"/compact     context usage",
+		"/diff        workspace changes",
+		"/history     session history",
+		"/tools       available tools",
+		"/init        bootstrap AGENTS.md",
+		"/personality set agent personality",
+		"/sessions    list past sessions",
+		"/resume      resume a session",
+		"/sidebar     toggle sidebar",
 		"/help        this help",
 	}, "\n")
 }

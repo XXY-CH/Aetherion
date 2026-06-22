@@ -46,6 +46,9 @@ import { composeRisk } from "./risk.ts";
 import { readLocalFileThroughPolicy, writeLocalFileThroughPolicy } from "./local-file.ts";
 import { verifyFileContains } from "./verify.ts";
 import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
+import { diffTrees } from "./vcs/tree-snapshot.ts";
+import { runSubagentInBranch } from "./vcs/subagent.ts";
+import { branchWorkspace } from "./vcs/branch.ts";
 import {
   asToolCapable,
   isAssistantTurn,
@@ -142,11 +145,23 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
   const runId = input.runId ?? `run_agent_loop_${Date.now()}_${createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 8)}`;
   const manifest = await createRunManifest(input.repoRoot, workspace, runId, `Aetherion agent loop: tool-calling turn sequence.`);
   const systemPrompt = input.systemPrompt ?? defaultSystemPrompt();
+  // Inject personality override if set via env var (from TUI /personality command).
+  let promptWithPersonality = systemPrompt;
+  const personalityOverride = process.env.AETHERION_PERSONALITY;
+  if (personalityOverride) {
+    promptWithPersonality = systemPrompt + "\n\n## Personality\n" + personalityOverride;
+  }
+  // Append dynamic environment block to the system prompt.
+  let fullSystemPrompt = promptWithPersonality;
+  try {
+    const envBlock = await buildEnvironmentBlock(input.workspaceRoot);
+    fullSystemPrompt = promptWithPersonality + "\n\n" + envBlock;
+  } catch { /* best-effort */ }
   return {
     workspace,
     runId,
     manifest,
-    conversation: [{ role: "system", content: systemPrompt }],
+    conversation: [{ role: "system", content: fullSystemPrompt }],
     totalTokens: 0,
     totalToolCalls: 0
   };
@@ -155,14 +170,129 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
 function defaultSystemPrompt(): string {
   return [
     "You are Aetherion, a local-first agent harness operating inside a single workspace boundary.",
-    "You have four tools:",
+    "You have five tools:",
     "- local_file_read: read a workspace file (allowed directly)",
     "- local_file_write: write a workspace file (requires human approval)",
     "- shell_exec: run a shell command in the workspace (requires human approval, L4 risk)",
     "- web_fetch: fetch a URL and return the page content (read-only)",
+    "- agent_spawn: delegate a sub-task to a child agent (requires approval, L4 risk)",
     "Never claim authority you do not have. Model output cannot authorize actions.",
     "When you have enough information, answer the user directly without calling a tool."
   ].join("\n");
+}
+
+// Process search_files tool call — grep workspace files for a pattern.
+async function* processSearchFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
+  const pattern = rawArgs?.pattern ?? "";
+  const globFilter = rawArgs?.glob ?? "";
+
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Search: /${pattern}/ ${globFilter}`, undefined);
+  yield { type: "tool_executing", toolName: "search_files", path: "" };
+
+  let resultText: string;
+  let success = true;
+  try {
+    const { execSync } = await import("node:child_process");
+    const grepCmd = globFilter
+      ? `grep -rn --include="${globFilter}" "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`
+      : `grep -rn "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`;
+    const output = execSync(grepCmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 10000 }).trim();
+    resultText = output || `No matches found for /${pattern}/`;
+  } catch (error) {
+    success = false;
+    resultText = `Search failed: ${error instanceof Error ? error.message : String(error)}`;
+    if (resultText.includes("status 1")) {
+      // grep exit code 1 = no matches, not an error
+      success = true;
+      resultText = `No matches found for /${pattern}/`;
+    }
+  }
+
+  await appendLoopEvent(config.repoRoot, state, "tool.result", `Search: ${resultText.length} chars output.`, undefined);
+  state.totalToolCalls += 1;
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "search_files", content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "search_files", path: "", result: truncateForModel(resultText), success };
+}
+
+// Process list_files tool call — list directory contents.
+async function* processListFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
+  const dirPath = rawArgs?.path ?? ".";
+  const recursive = rawArgs?.recursive ?? false;
+
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `List: ${dirPath} (recursive=${recursive})`, undefined);
+  yield { type: "tool_executing", toolName: "list_files", path: dirPath };
+
+  let resultText: string;
+  let success = true;
+  try {
+    const { execSync } = await import("node:child_process");
+    const cmd = recursive
+      ? `find "${dirPath}" -type f -not -path '*/.aetherion/*' -not -path '*/node_modules/*' -not -path '*/.git/*' | head -100`
+      : `ls -la "${dirPath}"`;
+    const output = execSync(cmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 5000 }).trim();
+    resultText = output || `Empty directory: ${dirPath}`;
+  } catch (error) {
+    success = false;
+    resultText = `List failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  await appendLoopEvent(config.repoRoot, state, "tool.result", `List: ${resultText.length} chars output.`, undefined);
+  state.totalToolCalls += 1;
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "list_files", content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "list_files", path: dirPath, result: truncateForModel(resultText), success };
+}
+
+// Compute a short diff summary between two file contents.
+// Returns a compact string like " (+3 -1 ~2 lines)" for the TUI.
+function computeDiffSummary(before: string, after: string): string {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  const beforeSet = new Set(beforeLines);
+  const afterSet = new Set(afterLines);
+  let added = 0, removed = 0;
+  for (const line of afterLines) {
+    if (!beforeSet.has(line)) added++;
+  }
+  for (const line of beforeLines) {
+    if (!afterSet.has(line)) removed++;
+  }
+  const parts: string[] = [];
+  if (added > 0) parts.push(`+${added}`);
+  if (removed > 0) parts.push(`-${removed}`);
+  if (parts.length === 0) return " (unchanged)";
+  return ` (${parts.join(" ")} lines)`;
+}
+
+// Build a dynamic environment block injected into the system prompt.
+// Inspired by OpenCode's `environment()` function — gives the model context
+// about its working directory, platform, git status, and the current date.
+export async function buildEnvironmentBlock(workspaceRoot: string): Promise<string> {
+  const lines: string[] = ["<environment>"];
+  lines.push(`workspace: ${workspaceRoot}`);
+
+  // Platform
+  const platform = process.platform;
+  const arch = process.arch;
+  lines.push(`platform: ${platform}/${arch}`);
+
+  // Date
+  lines.push(`date: ${new Date().toISOString().slice(0, 10)}`);
+
+  // Git status (best-effort)
+  try {
+    const { execSync } = await import("node:child_process");
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: workspaceRoot, encoding: "utf8", timeout: 3000 }).trim();
+    lines.push(`git_branch: ${branch}`);
+    const dirty = execSync("git status --porcelain", { cwd: workspaceRoot, encoding: "utf8", timeout: 3000 }).trim();
+    lines.push(`git_clean: ${dirty.length === 0 ? "true" : "false"}`);
+  } catch {
+    lines.push("git: not a git repo (or git unavailable)");
+  }
+
+  lines.push("</environment>");
+  return lines.join("\n");
 }
 
 // The core loop. Yields LoopEvent values as the turn progresses; the caller
@@ -176,7 +306,14 @@ export async function* runAgentLoop(
   const toolCapable = asToolCapable(config.provider);
   const tools = config.toolRegistry.toProviderFormat(providerNameFor(config.provider));
 
-  state.conversation.push({ role: "user", content: userInput });
+  // Expand @-context references (@file:, @diff, @staged, @url:) before processing.
+  let expandedInput = userInput;
+  try {
+    const { expandContextReferences } = await import("./context-refs.ts");
+    const expansion = expandContextReferences(userInput, config.workspaceRoot);
+    expandedInput = expansion.text;
+  } catch { /* best-effort — use raw input */ }
+  state.conversation.push({ role: "user", content: expandedInput });
   yield { type: "loop_started", runId: state.runId, maxLoopDepth: config.maxLoopDepth };
 
   let depth = 0;
@@ -359,7 +496,24 @@ async function* processToolCall(
       await appendLoopEvent(config.repoRoot, state, "consent.recorded", `agent_spawn approved for: ${args.task}.`, undefined);
       yield { type: "tool_executing", toolName: toolCall.name, path: "" };
 
-      // Run the child agent loop synchronously (nested).
+      // --- Isolate the child agent in a physical worktree branch ---
+      // The child runs in .aetherion/worktrees/<branchName>/workspace/, so its
+      // file mutations cannot affect the parent workspace. The parent reviews
+      // the diff afterwards and may merge explicitly (merge is NOT automatic).
+      const sourceSnap = captureTreeSnapshot(config.workspaceRoot);
+      const branchName = `${state.runId}_spawn_${depth}_${randomHex(4)}`;
+      const branch = await runSubagentInBranch({
+        workspaceRoot: config.workspaceRoot,
+        branchName,
+        sourceTreeHash: sourceSnap.tree_hash,
+        task: args.task,
+        repoRoot: config.repoRoot
+      });
+      const wtDir = branch.worktreePath;
+
+      // Run the child agent loop synchronously (nested) IN THE WORKTREE.
+      // Every workspaceRoot read inside the child loop (path resolution, exec
+      // cwd, policy boundary, snapshot root) now targets the worktree dir.
       const childRunId = `${state.runId}_child_${depth}`;
       const childInvocation = {
         ...config.invocation,
@@ -368,12 +522,16 @@ async function* processToolCall(
       };
       const childConfig: AgentLoopConfig = {
         ...config,
+        // repoRoot stays the parent's — schema validation needs the parent
+        // repo's schema files. workspaceRoot is the worktree so child side
+        // effects are isolated.
+        workspaceRoot: wtDir,
         invocation: childInvocation,
         maxLoopDepth: Math.min(config.maxLoopDepth, 5)
       };
       const childState = await startAgentLoopState({
         repoRoot: config.repoRoot,
-        workspaceRoot: config.workspaceRoot,
+        workspaceRoot: wtDir,
         provider: config.provider,
         modelRef: config.modelRef,
         toolRegistry: config.toolRegistry,
@@ -389,7 +547,10 @@ async function* processToolCall(
         for await (const childEvent of runAgentLoop(childConfig, childState, args.task, async () => ({ approved: true }))) {
           if (childEvent.type === "assistant_text") {
             const at = childEvent as Extract<LoopEvent, { type: "assistant_text" }>;
-            childResult += at.text;
+            // The assistant_text payload field is `content`, not `text` (see
+            // LoopEvent definition). Reading `text` yielded undefined, so the
+            // child result always fell back to "(no output)".
+            childResult += at.content;
           }
         }
         if (!childResult) {
@@ -401,11 +562,25 @@ async function* processToolCall(
         childResult = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
       }
 
-      await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${childResult.length} chars.`, undefined);
+      // --- Capture what the child changed (post-run worktree snapshot) ---
+      // diffTrees against the pre-run snapshot gives the changed-files list.
+      // The parent records this so the operator can review/merge; the branch
+      // is NOT auto-merged (merged stays false).
+      const afterSnap = captureTreeSnapshot(wtDir);
+      const changes = diffTrees(sourceSnap, afterSnap);
+      const changedFiles = changes.map((c) => c.path).sort();
+      const diffSummary = changedFiles.length > 0
+        ? `changed ${changedFiles.length} file(s): ${changedFiles.join(", ")} (branch: ${branchName})`
+        : `no file changes (branch: ${branchName})`;
+
+      const fullResult = `${childResult}\n\n[${diffSummary}]`;
+      const truncated = truncateForModel(fullResult);
+
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${truncated.length} chars. ${diffSummary}`, undefined);
       state.totalToolCalls += 1;
-      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: childResult, success: childSuccess });
-      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
-      return { kind: "executed", toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: truncated, success: childSuccess });
+      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
+      return { kind: "executed", toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
     }
 
     const args = parseToolArguments(toolCall.arguments);
@@ -526,6 +701,17 @@ async function* processToolCall(
     return { kind: "policy_denied", toolCallId: toolCall.id, reason };
   }
 
+  // search_files and list_files are read-only workspace tools that don't
+  // need a specific file path — they operate on the whole workspace.
+  if (toolCall.name === "search_files") {
+    yield* processSearchFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "search completed", success: true };
+  }
+  if (toolCall.name === "list_files") {
+    yield* processListFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "list completed", success: true };
+  }
+
   const targetPath = resolve(config.workspaceRoot, args.path);
   // Build the seed-policy ToolRequest that the existing pipeline expects.
   const toolRequest: ToolRequest = definition.verb === "read"
@@ -553,6 +739,45 @@ async function* processToolCall(
   let consent: ConsentRecord | undefined;
 
   if (definition.verb === "write") {
+    // file_edit: read current file, apply search-replace, then use result as content.
+    if (toolCall.name === "file_edit") {
+      const editPath = args.path ?? "";
+      const oldText = args.old_text ?? "";
+      const newText = args.new_text ?? "";
+      try {
+        const { readFileSync, existsSync } = await import("node:fs");
+        const fullPath = editPath.startsWith("/") ? editPath : join(config.workspaceRoot, editPath);
+        if (!existsSync(fullPath)) {
+          if (oldText === "") {
+            args.content = newText;
+            args.path = editPath;
+          } else {
+            throw new Error(`File not found: ${editPath}`);
+          }
+        } else {
+          const current = readFileSync(fullPath, "utf8");
+          if (oldText === "") {
+            args.content = newText;
+          } else {
+            const matchCount = current.split(oldText).length - 1;
+            if (matchCount === 0) {
+              throw new Error(`old_text not found in ${editPath}`);
+            }
+            if (matchCount > 1) {
+              throw new Error(`old_text appears ${matchCount} times in ${editPath} — must be unique`);
+            }
+            args.content = current.replace(oldText, newText);
+          }
+          args.path = editPath;
+        }
+      } catch (editErr) {
+        const reason = `file_edit failed: ${editErr instanceof Error ? editErr.message : String(editErr)}`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: editPath, result: reason, success: false };
+        return { kind: "executed", toolName: toolCall.name, path: editPath, result: reason, success: false };
+      }
+    }
+
     const approvalCard = createApprovalCard(toolRequest, policyDecision);
     await appendLoopEvent(config.repoRoot, state, "policy.decided", `Approval card ${approvalCard.id} presented for ${definition.name}.`, undefined);
 
@@ -613,7 +838,23 @@ async function* processToolCall(
     } else {
       const contentToWrite = args.content ?? "";
       const writeResult = await writeLocalFileThroughPolicy(toolRequest, effectiveDecision, contentToWrite);
-      resultText = `Wrote ${writeResult.bytes} bytes to ${writeResult.path}.`;
+      // Build a short diff summary from the pre-write snapshot.
+      let diffSummary = "";
+      try {
+        if (writeResult.pre_write_tree_hash) {
+          const { readTreeSnapshot, readBlob } = await import("./vcs/tree-snapshot.ts");
+          const tree = readTreeSnapshot(config.workspaceRoot, writeResult.pre_write_tree_hash);
+          const relPath = targetPath.replace(config.workspaceRoot + "/", "").replace(config.workspaceRoot, "");
+          const beforeHash = tree.entries[relPath];
+          if (beforeHash) {
+            const beforeContent = readBlob(config.workspaceRoot, beforeHash);
+            diffSummary = computeDiffSummary(beforeContent, contentToWrite);
+          } else {
+            diffSummary = ` (+${contentToWrite.split("\n").length} lines new file)`;
+          }
+        }
+      } catch { /* best-effort diff */ }
+      resultText = `Wrote ${writeResult.bytes} bytes to ${writeResult.path}${diffSummary}.`;
       await appendLoopEvent(config.repoRoot, state, "action.recorded", resultText, writeResult.pre_write_tree_hash);
       // Verify the write landed.
       const { verification } = await verifyFileContains({
