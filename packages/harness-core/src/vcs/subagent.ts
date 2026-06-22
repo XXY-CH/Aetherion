@@ -23,6 +23,7 @@ export type SubagentBranchInput = {
 
 export type SubagentBranchResult = {
   branchName: string;
+  worktreePath: string;
   worktreeTreeHash: string;
   branchHead: BranchHead;
   output: string;
@@ -58,6 +59,7 @@ export async function runSubagentInBranch(input: SubagentBranchInput): Promise<S
 
   return {
     branchName: input.branchName,
+    worktreePath: wtDir,
     worktreeTreeHash: wtSnap.tree_hash,
     branchHead: head,
     output: `Subagent branch '${input.branchName}' created. Task: ${input.task}`,

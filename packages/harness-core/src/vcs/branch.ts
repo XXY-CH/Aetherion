@@ -72,6 +72,17 @@ export function createBranch(
   // Copy all workspace files (excluding .aetherion) into the worktree
   copyWorkspaceFiles(workspaceRoot, wsDir);
 
+  // Create a minimal .aetherion/ inside the worktree so that a child agent
+  // running there (and local-file.ts's inferWorkspaceRoot, which walks up to
+  // find .aetherion) treats the worktree as its own workspace root. Without
+  // this, inferWorkspaceRoot would walk past the worktree up to the PARENT's
+  // .aetherion and snapshot the wrong tree. The worktree gets its own:
+  //   - events/events.jsonl (independent ledger hash chain)
+  //   - objects/ (blob store for the child's pre-write snapshots)
+  mkdirSync(join(wsDir, ".aetherion", "events"), { recursive: true });
+  mkdirSync(join(wsDir, ".aetherion", "objects"), { recursive: true });
+  writeFileSync(join(wsDir, ".aetherion", "events", "events.jsonl"), "", "utf8");
+
   // Create empty events.jsonl for the branch
   writeFileSync(branchLedgerPath(workspaceRoot, branchName), "", "utf8");
 

@@ -46,6 +46,9 @@ import { composeRisk } from "./risk.ts";
 import { readLocalFileThroughPolicy, writeLocalFileThroughPolicy } from "./local-file.ts";
 import { verifyFileContains } from "./verify.ts";
 import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
+import { diffTrees } from "./vcs/tree-snapshot.ts";
+import { runSubagentInBranch } from "./vcs/subagent.ts";
+import { branchWorkspace } from "./vcs/branch.ts";
 import {
   asToolCapable,
   isAssistantTurn,
@@ -493,7 +496,24 @@ async function* processToolCall(
       await appendLoopEvent(config.repoRoot, state, "consent.recorded", `agent_spawn approved for: ${args.task}.`, undefined);
       yield { type: "tool_executing", toolName: toolCall.name, path: "" };
 
-      // Run the child agent loop synchronously (nested).
+      // --- Isolate the child agent in a physical worktree branch ---
+      // The child runs in .aetherion/worktrees/<branchName>/workspace/, so its
+      // file mutations cannot affect the parent workspace. The parent reviews
+      // the diff afterwards and may merge explicitly (merge is NOT automatic).
+      const sourceSnap = captureTreeSnapshot(config.workspaceRoot);
+      const branchName = `${state.runId}_spawn_${depth}_${randomHex(4)}`;
+      const branch = await runSubagentInBranch({
+        workspaceRoot: config.workspaceRoot,
+        branchName,
+        sourceTreeHash: sourceSnap.tree_hash,
+        task: args.task,
+        repoRoot: config.repoRoot
+      });
+      const wtDir = branch.worktreePath;
+
+      // Run the child agent loop synchronously (nested) IN THE WORKTREE.
+      // Every workspaceRoot read inside the child loop (path resolution, exec
+      // cwd, policy boundary, snapshot root) now targets the worktree dir.
       const childRunId = `${state.runId}_child_${depth}`;
       const childInvocation = {
         ...config.invocation,
@@ -502,12 +522,16 @@ async function* processToolCall(
       };
       const childConfig: AgentLoopConfig = {
         ...config,
+        // repoRoot stays the parent's — schema validation needs the parent
+        // repo's schema files. workspaceRoot is the worktree so child side
+        // effects are isolated.
+        workspaceRoot: wtDir,
         invocation: childInvocation,
         maxLoopDepth: Math.min(config.maxLoopDepth, 5)
       };
       const childState = await startAgentLoopState({
         repoRoot: config.repoRoot,
-        workspaceRoot: config.workspaceRoot,
+        workspaceRoot: wtDir,
         provider: config.provider,
         modelRef: config.modelRef,
         toolRegistry: config.toolRegistry,
@@ -523,7 +547,10 @@ async function* processToolCall(
         for await (const childEvent of runAgentLoop(childConfig, childState, args.task, async () => ({ approved: true }))) {
           if (childEvent.type === "assistant_text") {
             const at = childEvent as Extract<LoopEvent, { type: "assistant_text" }>;
-            childResult += at.text;
+            // The assistant_text payload field is `content`, not `text` (see
+            // LoopEvent definition). Reading `text` yielded undefined, so the
+            // child result always fell back to "(no output)".
+            childResult += at.content;
           }
         }
         if (!childResult) {
@@ -535,11 +562,25 @@ async function* processToolCall(
         childResult = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
       }
 
-      await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${childResult.length} chars.`, undefined);
+      // --- Capture what the child changed (post-run worktree snapshot) ---
+      // diffTrees against the pre-run snapshot gives the changed-files list.
+      // The parent records this so the operator can review/merge; the branch
+      // is NOT auto-merged (merged stays false).
+      const afterSnap = captureTreeSnapshot(wtDir);
+      const changes = diffTrees(sourceSnap, afterSnap);
+      const changedFiles = changes.map((c) => c.path).sort();
+      const diffSummary = changedFiles.length > 0
+        ? `changed ${changedFiles.length} file(s): ${changedFiles.join(", ")} (branch: ${branchName})`
+        : `no file changes (branch: ${branchName})`;
+
+      const fullResult = `${childResult}\n\n[${diffSummary}]`;
+      const truncated = truncateForModel(fullResult);
+
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${truncated.length} chars. ${diffSummary}`, undefined);
       state.totalToolCalls += 1;
-      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: childResult, success: childSuccess });
-      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
-      return { kind: "executed", toolName: toolCall.name, path: "", result: childResult, success: childSuccess };
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: truncated, success: childSuccess });
+      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
+      return { kind: "executed", toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
     }
 
     const args = parseToolArguments(toolCall.arguments);
