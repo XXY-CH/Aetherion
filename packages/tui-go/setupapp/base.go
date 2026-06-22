@@ -274,6 +274,9 @@ func (m Model) renderWelcome(viewportH int) string {
 
 // messageBlock renders one transcript entry as a flat note with a typographic
 // role label. Color is reserved for state, not for every speaker.
+// Assistant text is run through the markdown renderer so code blocks, inline
+// code, bold, and diff tints appear in the transcript (matching the polish
+// level of Hermes/OpenCode). Other roles keep their plain-text formatting.
 func messageBlock(entry transcriptEntry) string {
 	theme := styles()
 	label := roleLabel(entry.Role)
@@ -284,7 +287,12 @@ func messageBlock(entry transcriptEntry) string {
 		metaStyled = " " + theme.muted.Render(entry.Meta)
 	}
 	header := labelStyled + metaStyled
-	body := header + "\n" + entry.Text
+	// Render the body as markdown for assistant replies; plain for others.
+	bodyText := entry.Text
+	if entry.Role == "assistant" {
+		bodyText = renderMarkdown(entry.Text)
+	}
+	body := header + "\n" + bodyText
 
 	contentStyle := lipgloss.NewStyle().
 		PaddingLeft(1).
