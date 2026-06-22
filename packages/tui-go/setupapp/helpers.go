@@ -184,6 +184,17 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
+// countLines returns the number of rendered lines in a (possibly styled)
+// string, counting newlines. Used to measure a lipgloss-rendered card's actual
+// row footprint since .Height() on a bordered panel does not always yield an
+// exact cell count.
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
 // --- Ledger reader (parses .aetherion/events/events.jsonl) ---
 
 type ledgerEvent struct {

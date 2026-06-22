@@ -276,12 +276,15 @@ func Run(cfg Config, out io.Writer) error {
 }
 
 // StaticView returns a plain-text render for non-interactive mode (no ANSI).
+// The default geometry (120×40) is large enough to show all six rail cards
+// plus the composer and footer without truncation; the interactive program
+// uses the real terminal size via the WindowSizeMsg.
 func (m Model) StaticView() string {
 	if m.width == 0 {
 		m.width = 120
 	}
 	if m.height == 0 {
-		m.height = 34
+		m.height = 40
 	}
 	return stripANSI(m.render())
 }

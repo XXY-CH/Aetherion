@@ -31,19 +31,46 @@ func (m Model) render() string {
 	// --- Top bar (spans the non-gutter width) ---
 	topBar := m.renderTopBar(restW)
 
-	// --- Body: conversation (left) + right rail (right) ---
+	// --- Named vertical sub-budgets (single source of truth) ---
+	// Every height-consuming element is named so the gutter and right column
+	// share one arithmetic derivation. Previously two independent formulas
+	// (four unlabeled `1`s each) drifted and could push the footer off-screen.
+	const topBarH = 1
+	const footerH = 1
 	approvalH := 0
 	if m.pendingApproval != nil {
 		approvalH = 3
 	}
 	composerH := clampInt(m.height/5, 4, 8)
-	bodyH := maxInt(6, m.height-1-1-approvalH-composerH-1-1) // topBar + footer + approval + composer + padding
-	conversationW := restW * 55 / 100
+	// Slash popup occupies rows above the composer when active; budget it so it
+	// can't push the footer off-screen (the popup caps at 8 matches + border).
+	slashPopupH := 0
+	if m.slashActive && len(m.slashMatches) > 0 {
+		slashPopupH = minInt(len(m.slashMatches), 8) + 2 // 8 rows + top/bottom border
+	}
+	// Render the composer once and measure its ACTUAL rendered height.
+	// lipgloss .Height() on a bordered textarea does not produce an exact cell
+	// count (border + padding add rows), so we measure rather than assume.
+	composer := m.renderComposer(restW, composerH)
+	composerActualH := countLines(composer)
+	fixedH := topBarH + footerH + approvalH + slashPopupH + composerActualH
+	// bodyH absorbs the rest. The footer (topBar + footer + composer + approval
+	// + slash) is reserved first so it can never be pushed off-screen.
+	bodyH := maxInt(6, m.height-fixedH)
+
+	// --- Conversation (left, 64%) + right rail (right, 36%) ---
+	// The transcript is the primary reading surface; it gets the majority of
+	// width. The rail keeps the policy/lease/consent pipeline visible.
+	conversationW := restW * 64 / 100
 	railW := restW - conversationW
 
 	conversation := m.renderConversationPane(conversationW, bodyH)
 	rail := m.renderRightRail(railW, bodyH)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, conversation, rail)
+	// Both columns are pinned to bodyH so JoinHorizontal merges them side by
+	// side (32+32 = 32 rows) rather than stacking them (32+32 = 64 rows).
+	// The conversation pane already enforces bodyH internally; the rail needs
+	// an explicit Height wrapper because JoinVertical produces a bare string.
+	body := lipgloss.JoinHorizontal(lipgloss.Top, conversation, lipgloss.NewStyle().Height(bodyH).Render(rail))
 
 	// --- Approval bar ---
 	approval := ""
@@ -51,8 +78,8 @@ func (m Model) render() string {
 		approval = m.renderApprovalBar(restW)
 	}
 
-	// --- Composer ---
-	composer := m.renderComposer(restW, composerH)
+	// Composer was rendered above so its actual height could be measured for
+	// the body budget. Reuse that render here.
 
 	// --- Slash completion popup (above composer) ---
 	slashPopup := ""
@@ -63,11 +90,27 @@ func (m Model) render() string {
 	// --- Footer ---
 	footer := m.renderFooter(restW)
 
-	// Assemble the right-of-gutter column.
-	rightCol := lipgloss.JoinVertical(lipgloss.Left, topBar, body, approval, slashPopup, composer, footer)
+	// Assemble the right-of-gutter column. Only non-empty blocks are joined —
+	// passing "" to JoinVertical can add a spurious blank row that pushes the
+	// footer past the terminal height.
+	parts := []string{topBar, body}
+	if approval != "" {
+		parts = append(parts, approval)
+	}
+	if slashPopup != "" {
+		parts = append(parts, slashPopup)
+	}
+	parts = append(parts, composer, footer)
+	rightCol := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	// Truncate the assembled column to the terminal height. On small terminals
+	// the stacked rail cards legitimately need more rows than bodyH provides;
+	// MaxHeight clips the overflow so nothing scrolls past the last screen row.
+	rightCol = lipgloss.NewStyle().MaxHeight(m.height).Render(rightCol)
 
-	// Gutter on the far left.
-	gutter := m.renderTreeGutter(treeW, bodyH+1+approvalH+composerH+1+1+1)
+	// Gutter on the far left — reuses the SAME bodyH + fixedH as the right
+	// column so both columns end at the same row. Also clipped to terminal height.
+	gutter := m.renderTreeGutter(treeW, bodyH+fixedH)
+	gutter = lipgloss.NewStyle().MaxHeight(m.height).Render(gutter)
 	base := lipgloss.JoinHorizontal(lipgloss.Top, gutter, rightCol)
 
 	// Composite floating windows + modals on top.
@@ -81,11 +124,13 @@ func (m *Model) loadTreeNodesIfEmpty() {
 }
 
 // treeWidth returns the gutter width (expanded mode shows more).
+// Collapsed is 16 (was 18): symbol(1) + space(1) + abbrev(6) = 8 used, 8 spare,
+// leaving more room for the conversation pane on narrow terminals.
 func (m Model) treeWidth() int {
 	if m.treeExpanded {
 		return 36
 	}
-	return 18
+	return 16
 }
 
 // --- Top bar ---
@@ -100,12 +145,19 @@ func (m Model) renderTopBar(width int) string {
 	}
 	tools := theme.muted.Render(" · tools on · policy-gated")
 
-	// Token sparkline (last 12 turns).
+	// Token sparkline. The comment originally said "last 12 turns" but the code
+	// rendered the full history — which on a long session grew wide enough to
+	// truncate the right-side run indicator. Cap to the last 12 samples.
 	var spark string
 	if len(m.tokenHistory) > 0 {
-		vals := make([]float64, 0, len(m.tokenHistory))
+		// Take the last 12 turns only.
+		hist := m.tokenHistory
+		if len(hist) > 12 {
+			hist = hist[len(hist)-12:]
+		}
+		vals := make([]float64, 0, len(hist))
 		var hi float64
-		for _, s := range m.tokenHistory {
+		for _, s := range hist {
 			vals = append(vals, float64(s.Total))
 			if float64(s.Total) > hi {
 				hi = float64(s.Total)
@@ -153,9 +205,10 @@ func (m Model) renderConversationPane(width, height int) string {
 // renderTranscriptContent builds the string shown inside the conversation viewport.
 func (m Model) renderTranscriptContent() string {
 	var b strings.Builder
+	viewportH := m.transcriptVP.Height()
 	for _, entry := range m.transcript {
 		if entry.Role == "intro" {
-			b.WriteString(m.renderWelcome())
+			b.WriteString(m.renderWelcome(viewportH))
 			continue
 		}
 		b.WriteString(messageBlock(entry))
@@ -175,7 +228,11 @@ func (m Model) renderTranscriptContent() string {
 }
 
 // renderWelcome is the actionable first-run welcome (not metadata dump).
-func (m Model) renderWelcome() string {
+// The welcome block is vertically centered within the given viewport height so
+// a tall conversation pane does not leave a dead zone below it. A dynamic
+// status footer (credential + pending approval count) is appended so the
+// previously-empty lower half carries actionable information.
+func (m Model) renderWelcome(viewportH int) string {
 	theme := styles()
 	cred := theme.status.Render("✓")
 	if !credentialPresent(m.provider()) {
@@ -196,7 +253,23 @@ func (m Model) renderWelcome() string {
 		"",
 		theme.muted.Render("[/] tree · /policy · ctrl+c quit"),
 	}
-	return strings.Join(lines, "\n") + "\n"
+	content := strings.Join(lines, "\n")
+
+	// Dynamic status footer: credential state + pending approval count.
+	footer := theme.muted.Render(fmt.Sprintf("%s/%s · %s · /connect to begin",
+		m.provider(), m.modelRef(), boolAs(credentialPresent(m.provider()), "cred ✓", "cred ✗")))
+	if m.pendingApproval != nil {
+		footer = theme.warn.Render("⚠ approval pending · press y/n") + "  " + footer
+	}
+	full := content + "\n\n" + footer
+
+	// Vertically center the welcome block within the viewport. If the viewport
+	// is shorter than the content, render as-is (the viewport will scroll).
+	welcomeH := countLines(full)
+	if viewportH <= welcomeH {
+		return full
+	}
+	return lipgloss.PlaceVertical(viewportH, lipgloss.Center, full)
 }
 
 // messageBlock renders one transcript entry as a flat note with a typographic
@@ -259,24 +332,30 @@ func roleColor(role string) color.Color {
 	}
 }
 
-// --- Right rail ---
-
+// renderRightRail stacks the six info cards vertically.
+//
+// The five "fixed" cards are rendered first and their actual rendered line
+// counts are measured (lipgloss .Height() on a bordered panel does not always
+// produce an exact cell count, so we measure instead of assume). The flexible
+// LEDGER card then takes whatever vertical space remains so the whole rail
+// fits exactly within `height` — keeping the rail's total height equal to the
+// conversation pane's height so both columns bottom-align.
 func (m Model) renderRightRail(width, height int) string {
-	// Fixed-height cards + flexible ledger.
-	statusH := 4
-	authH := 5
-	leaseH := 5
-	tokenH := 5
-	riskH := 4
-	fixedH := statusH + authH + leaseH + tokenH + riskH
-	ledgerH := maxInt(4, height-fixedH)
+	// Fixed cards. Heights are best-effort; actual rendered rows are measured.
+	status := m.renderStatusBlock(width, 4)
+	auth := m.renderAuthorityGates(width, 5)
+	lease := m.renderActiveLeases(width, 5)
+	tokens := m.renderTokenUsage(width, 5)
+	risk := m.renderRiskBlock(width, 5)
 
-	status := m.renderStatusBlock(width, statusH)
-	auth := m.renderAuthorityGates(width, authH)
-	lease := m.renderActiveLeases(width, leaseH)
-	tokens := m.renderTokenUsage(width, tokenH)
+	fixedLines := countLines(status) + countLines(auth) + countLines(lease) +
+		countLines(tokens) + countLines(risk)
+	// LEDGER absorbs the remainder. Floor at 2 (header + one event row).
+	ledgerH := height - fixedLines
+	if ledgerH < 2 {
+		ledgerH = 2
+	}
 	ledger := m.renderLedgerBlock(width, ledgerH)
-	risk := m.renderRiskBlock(width, riskH)
 
 	return lipgloss.JoinVertical(lipgloss.Left, status, auth, lease, tokens, ledger, risk)
 }
@@ -382,7 +461,13 @@ func (m Model) renderTokenUsage(width, height int) string {
 // renderLedgerBlock renders the LEDGER tail section.
 func (m Model) renderLedgerBlock(width, height int) string {
 	theme := styles()
-	events := readLedgerEvents(m.workspaceRoot(), height-3)
+	// Reserve 1 row for the border + header; the rest shows events. Guard
+	// against tiny heights so the slice math never goes negative.
+	eventRows := height - 2
+	if eventRows < 0 {
+		eventRows = 0
+	}
+	events := readLedgerEvents(m.workspaceRoot(), eventRows)
 	header := theme.sectionTitle.Render("LEDGER")
 	if len(events) > 0 {
 		header += theme.status.Render(" ✓chain")
@@ -392,8 +477,8 @@ func (m Model) renderLedgerBlock(width, height int) string {
 	var lines []string
 	lines = append(lines, header)
 	start := 0
-	if len(events) > height-2 {
-		start = len(events) - (height - 2)
+	if eventRows > 0 && len(events) > eventRows {
+		start = len(events) - eventRows
 	}
 	for _, evt := range events[start:] {
 		lines = append(lines, formatLedgerLine(evt))
@@ -434,7 +519,14 @@ func formatLedgerLine(evt ledgerEvent) string {
 	}
 }
 
-// renderRiskBlock renders the RISK distribution chart (conditional).
+// renderRiskBlock renders the RISK distribution summary.
+//
+// All six levels L0–L5 are always visible so the X-axis categories never shift
+// between renders (previously zero-count levels were omitted). The layout is
+// compact — a header line + two rows of three level pills — so the card fits in
+// the rail alongside the other five cards without forcing the column to grow.
+// The full six-bar chart lives in the /trace inspector for when the operator
+// wants detail.
 func (m Model) renderRiskBlock(width, height int) string {
 	theme := styles()
 	// Count risk levels from ledger events.
@@ -445,23 +537,29 @@ func (m Model) renderRiskBlock(width, height int) string {
 			counts[lvl]++
 		}
 	}
-	hasData := false
+	total := 0
 	for _, c := range counts {
-		if c > 0 {
-			hasData = true
-		}
+		total += c
 	}
-	if !hasData {
-		return theme.panel.Width(width).Render(theme.sectionTitle.Render("RISK") + "\n" + theme.muted.Render("— no data —"))
+
+	header := theme.sectionTitle.Render("RISK")
+	if total == 0 {
+		return theme.panel.Width(width).Height(height).Render(header + "\n" + theme.muted.Render("— no data —"))
 	}
-	var bars []RiskBar
-	for _, lvl := range []string{"L0", "L1", "L2", "L3", "L4", "L5"} {
-		if counts[lvl] > 0 {
-			bars = append(bars, RiskBar{Label: lvl, Count: counts[lvl], Color: riskColor(lvl)})
-		}
+
+	// Two compact rows of three pills each: "L0 N · L1 N · L2 N".
+	// A pill uses the level's color so the level is identifiable at a glance
+	// even when the count is 0.
+	levels := []string{"L0", "L1", "L2", "L3", "L4", "L5"}
+	pill := func(lvl string) string {
+		c := riskColor(lvl)
+		return lipgloss.NewStyle().Bold(true).Foreground(c).Render(lvl) +
+			theme.muted.Render(":"+itoaSimple(counts[lvl]))
 	}
-	chart := BarChart(bars, width-16)
-	return theme.panel.Width(width).Render(theme.sectionTitle.Render("RISK") + "\n" + chart)
+	row1 := lipgloss.JoinHorizontal(lipgloss.Left, pill(levels[0]), theme.muted.Render(" · "), pill(levels[1]), theme.muted.Render(" · "), pill(levels[2]))
+	row2 := lipgloss.JoinHorizontal(lipgloss.Left, pill(levels[3]), theme.muted.Render(" · "), pill(levels[4]), theme.muted.Render(" · "), pill(levels[5]))
+	body := strings.Join([]string{header, row1, row2}, "\n")
+	return theme.panel.Width(width).Height(height).Render(body)
 }
 
 // --- Approval bar ---
@@ -514,7 +612,9 @@ func (m Model) renderComposer(width, height int) string {
 		Padding(0, 1).
 		Foreground(ivoryLight).
 		Background(slateDark)
-	return boxStyle.Width(width).Render(content)
+	// Enforce the composer's allocated height so it doesn't expand to its
+	// natural content height and push the footer off-screen.
+	return boxStyle.Width(width).Height(height).Render(content)
 }
 
 // --- Footer ---
@@ -542,7 +642,14 @@ func (m Model) renderFooter(width int) string {
 // --- Slash completion popup ---
 
 // renderSlashPopup renders the slash command autocomplete list above the composer.
-// Each row: command name (accent) + description (dim). Selected row highlighted.
+// Each row: command name (accent) + description (dim). Selected row recolored.
+//
+// IMPORTANT: each row is styled in a single pass. We never call .Render() on a
+// string that already contains escape sequences — lipgloss strips the ESC byte
+// (0x1b) but leaks the sequence body ("[1;4;38;2;250;249;245;4m") as visible
+// text and then styles each leaked character. That is the bug that produced the
+// raw ANSI garbage seen in the slash popup. The selected/unselected distinction
+// is applied to the name+description components directly, not by re-wrapping.
 func (m Model) renderSlashPopup(width int) string {
 	if len(m.slashMatches) == 0 {
 		return ""
@@ -550,13 +657,16 @@ func (m Model) renderSlashPopup(width int) string {
 	maxShow := minInt(len(m.slashMatches), 8)
 	var lines []string
 	for i, cmd := range m.slashMatches[:maxShow] {
-		nameStyled := lipgloss.NewStyle().Foreground(ivoryLight).Bold(true).Underline(true).Render(cmd.Name)
-		descStyled := lipgloss.NewStyle().Foreground(cloudMedium).Render(" " + cmd.Description)
-		row := nameStyled + descStyled
-		if i == m.completionIdx {
-			row = lipgloss.NewStyle().Foreground(clay).Underline(true).Render(row)
+		selected := i == m.completionIdx
+		nameColor := ivoryLight
+		descColor := cloudMedium
+		if selected {
+			nameColor = clay
+			descColor = clay
 		}
-		lines = append(lines, row)
+		nameStyled := lipgloss.NewStyle().Foreground(nameColor).Bold(true).Underline(true).Render(cmd.Name)
+		descStyled := lipgloss.NewStyle().Foreground(descColor).Render(" " + cmd.Description)
+		lines = append(lines, nameStyled+descStyled)
 	}
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().

@@ -116,10 +116,14 @@ func (m Model) renderTreeGutter(width, height int) string {
 			laneTag = lipgloss.NewStyle().Foreground(laneColor(lane)).Render("L" + itoaSimple(lane) + " ")
 		}
 
-		// Build the line.
+		// Build the line. Each component already carries its semantic color.
+		// The cursor row is indicated by the "▸" prefix only — we never re-wrap
+		// the assembled styled line in another style.Render() call. Re-wrapping a
+		// string that already contains escape sequences makes lipgloss strip the
+		// ESC byte and leak the sequence body ("[1;4;38;2;...m") as visible text,
+		// and it would also overwrite the per-component colors with clay.
 		line := indent + connector + symbolStyled + " " + typeStyled + laneTag + timeStr + riskStr
 		if isCursor {
-			line = lipgloss.NewStyle().Foreground(clay).Underline(true).Render(line)
 			line = theme.treeCursor.Render("▸") + line
 		} else {
 			// Add trunk connector for non-last, non-branch nodes.
