@@ -156,6 +156,10 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		m.treeExpanded = !m.treeExpanded
 		return m, tea.Batch(cmds...)
 
+	case msg.String() == "ctrl+\\":
+		m.toggleRail()
+		return m, tea.Batch(cmds...)
+
 	case msg.String() == "ctrl+k":
 		m.wm.openModal("modal_palette", "COMMANDS", slashHelpText(), 48, 16)
 		return m, tea.Batch(cmds...)

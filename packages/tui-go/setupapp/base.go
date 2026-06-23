@@ -65,12 +65,20 @@ func (m Model) render() string {
 	railW := restW - conversationW
 
 	conversation := m.renderConversationPane(conversationW, bodyH)
-	rail := m.renderRightRail(railW, bodyH)
-	// Both columns are pinned to bodyH so JoinHorizontal merges them side by
-	// side (32+32 = 32 rows) rather than stacking them (32+32 = 64 rows).
-	// The conversation pane already enforces bodyH internally; the rail needs
-	// an explicit Height wrapper because JoinVertical produces a bare string.
-	body := lipgloss.JoinHorizontal(lipgloss.Top, conversation, lipgloss.NewStyle().Height(bodyH).Render(rail))
+	// When the rail is hidden (toggleRail via ctrl+\), the conversation pane
+	// expands to the full non-gutter width so the transcript becomes the hero.
+	var body string
+	if m.railHidden {
+		conversation = m.renderConversationPane(restW, bodyH)
+		body = lipgloss.NewStyle().Height(bodyH).Render(conversation)
+	} else {
+		rail := m.renderRightRail(railW, bodyH)
+		// Both columns are pinned to bodyH so JoinHorizontal merges them side by
+		// side (32+32 = 32 rows) rather than stacking them (32+32 = 64 rows).
+		// The conversation pane already enforces bodyH internally; the rail needs
+		// an explicit Height wrapper because JoinVertical produces a bare string.
+		body = lipgloss.JoinHorizontal(lipgloss.Top, conversation, lipgloss.NewStyle().Height(bodyH).Render(rail))
+	}
 
 	// --- Approval bar ---
 	approval := ""
@@ -131,6 +139,15 @@ func (m Model) treeWidth() int {
 		return 36
 	}
 	return 16
+}
+
+// toggleRail flips railHidden. When the rail is hidden the conversation pane
+// expands to fill the freed width, so the transcript becomes the hero — the
+// "opt-in density" toggle from gap 5 (docs/19). The rail cards (policy/lease/
+// consent visibility) are still reachable via the floating /policy /lease
+// /usage windows, so hiding the rail does not lose the workbench identity.
+func (m *Model) toggleRail() {
+	m.railHidden = !m.railHidden
 }
 
 // --- Top bar ---
@@ -264,7 +281,7 @@ func (m Model) renderWelcome(viewportH int) string {
 		theme.meta.Render(" /model    pick a model"),
 		theme.meta.Render(" type → enter to start"),
 		"",
-		theme.muted.Render("[/] tree · /policy · ctrl+c quit"),
+		theme.muted.Render("[/] tree · ctrl+\\ rail · /policy · ctrl+c quit"),
 	}
 	content := strings.Join(lines, "\n")
 
