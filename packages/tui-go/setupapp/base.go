@@ -286,8 +286,13 @@ func (m Model) renderWelcome(viewportH int) string {
 // role label. Color is reserved for state, not for every speaker.
 // Assistant text is run through the markdown renderer so code blocks, inline
 // code, bold, and diff tints appear in the transcript (matching the polish
-// level of Hermes/OpenCode). Other roles keep their plain-text formatting.
+// level of Hermes/OpenCode). Tool entries render as compact icon+name blocks
+// (renderToolBlock). Other roles keep their plain-text formatting.
 func messageBlock(entry transcriptEntry) string {
+	// Tool entries get a dedicated rich block renderer (icon + name + path).
+	if entry.Role == "tool" {
+		return renderToolBlock(entry)
+	}
 	theme := styles()
 	label := roleLabel(entry.Role)
 	labelColor := roleColor(entry.Role)
