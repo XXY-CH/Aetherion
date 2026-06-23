@@ -1,177 +1,181 @@
-# OpenClaw Baseline Comparison
+# OpenClaw Backend Runtime Baseline And Lag Review
 
 [中文版本](16-openclaw-baseline.zh-CN.md)
 
-This document is the comparison anchor for every ponytail iteration. Each iteration begins by re-reading this baseline, choosing an alignment direction, and writing a phase plan. It is deliberately structured as findings + gaps + verdicts so iteration plans can cite specific lines.
+This document is the critical baseline for Aetherion backend-runtime hardening. It does not claim Aetherion is close to OpenClaw. It records where the current runtime is behind, which surfaces are only thin seed implementations, and which existing files still do not amount to a product-grade backend runtime.
 
-Source of OpenClaw evidence: the quarantined clone at `.quarantine/openclaw/` (gitignored, never shipped). OpenClaw is treated as a migration/research input, never a trust root, per `AGENTS.md` import-boundary rule.
+Evidence scope:
 
----
+- Current Aetherion repo: `packages/harness-core/`, `packages/tui/`, `crates/supervisor/`, `docs/14-runtime-loop-plan.md`, and `docs/15-production-gap-closure-plan.md`.
+- Local quarantined references: `.quarantine/openclaw/`, `.quarantine/hermes/`, and `.quarantine/opencode/`. These are research inputs only, never trust roots, and their in-process plugin model is not copied into Aetherion authority.
+- Verification snapshot: on 2026-06-23, `npm test` reported `347` tests, `337` passing, and `10` failing. Failures include one `packages/harness-core/test/vcs-gc.test.ts` GC assertion and a block of onboarding/doctor/release-evidence failures caused by the missing or unlinked Chinese companion for `docs/19-tui-visual-polish.md`.
+- Pre-document dirty state already included untracked files: `packages/harness-core/src/vcs/gc.ts`, `packages/harness-core/test/vcs-gc.test.ts`, and `packages/tui-go/ether-setup`. This baseline does not treat those as work created by this document refresh.
 
-## 1. What OpenClaw Is
+## 0. Verdict
 
-OpenClaw is a TypeScript/ESM, terminal-first personal AI assistant that runs locally as a single Node process and exposes itself over a loopback WebSocket "Gateway" plus ~25 messaging channels. Repo scale: ~20k files, `src/` (core app + agent runtime), `packages/` (21 internal TS packages), `extensions/` (~145 plugins), `skills/` (~58 skill docs), `ui/`, `apps/`.
+Aetherion is not yet a mature backend runtime. It is a contract-heavy, test-heavy, boundary-aware seed harness. It is stricter than OpenClaw on authority and non-authorizing evidence, but it is clearly behind in runtime scheduling, tool governance, durable sessions, plugin/skill ecosystem, output management, and release readiness.
 
-Key positioning documents:
+The most dangerous illusion is that the repo already has `agent-loop`, `shell_exec`, `web_fetch`, `agent_spawn`, VCS branches, skills, and proactive files, so it looks like a complete agent runtime. It is not. Several capabilities are declared to the model without going through one Rust supervisor, policy proxy, scoped lease, managed-output, stale-call rejection, and durable session-runner path.
 
-- `VISION.md` — "the AI that actually does things," local-first personal assistant. Explicitly anti-nested-planner (line 122: manager-of-managers / nested planner trees are on the will-not-merge list).
-- `AGENTS.md` — engineering policy. Core stays plugin-agnostic; plugins cross into core only via `openclaw/plugin-sdk/*` barrels. Storage default: SQLite only.
-- `docs/refactor/database-first.md` — the fact-layer constitution. They migrated away from JSON/JSONL files to SQLite as the canonical runtime store.
+Current baseline:
 
-## 2. Conceptual Model Comparison
+- **Advantage but incomplete:** Local Supervisor / Event Ledger / scoped leases / schema governance remain the right direction.
+- **Severe lag:** OpenClaw already has layered tool policy, a `before_tool_call` choke point, Gateway event streams, approval routing, versioned lazy skills, a commitments runtime, and SQLite storage discipline. Aetherion mostly has local TypeScript seed slices.
+- **Not release-ready:** `npm test` is not green, and readiness/release evidence is currently blocked by docs parity.
+- **Next priority:** tighten authorization for already declared tools, then fix readiness tests, then borrow the smallest OpenClaw runtime primitives. Do not widen into channels, GUI, MCP, OAuth, or cloud execution first.
 
-| Concept | Aetherion (target) | OpenClaw (as-built) | Verdict |
-|---|---|---|---|
-| Root authority | Local Supervisor (Rust process boundary) | Local runtime + loopback Gateway owning `state/openclaw.sqlite` | **Shared direction.** Both are local-first, no cloud supervisor. OpenClaw has no Rust authority boundary; its "authority" is a single Node process + SQLite locks. |
-| Fact layer | Event Ledger (append-only, SHA-256 parent chain, replay-reconstructable) | Two-level SQLite (control-plane + per-agent data-plane); transcript event stream is the append-ish record | **Shared direction, different mechanism.** OpenClaw uses SQLite tables; Aetherion uses a hash-chained JSONL ledger. Both treat the durable store as the fact layer and ban locator strings from runtime. |
-| Agent model | Agent Orchestrator (context assembler / planner / agent loop / verifier) | Single serialized agent loop per session; no supervisor hierarchy | **Shared direction.** Both reject nested planners. Aetherion adds an explicit Verifier step OpenClaw lacks. |
-| Trust boundary | Generated/imported code never runs inside Local Supervisor | Plugin code runs in the same Node process; sandboxed flag + fs policy per tool-run | **Aetherion stricter.** OpenClaw plugins are in-process; Aetherion mandates a separate authority process. |
+## 1. Current Aetherion Backend State
 
-## 3. Capability Model — The Core Divergence
+| Runtime layer | Current evidence | Critical conclusion |
+| --- | --- | --- |
+| Agent loop | `packages/harness-core/src/agent-loop.ts` can call a provider across turns, process tool calls, write model artifacts, and append ledger events. | It is still a single-process TypeScript loop. There is no product session runner, durable queue, crash recovery, stale-call rejection, or provider-turn admission model. |
+| Tool registry | `createV1ToolRegistry()` declares `local_file_read`, `local_file_write`, `shell_exec`, `file_edit`, `search_files`, `list_files`, `web_fetch`, and `agent_spawn`. | The declaration surface is larger than the authorization surface. `exec`, `fetch`, and `spawn` use inline branches instead of one ToolRequest / PolicyDecision / Lease / Verifier target family. |
+| Policy | `policy.ts` has a two-step boundary + operation seed pipeline: read allows, write asks. | It is much thinner than OpenClaw's profile/provider/global/agent/group/sender policy layers, and has no equivalent typed DSL for exec, network, or subagent targets. |
+| Lease enforcement | `local-file.ts` checks active lease, `scope.tools`, `scope.egress`, and paths for read/write. | It only covers file read/write. `shell_exec`, `web_fetch`, and `agent_spawn` have no equivalent lease executor. |
+| Rust supervisor | `crates/supervisor/` handles workspace identity, hash ledger, file read/write/status, and socket-auth POC paths. | It is not a general authority broker. It does not govern shell, network, subagents, providers, vault, scheduler, or adapters. |
+| VCS/sandbox | `vcs/branch.ts`, `tree-snapshot.ts`, rollback, and subagent worktrees exist. | `vcs-gc.test.ts` currently fails; branch merge/checkout is still local-copy seed behavior, not OpenClaw/OpenCode-grade session publication/recovery. |
+| Skills | `skills.ts` scans `skills/*/SKILL.md` and injects name/description/path. | This only copies the smallest shape of OpenClaw lazy loading. It lacks promptVersion, requires eligibility, source provenance, visibility policy, skill command dispatch, and source distinction. |
+| Proactive | `proactive.ts` is a pure inhibition evaluator. | This is not an Opportunity runtime. It has no OpenClaw-style commitments store, extraction, dedupe, or delivery. |
+| Provider | No-tools provider paths and tool-mode artifacts exist; provider config can store API keys. | Vault is not implemented and the tool-mode safety boundary is incomplete. Plaintext `.aetherion/provider-config.json` is only acceptable as a POC. |
+| Release/readiness | doctor/onboarding/release evidence is rich. | It is currently blocked by the `docs/19` bilingual companion gap, so the repo is not ready. |
 
-This is the single most important architectural difference.
+## 2. Lag Against OpenClaw
 
-**Aetherion — Capability Capsules:**
-- Capsules declare permission requirements and constraints.
-- Capsules do NOT own runtime grants.
-- Runtime grants are scoped leases issued by Tool Access & Action Policy Proxy.
-- Separation between "declares requirement" and "owns permission" is a first-class invariant (`docs/01-architecture.md:55`, `AGENTS.md`).
+| Capability | OpenClaw shape | Aetherion now | Lag |
+| --- | --- | --- | --- |
+| Layered tool policy | `src/agents/tool-policy-pipeline.ts`: profile, provider profile, global, agent, provider-agent, group, and sender filtering with audit warnings. | Read/write seed pipeline only; no agent/provider/sender/group semantics. | **L5 severe** |
+| Tool-call choke point | `src/agents/agent-tools.before-tool-call.ts` centralizes plugin hooks, trusted policies, approvals, diagnostics, loop detection, skill telemetry, and param adjustment. | `agent-loop.ts` handles tool names in scattered inline branches. | **L5 severe** |
+| Approval system | Exec/plugin approvals include allow once/always/deny, timeout, and Gateway/channel routing. | File writes have consent artifacts; exec/spawn use callbacks; fetch has no policy gate; approval routing is not durable. | **L5 severe** |
+| Event lifecycle | `src/infra/agent-events.ts` has run seq, lifecycle generation, and stale event rejection across Gateway restarts. | Ledger has hash chain and run manifest, but the agent loop has no lifecycle-generation fence. | **L4 high** |
+| Trace propagation | `src/infra/diagnostic-trace-context.ts` uses W3C traceparent. | Aetherion has replay/ledger traces, but no full standard traceparent across TS/Rust/tools. | **L3 medium** |
+| Skills | `src/skills/loading/skill-contract.ts` injects name/description/location/version; `types.ts` has requires, exposure, invocation. | Name/description/path only, one-level scan, no version or eligibility. | **L4 high** |
+| Commitments / proactive | `src/commitments/types.ts` defines pending/sent/dismissed/snoozed/expired with source, scope, dueWindow, dedupe, confidence. | Pure inhibition evaluator only; no durable commitment records. | **L4 high** |
+| Storage discipline | `AGENTS.md` says runtime uses canonical SQLite only and migrations live in doctor. | Aetherion has JSONL ledger, registries, and artifacts, but many projection families still lack complete rebuild/repair closure. | **L3 medium** |
+| Gateway/channels | OpenClaw has loopback Gateway and many channel approval/message paths. | V1 correctly avoids IM/GUI/browser/cloud, but product capability is behind. | **Intentional V1 lag** |
+| Plugin execution | OpenClaw's in-process plugin model is mature but riskier. | Aetherion correctly rejects imported/generated code inside Local Supervisor. | **Do not chase** |
 
-**OpenClaw — Flat plugin model:**
-- Plugins both declare AND own their capabilities (`contracts.tools`, `contracts.embeddingProviders`).
-- A plugin's emitted tools must be a subset of its declared `contracts.tools` (`src/plugins/tool-contracts.ts`).
-- The closest analog to "declaring requirements without owning permissions" is a skill's `requires` block (`src/skills/types.ts:27-33`) — but that is an *availability filter* (hide the skill if the config is absent), not a lease request.
-- The only true per-request lease-like mechanism is exec/plugin approval (`src/infra/plugin-approvals.ts`, `src/infra/exec-approvals.ts`) with allow-once / allow-always / deny. It is scoped to exec commands, not general capability delegation.
+## 3. Hermes And OpenCode Calibration
 
-**Verdict:** Aetherion's capsule/lease split is the defining property OpenClaw's flat plugin model lacks. This is not a gap to close by copying OpenClaw — it is a differentiator to preserve.
+Hermes is not the main target, but it exposes productization gaps: its README describes a full TUI, messaging gateway, closed learning loop, cron, isolated subagents, and six terminal backends. `tools/approval.py` has dangerous-command detection, contextvars for session/turn/tool correlation, gateway approval context, and sensitive-path rules. `managed_tool_gateway.py` shows OAuth/token gateway shape. Aetherion should not copy those surfaces into V1, but it must admit it does not yet have an equally live backend.
 
-## 4. Tool Gating Comparison
+OpenCode is the more direct runtime benchmark. `specs/v2/session.md` defines prompt admission, durable inbox, context epochs, provider turns, tool settlement, stale running tool recovery, and compaction as runtime contracts. `specs/v2/tools.md` defines opaque Tool Definitions, input/output codecs, runner-supplied invocation context, stale registration rejection, and output bounding. Aetherion lacks exactly these semantics: a tool call is still too much like a function call and not enough like a durable session event.
 
-| Layer | Aetherion (target) | OpenClaw (as-built) |
-|---|---|---|
-| Policy composition | Tool Access & Action Policy Proxy: risk from action type, sensitivity, taint, reversibility, blast radius, egress destination | 4-layer pipeline: profile → providerProfile → global → agent → group → sender (`src/agents/tool-policy-pipeline.ts:127`) |
-| Per-call gate | Scoped lease issuance after consent | `beforeToolCall` hook (`src/agents/agent-tools.before-tool-call.ts`) returning `{block:true}` to veto |
-| Human approval | Approval card → consent → lease | Exec/plugin approvals with channel-native delivery (Telegram/Slack inline buttons) |
-| Data egress control | Explicit egress destination in risk composition | `packages/net-policy` IP allow/deny + sensitive-URL redaction |
+## 4. Sharpest Gaps
 
-**Verdict:** OpenClaw's gating is mature and battle-tested (4-layer policy pipeline + beforeToolCall + approvals + net-policy). Aetherion's policy proxy is contract-first but thinner in implementation. **Alignment direction: borrow the layered-policy-pipeline shape, not the in-process execution model.** Keep leases as scoped tokens, not yes/no approvals.
+1. **Tools are advertised before authority is unified.** `createV1ToolRegistry()` exposes shell/network/subagent tools, but `evaluateSeedPolicy()` really understands only read/write. OpenClaw routes every tool through a unified before-tool policy; Aetherion branches by tool name.
+2. **Rust supervisor is not the runtime gate.** File read/write can use Rust. Other important capabilities still execute directly in TypeScript. Local Supervisor is the root authority in intent, not yet in coverage.
+3. **No durable session runner.** OpenCode has admission, promotion, context epochs, tool settlement, and interruption/recovery. Aetherion's agent loop is still a testable generator.
+4. **Output boundaries are weak.** `truncateForModel` is not managed output retention, typed output codecs, provider-facing projection, or complete output references.
+5. **Approval is not a system.** File-write consent has artifacts. Exec/spawn approval is callback-based. Fetch has no policy gate. OpenClaw and Hermes both have fuller approval state and routing.
+6. **Skills are only directory scanning.** There is no version, source, eligibility, visibility, or telemetry baseline.
+7. **Proactive is not a lifecycle.** An inhibition function is not a commitments store and not an Opportunity queue.
+8. **Tests are not green.** Current `npm test` fails 10 tests, including release-readiness gates. This is not noise; the release evidence chain is broken.
 
-## 5. Event / Trace / Ledger Comparison
+## 5. Advantages To Preserve
 
-OpenClaw has three distinct recording systems where Aetherion has one unified ledger:
+These are not lag items and must not be sacrificed to chase OpenClaw:
 
-| System | OpenClaw | Aetherion equivalent |
-|---|---|---|
-| In-memory event bus | `src/infra/agent-events.ts` — per-run monotonic `seq`, lifecycle generation UUID to reject stale-run events after restart. Not durable. | Event Ledger envelopes (durable) |
-| Diagnostic trace | W3C traceparent via `AsyncLocalStorage` (`src/infra/diagnostic-trace-context.ts`); diagnostic events feed a timeline | Trace replay reconstruction (`packages/harness-core/src/replay.ts`) |
-| Durable transcript | Tree-structured JSONL/SQLite session transcript (`packages/agent-core/src/harness/session/jsonl-storage.ts`) | Event Ledger with SHA-256 parent chain |
+- Capability Capsules declare requirements but do not own permissions; runtime grants must be scoped leases issued by the policy proxy.
+- Event Ledger is the fact layer; registries, indexes, SQLite, FTS, and vectors are rebuildable projections only.
+- Imported plugins, skills, generated packages, and connector adapters must not become trust roots.
+- Dreaming can produce reviewable patches or candidates, not automatic actions.
+- V1 remains TUI plus local supervisor loop only. No IM, browser extension, GUI, mobile, or cloud worker.
 
-**Verdict:** OpenClaw's lifecycle-generation UUID (reject events from a run that died in a gateway restart) is a concrete, borrowable idea for Aetherion's ledger — it solves the stale-run-event problem Aetherion will face once it has long-running runs. The W3C traceparent propagation is also worth adopting for cross-process trace correlation once Aetherion has the Rust supervisor talking to the TS orchestrator.
+## 6. OpenClaw Alignment Priorities
 
-## 6. Memory Comparison
+Ranked by the smallest change that removes the biggest runtime lie:
 
-| Aspect | Aetherion (target) | OpenClaw (as-built) |
-|---|---|---|
-| Canonical memory | Memory OS stores knowledge with sources + sensitivity metadata | `MEMORY.md` human-readable file is canonical; SQLite is derived index |
-| Vector index | "Vector later" — rebuildable projection | sqlite-vec embeddings over memory files (`packages/memory-host-sdk/src/host/memory-schema.ts`) |
-| Consolidation | Dreaming produces reviewable patches, not actions | Dreaming with light/deep/REM phases (`docs/concepts/dreaming.md`); writes to `memory/.dreams/` + `DREAMS.md` |
-| Provenance | Sources + sensitivity on every memory entry | `source_message_id` / `source_run_id` on commitments; transcript lineage |
+### P0 - Pull Declared Tools Back Under Authorization
 
-**Verdict:** OpenClaw's dreaming system is the most developed analog to Aetherion's "dreaming produces reviewable patches" invariant. Aetherion's constraint (patches, not actions) is stricter than OpenClaw's (deep phase writes to `MEMORY.md`). **Alignment direction: study OpenClaw's light/deep/REM phase structure as the shape, keep the reviewable-patch constraint.**
+Goal: make `shell_exec`, `web_fetch`, and `agent_spawn` stop bypassing unified policy.
 
-## 7. Proactive Behavior Comparison
+Minimum acceptable shape:
 
-| Mechanism | OpenClaw | Aetherion invariant |
-|---|---|---|
-| Heartbeat | Periodic 30m main-session turn reading `HEARTBEAT.md`; replies `HEARTBEAT_OK` or surfaces alert | "Aetherion does not wake up periodically to think" — heartbeat violates this |
-| Cron | Detached scheduled jobs in `cron_jobs` table | "Timers acceptable for exact deadlines and maintenance jobs" — aligned |
-| Dreaming | Nightly memory consolidation | Aligned (patches, not actions) |
-| Commitments | Opportunity lifecycle: `pending → sent → snoozed → expired` with `inferred_user_context` / `agent_promise` sources | Closest match to Aetherion's Opportunity Lifecycle with inhibition |
-| Inhibition | `activeHours` windows on heartbeat/tasks | Aetherion requires a full inhibition layer (quiet hours, meetings, tainted sources, low confidence...) |
+- Add typed ToolRequest target families for exec/fetch/spawn, at least entering `risk.composed -> policy.decided`.
+- Tools without a lease executor must not claim lease-backed execution.
+- Fetch needs egress policy. Default should allow only loopback or an explicit allowlist; external fetch is at least L2 and audited.
+- Exec/spawn approval must produce durable consent/approval artifacts, not only a callback result.
 
-**Verdict:** OpenClaw's Commitments system (`src/commitments/types.ts`) is the most direct match for Aetherion's Opportunity Lifecycle. **Alignment direction: borrow the commitment state machine shape (`pending/sent/dismissed/snoozed/expired`) and the `agent_promise` vs `inferred_user_context` source distinction.** Reject the heartbeat model — it is exactly the "cron self-interruption" Aetherion's invariant forbids.
+### P0 - Repair Release/Readiness Breakage
 
-## 8. Skills Comparison
+Goal: `npm test` should not be blocked by docs parity or the current GC test.
 
-| Aspect | Aetherion | OpenClaw |
-|---|---|---|
-| Skill format | Procedural knowledge + import format; skills do not grant permissions | YAML frontmatter + markdown body; `SKILL.md` + optional `scripts/` |
-| Loading | TBD (Capability OS governs capsules; skills are separate) | Lazy: only name/description/location injected into prompt; model reads `SKILL.md` on demand (`src/skills/loading/skill-contract.ts:34-58`) |
-| Requirements | Capsules declare requirements; skills are procedural | `requires: {bins, anyBins, env, config}` is an availability filter, not a lease |
-| Invocation | Through governed tool sessions | Model reads the file; optional scripts run via normal shell tool (same exec gating) |
+Minimum acceptable shape:
 
-**Verdict:** OpenClaw's lazy skill loading (inject only name/description/location, let the model read on demand) is a proven pattern that keeps the system prompt small. **Alignment direction: adopt lazy skill loading as the default.** Do NOT adopt skills-as-permission-declarations — that collapses the capsule/skill distinction Aetherion requires.
+- Add or link `docs/19-tui-visual-polish.zh-CN.md` with its English companion so onboarding/doctor/release evidence expectations recover.
+- Fix the root cause of `vcs-gc.test.ts`: either GC deletes orphan trees, or the test is corrected to expose the actual preservation rule. Do not leave the failure as a "known small issue."
 
-## 9. Storage Discipline Comparison
+### P1 - Add An Aetherion Version Of OpenClaw Lifecycle Generation
 
-| Aspect | Aetherion | OpenClaw |
-|---|---|---|
-| Runtime facts | JSONL Event Ledger (hash-chained) | SQLite (control-plane + data-plane) |
-| Config | YAML/JSON manifests + Markdown | `openclaw.json` (JSON5 file) — deliberately outside DB |
-| Projections | SQLite run index, FTS, vector (all rebuildable) | sqlite-vec embeddings (rebuildable from `MEMORY.md`) |
-| Migration | Import generates a migration report; items default to quarantine | `openclaw doctor --fix` owns file-to-DB migration; runtime never reads legacy shapes |
+Goal: long-running, restarted, or nested child runs must reject stale events.
 
-**Verdict:** OpenClaw's hard separation of config (file) vs runtime facts (SQLite) is aligned with Aetherion's governance-vs-projection split. The "runtime reads only current canonical config; legacy shapes handled by a doctor command, never runtime shims" rule (`AGENTS.md`) is worth adopting verbatim for Aetherion's own config evolution.
+Minimum acceptable shape:
 
-## 10. What Aetherion Should NOT Borrow
+- Record generation in the run manifest or runtime lock.
+- Validate generation when appending or completing terminal events.
+- Stale generation can only block/abort; it cannot overwrite current run/session state.
 
-1. **In-process plugin execution.** OpenClaw plugins run in the same Node process. Aetherion's invariant that generated/imported code never runs inside the Local Supervisor is non-negotiable.
-2. **Heartbeat polling.** It is the "cron self-interruption" Aetherion explicitly forbids. Proactive behavior must be event-driven with inhibition.
-3. **Flat plugin ownership of capabilities.** Capsules declare; the proxy grants. Do not let skills or connectors own permissions.
-4. **25 messaging channels.** V1 is TUI-only. IM delivery is out of scope until an explicit phase.
-5. **Nested planner trees.** Both projects agree here — do not add a manager-of-managers.
+### P1 - Raise Lazy Skills To A Governable Baseline
 
-## 11. What Aetherion SHOULD Borrow
+Goal: move from "scan directory" to "governable skill index."
 
-Ranked by value-to-effort:
+Minimum acceptable shape:
 
-1. **Lifecycle-generation UUID for run events** (`src/infra/agent-events.ts:184`). Rejects stale events from a run that died in a restart. Low effort, high value once Aetherion has long-running runs.
-2. **Commitment state machine** (`src/commitments/types.ts`). `pending → sent → dismissed → snoozed → expired` with `agent_promise` vs `inferred_user_context` sources. Direct fit for the Opportunity Lifecycle.
-3. **Layered tool-policy pipeline shape** (`src/agents/tool-policy-pipeline.ts:127`). profile → providerProfile → global → agent → group → sender. Aetherion's proxy can adopt the layering without adopting in-process execution.
-4. **Lazy skill loading** (`src/skills/loading/skill-contract.ts:34-58`). Inject name/description/location only; model reads on demand. Keeps the system prompt small.
-5. **W3C traceparent propagation** (`src/infra/diagnostic-trace-context.ts`). For correlating traces across the TS orchestrator ↔ Rust supervisor boundary.
-6. **Dreaming light/deep/REM phase structure** (`docs/concepts/dreaming.md:30-34`). As the shape for Aetherion's reviewable-patch dreaming.
-7. **Config-vs-facts separation rule** (OpenClaw `AGENTS.md:76-83`). Runtime reads only current canonical config; legacy migration is a doctor command, not a runtime shim.
+- `promptVersion` or content hash.
+- `requires` works only as an availability filter, never a grant.
+- Distinguish bundled, workspace, imported, and quarantined sources.
+- Prompt injection includes only name, description, location, and version.
 
-## 12. Current Aetherion Implementation State (Baseline Snapshot)
+### P1 - Create One Internal beforeToolCall Gate
 
-As of this baseline:
+Goal: every tool passes one minimal hook before execution instead of living in scattered branches.
 
-- **174 tests, 173 pass, 1 fail.** The failing test (`tui.test.ts:744` — npm package dry-run) is a maxBuffer issue surfaced by the OpenClaw clone leaking into `npm pack`; fixed by adding `.quarantine/` to `.npmignore`.
-- `packages/harness-core/` — TypeScript seed proving the V1 loop: schema, consent, lease, verify, workspace, risk, approval, local-file, replay, policy, ledger, registry, supervisor-client, run-local, run-supervisor, boundary, agent-runtime, model-provider, output-summary.
-- `crates/supervisor/` — Rust authority-boundary POC: workspace ledger init, SHA-256 parent chain, workspace identity, traced file-action RPCs, stdio RPC for the TS client.
-- `packages/tui-go/` — Go operator setup TUI (Bubble Tea), non-authorizing client surface.
-- `schemas/` — 80+ JSON Schema contracts.
-- `docs/` — 15 numbered design docs (00–15) covering product brief through production gap closure plan.
+Minimum acceptable shape:
 
-This is the state every future iteration compares against.
+- One internal `beforeToolCall()` that initially handles built-in policies, loop detection, and approval classification.
+- No plugin hook and no new dependency yet.
+- Later expansion can borrow OpenClaw's plugin/trusted-policy hook model.
 
----
+### P2 - Durable Session Runner / Context Epoch
 
-## Iteration Protocol
+Goal: lift the agent loop from generator to session runtime.
 
-Every ponytail iteration follows:
+Minimum acceptable shape:
 
-1. **Compare against this baseline** — re-read sections 3–11, note what has changed.
-2. **Choose an alignment direction** — pick one item from section 11 (or a new gap discovered during work).
-3. **Write a phase plan document** (`docs/phases/NN-<slug>.md`) — scope, contracts, tests, exit criteria. No Plan mode; write the doc and proceed.
-4. **TDD development** — test first, then minimum implementation (ponytail rung 5 only after rungs 1–4 are exhausted).
-5. **Test + document progress + git commit** — leave a trace.
+- Durable input admission.
+- Hash of model-visible context baseline.
+- Tool settlement bound to assistant message id and tool call id.
+- Stale advertised tool registration is rejected.
 
----
+## 7. Do Not Borrow
 
-## Iteration Log
+- Do not borrow OpenClaw's in-process plugin execution.
+- Do not make OpenClaw's many messaging channels a V1 target.
+- Do not borrow heartbeat self-interruption.
+- Do not use Hermes "runs anywhere" surfaces to bypass Local Supervisor.
+- Do not adopt OpenCode's host-authority bash as Aetherion's default execution model. Aetherion needs policy, lease, and supervisor gates first.
 
-### Phase 01 — Tool Policy Pipeline (§11 item 3)
-Refactored `evaluateSeedPolicy` from a monolithic function into an ordered `PolicyPipelineStep[]` (boundary + operation layers). Factory functions close over `workspaceRoot`. Behavior byte-identical (3 golden tests). 10 new tests. Commit `b4e1a86`.
+## 8. Execution Rule After This Baseline
 
-### Phase 02 — Lease Scope Enforcement (§4)
-Added `scope.tools` and `scope.egress` checks to `readLocalFileThroughPolicy` and `writeLocalFileThroughPolicy` — defense in depth so the executor enforces the full lease, not just paths. Unknown verbs fail closed. 7 new tests. Commit `d7dd6be`.
+Every backend-hardening phase must cite one P0/P1/P2 item from this file and update this section when complete.
 
-### Phase 03 — Replay Integrity (§5)
-`reconstructTrace` now cross-checks the run manifest's `event_ids` against the ledger and reports `manifest_event_ids` + `missing_event_ids`. Lightweight alternative to OpenClaw's lifecycle-generation UUID (avoids a new hash version). Backward compatible. 4 new tests. Commit `f50c610`.
+Minimum loop:
 
-### Phase 04 — Consent Expiry (§4)
-`createWriteConsentRecord` now computes `expires_at` from a TTL (default 300s, matching lease + approval card). `approveWriteWithConsent` rejects expired consents. `null` expires_at stays backward compatible. 6 new tests. Commit `e34813b`.
+1. Re-read this baseline and `docs/14-runtime-loop-plan.md`.
+2. Pick exactly one runtime gap.
+3. Write or update the smallest failing test first.
+4. Implement the smallest fix.
+5. Run targeted tests and `npm test` when appropriate.
+6. Update this baseline or the phase log.
+7. Make a Lore commit and stage only this round's files.
 
-**Running total:** 27 new tests (174 → 201). Full suite 201/201 green. 0 regressions.
+## 9. Phase Log
+
+### Baseline Refresh - 2026-06-23
+
+This round refreshes the baseline document only. Findings:
+
+- Current backend has more runtime-thin layers than the old baseline recorded: agent loop, exec/fetch/spawn, skills, proactive, VCS/subagent isolation.
+- The old `201/201` green-test snapshot is stale; current `npm test` is `337/347`, with 10 failures.
+- The largest architecture risk is not missing tools; it is that tools are already declared while authorization, leases, and durable settlement are not unified.
+- The next minimal hardening should pick one P0 item: either repair release/readiness breakage or pull exec/fetch/spawn under one authorization path.

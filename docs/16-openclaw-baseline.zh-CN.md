@@ -1,177 +1,181 @@
-# OpenClaw 基线对比文档
+# OpenClaw 后端运行时基线与落后审查
 
 [English](16-openclaw-baseline.md)
 
-本文档是每一轮 ponytail 迭代的对比锚点。每轮迭代开始时重读本基线，选择对齐方向，编写 phase 计划。结构刻意做成「发现 + 差距 + 结论」，以便迭代计划引用具体章节。
+本文件是 Aetherion 后端运行时补强的批判基线。它不证明 Aetherion 已经接近 OpenClaw；相反，它记录当前落后在哪里、哪些能力只是薄实现、哪些能力即使已有代码也不能算产品级运行时。
 
-OpenClaw 证据来源：隔离克隆位于 `.quarantine/openclaw/`（已 gitignore，永不发布）。OpenClaw 被视为迁移/研究输入，绝非信任根，遵循 `AGENTS.md` 的导入边界规则。
+证据范围：
 
----
+- Aetherion 当前仓库：`packages/harness-core/`、`packages/tui/`、`crates/supervisor/`、`docs/14-runtime-loop-plan.md`、`docs/15-production-gap-closure-plan.md`。
+- 本地隔离参考：`.quarantine/openclaw/`、`.quarantine/hermes/`、`.quarantine/opencode/`。这些目录只作为研究输入，不是信任根，不复制其进程内插件模型。
+- 验证快照：2026-06-23 运行 `npm test`，结果 `347` 个测试，`337` 通过，`10` 失败。失败包含 `packages/harness-core/test/vcs-gc.test.ts` 的 GC 断言，以及 onboarding/doctor/release evidence 因 `docs/19-tui-visual-polish.md` 缺少或未链接中文 companion 造成的成片 readiness 失败。
+- 编辑前工作树已有未跟踪文件：`packages/harness-core/src/vcs/gc.ts`、`packages/harness-core/test/vcs-gc.test.ts`、`packages/tui-go/ether-setup`。本基线不把这些算作本轮新增实现。
 
-## 1. OpenClaw 是什么
+## 0. 总判定
 
-OpenClaw 是一个 TypeScript/ESM、终端优先的个人 AI 助手，以单 Node 进程本地运行，通过回环 WebSocket「Gateway」和约 25 个消息渠道对外暴露。仓库规模：约 2 万文件，`src/`（核心应用 + agent 运行时）、`packages/`（21 个内部 TS 包）、`extensions/`（约 145 个插件）、`skills/`（约 58 个技能文档）、`ui/`、`apps/`。
+Aetherion 目前不是一个成熟后端运行时，而是一个契约密集、测试密集、边界意识强的 seed harness。它在权威边界和非授权证据链上比 OpenClaw 更严格，但在实际运行时调度、工具治理、持久会话、插件/技能生态、输出管理和产品级 readiness 上明显落后。
 
-关键定位文档：
+最危险的假象是：仓库已经有 `agent-loop`、`shell_exec`、`web_fetch`、`agent_spawn`、VCS 分支、skills、proactive 等文件和测试，所以看起来像完整 agent runtime。实际不是。多个能力被声明给模型，但没有统一经过 Rust supervisor、策略代理、租约、输出保留、陈旧调用拒绝和持久 session runner。
 
-- `VISION.md` ——「真正能做事的 AI」，本地优先个人助手。明确反对嵌套规划器（第 122 行：manager-of-managers / 嵌套规划器树在拒绝合并清单上）。
-- `AGENTS.md` ——工程策略。核心保持插件无关；插件只能通过 `openclaw/plugin-sdk/*` 桶入口进入核心。存储默认：仅 SQLite。
-- `docs/refactor/database-first.md` ——事实层宪法。他们从 JSON/JSONL 文件迁移到 SQLite 作为规范运行时存储。
+当前基线结论：
 
-## 2. 概念模型对比
+- **优势但不完整：** Local Supervisor / Event Ledger / scoped lease / schema governance 是正确方向。
+- **严重落后：** OpenClaw 已有多层工具策略、`before_tool_call` 总入口、Gateway 事件流、审批分发、skills 版本化懒加载、commitments 运行时和 SQLite 状态纪律；Aetherion 多数只有局部 TypeScript seed。
+- **产品不可发布：** `npm test` 不是绿的，readiness/release evidence 当前被双语 docs 缺口阻塞。
+- **下一步优先级：** 先收拢已声明工具的授权路径，再修复 readiness 测试，再补 OpenClaw 最低可借鉴运行时能力。不要先扩渠道、GUI、MCP、OAuth 或云端执行。
 
-| 概念 | Aetherion（目标） | OpenClaw（已建成） | 结论 |
-|---|---|---|---|
-| 根权威 | Local Supervisor（Rust 进程边界） | 本地运行时 + 回环 Gateway 持有 `state/openclaw.sqlite` | **方向一致。** 都是本地优先，无云端 supervisor。OpenClaw 无 Rust 权威边界；其「权威」是单 Node 进程 + SQLite 锁。 |
-| 事实层 | Event Ledger（追加写，SHA-256 父链，可重放重建） | 两级 SQLite（控制面 + 每 agent 数据面）；转录事件流是近似追加记录 | **方向一致，机制不同。** OpenClaw 用 SQLite 表；Aetherion 用哈希链 JSONL 账本。两者都把持久存储视为事实层，且禁止运行时使用定位符字符串。 |
-| Agent 模型 | Agent Orchestrator（上下文组装 / 规划 / agent 循环 / 验证） | 每 session 单一串行 agent 循环；无 supervisor 层级 | **方向一致。** 两者都拒绝嵌套规划器。Aetherion 额外有 OpenClaw 缺少的显式 Verifier 步骤。 |
-| 信任边界 | 生成/导入代码永不运行在 Local Supervisor 内 | 插件代码运行在同一 Node 进程；每次工具运行有 sandboxed 标志 + 文件系统策略 | **Aetherion 更严格。** OpenClaw 插件在进程内；Aetherion 强制独立权威进程。 |
+## 1. 当前 Aetherion 后端实况
 
-## 3. 能力模型——核心分歧
+| 运行时层 | 当前证据 | 批判结论 |
+| --- | --- | --- |
+| Agent loop | `packages/harness-core/src/agent-loop.ts` 可以多轮调用模型、处理工具调用、写模型请求/响应 artifact、追加 ledger 事件。 | 只是单进程 TypeScript loop。没有产品级 session runner、持久队列、crash recovery、stale call rejection、provider-turn durable admission。 |
+| Tool registry | `createV1ToolRegistry()` 声明 `local_file_read`、`local_file_write`、`shell_exec`、`file_edit`、`search_files`、`list_files`、`web_fetch`、`agent_spawn`。 | 声明面已经大于授权面。`exec`、`fetch`、`spawn` 有各自 inline 分支，不是统一 ToolRequest/PolicyDecision/Lease/Verifier target family。 |
+| Policy | `policy.ts` 有 boundary + operation 两步 seed pipeline，读 allow，写 ask。 | 和 OpenClaw 的多层 profile/provider/global/agent/group/sender policy 相比仍很薄；对 exec/network/subagent 没有等价 typed policy DSL。 |
+| Lease enforcement | `local-file.ts` 对 read/write 检查 lease active、scope.tools、scope.egress、paths。 | 只覆盖文件读写。`shell_exec`、`web_fetch`、`agent_spawn` 没有等价 lease executor。 |
+| Rust supervisor | `crates/supervisor/` 处理 workspace identity、hash ledger、file read/write/status/socket auth POC。 | 还不是通用 authority broker。没有管 shell、network、subagent、provider、vault、scheduler、adapter。 |
+| VCS/sandbox | `vcs/branch.ts`、`tree-snapshot.ts`、rollback、subagent worktree 已存在。 | 当前 `vcs-gc.test.ts` 有失败；branch merge/checkout 仍是 seed 级本地复制，不是 OpenClaw/OpenCode 级 session publication/recovery。 |
+| Skills | `skills.ts` 扫 `skills/*/SKILL.md`，抽 name/description/path 注入 prompt。 | 只学到 OpenClaw 懒加载的最小外形。没有 promptVersion、requires eligibility、source provenance、visibility policy、skill command dispatch、workspace/upstream source 区分。 |
+| Proactive | `proactive.ts` 是纯函数 inhibition evaluator。 | 不是 Opportunity runtime。没有 OpenClaw commitments store/extraction/dedupe/delivery，也没有 durable queue。 |
+| Provider | no-tools provider path和工具模式 artifact 已有；provider config 可存 API key。 | Vault 未落地，工具模式安全边界不完整；把 API key 明文放 `.aetherion/provider-config.json` 只能算 POC。 |
+| Release/readiness | doctor/onboarding/release evidence 很丰富。 | 现在被 `docs/19` 双语 companion 缺口阻塞，说明 release gate 是真实的，但当前仓库不 ready。 |
 
-这是最重要的架构差异。
+## 2. 对 OpenClaw 的落后程度
 
-**Aetherion——能力胶囊（Capability Capsules）：**
-- 胶囊声明权限需求和约束。
-- 胶囊不拥有运行时授权。
-- 运行时授权是 Tool Access & Action Policy Proxy 签发的有作用域租约。
-- 「声明需求」与「拥有权限」的分离是一等不变量。
+| 能力 | OpenClaw 已有形态 | Aetherion 当前状态 | 落后等级 |
+| --- | --- | --- | --- |
+| 工具策略分层 | `src/agents/tool-policy-pipeline.ts`：profile、provider profile、global、agent、provider-agent、group、sender 多层过滤，并有 audit warning。 | 只有 read/write seed pipeline；agent/provider/sender/group 语义不存在。 | **L5 严重落后** |
+| 工具调用总入口 | `src/agents/agent-tools.before-tool-call.ts` 集中跑 plugin hooks、trusted policies、approval、diagnostics、loop detection、skill telemetry、param adjustment。 | `agent-loop.ts` 针对不同 tool name 内联处理。没有统一 before-tool gate。 | **L5 严重落后** |
+| 审批体系 | exec/plugin approval 有 allow once/always/deny、timeout、Gateway/渠道投递。 | 写文件有 consent record；exec/spawn 是 callback；fetch 无审批；没有持久 approval routing。 | **L5 严重落后** |
+| 事件生命周期 | `src/infra/agent-events.ts` 有 run seq、lifecycle generation、Gateway restart stale event rejection。 | Ledger 有 hash chain 和 run manifest，但 agent loop 没有 lifecycle generation fence。 | **L4 明显落后** |
+| Trace 传播 | `src/infra/diagnostic-trace-context.ts` 使用 W3C traceparent。 | Aetherion 有 replay/ledger traces，但跨 TS/Rust/工具链的标准 traceparent 不完整。 | **L3 落后** |
+| Skills | `src/skills/loading/skill-contract.ts` 注入 name/description/location/version；`types.ts` 有 requires、exposure、invocation。 | 只有 name/description/path，一层目录扫描，无版本/eligibility。 | **L4 明显落后** |
+| Commitments / proactive | `src/commitments/types.ts` 定义 pending/sent/dismissed/snoozed/expired，source、scope、dueWindow、dedupe、confidence。 | 只有 inhibition evaluator；没有 durable commitment records。 | **L4 明显落后** |
+| 存储纪律 | `AGENTS.md` 明确 runtime 只读写 canonical SQLite，迁移放 doctor。 | Aetherion 有 JSONL ledger、registries、artifacts，但许多 runtime/projection family 仍在扩张，repair/rebuild 还未闭合。 | **L3 落后** |
+| Gateway/渠道 | OpenClaw 有 loopback Gateway 与多渠道审批/消息。 | V1 正确地不做 IM/GUI/browser/cloud，但因此产品能力落后是事实。 | **故意落后，不补 V1** |
+| 插件执行 | OpenClaw 进程内插件模型成熟但风险更大。 | Aetherion 正确拒绝把导入/生成代码放进 Local Supervisor。 | **不应追赶** |
 
-**OpenClaw——扁平插件模型：**
-- 插件既声明又拥有其能力（`contracts.tools`、`contracts.embeddingProviders`）。
-- 插件发射的工具必须是其声明的 `contracts.tools` 的子集（`src/plugins/tool-contracts.ts`）。
-- 最接近「声明需求但不拥有权限」的是技能的 `requires` 块（`src/skills/types.ts:27-33`）——但那是*可用性过滤器*（配置缺失则隐藏技能），不是租约请求。
-- 唯一真正的按请求租约机制是 exec/plugin 审批（`src/infra/plugin-approvals.ts`、`src/infra/exec-approvals.ts`），允许一次/允许始终/拒绝。作用域限于 exec 命令，不覆盖一般能力委派。
+## 3. Hermes 和 OpenCode 的校准意义
 
-**结论：** Aetherion 的胶囊/租约分离是 OpenClaw 扁平插件模型所缺乏的决定性属性。这不是通过照搬 OpenClaw 来弥合的差距——而是需要保留的差异化优势。
+Hermes 不是本轮主目标，但它暴露 Aetherion 的产品化短板：Hermes README 声称完整 TUI、多平台 gateway、闭环记忆、cron、隔离 subagents、六种 terminal backend；`tools/approval.py` 有危险命令检测、contextvars 级 session/turn/tool correlation、gateway approval context、敏感路径规则；`managed_tool_gateway.py` 有 OAuth/token gateway 形态。Aetherion 在 V1 范围内不应该照搬这些表面，但必须承认自己的 runtime 还没有同等“活体后端”能力。
 
-## 4. 工具门控对比
+OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durable inbox、context epochs、provider turn、tool settlement、stale running tool recovery、compaction 讲成可执行 runtime contract；`specs/v2/tools.md` 规定 opaque Tool Definition、input/output codecs、runner-supplied invocation context、stale registration rejection、output bounding。Aetherion 当前最缺的正是这些“工具调用不是函数调用，而是持久 session 事件”的语义。
 
-| 层 | Aetherion（目标） | OpenClaw（已建成） |
-|---|---|---|
-| 策略组合 | Tool Access & Action Policy Proxy：从动作类型、敏感度、污染、可逆性、影响范围、出口目的地组合风险 | 4 层流水线：profile → providerProfile → global → agent → group → sender（`src/agents/tool-policy-pipeline.ts:127`） |
-| 按调用门控 | 同意后签发有作用域租约 | `beforeToolCall` 钩子（`src/agents/agent-tools.before-tool-call.ts`）返回 `{block:true}` 否决 |
-| 人工审批 | 审批卡 → 同意 → 租约 | exec/plugin 审批，支持渠道原生投递（Telegram/Slack 内联按钮） |
-| 数据出口控制 | 风险组合中的显式出口目的地 | `packages/net-policy` IP 允许/拒绝 + 敏感 URL 脱敏 |
+## 4. 最尖锐的落后点
 
-**结论：** OpenClaw 的门控成熟且经受过实战检验（4 层策略流水线 + beforeToolCall + 审批 + net-policy）。Aetherion 的策略代理是契约优先但实现较薄。**对齐方向：借鉴分层策略流水线的形态，而非进程内执行模型。** 保持租约是有作用域令牌，而非是/否审批。
+1. **工具声明先于授权。** `createV1ToolRegistry()` 已把 shell/network/subagent 暴露给模型，但 `evaluateSeedPolicy()` 仍只真正懂 read/write。OpenClaw 的每个工具调用都会经过统一 before-tool policy；Aetherion 当前是分支散落。
+2. **Rust supervisor 不是运行时总门。** 文件读写可以走 Rust，其他关键能力仍在 TS 里直接执行。Local Supervisor 名义上是 root authority，但实际 coverage 不够。
+3. **没有 durable session runner。** OpenCode 已把 session input、promotion、context epoch、tool settlement、interruption/recovery 写成运行时主线；Aetherion agent loop 还像一个可测试 generator。
+4. **输出边界太弱。** `truncateForModel` 只能防 prompt 爆炸，不能替代 managed output retention、typed output codec、provider-facing projection 和完整结果引用。
+5. **审批不是系统。** 写文件 consent 有 artifact，exec/spawn approval 是 callback，fetch 没有 policy gate。OpenClaw/Hermes 都有更完整的审批状态和投递模型。
+6. **skills 只是目录扫描。** 缺版本、来源、eligibility、visibility、telemetry，不能支撑 OpenClaw 级技能生态。
+7. **proactive 不是生命周期。** inhibition 函数不是 commitments store，也不是 Opportunity queue。
+8. **测试不绿。** 当前 `npm test` 失败 10 项，其中 readiness/release gate 因 docs parity 失败。这不是小噪声，说明“可发布证据链”当前断了。
 
-## 5. 事件/轨迹/账本对比
+## 5. Aetherion 仍应保留的优势
 
-OpenClaw 有三个独立的记录系统，而 Aetherion 有一个统一账本：
+这些不是落后项，不能为了追 OpenClaw 而丢掉：
 
-| 系统 | OpenClaw | Aetherion 对应 |
-|---|---|---|
-| 内存事件总线 | `src/infra/agent-events.ts`——按运行单调 `seq`，lifecycle generation UUID 用于在重启后拒绝陈旧运行事件。非持久。 | Event Ledger 信封（持久） |
-| 诊断轨迹 | 通过 `AsyncLocalStorage` 的 W3C traceparent（`src/infra/diagnostic-trace-context.ts`）；诊断事件馈入时间线 | 轨迹重放重建（`packages/harness-core/src/replay.ts`） |
-| 持久转录 | 树状 JSONL/SQLite session 转录（`packages/agent-core/src/harness/session/jsonl-storage.ts`） | 带 SHA-256 父链的 Event Ledger |
+- Capability Capsule 声明需求但不拥有权限；运行时授权必须是 policy proxy 签发的 scoped lease。
+- Event Ledger 是事实层；registries、indexes、SQLite、FTS、vector 都只能是可重建投影。
+- 导入插件、技能、生成包、connector adapter 不能成为 trust root。
+- Dreaming 只能产出可审查补丁或候选记录，不能自动执行动作。
+- V1 只做 TUI 和本地 supervisor loop，不补 IM、browser extension、GUI、mobile、cloud worker。
 
-**结论：** OpenClaw 的 lifecycle-generation UUID（拒绝来自在 Gateway 重启中死去的运行的事件）是一个具体、可借鉴的想法——它解决了 Aetherion 在有长时间运行后即将面临的陈旧运行事件问题。W3C traceparent 传播也值得采纳，用于在 Aetherion 的 Rust supervisor 与 TS orchestrator 跨进程通信时关联轨迹。
+## 6. OpenClaw 对齐优先级
 
-## 6. 记忆对比
+按“最小代码能消除最大误导”排序：
 
-| 方面 | Aetherion（目标） | OpenClaw（已建成） |
-|---|---|---|
-| 规范记忆 | Memory OS 存储带来源 + 敏感度元数据的知识 | `MEMORY.md` 人类可读文件是规范的；SQLite 是派生索引 |
-| 向量索引 |「稍后的向量」——可重建投影 | sqlite-vec 嵌入覆盖记忆文件（`packages/memory-host-sdk/src/host/memory-schema.ts`） |
-| 整合 | Dreaming 产出可审查补丁，而非动作 | 带 light/deep/REM 阶段的 Dreaming（`docs/concepts/dreaming.md`）；写入 `memory/.dreams/` + `DREAMS.md` |
-| 溯源 | 每条记忆条目带来源 + 敏感度 | 承诺上的 `source_message_id`/`source_run_id`；转录谱系 |
+### P0 - 收拢已声明工具的授权路径
 
-**结论：** OpenClaw 的 dreaming 系统是 Aetherion「dreaming 产出可审查补丁」不变量的最成熟对应物。Aetherion 的约束（补丁，非动作）比 OpenClaw 的（deep 阶段写入 `MEMORY.md`）更严格。**对齐方向：研究 OpenClaw 的 light/deep/REM 阶段结构作为形态，保留可审查补丁约束。**
+目标：让 `shell_exec`、`web_fetch`、`agent_spawn` 不再绕开统一策略。
 
-## 7. 主动行为对比
+最低可接受形态：
 
-| 机制 | OpenClaw | Aetherion 不变量 |
-|---|---|---|
-| 心跳 | 周期性 30 分钟主 session agent 轮次，读取 `HEARTBEAT.md`；回复 `HEARTBEAT_OK` 或浮出告警 |「Aetherion 不会周期性醒来思考」——心跳违反此条 |
-| 定时任务 | `cron_jobs` 表中的分离调度作业 |「定时器用于精确截止和维护作业是可接受的」——对齐 |
-| Dreaming | 每夜记忆整合 | 对齐（补丁，非动作） |
-| 承诺 | 机会生命周期：`pending → sent → snoozed → expired`，来源为 `inferred_user_context`/`agent_promise` | 与 Aetherion 带抑制的机会生命周期最匹配 |
-| 抑制 | 心跳/任务上的 `activeHours` 窗口 | Aetherion 要求完整抑制层（安静时段、会议、污染来源、低置信度……） |
+- 为 exec/fetch/spawn 建立 typed ToolRequest target family，至少进入 `risk.composed -> policy.decided`。
+- 没有 lease executor 的工具不得宣称 lease-backed。
+- fetch 需要 egress policy；默认只允许 loopback/明确 allowlist，外网 fetch 至少 L2 且可审计。
+- exec/spawn 的 approval 必须产生持久 consent/approval artifact，而不是只靠 callback。
 
-**结论：** OpenClaw 的承诺系统（`src/commitments/types.ts`）是 Aetherion 机会生命周期的最直接匹配。**对齐方向：借鉴承诺状态机形态（`pending/sent/dismissed/snoozed/expired`）和 `agent_promise` 与 `inferred_user_context` 来源区分。** 拒绝心跳模型——它正是 Aetherion 不变量禁止的「cron 自打断」。
+### P0 - 修复 release/readiness 断链
 
-## 8. 技能对比
+目标：`npm test` 至少不被 docs parity 和当前 GC 测试阻塞。
 
-| 方面 | Aetherion | OpenClaw |
-|---|---|---|
-| 技能格式 | 过程性知识 + 导入格式；技能不授予权限 | YAML frontmatter + markdown 正文；`SKILL.md` + 可选 `scripts/` |
-| 加载 | 待定（能力 OS 管理胶囊；技能分离） | 惰性：仅注入名称/描述/位置到提示；模型按需读取 `SKILL.md`（`src/skills/loading/skill-contract.ts:34-58`） |
-| 需求 | 胶囊声明需求；技能是过程性的 | `requires: {bins, anyBins, env, config}` 是可用性过滤器，非租约 |
-| 调用 | 通过受管工具 session | 模型读取文件；可选脚本通过普通 shell 工具运行（相同 exec 门控） |
+最低可接受形态：
 
-**结论：** OpenClaw 的惰性技能加载（仅注入名称/描述/位置，让模型按需读取）是经验证的模式，能保持系统提示小巧。**对齐方向：采用惰性技能加载作为默认。** 不要采用技能即权限声明——那会坍塌 Aetherion 要求的胶囊/技能区分。
+- 补齐或链接 `docs/19-tui-visual-polish.zh-CN.md` 与英文 companion，恢复 onboarding/doctor/release evidence 预期。
+- 对 `vcs-gc.test.ts` 做根因处理：要么 GC 真实删除 orphan tree，要么改测试暴露当前保护策略。不能把失败留成“已知小问题”。
 
-## 9. 存储纪律对比
+### P1 - 引入 OpenClaw lifecycle generation 的 Aetherion 版本
 
-| 方面 | Aetherion | OpenClaw |
-|---|---|---|
-| 运行时事实 | JSONL Event Ledger（哈希链） | SQLite（控制面 + 数据面） |
-| 配置 | YAML/JSON 清单 + Markdown | `openclaw.json`（JSON5 文件）——刻意置于 DB 外 |
-| 投影 | SQLite 运行索引、FTS、向量（均可重建） | sqlite-vec 嵌入（可从 `MEMORY.md` 重建） |
-| 迁移 | 导入生成迁移报告；条目默认隔离 | `openclaw doctor --fix` 拥有文件到 DB 的迁移；运行时从不读取遗留形态 |
+目标：长运行、restart、nested child runs 不接受陈旧事件。
 
-**结论：** OpenClaw 对配置（文件）与运行时事实（SQLite）的硬分离与 Aetherion 的治理-投影分离一致。「运行时只读取当前规范配置；遗留形态由 doctor 命令处理，而非运行时垫片」这条规则（`AGENTS.md`）值得逐字采纳用于 Aetherion 自身的配置演进。
+最低可接受形态：
 
-## 10. Aetherion 不应借鉴什么
+- run manifest 或 runtime lock 记录 generation。
+- append/complete terminal events 时校验 generation。
+- stale generation 只能 blocked/aborted，不能覆盖当前 run/session 状态。
 
-1. **进程内插件执行。** OpenClaw 插件运行在同一 Node 进程。Aetherion「生成/导入代码永不运行在 Local Supervisor 内」的不变量不可协商。
-2. **心跳轮询。** 它正是 Aetherion 明确禁止的「cron 自打断」。主动行为必须是事件驱动 + 抑制。
-3. **扁平插件对能力的拥有。** 胶囊声明；代理授权。不要让技能或连接器拥有权限。
-4. **25 个消息渠道。** V1 仅 TUI。IM 投递在明确阶段前不在范围内。
-5. **嵌套规划器树。** 两个项目在此一致——不要加 manager-of-managers。
+### P1 - skills 懒加载补到可用基线
 
-## 11. Aetherion 应该借鉴什么
+目标：从“扫目录”变成“可治理的技能索引”。
 
-按价值/努力比排序：
+最低可接受形态：
 
-1. **运行事件的 lifecycle-generation UUID**（`src/infra/agent-events.ts:184`）。拒绝来自在重启中死去的运行的陈旧事件。低努力，高价值。
-2. **承诺状态机**（`src/commitments/types.ts`）。`pending → sent → dismissed → snoozed → expired`，`agent_promise` 与 `inferred_user_context` 来源。直接契合机会生命周期。
-3. **分层工具策略流水线形态**（`src/agents/tool-policy-pipeline.ts:127`）。profile → providerProfile → global → agent → group → sender。Aetherion 的代理可采纳分层而不采纳进程内执行。
-4. **惰性技能加载**（`src/skills/loading/skill-contract.ts:34-58`）。仅注入名称/描述/位置；模型按需读取。保持系统提示小巧。
-5. **W3C traceparent 传播**（`src/infra/diagnostic-trace-context.ts`）。用于关联 TS orchestrator ↔ Rust supervisor 边界的轨迹。
-6. **Dreaming light/deep/REM 阶段结构**（`docs/concepts/dreaming.md:30-34`）。作为 Aetherion 可审查补丁 dreaming 的形态。
-7. **配置与事实分离规则**（OpenClaw `AGENTS.md:76-83`）。运行时只读当前规范配置；遗留迁移是 doctor 命令，非运行时垫片。
+- `promptVersion` 或内容 hash。
+- `requires` 只作为 availability filter，不授予权限。
+- 区分 bundled/workspace/imported/quarantined source。
+- prompt 中只注入 name/description/location/version。
 
-## 12. Aetherion 当前实现状态（基线快照）
+### P1 - 统一 before-tool gate
 
-截至本基线：
+目标：每个工具在执行前走同一个最小 hook，而不是分散在 `processToolCall` 分支里。
 
-- **174 测试，173 通过，1 失败。** 失败测试（`tui.test.ts:744`——npm 包预演）是 OpenClaw 克隆泄漏到 `npm pack` 引发的 maxBuffer 问题；已通过将 `.quarantine/` 加入 `.npmignore` 修复。
-- `packages/harness-core/`——TypeScript 种子，证明 V1 循环：schema、consent、lease、verify、workspace、risk、approval、local-file、replay、policy、ledger、registry、supervisor-client、run-local、run-supervisor、boundary、agent-runtime、model-provider、output-summary。
-- `crates/supervisor/`——Rust 权威边界 POC：工作区账本初始化、SHA-256 父链、工作区身份、带轨迹的文件动作 RPC、供 TS 客户端使用的 stdio RPC。
-- `packages/tui-go/`——Go 操作设置 TUI（Bubble Tea），非授权客户端面。
-- `schemas/`——80+ JSON Schema 契约。
-- `docs/`——15 个编号设计文档（00–15），覆盖从产品简报到生产差距闭环计划。
+最低可接受形态：
 
-这是每轮未来迭代对比的基准。
+- 一个内部 `beforeToolCall()`，先只做 built-in policies、loop detection、approval requirement classification。
+- 不引入 plugin hook，不引入新依赖。
+- 后续再扩展成 OpenClaw 式 plugin/trusted-policy hook。
 
----
+### P2 - durable session runner / context epoch
 
-## 迭代协议
+目标：把 agent loop 从 generator 提升为 session runtime。
 
-每轮 ponytail 迭代遵循：
+最低可接受形态：
 
-1. **对比本基线**——重读第 3–11 节，记录变化。
-2. **选择对齐方向**——从第 11 节选一项（或工作中发现的新差距）。
-3. **编写 phase 计划文档**（`docs/phases/NN-<slug>.md`）——范围、契约、测试、退出标准。不进 Plan 模式；写文档即推进。
-4. **TDD 开发**——测试先行，然后最小实现（ponytail 第 5 级仅在穷尽第 1–4 级后）。
-5. **测试 + 文档进度 + git 提交**——留下痕迹。
+- durable input admission。
+- model-visible context baseline hash。
+- tool call settlement 绑定 assistant message id / tool call id。
+- stale advertised tool registration 被拒绝。
 
----
+## 7. 不要借鉴的东西
 
-## 迭代日志
+- 不借 OpenClaw 的进程内插件执行。
+- 不借 OpenClaw 的 25 个消息渠道作为 V1 目标。
+- 不借 heartbeat 自打断模型。
+- 不借 Hermes 的“哪里都能跑”的后端表面来绕过 Aetherion 的 Local Supervisor。
+- 不借 OpenCode 的 bash host authority 作为 Aetherion 默认执行模型；Aetherion 必须先有 policy/lease/supervisor gate。
 
-### Phase 01 — 工具策略流水线（§11 第 3 项）
-将 `evaluateSeedPolicy` 从单一函数重构为有序 `PolicyPipelineStep[]`（boundary + operation 两层）。工厂函数闭包持有 `workspaceRoot`。行为字节级一致（3 个 golden 测试）。10 个新测试。提交 `b4e1a86`。
+## 8. 本基线后的执行规则
 
-### Phase 02 — 租约作用域执行强制（§4）
-在 `readLocalFileThroughPolicy` 和 `writeLocalFileThroughPolicy` 中添加 `scope.tools` 和 `scope.egress` 检查——纵深防御，让执行层强制完整租约约束，不仅是路径。未知动词 fail closed。7 个新测试。提交 `d7dd6be`。
+每个后端补强 phase 必须引用本文件的一个 P0/P1/P2 项，并在完成时更新本节。
 
-### Phase 03 — 重放完整性（§5）
-`reconstructTrace` 现在将 run manifest 的 `event_ids` 与账本交叉校验，报告 `manifest_event_ids` + `missing_event_ids`。OpenClaw lifecycle-generation UUID 的轻量替代（避免新 hash 版本）。向后兼容。4 个新测试。提交 `f50c610`。
+每轮最小闭环：
 
-### Phase 04 — 同意过期强制（§4）
-`createWriteConsentRecord` 现在从 TTL 计算过期时间（默认 300 秒，与租约+审批卡一致）。`approveWriteWithConsent` 拒绝过期同意。`null` expires_at 保持向后兼容。6 个新测试。提交 `e34813b`。
+1. 重读本基线和 `docs/14-runtime-loop-plan.md`。
+2. 只选一个运行时缺口。
+3. 先写或更新能失败的最小测试。
+4. 最小实现。
+5. 跑相关测试，必要时跑 `npm test`。
+6. 更新本基线或 phase 日志。
+7. Lore commit，只 stage 本轮文件。
 
-**累计：** 27 个新测试（174 → 201）。全套 201/201 绿。零回归。
+## 9. Phase 日志
+
+### Baseline Refresh - 2026-06-23
+
+本轮只刷新基线文档。关键发现：
+
+- 当前后端比旧基线多了 agent loop、exec/fetch/spawn、skills、proactive、VCS/subagent isolation 等运行时薄层。
+- 旧基线的 `201/201` 测试绿灯已过期；当前 `npm test` 是 `337/347`，失败 10 项。
+- 最大架构风险不是“缺工具”，而是“工具已声明但授权/租约/持久 settlement 没有统一”。
+- 下一轮最小补强应从 P0 选：先修 release/readiness 断链，或先收拢 exec/fetch/spawn 授权路径。
