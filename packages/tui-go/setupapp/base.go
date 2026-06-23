@@ -248,8 +248,11 @@ func (m Model) renderWelcome(viewportH int) string {
 	if !credentialPresent(m.provider()) {
 		cred = theme.warn.Render("✗ /connect")
 	}
+	// Branded ASCII wordmark (gap 2 from docs/19) replaces the flat title so
+	// the empty state feels like a product. The wordmark falls back to a text
+	// title when the viewport is narrow.
 	lines := []string{
-		theme.title.Render("Aetherion"),
+		renderWordmark(40),
 		"",
 		theme.muted.Render("Local-first agent harness."),
 		theme.muted.Render("Approval-gated tool loop."),
