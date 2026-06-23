@@ -65,12 +65,20 @@ func (m Model) render() string {
 	railW := restW - conversationW
 
 	conversation := m.renderConversationPane(conversationW, bodyH)
-	rail := m.renderRightRail(railW, bodyH)
-	// Both columns are pinned to bodyH so JoinHorizontal merges them side by
-	// side (32+32 = 32 rows) rather than stacking them (32+32 = 64 rows).
-	// The conversation pane already enforces bodyH internally; the rail needs
-	// an explicit Height wrapper because JoinVertical produces a bare string.
-	body := lipgloss.JoinHorizontal(lipgloss.Top, conversation, lipgloss.NewStyle().Height(bodyH).Render(rail))
+	// When the rail is hidden (toggleRail via ctrl+\), the conversation pane
+	// expands to the full non-gutter width so the transcript becomes the hero.
+	var body string
+	if m.railHidden {
+		conversation = m.renderConversationPane(restW, bodyH)
+		body = lipgloss.NewStyle().Height(bodyH).Render(conversation)
+	} else {
+		rail := m.renderRightRail(railW, bodyH)
+		// Both columns are pinned to bodyH so JoinHorizontal merges them side by
+		// side (32+32 = 32 rows) rather than stacking them (32+32 = 64 rows).
+		// The conversation pane already enforces bodyH internally; the rail needs
+		// an explicit Height wrapper because JoinVertical produces a bare string.
+		body = lipgloss.JoinHorizontal(lipgloss.Top, conversation, lipgloss.NewStyle().Height(bodyH).Render(rail))
+	}
 
 	// --- Approval bar ---
 	approval := ""
@@ -131,6 +139,15 @@ func (m Model) treeWidth() int {
 		return 36
 	}
 	return 16
+}
+
+// toggleRail flips railHidden. When the rail is hidden the conversation pane
+// expands to fill the freed width, so the transcript becomes the hero — the
+// "opt-in density" toggle from gap 5 (docs/19). The rail cards (policy/lease/
+// consent visibility) are still reachable via the floating /policy /lease
+// /usage windows, so hiding the rail does not lose the workbench identity.
+func (m *Model) toggleRail() {
+	m.railHidden = !m.railHidden
 }
 
 // --- Top bar ---
@@ -214,8 +231,18 @@ func (m Model) renderTranscriptContent() string {
 		b.WriteString(messageBlock(entry))
 		b.WriteString("\n")
 	}
-	// Spinner attached to the current streaming turn (not a separate row).
+	// Streaming turn: show the in-flight assistant text (run through the
+	// markdown renderer so code blocks/diffs stream formatted, not raw) plus a
+	// blinking-block cursor at the tail, then the spinner + status row.
+	// Rendering the live buffer is what makes a long turn feel responsive
+	// instead of frozen (gap 4 from docs/19; the assistant_text events already
+	// populate m.assistantBuffer — we just surface it).
 	if m.chatBusy {
+		if m.assistantBuffer != "" {
+			streamed := renderMarkdown(m.assistantBuffer)
+			cursor := lipgloss.NewStyle().Foreground(clay).Blink(true).Render("▍")
+			b.WriteString(streamed + cursor + "\n")
+		}
 		spinnerSym := lipgloss.NewStyle().Foreground(clay).Render(m.spinner.View())
 		statusText := lipgloss.NewStyle().Foreground(cloudMedium).Render(
 			fmt.Sprintf(" turn %d/%d · tools %d · %dt", m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens))
@@ -238,8 +265,11 @@ func (m Model) renderWelcome(viewportH int) string {
 	if !credentialPresent(m.provider()) {
 		cred = theme.warn.Render("✗ /connect")
 	}
+	// Branded ASCII wordmark (gap 2 from docs/19) replaces the flat title so
+	// the empty state feels like a product. The wordmark falls back to a text
+	// title when the viewport is narrow.
 	lines := []string{
-		theme.title.Render("Aetherion"),
+		renderWordmark(40),
 		"",
 		theme.muted.Render("Local-first agent harness."),
 		theme.muted.Render("Approval-gated tool loop."),
@@ -251,7 +281,7 @@ func (m Model) renderWelcome(viewportH int) string {
 		theme.meta.Render(" /model    pick a model"),
 		theme.meta.Render(" type → enter to start"),
 		"",
-		theme.muted.Render("[/] tree · /policy · ctrl+c quit"),
+		theme.muted.Render("[/] tree · ctrl+\\ rail · /policy · ctrl+c quit"),
 	}
 	content := strings.Join(lines, "\n")
 
@@ -274,7 +304,15 @@ func (m Model) renderWelcome(viewportH int) string {
 
 // messageBlock renders one transcript entry as a flat note with a typographic
 // role label. Color is reserved for state, not for every speaker.
+// Assistant text is run through the markdown renderer so code blocks, inline
+// code, bold, and diff tints appear in the transcript (matching the polish
+// level of Hermes/OpenCode). Tool entries render as compact icon+name blocks
+// (renderToolBlock). Other roles keep their plain-text formatting.
 func messageBlock(entry transcriptEntry) string {
+	// Tool entries get a dedicated rich block renderer (icon + name + path).
+	if entry.Role == "tool" {
+		return renderToolBlock(entry)
+	}
 	theme := styles()
 	label := roleLabel(entry.Role)
 	labelColor := roleColor(entry.Role)
@@ -284,7 +322,12 @@ func messageBlock(entry transcriptEntry) string {
 		metaStyled = " " + theme.muted.Render(entry.Meta)
 	}
 	header := labelStyled + metaStyled
-	body := header + "\n" + entry.Text
+	// Render the body as markdown for assistant replies; plain for others.
+	bodyText := entry.Text
+	if entry.Role == "assistant" {
+		bodyText = renderMarkdown(entry.Text)
+	}
+	body := header + "\n" + bodyText
 
 	contentStyle := lipgloss.NewStyle().
 		PaddingLeft(1).

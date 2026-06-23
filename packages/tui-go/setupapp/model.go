@@ -76,6 +76,7 @@ type Model struct {
 	statusMsg     string
 	quitRequested bool
 	treeExpanded  bool
+	railHidden    bool // hide the right rail cards; the transcript takes the freed width
 	historyIndex  int
 	historyDraft  string
 
