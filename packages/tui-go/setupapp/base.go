@@ -214,8 +214,18 @@ func (m Model) renderTranscriptContent() string {
 		b.WriteString(messageBlock(entry))
 		b.WriteString("\n")
 	}
-	// Spinner attached to the current streaming turn (not a separate row).
+	// Streaming turn: show the in-flight assistant text (run through the
+	// markdown renderer so code blocks/diffs stream formatted, not raw) plus a
+	// blinking-block cursor at the tail, then the spinner + status row.
+	// Rendering the live buffer is what makes a long turn feel responsive
+	// instead of frozen (gap 4 from docs/19; the assistant_text events already
+	// populate m.assistantBuffer — we just surface it).
 	if m.chatBusy {
+		if m.assistantBuffer != "" {
+			streamed := renderMarkdown(m.assistantBuffer)
+			cursor := lipgloss.NewStyle().Foreground(clay).Blink(true).Render("▍")
+			b.WriteString(streamed + cursor + "\n")
+		}
 		spinnerSym := lipgloss.NewStyle().Foreground(clay).Render(m.spinner.View())
 		statusText := lipgloss.NewStyle().Foreground(cloudMedium).Render(
 			fmt.Sprintf(" turn %d/%d · tools %d · %dt", m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens))
