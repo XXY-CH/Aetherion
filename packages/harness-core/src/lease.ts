@@ -36,3 +36,10 @@ export function assertLeaseScopeIncludesTask(decision: PolicyDecision, task: str
     throw new Error(`Policy lease does not authorize delegated task ${task}`);
   }
 }
+
+export function assertLeaseScopeIncludesPath(decision: PolicyDecision, path: string): void {
+  const scope = decision.lease?.scope as Record<string, unknown> | undefined;
+  if (!scope || !Array.isArray(scope.paths) || !scope.paths.includes(path)) {
+    throw new Error(`Policy lease does not authorize path ${path}`);
+  }
+}

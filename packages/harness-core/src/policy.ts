@@ -147,6 +147,76 @@ export function createFileWriteRequest(runId: string, path: string): ToolRequest
   };
 }
 
+export function createWorkspaceSearchRequest(runId: string, workspaceRoot: string, pattern: string, globFilter: string): ToolRequest {
+  const resolvedWorkspace = resolve(workspaceRoot);
+  return {
+    id: `toolreq_${runId}_scan_search`,
+    run_id: runId,
+    requested_by: "agent.local",
+    capability_ref: "cap_workspace_search@0.1.0",
+    intent: "Search workspace files for matching lines",
+    operation: {
+      verb: "scan",
+      target: {
+        kind: "workspace_scan",
+        uri: resolvedWorkspace,
+        label: "workspace root"
+      },
+      expected_effect: `Return matching lines for /${pattern}/ ${globFilter ? `filtered by ${globFilter}` : ""}`.trim()
+    },
+    risk_inputs: {
+      action_type: "scan",
+      target_resource: "workspace_tree",
+      data_sensitivity: "private",
+      side_effect: "none",
+      reversibility: "high",
+      audience: "local_user",
+      credential_scope: "none",
+      runtime_boundary: "local_workspace",
+      user_intent_strength: "explicit",
+      taint_chain: ["user"],
+      target_confidence: 0.95,
+      blast_radius: "workspace_tree",
+      data_egress_destination: "local_response"
+    }
+  };
+}
+
+export function createWorkspaceListRequest(runId: string, targetPath: string, dirPath: string, recursive: boolean): ToolRequest {
+  const resolvedTarget = resolve(targetPath);
+  return {
+    id: `toolreq_${runId}_scan_list`,
+    run_id: runId,
+    requested_by: "agent.local",
+    capability_ref: "cap_workspace_list@0.1.0",
+    intent: "List workspace files in a directory",
+    operation: {
+      verb: "scan",
+      target: {
+        kind: "workspace_list",
+        uri: resolvedTarget,
+        label: dirPath
+      },
+      expected_effect: `Return files under ${dirPath}${recursive ? " recursively" : ""}`.trim()
+    },
+    risk_inputs: {
+      action_type: "scan",
+      target_resource: "workspace_tree",
+      data_sensitivity: "private",
+      side_effect: "none",
+      reversibility: "high",
+      audience: "local_user",
+      credential_scope: "none",
+      runtime_boundary: "local_workspace",
+      user_intent_strength: "explicit",
+      taint_chain: ["user"],
+      target_confidence: 0.95,
+      blast_radius: "workspace_tree",
+      data_egress_destination: "local_response"
+    }
+  };
+}
+
 export function createShellExecRequest(runId: string, command: string): ToolRequest {
   return {
     id: `toolreq_${runId}_exec`,
@@ -264,11 +334,11 @@ export function createBoundaryPolicyStep(workspaceRoot: string): PolicyPipelineS
   return {
     name: "boundary",
     evaluate(request, _prior) {
-      // The seed policy enforces boundary checks on reads and loopback fetches.
-      // Write requests defer to the operation step (which returns ask), and the
-      // true workspace containment check for writes runs later in
-      // approveWriteWithConsent.
-      if (request.operation.verb !== "read" && request.operation.verb !== "fetch") {
+      // The seed policy enforces boundary checks on reads, workspace scans,
+      // and loopback fetches. Write requests defer to the operation step
+      // (which returns ask), and the true workspace containment check for
+      // writes runs later in approveWriteWithConsent.
+      if (request.operation.verb !== "read" && request.operation.verb !== "fetch" && request.operation.verb !== "scan") {
         return null;
       }
       if (request.operation.verb === "fetch") {
@@ -289,6 +359,21 @@ export function createBoundaryPolicyStep(workspaceRoot: string): PolicyPipelineS
           return null;
         }
         return deny(request, "Execute requests must target a command or delegated agent task.");
+      }
+      if (request.operation.verb === "scan") {
+        if (request.operation.target.kind !== "workspace_scan" && request.operation.target.kind !== "workspace_list") {
+          return deny(request, "Scan requests must target a workspace scan surface.");
+        }
+        const scanBoundary = workspaceBoundary(workspaceRoot, request.operation.target.uri);
+        const resolvedWorkspace = resolve(workspaceRoot);
+        const resolvedTarget = resolve(request.operation.target.uri);
+        if (!scanBoundary.insideWorkspace && resolvedWorkspace !== resolvedTarget) {
+          return deny(request, "Scan target is outside the workspace boundary.");
+        }
+        if (request.risk_inputs.data_egress_destination !== "local_response") {
+          return deny(request, "Seed policy only allows local response egress.");
+        }
+        return null;
       }
       const boundary = workspaceBoundary(workspaceRoot, request.operation.target.uri.replace("file://", ""));
       if (!boundary.insideWorkspace) {
@@ -311,6 +396,9 @@ export function createOperationPolicyStep(_workspaceRoot: string): PolicyPipelin
       }
       if (request.operation.verb === "fetch") {
         return allowFetch(request);
+      }
+      if (request.operation.verb === "scan") {
+        return allowScan(request);
       }
       if (request.operation.verb === "execute") {
         return ask(request, "Execute requests require explicit approval in the seed harness.", "L4");
@@ -383,6 +471,27 @@ function allowFetch(request: ToolRequest): PolicyDecision {
       scope: {
         tools: ["network.fetch"],
         urls: [resolvedTarget],
+        egress: [request.risk_inputs.data_egress_destination]
+      }
+    }
+  };
+}
+
+function allowScan(request: ToolRequest): PolicyDecision {
+  const risk = composeRisk(request);
+  const resolvedTarget = request.operation.target.uri;
+  return {
+    id: `policy_${request.run_id}_allow_scan`,
+    tool_request_id: request.id,
+    decision: "allow",
+    risk_level: risk.risk_level,
+    reason: "Workspace scan is allowed under a scoped scan lease.",
+    lease: {
+      id: `lease_${request.run_id}_scan`,
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      scope: {
+        tools: ["workspace.scan"],
+        paths: [resolvedTarget],
         egress: [request.risk_inputs.data_egress_destination]
       }
     }

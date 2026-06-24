@@ -22,7 +22,8 @@
 // matching ConsentRecord and scoped lease. Nothing in this file grants
 // authority.
 
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve, join, relative, matchesGlob } from "node:path";
 import { appendEvent, createWorkspace, eventRecord, type EventRecord, type Workspace } from "./ledger.ts";
 import {
   createRunManifest,
@@ -39,6 +40,8 @@ import {
   createFileWriteRequest,
   createAgentSpawnRequest,
   createShellExecRequest,
+  createWorkspaceListRequest,
+  createWorkspaceSearchRequest,
   createWebFetchRequest,
   evaluateSeedPolicy,
   issueExecuteLease,
@@ -51,6 +54,7 @@ import {
   assertLeaseActive,
   assertLeaseScopeIncludesCommand,
   assertLeaseScopeIncludesEgress,
+  assertLeaseScopeIncludesPath,
   assertLeaseScopeIncludesTask,
   assertLeaseScopeIncludesTool
 } from "./lease.ts";
@@ -111,7 +115,7 @@ export type ToolCallProposal = {
   toolName: string;
   arguments: Record<string, unknown>;
   path: string;
-  verb: "read" | "write" | "exec" | "fetch";
+  verb: "read" | "write" | "scan" | "exec" | "fetch";
   riskLevel: "L0" | "L1" | "L2" | "L3" | "L4" | "L5";
   decisionHint: "allow" | "ask" | "deny" | "sandbox_only";
   policyDecision?: PolicyDecision;
@@ -190,9 +194,10 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
 function defaultSystemPrompt(): string {
   return [
     "You are Aetherion, a local-first agent harness operating inside a single workspace boundary.",
-    "You have five tools:",
+    "You have six tools:",
     "- local_file_read: read a workspace file (allowed directly)",
     "- local_file_write: write a workspace file (requires human approval)",
+    "- search_files / list_files: scan workspace files and directories (read-only, local response)",
     "- shell_exec: run a shell command in the workspace (requires human approval, L4 risk)",
     "- web_fetch: fetch a URL and return the page content (read-only)",
     "- agent_spawn: delegate a sub-task to a child agent (requires approval, L4 risk)",
@@ -201,67 +206,98 @@ function defaultSystemPrompt(): string {
   ].join("\n");
 }
 
-// Process search_files tool call — grep workspace files for a pattern.
-async function* processSearchFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
-  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
-  const pattern = rawArgs?.pattern ?? "";
-  const globFilter = rawArgs?.glob ?? "";
+// Process search_files tool call — scan workspace files for a pattern.
+async function* processSearchFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ModelToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const args = parseToolArguments(toolCall.arguments);
+  const pattern = args.pattern ?? "";
+  const globFilter = args.glob ?? "";
 
-  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Search: /${pattern}/ ${globFilter}`, undefined);
-  yield { type: "tool_executing", toolName: "search_files", path: "" };
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested search_files: /${pattern}/ ${globFilter}.`, undefined);
+  const searchRequest = createWorkspaceSearchRequest(state.runId, config.workspaceRoot, pattern, globFilter);
+  searchRequest.id = `toolreq_${state.runId}_search_${depth}_${randomHex(4)}`;
+  const risk = composeRisk(searchRequest);
+  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for search_files.`, undefined);
+  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, searchRequest);
+  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  if (policyDecision.decision === "deny") {
+    const reason = `Policy denied search_files: ${policyDecision.reason}`;
+    state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+    yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason: policyDecision.reason };
+    return;
+  }
+  if (policyDecision.lease) {
+    await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${policyDecision.lease.id} for search_files.`, undefined);
+  }
+  yield { type: "tool_executing", toolName: toolCall.name, path: "" };
+  assertLeaseActive(policyDecision);
+  assertLeaseScopeIncludesTool(policyDecision, "workspace.scan");
+  assertLeaseScopeIncludesPath(policyDecision, config.workspaceRoot);
+  assertLeaseScopeIncludesEgress(policyDecision, "local_response");
 
-  let resultText: string;
+  let resultText = "";
   let success = true;
   try {
-    const { execSync } = await import("node:child_process");
-    const grepCmd = globFilter
-      ? `grep -rn --include="${globFilter}" "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`
-      : `grep -rn "${pattern.replace(/"/g, '\\"')}" . --exclude-dir=.aetherion --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | head -50`;
-    const output = execSync(grepCmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 10000 }).trim();
-    resultText = output || `No matches found for /${pattern}/`;
+    resultText = searchWorkspaceFiles(config.workspaceRoot, pattern, globFilter);
+    if (!resultText) {
+      resultText = `No matches found for /${pattern}/`;
+    }
+    await appendLoopEvent(config.repoRoot, state, "tool.result", `Search completed: ${resultText.length} chars output.`, undefined);
   } catch (error) {
     success = false;
     resultText = `Search failed: ${error instanceof Error ? error.message : String(error)}`;
-    if (resultText.includes("status 1")) {
-      // grep exit code 1 = no matches, not an error
-      success = true;
-      resultText = `No matches found for /${pattern}/`;
-    }
+    await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
   }
 
-  await appendLoopEvent(config.repoRoot, state, "tool.result", `Search: ${resultText.length} chars output.`, undefined);
   state.totalToolCalls += 1;
-  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "search_files", content: truncateForModel(resultText), success });
-  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "search_files", path: "", result: truncateForModel(resultText), success };
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: truncateForModel(resultText), success };
 }
 
 // Process list_files tool call — list directory contents.
-async function* processListFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ToolCall, depth: number): AsyncGenerator<LoopEvent> {
-  const rawArgs = typeof toolCall.arguments === "string" ? JSON.parse(toolCall.arguments) : toolCall.arguments;
-  const dirPath = rawArgs?.path ?? ".";
-  const recursive = rawArgs?.recursive ?? false;
+async function* processListFiles(config: AgentLoopConfig, state: AgentLoopState, toolCall: ModelToolCall, depth: number): AsyncGenerator<LoopEvent> {
+  const args = parseToolArguments(toolCall.arguments);
+  const dirPath = args.path ?? ".";
+  const recursive = args.recursive ?? false;
+  const resolvedDir = resolve(config.workspaceRoot, dirPath);
 
-  await appendLoopEvent(config.repoRoot, state, "tool.requested", `List: ${dirPath} (recursive=${recursive})`, undefined);
-  yield { type: "tool_executing", toolName: "list_files", path: dirPath };
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested list_files: ${dirPath} (recursive=${recursive}).`, undefined);
+  const listRequest = createWorkspaceListRequest(state.runId, resolvedDir, dirPath, recursive);
+  listRequest.id = `toolreq_${state.runId}_list_${depth}_${randomHex(4)}`;
+  const risk = composeRisk(listRequest);
+  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for list_files.`, undefined);
+  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, listRequest);
+  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  if (policyDecision.decision === "deny") {
+    const reason = `Policy denied list_files: ${policyDecision.reason}`;
+    state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+    yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason: policyDecision.reason };
+    return;
+  }
+  if (policyDecision.lease) {
+    await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${policyDecision.lease.id} for list_files.`, undefined);
+  }
+  yield { type: "tool_executing", toolName: toolCall.name, path: dirPath };
+  assertLeaseActive(policyDecision);
+  assertLeaseScopeIncludesTool(policyDecision, "workspace.scan");
+  assertLeaseScopeIncludesPath(policyDecision, resolvedDir);
+  assertLeaseScopeIncludesEgress(policyDecision, "local_response");
 
-  let resultText: string;
+  let resultText = "";
   let success = true;
   try {
-    const { execSync } = await import("node:child_process");
-    const cmd = recursive
-      ? `find "${dirPath}" -type f -not -path '*/.aetherion/*' -not -path '*/node_modules/*' -not -path '*/.git/*' | head -100`
-      : `ls -la "${dirPath}"`;
-    const output = execSync(cmd, { cwd: config.workspaceRoot, encoding: "utf8", timeout: 5000 }).trim();
-    resultText = output || `Empty directory: ${dirPath}`;
+    const entries = listDirectoryEntries(config.workspaceRoot, resolvedDir, recursive)
+      .slice(0, 100);
+    resultText = entries.length > 0 ? entries.join("\n") : `Empty directory: ${dirPath}`;
+    await appendLoopEvent(config.repoRoot, state, "tool.result", `List completed: ${resultText.length} chars output.`, undefined);
   } catch (error) {
     success = false;
     resultText = `List failed: ${error instanceof Error ? error.message : String(error)}`;
+    await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
   }
 
-  await appendLoopEvent(config.repoRoot, state, "tool.result", `List: ${resultText.length} chars output.`, undefined);
   state.totalToolCalls += 1;
-  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: "list_files", content: truncateForModel(resultText), success });
-  yield { type: "tool_result", toolCallId: toolCall.id, toolName: "list_files", path: dirPath, result: truncateForModel(resultText), success };
+  state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: truncateForModel(resultText), success });
+  yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: dirPath, result: truncateForModel(resultText), success };
 }
 
 // Compute a short diff summary between two file contents.
@@ -455,6 +491,128 @@ type ToolCallOutcome =
   | { kind: "policy_denied"; toolCallId: string; reason: string }
   | { kind: "fatal_error"; message: string; code: string };
 
+function isWithinWorkspace(workspaceRoot: string, targetPath: string): boolean {
+  const resolvedWorkspace = resolve(workspaceRoot);
+  const resolvedTarget = resolve(targetPath);
+  const relativeTarget = relative(resolvedWorkspace, resolvedTarget);
+  return relativeTarget === "" || (!relativeTarget.startsWith("..") && !relativeTarget.startsWith("/"));
+}
+
+function pathMatchesGlob(pathValue: string, pattern: string): boolean {
+  try {
+    return matchesGlob(pathValue, pattern);
+  } catch {
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, ".*")
+      .replace(/\*/g, "[^/]*")
+      .replace(/\?/g, "[^/]");
+    return new RegExp(`^${escaped}$`).test(pathValue);
+  }
+}
+
+function listWorkspaceFiles(workspaceRoot: string, recursive: boolean): string[] {
+  const results: string[] = [];
+  const exclude = new Set([".aetherion", "node_modules", ".git"]);
+
+  function walk(dir: string): void {
+    let entries: ReturnType<typeof readdirSync>;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const rel = relative(workspaceRoot, fullPath);
+      const relSegments = rel.split(/[\\/]/);
+      if (relSegments.some((segment) => exclude.has(segment))) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (recursive) {
+          walk(fullPath);
+        }
+        continue;
+      }
+      if (entry.isFile()) {
+        results.push(rel);
+      }
+    }
+  }
+
+  walk(workspaceRoot);
+  return results.sort();
+}
+
+function listDirectoryEntries(workspaceRoot: string, targetDir: string, recursive: boolean): string[] {
+  const results: string[] = [];
+  const exclude = new Set([".aetherion", "node_modules", ".git"]);
+  const resolvedWorkspace = resolve(workspaceRoot);
+  const resolvedTarget = resolve(targetDir);
+
+  if (!isWithinWorkspace(workspaceRoot, resolvedTarget)) {
+    throw new Error(`Directory is outside the workspace boundary: ${targetDir}`);
+  }
+
+  function walk(dir: string): void {
+    let entries: ReturnType<typeof readdirSync>;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const rel = relative(resolvedWorkspace, fullPath);
+      const relSegments = rel.split(/[\\/]/);
+      if (relSegments.some((segment) => exclude.has(segment))) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (recursive) {
+          walk(fullPath);
+        }
+        continue;
+      }
+      if (entry.isFile()) {
+        results.push(rel);
+      }
+    }
+  }
+
+  walk(resolvedTarget);
+  return results.sort();
+}
+
+function searchWorkspaceFiles(workspaceRoot: string, pattern: string, globFilter: string): string {
+  let matcher: RegExp;
+  try {
+    matcher = new RegExp(pattern);
+  } catch (error) {
+    throw new Error(`Invalid search pattern: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const files = listWorkspaceFiles(workspaceRoot, true).filter((filePath) => !globFilter || pathMatchesGlob(filePath, globFilter));
+  const lines: string[] = [];
+  for (const relPath of files) {
+    const fullPath = join(workspaceRoot, relPath);
+    let content: string;
+    try {
+      content = readFileSync(fullPath, "utf8");
+    } catch {
+      continue;
+    }
+    const fileLines = content.split(/\r?\n/);
+    for (let index = 0; index < fileLines.length; index += 1) {
+      const line = fileLines[index];
+      if (matcher.test(line)) {
+        lines.push(`${relPath}:${index + 1}:${line}`);
+      }
+    }
+  }
+  return lines.slice(0, 50).join("\n");
+}
+
 // Processes a single model tool call through the full policy/approval/execute
 // pipeline. Yields LoopEvents as it goes and returns the terminal outcome.
 async function* processToolCall(
@@ -485,8 +643,8 @@ async function* processToolCall(
 
       const toolRequest = createShellExecRequest(state.runId, args.command);
       toolRequest.id = `toolreq_${state.runId}_exec_${depth}_${randomHex(4)}`;
-      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
       const risk = composeRisk(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
       await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
       const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
       await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
@@ -578,8 +736,8 @@ async function* processToolCall(
 
       const toolRequest = createAgentSpawnRequest(state.runId, args.task);
       toolRequest.id = `toolreq_${state.runId}_spawn_${depth}_${randomHex(4)}`;
-      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested agent_spawn: ${args.task}.`, undefined);
       const risk = composeRisk(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested agent_spawn: ${args.task}.`, undefined);
       await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
       const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
       await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
@@ -695,6 +853,15 @@ async function* processToolCall(
     }
   }
 
+  if (toolCall.name === "search_files") {
+    yield* processSearchFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "search completed", success: true };
+  }
+  if (toolCall.name === "list_files") {
+    yield* processListFiles(config, state, toolCall, depth);
+    return { kind: "executed", toolName: toolCall.name, path: "", result: "list completed", success: true };
+  }
+
   if (definition.verb === "fetch") {
     const args = parseToolArguments(toolCall.arguments);
     if (!args.url) {
@@ -704,10 +871,10 @@ async function* processToolCall(
       return { kind: "policy_denied", toolCallId: toolCall.id, reason };
     }
 
-    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.url}.`, undefined);
     const toolRequest = createWebFetchRequest(state.runId, args.url);
     toolRequest.id = `toolreq_${state.runId}_fetch_${depth}_${randomHex(4)}`;
     const risk = composeRisk(toolRequest);
+    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.url}.`, undefined);
     await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
     const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
     await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
@@ -746,17 +913,6 @@ async function* processToolCall(
     state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
     yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
     return { kind: "policy_denied", toolCallId: toolCall.id, reason };
-  }
-
-  // search_files and list_files are read-only workspace tools that don't
-  // need a specific file path — they operate on the whole workspace.
-  if (toolCall.name === "search_files") {
-    yield* processSearchFiles(config, state, toolCall, depth);
-    return { kind: "executed", toolName: toolCall.name, path: "", result: "search completed", success: true };
-  }
-  if (toolCall.name === "list_files") {
-    yield* processListFiles(config, state, toolCall, depth);
-    return { kind: "executed", toolName: toolCall.name, path: "", result: "list completed", success: true };
   }
 
   const targetPath = resolve(config.workspaceRoot, args.path);

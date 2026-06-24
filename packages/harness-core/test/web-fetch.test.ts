@@ -14,7 +14,7 @@ import {
   type ApprovalCallback
 } from "../src/agent-loop.ts";
 import { createStubProvider } from "../src/model-provider.ts";
-import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot } from "../src/index.ts";
+import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot, readEvents } from "../src/index.ts";
 import type { AgentRuntimeInvocationArtifact } from "../src/agent-runtime.ts";
 import { createWebFetchRequest, evaluateSeedPolicy } from "../src/policy.ts";
 import { fetchUrlThroughPolicy } from "../src/network-fetch.ts";
@@ -44,6 +44,54 @@ async function freshWorkspace(prefix: string): Promise<{ workspaceRoot: string; 
   invocation.run_id = "run_fetch";
   invocation.id = "agent_runtime_invocation_run_fetch";
   return { workspaceRoot, invocation };
+}
+
+function createSingleToolProvider(toolName: string, args: Record<string, unknown>) {
+  const resultBase = {
+    output_text: "",
+    tool_calls: [{ id: `call_${toolName}`, name: toolName, arguments: JSON.stringify(args) }],
+    finish_reason: "tool_call" as const,
+    refusal_present: false,
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      usage_source: "locally_estimated" as const
+    }
+  };
+  return {
+    provider_ref: "tool-call-provider",
+    model_ref: "tool-call-provider",
+    network_capable: false,
+    async invoke() {
+      return {
+        output_text: "done",
+        finish_reason: "stop" as const,
+        refusal_present: false,
+        tool_calls_present: false,
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          total_tokens: 2,
+          usage_source: "locally_estimated" as const
+        }
+      };
+    },
+    async invokeWithTools(request: { conversation?: Array<{ role: string }> }, _tools: unknown[], onDelta: (delta: { type: "text_delta"; text: string } | { type: "done"; result: typeof resultBase }) => void) {
+      if ((request.conversation ?? []).some((message) => message.role === "tool")) {
+        const doneResult = {
+          ...resultBase,
+          output_text: `completed ${toolName}`,
+          tool_calls: []
+        };
+        onDelta({ type: "text_delta", text: doneResult.output_text });
+        onDelta({ type: "done", result: doneResult });
+        return doneResult;
+      }
+      onDelta({ type: "done", result: resultBase });
+      return resultBase;
+    }
+  } as const;
 }
 
 test("web_fetch registry entry exists with verb=fetch and url parameter", () => {
@@ -127,4 +175,40 @@ test("fetchUrlThroughPolicy rejects lease tool mismatch", async () => {
     () => fetchUrlThroughPolicy(request, tampered),
     /network\.fetch|tool/i
   );
+});
+
+test("search_files does not treat glob input as a shell command", async () => {
+  const { workspaceRoot, invocation } = await freshWorkspace("search-injection");
+  await writeFile(join(workspaceRoot, "README.md"), "needle present\n", "utf8");
+  const provider = createSingleToolProvider("search_files", { pattern: "needle", glob: "README.md$(touch HACKED)" }) as any;
+  const toolRegistry = createV1ToolRegistry();
+  const state = await startAgentLoopState({ repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 });
+  const config: AgentLoopConfig = { repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 };
+  const events = await drainLoop(config, state, "search needle", alwaysApprove);
+  const result = events.find((event) => event.type === "tool_result" && (event as Extract<LoopEvent, { type: "tool_result" }>).toolName === "search_files") as Extract<LoopEvent, { type: "tool_result" }>;
+  assert.ok(result, "search should yield a result");
+  assert.ok(result.success, "search should succeed");
+  assert.ok(!result.result.includes("HACKED"), "malicious glob must not execute as shell");
+  await assert.rejects(readFile(join(workspaceRoot, "HACKED"), "utf8"));
+  const ledgerTypes = (await readEvents(state.workspace)).map((event) => event.event_type);
+  assert.ok(ledgerTypes.includes("tool.requested"));
+  assert.ok(ledgerTypes.includes("risk.composed"));
+  assert.ok(ledgerTypes.includes("policy.decided"));
+});
+
+test("list_files returns nested workspace entries without shelling out", async () => {
+  const { workspaceRoot, invocation } = await freshWorkspace("list-files");
+  await mkdir(join(workspaceRoot, "src", "nested"), { recursive: true });
+  await writeFile(join(workspaceRoot, "src", "a.ts"), "export const a = 1;\n", "utf8");
+  await writeFile(join(workspaceRoot, "src", "nested", "b.ts"), "export const b = 2;\n", "utf8");
+  const provider = createSingleToolProvider("list_files", { path: "src", recursive: true }) as any;
+  const toolRegistry = createV1ToolRegistry();
+  const state = await startAgentLoopState({ repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 });
+  const config: AgentLoopConfig = { repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 };
+  const events = await drainLoop(config, state, "list files in src", alwaysApprove);
+  const result = events.find((event) => event.type === "tool_result" && (event as Extract<LoopEvent, { type: "tool_result" }>).toolName === "list_files") as Extract<LoopEvent, { type: "tool_result" }>;
+  assert.ok(result, "list_files should yield a result");
+  assert.ok(result.success, "list_files should succeed");
+  assert.match(result.result, /src\/a\.ts/);
+  assert.match(result.result, /src\/nested\/b\.ts/);
 });

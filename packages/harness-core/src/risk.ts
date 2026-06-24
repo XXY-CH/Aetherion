@@ -38,6 +38,12 @@ export function composeRisk(request: ToolRequest): RiskComposition {
     }
     return risk(request, "L5", factors, "deny", "Network fetch outside the loopback boundary is denied in the seed policy.");
   }
+  if (request.operation.verb === "scan") {
+    if (request.risk_inputs.side_effect === "none" && request.risk_inputs.data_egress_destination === "local_response") {
+      return risk(request, "L1", factors, "allow", "Workspace scan with local-only response is low risk.");
+    }
+    return risk(request, "L5", factors, "deny", "Workspace scan outside local-response egress is denied in the seed policy.");
+  }
   if (request.operation.verb === "execute") {
     if (request.operation.target.kind === "command") {
       return risk(request, "L4", factors, "ask", "Shell execution can modify the workspace and must be approved.");

@@ -91,6 +91,33 @@
           },
           "required": ["path", "content"]
         }
+      },
+      {
+        "name": "search_files",
+        "description": "Search for text patterns in workspace files using local workspace traversal.",
+        "verb": "scan",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": { "type": "string" },
+            "glob": { "type": "string" }
+          },
+          "required": ["pattern"]
+        }
+      },
+      {
+        "name": "list_files",
+        "description": "List files in a workspace directory, optionally recursively.",
+        "verb": "scan",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "recursive": { "type": "boolean" }
+          }
+        }
       }
     ],
     "tool_choice": "auto",

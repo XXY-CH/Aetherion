@@ -8,7 +8,7 @@
 
 - Aetherion 当前仓库：`packages/harness-core/`、`packages/tui/`、`crates/supervisor/`、`docs/14-runtime-loop-plan.md`、`docs/15-production-gap-closure-plan.md`。
 - 本地隔离参考：`.quarantine/openclaw/`、`.quarantine/hermes/`、`.quarantine/opencode/`。这些目录只作为研究输入，不是信任根，不复制其进程内插件模型。
-- 验证快照：2026-06-24 运行 `npm test`，结果 `350` 个测试，全部通过。前一段把 `web_fetch` 收紧成 loopback-only、lease-backed 路径；本轮最新执行切片已把 `shell_exec` 和 `agent_spawn` 拉进同一条 request/risk/policy/lease 形态，但共享 before-tool gate 仍然还不是 OpenClaw 那种单一权威根。
+- 验证快照：2026-06-24 运行 `npm test`，结果 `353` 个测试，全部通过。前一段把 `web_fetch` 收紧成 loopback-only、lease-backed 路径；`search_files` 和 `list_files` 这轮已经去掉 shell 依赖，改成本地 Node `fs` 遍历加 regex/glob 过滤；最新执行切片也把 `shell_exec` 和 `agent_spawn` 拉进同一条 request/risk/policy/lease 形态。这样确实补掉了明显的 shell 注入洞，但共享 before-tool gate 仍然还不是 OpenClaw 那种单一权威根。
 - 编辑前工作树已有一个无关未跟踪文件：`packages/tui-go/ether-setup`。本基线不把它算作本轮新增实现。
 
 ## 0. 总判定
@@ -29,11 +29,11 @@ Aetherion 目前不是一个成熟后端运行时，而是一个契约密集、�
 | 运行时层 | 当前证据 | 批判结论 |
 | --- | --- | --- |
 | Agent loop | `packages/harness-core/src/agent-loop.ts` 可以多轮调用模型、处理工具调用、写模型请求/响应 artifact、追加 ledger 事件。 | 只是单进程 TypeScript loop。没有产品级 session runner、持久队列、crash recovery、stale call rejection、provider-turn durable admission。 |
-| Tool registry | `createV1ToolRegistry()` 声明 `local_file_read`、`local_file_write`、`shell_exec`、`file_edit`、`search_files`、`list_files`、`web_fetch`、`agent_spawn`。 | 声明面仍然大于授权面。`shell_exec` 和 `agent_spawn` 不再是裸 inline 审批，但 registry 仍不能证明存在一个单一的 shared before-tool gate。 |
+| Tool registry | `createV1ToolRegistry()` 声明 `local_file_read`、`local_file_write`、`shell_exec`、`file_edit`、`search_files`、`list_files`、`web_fetch`、`agent_spawn`。 | 声明面仍然大于授权面。`search_files` 和 `list_files` 不再 shell-out，确实修掉了一个真实注入洞，但它们仍然只是借用 file-read 形态的 seed policy，不是 first-class scan authority。`shell_exec` 和 `agent_spawn` 不再是裸 inline 审批，但 registry 仍不能证明存在一个单一的 shared before-tool gate。 |
 | Policy | `policy.ts` 有 boundary + operation 两步 seed pipeline，读 allow，写 ask。 | 和 OpenClaw 的多层 profile/provider/global/agent/group/sender policy 相比仍很薄，但 exec/fetch/spawn 至少已经共享同一套 typed request/lease 词汇。 |
 | Lease enforcement | `local-file.ts` 对 read/write 检查 lease active、scope.tools、scope.egress、paths。 | 它本身仍只覆盖文件读写；`web_fetch` 现在有自己的窄网络 lease executor，而 `shell_exec` 和 `agent_spawn` 使用的是 sibling execute-lease 形态，不是统一 executor family。 |
 | Rust supervisor | `crates/supervisor/` 处理 workspace identity、hash ledger、file read/write/status/socket auth POC。 | 还不是通用 authority broker。没有管 shell、network、subagent、provider、vault、scheduler、adapter。 |
-| VCS/sandbox | `vcs/branch.ts`、`tree-snapshot.ts`、rollback、subagent worktree 已存在。 | 当前 `vcs-gc.test.ts` 有失败；branch merge/checkout 仍是 seed 级本地复制，不是 OpenClaw/OpenCode 级 session publication/recovery。 |
+| VCS/sandbox | `vcs/branch.ts`、`tree-snapshot.ts`、rollback、subagent worktree 已存在。 | `vcs-gc.test.ts` 现在已经通过，但 branch merge/checkout 仍是 seed 级本地复制，不是 OpenClaw/OpenCode 级 session publication/recovery。 |
 | Skills | `skills.ts` 扫 `skills/*/SKILL.md`，抽 name/description/path 注入 prompt。 | 只学到 OpenClaw 懒加载的最小外形。没有 promptVersion、requires eligibility、source provenance、visibility policy、skill command dispatch、workspace/upstream source 区分。 |
 | Proactive | `proactive.ts` 是纯函数 inhibition evaluator。 | 不是 Opportunity runtime。没有 OpenClaw commitments store/extraction/dedupe/delivery，也没有 durable queue。 |
 | Provider | no-tools provider path和工具模式 artifact 已有；provider config 可存 API key。 | Vault 未落地，工具模式安全边界不完整；把 API key 明文放 `.aetherion/provider-config.json` 只能算 POC。 |
@@ -45,7 +45,7 @@ Aetherion 目前不是一个成熟后端运行时，而是一个契约密集、�
 | --- | --- | --- | --- |
 | 工具策略分层 | `src/agents/tool-policy-pipeline.ts`：profile、provider profile、global、agent、provider-agent、group、sender 多层过滤，并有 audit warning。 | 只有 read/write seed pipeline；agent/provider/sender/group 语义不存在。 | **L5 严重落后** |
 | 工具调用总入口 | `src/agents/agent-tools.before-tool-call.ts` 集中跑 plugin hooks、trusted policies、approval、diagnostics、loop detection、skill telemetry、param adjustment。 | `agent-loop.ts` 针对不同 tool name 内联处理。没有统一 before-tool gate。 | **L5 严重落后** |
-| 审批体系 | exec/plugin approval 有 allow once/always/deny、timeout、Gateway/渠道投递。 | 写文件有 consent record；exec/spawn 是 callback；fetch 无审批；没有持久 approval routing。 | **L5 严重落后** |
+| 审批体系 | exec/plugin approval 有 allow once/always/deny、timeout、Gateway/渠道投递。 | 写文件有 consent record；exec/spawn 是 callback；fetch 有 policy gate 但仍没有人工审批路径；没有持久 approval routing。 | **L5 严重落后** |
 | 事件生命周期 | `src/infra/agent-events.ts` 有 run seq、lifecycle generation、Gateway restart stale event rejection。 | Ledger 有 hash chain 和 run manifest，但 agent loop 没有 lifecycle generation fence。 | **L4 明显落后** |
 | Trace 传播 | `src/infra/diagnostic-trace-context.ts` 使用 W3C traceparent。 | Aetherion 有 replay/ledger traces，但跨 TS/Rust/工具链的标准 traceparent 不完整。 | **L3 落后** |
 | Skills | `src/skills/loading/skill-contract.ts` 注入 name/description/location/version；`types.ts` 有 requires、exposure、invocation。 | 只有 name/description/path，一层目录扫描，无版本/eligibility。 | **L4 明显落后** |
@@ -62,11 +62,11 @@ OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durab
 
 ## 4. 最尖锐的落后点
 
-1. **工具声明先于授权。** `createV1ToolRegistry()` 已把 shell/network/subagent 暴露给模型，`web_fetch` 也只是收紧成 loopback lease；`shell_exec` 和 `agent_spawn` 现在已经过同一条 request/risk/policy/lease 形态，但仓库仍然是分支散落，而不是一个共享 before-tool gate。OpenClaw 的每个工具调用都会经过统一 before-tool policy；Aetherion 还没有。
+1. **工具声明先于授权。** `createV1ToolRegistry()` 已把 shell/network/subagent 暴露给模型，`search_files` 和 `list_files` 现在只是本地遍历辅助，不再借 shell 包装，`web_fetch` 也只是收紧成 loopback lease；`shell_exec` 和 `agent_spawn` 现在已经过同一条 request/risk/policy/lease 形态，但仓库仍然是分支散落，而不是一个共享 before-tool gate。OpenClaw 的每个工具调用都会经过统一 before-tool policy；Aetherion 还没有。
 2. **Rust supervisor 不是运行时总门。** 文件读写可以走 Rust，其他关键能力仍在 TS 里直接执行。Local Supervisor 名义上是 root authority，但实际 coverage 不够。
 3. **没有 durable session runner。** OpenCode 已把 session input、promotion、context epoch、tool settlement、interruption/recovery 写成运行时主线；Aetherion agent loop 还像一个可测试 generator。
 4. **输出边界太弱。** `truncateForModel` 只能防 prompt 爆炸，不能替代 managed output retention、typed output codec、provider-facing projection 和完整结果引用。
-5. **审批不是系统。** 写文件 consent 有 artifact，exec/spawn approval 是 callback，fetch 没有 policy gate。OpenClaw/Hermes 都有更完整的审批状态和投递模型。
+5. **审批不是系统。** 写文件 consent 有 artifact，exec/spawn approval 是 callback，fetch 虽然有 policy gate 但仍没有人工审批路径或持久 routing。OpenClaw/Hermes 都有更完整的审批状态和投递模型。
 6. **skills 只是目录扫描。** 缺版本、来源、eligibility、visibility、telemetry，不能支撑 OpenClaw 级技能生态。
 7. **proactive 不是生命周期。** inhibition 函数不是 commitments store，也不是 Opportunity queue。
 8. **测试已经绿了，但 runtime gap 还在。** 当前 `npm test` 通过，这去掉了一个红旗，也确认了最新的窄工具门禁切片；但这并没有修掉架构层面的 gap：已声明的工具面仍然没有被一个共享 before-tool 路径统一治理。
@@ -175,10 +175,10 @@ OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durab
 
 本轮只刷新基线文档。关键发现：
 
-- 当前后端比旧基线多了 agent loop、exec/fetch/spawn、skills、proactive、VCS/subagent isolation，以及一条窄的 loopback-only fetch lease 路径。
-- 旧基线的 `337/347` 测试快照已经过期；当前 `npm test` 是 `351/351`。
-- 最大架构风险不是“缺工具”，而是“工具已声明但没有被一个 before-tool 授权路径统一治理”，即使 `web_fetch` 已经被收窄，exec/spawn 也只是刚进入共享 request/lease 词汇。
-- 下一轮最小补强应从 P0 选：先把剩余 fetch 特例折回同一个 gate，然后把 execute-family 的审批和 lease 发放再往一个共享 before-tool hook 收拢。
+- 当前后端比旧基线多了 agent loop、exec/fetch/spawn、skills、proactive、VCS/subagent isolation，以及一条窄的 loopback-only fetch lease 路径，再加上已经去 shell 化的 local search/list 遍历。
+- 旧基线的 `337/347` 测试快照已经过期；当前 `npm test` 是 `353/353`。
+- 最大架构风险不是“缺工具”，而是“工具已声明但没有被一个 before-tool 授权路径统一治理”，即使 `web_fetch` 已经被收窄、`search_files` / `list_files` 已经去 shell 化，exec/spawn 也只是刚进入共享 request/lease 词汇。
+- 下一轮最小补强应从 P0 选：先把剩余 fetch 和 scan/list 特例折回同一个 gate，然后把 execute-family 的审批和 lease 发放再往一个共享 before-tool hook 收拢。
 
 ### Phase 05 - VCS GC orphan tree cleanup（P0 readiness）
 

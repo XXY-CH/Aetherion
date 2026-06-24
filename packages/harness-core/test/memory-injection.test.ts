@@ -20,7 +20,7 @@ async function loadInvocationFixture(): Promise<AgentRuntimeInvocationArtifact> 
   return JSON.parse(raw) as AgentRuntimeInvocationArtifact;
 }
 
-test("default system prompt mentions all four tools when no custom prompt provided", async () => {
+test("default system prompt mentions all five tools when no custom prompt provided", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "aetherion-mem-default-"));
   await mkdir(join(workspaceRoot, ".aetherion"), { recursive: true });
   const workspace = await createWorkspace(workspaceRoot, workspaceIdForRoot(workspaceRoot));
@@ -43,6 +43,7 @@ test("default system prompt mentions all four tools when no custom prompt provid
   const prompt = systemMessage.content;
   assert.match(prompt, /local_file_read/);
   assert.match(prompt, /local_file_write/);
+  assert.match(prompt, /search_files \/ list_files/);
   assert.match(prompt, /shell_exec/);
   assert.match(prompt, /web_fetch/);
 });

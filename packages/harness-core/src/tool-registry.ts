@@ -29,8 +29,9 @@ export type ToolDefinition = {
   // matching ToolRequest without re-deriving intent from the model output.
   // "exec" is a sibling target family (AGENTS.md §13) — side-effecting,
   // always approval-gated, same pipeline as write.
+  // "scan" is a read-only workspace traversal family — local response only.
   // "fetch" is a read-only network fetch — no side effects, network lease.
-  verb: "read" | "write" | "exec" | "fetch";
+  verb: "read" | "write" | "scan" | "exec" | "fetch";
 };
 
 export type ToolRegistry = {
@@ -59,8 +60,8 @@ export function createToolRegistry(tools: ToolDefinition[]): ToolRegistry {
     if (!tool.parameters || typeof tool.parameters !== "object") {
       throw new Error(`ToolRegistry: tool '${tool.name}' requires a parameters schema object`);
     }
-    if (tool.verb !== "read" && tool.verb !== "write" && tool.verb !== "exec" && tool.verb !== "fetch") {
-      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read', 'write', 'exec', or 'fetch'`);
+    if (tool.verb !== "read" && tool.verb !== "write" && tool.verb !== "scan" && tool.verb !== "exec" && tool.verb !== "fetch") {
+      throw new Error(`ToolRegistry: tool '${tool.name}' verb must be 'read', 'write', 'scan', 'exec', or 'fetch'`);
     }
   }
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -175,8 +176,8 @@ export function createV1ToolRegistry(): ToolRegistry {
     {
       name: "search_files",
       description:
-        "Search for text patterns in workspace files using grep. Returns matching lines with file paths and line numbers. Read-only, auto-approved (L1 risk).",
-      verb: "read",
+        "Search for text patterns in workspace files using local workspace traversal. Returns matching lines with file paths and line numbers. Read-only, local-response only.",
+      verb: "scan",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -190,8 +191,8 @@ export function createV1ToolRegistry(): ToolRegistry {
     {
       name: "list_files",
       description:
-        "List files in a directory, optionally filtered by glob pattern. Read-only (L1 risk).",
-      verb: "read",
+        "List files in a workspace directory, optionally recursively. Read-only, local-response only.",
+      verb: "scan",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -279,6 +280,8 @@ export type ParsedToolArguments = {
   timeout_ms?: number;
   url?: string;
   task?: string;
+  glob?: string;
+  recursive?: boolean;
 };
 
 export function parseToolArguments(raw: string | Record<string, unknown> | undefined): ParsedToolArguments {
@@ -324,6 +327,12 @@ export function parseToolArguments(raw: string | Record<string, unknown> | undef
   }
   if (typeof obj.task === "string") {
     out.task = obj.task;
+  }
+  if (typeof obj.glob === "string") {
+    out.glob = obj.glob;
+  }
+  if (typeof obj.recursive === "boolean") {
+    out.recursive = obj.recursive;
   }
   return out;
 }
