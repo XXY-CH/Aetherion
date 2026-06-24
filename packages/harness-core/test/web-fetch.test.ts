@@ -16,6 +16,8 @@ import {
 import { createStubProvider } from "../src/model-provider.ts";
 import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot } from "../src/index.ts";
 import type { AgentRuntimeInvocationArtifact } from "../src/agent-runtime.ts";
+import { createWebFetchRequest, evaluateSeedPolicy } from "../src/policy.ts";
+import { fetchUrlThroughPolicy } from "../src/network-fetch.ts";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const alwaysApprove: ApprovalCallback = async () => ({ approved: true });
@@ -96,4 +98,33 @@ test("web_fetch returns page content from a local server", async () => {
   } finally {
     server.close();
   }
+});
+
+test("web_fetch policy denies external URLs", async () => {
+  const request = createWebFetchRequest("run_fetch_external", "https://example.com");
+  const decision = evaluateSeedPolicy("/tmp/aetherion-web-fetch", request);
+  assert.equal(decision.decision, "deny");
+  assert.match(decision.reason, /loopback/i);
+});
+
+test("fetchUrlThroughPolicy rejects lease tool mismatch", async () => {
+  const request = createWebFetchRequest("run_fetch_lease", "http://127.0.0.1:1234/");
+  const decision = evaluateSeedPolicy("/tmp/aetherion-web-fetch", request);
+  if (!decision.lease) {
+    throw new Error("expected fetch decision to issue a lease");
+  }
+  const tampered = {
+    ...decision,
+    lease: {
+      ...decision.lease,
+      scope: {
+        ...decision.lease.scope,
+        tools: ["filesystem.read"]
+      }
+    }
+  };
+  await assert.rejects(
+    () => fetchUrlThroughPolicy(request, tampered),
+    /network\.fetch|tool/i
+  );
 });

@@ -18,6 +18,13 @@ async function makeWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "aetherion-policy-pipeline-"));
 }
 
+function normalizeDecision(decision: ReturnType<typeof evaluateSeedPolicy>): ReturnType<typeof evaluateSeedPolicy> {
+  return {
+    ...decision,
+    lease: decision.lease ? { ...decision.lease, expires_at: "<normalized>" } : undefined
+  };
+}
+
 test("boundary step denies target outside workspace", async () => {
   const workspace = await makeWorkspace();
   const step = createBoundaryPolicyStep(workspace);
@@ -83,7 +90,7 @@ test("pipeline preserves exact behavior of evaluateSeedPolicy for read", async (
   const request = createFileReadRequest("run_golden_read", join(workspace, "input.txt"));
   const legacy = evaluateSeedPolicy(workspace, request);
   const piped = runPolicyPipeline(workspace, request);
-  assert.deepEqual(piped, legacy);
+  assert.deepEqual(normalizeDecision(piped), normalizeDecision(legacy));
 });
 
 test("pipeline preserves exact behavior of evaluateSeedPolicy for write", async () => {
@@ -91,7 +98,7 @@ test("pipeline preserves exact behavior of evaluateSeedPolicy for write", async 
   const request = createFileWriteRequest("run_golden_write", join(workspace, "output.txt"));
   const legacy = evaluateSeedPolicy(workspace, request);
   const piped = runPolicyPipeline(workspace, request);
-  assert.deepEqual(piped, legacy);
+  assert.deepEqual(normalizeDecision(piped), normalizeDecision(legacy));
 });
 
 test("pipeline preserves exact behavior of evaluateSeedPolicy for outside-workspace deny", async () => {
@@ -99,7 +106,7 @@ test("pipeline preserves exact behavior of evaluateSeedPolicy for outside-worksp
   const request = createFileReadRequest("run_golden_outside", "/etc/passwd");
   const legacy = evaluateSeedPolicy(workspace, request);
   const piped = runPolicyPipeline(workspace, request);
-  assert.deepEqual(piped, legacy);
+  assert.deepEqual(normalizeDecision(piped), normalizeDecision(legacy));
 });
 
 test("pipeline returns deny when all steps defer", async () => {

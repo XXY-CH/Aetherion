@@ -8,36 +8,36 @@ Evidence scope:
 
 - Current Aetherion repo: `packages/harness-core/`, `packages/tui/`, `crates/supervisor/`, `docs/14-runtime-loop-plan.md`, and `docs/15-production-gap-closure-plan.md`.
 - Local quarantined references: `.quarantine/openclaw/`, `.quarantine/hermes/`, and `.quarantine/opencode/`. These are research inputs only, never trust roots, and their in-process plugin model is not copied into Aetherion authority.
-- Verification snapshot: on 2026-06-23, `npm test` reported `348` tests and all passed. The GC assertion and the onboarding/doctor/release-evidence block were fixed in this round by canonical tree GC and by repairing the `docs/19-tui-visual-polish` bilingual link.
-- Pre-document dirty state already included untracked files: `packages/harness-core/src/vcs/gc.ts`, `packages/harness-core/test/vcs-gc.test.ts`, and `packages/tui-go/ether-setup`. This baseline does not treat those as work created by this document refresh.
+- Verification snapshot: on 2026-06-24, `npm test` reported `350` tests and all passed. This round narrowed `web_fetch` to a loopback-only, lease-backed path; the remaining obvious tool-gating gap is still `shell_exec` / `agent_spawn`.
+- Pre-document dirty state already included an unrelated untracked file, `packages/tui-go/ether-setup`. This baseline does not treat that as work created by this document refresh.
 
 ## 0. Verdict
 
 Aetherion is not yet a mature backend runtime. It is a contract-heavy, test-heavy, boundary-aware seed harness. It is stricter than OpenClaw on authority and non-authorizing evidence, but it is clearly behind in runtime scheduling, tool governance, durable sessions, plugin/skill ecosystem, output management, and release readiness.
 
-The most dangerous illusion is that the repo already has `agent-loop`, `shell_exec`, `web_fetch`, `agent_spawn`, VCS branches, skills, and proactive files, so it looks like a complete agent runtime. It is not. Several capabilities are declared to the model without going through one Rust supervisor, policy proxy, scoped lease, managed-output, stale-call rejection, and durable session-runner path.
+The most dangerous illusion is that the repo already has `agent-loop`, `shell_exec`, `web_fetch`, `agent_spawn`, VCS branches, skills, and proactive files, so it looks like a complete agent runtime. It is not. `web_fetch` has been narrowed to a loopback-only lease-backed path, but several capabilities still do not go through one Rust supervisor, a shared before-tool policy gate, managed-output, stale-call rejection, or a durable session-runner path.
 
 Current baseline:
 
 - **Advantage but incomplete:** Local Supervisor / Event Ledger / scoped leases / schema governance remain the right direction.
 - **Severe lag:** OpenClaw already has layered tool policy, a `before_tool_call` choke point, Gateway event streams, approval routing, versioned lazy skills, a commitments runtime, and SQLite storage discipline. Aetherion mostly has local TypeScript seed slices.
-- **Not release-ready:** `npm test` is not green, and readiness/release evidence is currently blocked by docs parity.
-- **Next priority:** tighten authorization for already declared tools, then fix readiness tests, then borrow the smallest OpenClaw runtime primitives. Do not widen into channels, GUI, MCP, OAuth, or cloud execution first.
+- **Release evidence is green, but not decisive:** `npm test` passes, yet that only proves the current guardrails and narrow tool paths are coherent. It does not close the runtime maturity gap.
+- **Next priority:** finish bringing the remaining tools under a shared before-tool gate, then borrow the smallest OpenClaw runtime primitives. Do not widen into channels, GUI, MCP, OAuth, or cloud execution first.
 
 ## 1. Current Aetherion Backend State
 
 | Runtime layer | Current evidence | Critical conclusion |
 | --- | --- | --- |
 | Agent loop | `packages/harness-core/src/agent-loop.ts` can call a provider across turns, process tool calls, write model artifacts, and append ledger events. | It is still a single-process TypeScript loop. There is no product session runner, durable queue, crash recovery, stale-call rejection, or provider-turn admission model. |
-| Tool registry | `createV1ToolRegistry()` declares `local_file_read`, `local_file_write`, `shell_exec`, `file_edit`, `search_files`, `list_files`, `web_fetch`, and `agent_spawn`. | The declaration surface is larger than the authorization surface. `exec`, `fetch`, and `spawn` use inline branches instead of one ToolRequest / PolicyDecision / Lease / Verifier target family. |
+| Tool registry | `createV1ToolRegistry()` declares `local_file_read`, `local_file_write`, `shell_exec`, `file_edit`, `search_files`, `list_files`, `web_fetch`, and `agent_spawn`. | The declaration surface is still larger than the authorization surface. `shell_exec` and `agent_spawn` still use inline branches; `web_fetch` now has a narrow loopback-only request/lease path, but the family is still not unified. |
 | Policy | `policy.ts` has a two-step boundary + operation seed pipeline: read allows, write asks. | It is much thinner than OpenClaw's profile/provider/global/agent/group/sender policy layers, and has no equivalent typed DSL for exec, network, or subagent targets. |
-| Lease enforcement | `local-file.ts` checks active lease, `scope.tools`, `scope.egress`, and paths for read/write. | It only covers file read/write. `shell_exec`, `web_fetch`, and `agent_spawn` have no equivalent lease executor. |
+| Lease enforcement | `local-file.ts` checks active lease, `scope.tools`, `scope.egress`, and paths for read/write. | It still only covers file read/write there; `web_fetch` now has its own narrow network lease executor, but `shell_exec` and `agent_spawn` still have no equivalent lease executor. |
 | Rust supervisor | `crates/supervisor/` handles workspace identity, hash ledger, file read/write/status, and socket-auth POC paths. | It is not a general authority broker. It does not govern shell, network, subagents, providers, vault, scheduler, or adapters. |
 | VCS/sandbox | `vcs/branch.ts`, `tree-snapshot.ts`, rollback, and subagent worktrees exist. | `vcs-gc.test.ts` currently fails; branch merge/checkout is still local-copy seed behavior, not OpenClaw/OpenCode-grade session publication/recovery. |
 | Skills | `skills.ts` scans `skills/*/SKILL.md` and injects name/description/path. | This only copies the smallest shape of OpenClaw lazy loading. It lacks promptVersion, requires eligibility, source provenance, visibility policy, skill command dispatch, and source distinction. |
 | Proactive | `proactive.ts` is a pure inhibition evaluator. | This is not an Opportunity runtime. It has no OpenClaw-style commitments store, extraction, dedupe, or delivery. |
 | Provider | No-tools provider paths and tool-mode artifacts exist; provider config can store API keys. | Vault is not implemented and the tool-mode safety boundary is incomplete. Plaintext `.aetherion/provider-config.json` is only acceptable as a POC. |
-| Release/readiness | doctor/onboarding/release evidence is rich. | It is currently blocked by the `docs/19` bilingual companion gap, so the repo is not ready. |
+| Release/readiness | doctor/onboarding/release evidence is rich and now green. | That only proves the guardrail suite can pass; it does not imply a product-grade runtime or a unified tool gate. |
 
 ## 2. Lag Against OpenClaw
 
@@ -62,14 +62,14 @@ OpenCode is the more direct runtime benchmark. `specs/v2/session.md` defines pro
 
 ## 4. Sharpest Gaps
 
-1. **Tools are advertised before authority is unified.** `createV1ToolRegistry()` exposes shell/network/subagent tools, but `evaluateSeedPolicy()` really understands only read/write. OpenClaw routes every tool through a unified before-tool policy; Aetherion branches by tool name.
+1. **Tools are advertised before authority is unified.** `createV1ToolRegistry()` exposes shell/network/subagent tools, and `web_fetch` has only been narrowed to a loopback lease. `shell_exec` and `agent_spawn` still bypass a shared gate. OpenClaw routes every tool through a unified before-tool policy; Aetherion still splits control across branches.
 2. **Rust supervisor is not the runtime gate.** File read/write can use Rust. Other important capabilities still execute directly in TypeScript. Local Supervisor is the root authority in intent, not yet in coverage.
 3. **No durable session runner.** OpenCode has admission, promotion, context epochs, tool settlement, and interruption/recovery. Aetherion's agent loop is still a testable generator.
 4. **Output boundaries are weak.** `truncateForModel` is not managed output retention, typed output codecs, provider-facing projection, or complete output references.
 5. **Approval is not a system.** File-write consent has artifacts. Exec/spawn approval is callback-based. Fetch has no policy gate. OpenClaw and Hermes both have fuller approval state and routing.
 6. **Skills are only directory scanning.** There is no version, source, eligibility, visibility, or telemetry baseline.
 7. **Proactive is not a lifecycle.** An inhibition function is not a commitments store and not an Opportunity queue.
-8. **Tests are not green.** Current `npm test` fails 10 tests, including release-readiness gates. This is not noise; the release evidence chain is broken.
+8. **Tests are green, but the runtime gap remains.** Current `npm test` now passes, which removes one red flag and confirms the latest narrow tool-gating slice. That does not fix the architectural gap: the advertised tool surface is still not governed by one shared before-tool path.
 
 ## 5. Advantages To Preserve
 
@@ -87,13 +87,13 @@ Ranked by the smallest change that removes the biggest runtime lie:
 
 ### P0 - Pull Declared Tools Back Under Authorization
 
-Goal: make `shell_exec`, `web_fetch`, and `agent_spawn` stop bypassing unified policy.
+Goal: make `shell_exec` and `agent_spawn` stop bypassing unified policy, and fold `web_fetch` into the same shared before-tool gate instead of leaving it on a separate loopback-only path.
 
 Minimum acceptable shape:
 
-- Add typed ToolRequest target families for exec/fetch/spawn, at least entering `risk.composed -> policy.decided`.
+- Add typed ToolRequest target families for exec/spawn, while preserving the narrow loopback fetch path until it shares the same gate.
 - Tools without a lease executor must not claim lease-backed execution.
-- Fetch needs egress policy. Default should allow only loopback or an explicit allowlist; external fetch is at least L2 and audited.
+- Fetch egress policy must stay loopback-only until a shared allowlist policy exists; external fetch is still at least L2 and audited.
 - Exec/spawn approval must produce durable consent/approval artifacts, not only a callback result.
 
 ### P0 - Repair Release/Readiness Breakage
@@ -171,14 +171,14 @@ Minimum loop:
 
 ## 9. Phase Log
 
-### Baseline Refresh - 2026-06-23
+### Baseline Refresh - 2026-06-24
 
 This round refreshes the baseline document only. Findings:
 
-- Current backend has more runtime-thin layers than the old baseline recorded: agent loop, exec/fetch/spawn, skills, proactive, VCS/subagent isolation.
-- The old `201/201` green-test snapshot is stale; current `npm test` is `337/347`, with 10 failures.
-- The largest architecture risk is not missing tools; it is that tools are already declared while authorization, leases, and durable settlement are not unified.
-- The next minimal hardening should pick one P0 item: either repair release/readiness breakage or pull exec/fetch/spawn under one authorization path.
+- Current backend has more runtime-thin layers than the old baseline recorded: agent loop, exec/fetch/spawn, skills, proactive, VCS/subagent isolation, and now a narrow loopback-only fetch lease path.
+- The old `337/347` snapshot is stale; current `npm test` is `350/350`.
+- The largest architecture risk is not missing tools; it is that the advertised tool surface is still not unified behind one before-tool authorization path, even after narrowing `web_fetch`.
+- The next minimal hardening should pick one P0 item: either finish pulling exec/spawn under one authorization path or collapse the remaining fetch special-case into the same gate.
 
 ### Phase 05 - VCS GC Orphan Tree Cleanup (P0 readiness)
 

@@ -171,7 +171,7 @@ export type AgentModelRequestArtifact = {
     declared_tools: Array<{
       name: string;
       description: string;
-      verb: "read" | "write";
+      verb: "read" | "write" | "exec" | "fetch";
       parameters?: Record<string, unknown>;
     }>;
     tool_choice: "none" | "auto";
@@ -523,7 +523,7 @@ export type ToolModeRequestInput = {
   declaredTools: Array<{
     name: string;
     description: string;
-    verb: "read" | "write";
+    verb: "read" | "write" | "exec" | "fetch";
     parameters?: Record<string, unknown>;
   }>;
 };

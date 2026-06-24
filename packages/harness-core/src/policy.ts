@@ -126,6 +126,40 @@ export function createFileWriteRequest(runId: string, path: string): ToolRequest
   };
 }
 
+export function createWebFetchRequest(runId: string, url: string): ToolRequest {
+  return {
+    id: `toolreq_${runId}_fetch`,
+    run_id: runId,
+    requested_by: "agent.local",
+    capability_ref: "cap_web_fetch@0.1.0",
+    intent: "Read a policy-approved URL",
+    operation: {
+      verb: "fetch",
+      target: {
+        kind: "url",
+        uri: url,
+        label: "approved URL"
+      },
+      expected_effect: "Return response body without modifying workspace state"
+    },
+    risk_inputs: {
+      action_type: "read",
+      target_resource: "network_url",
+      data_sensitivity: "public",
+      side_effect: "none",
+      reversibility: "high",
+      audience: "local_user",
+      credential_scope: "none",
+      runtime_boundary: "local_workspace",
+      user_intent_strength: "explicit",
+      taint_chain: ["user"],
+      target_confidence: 0.95,
+      blast_radius: "single_url",
+      data_egress_destination: classifyFetchEgress(url)
+    }
+  };
+}
+
 // ── Policy pipeline ──────────────────────────────────────────────────────
 // Ordered steps inspired by OpenClaw's tool-policy-pipeline. Steps are created
 // by factory functions that close over the workspaceRoot, so boundary checks
@@ -141,10 +175,21 @@ export function createBoundaryPolicyStep(workspaceRoot: string): PolicyPipelineS
   return {
     name: "boundary",
     evaluate(request, _prior) {
-      // The seed policy only enforces boundary + egress on reads. Write requests
-      // defer to the operation step (which returns ask), and the true workspace
-      // containment check for writes runs later in approveWriteWithConsent.
-      if (request.operation.verb !== "read") {
+      // The seed policy enforces boundary checks on reads and loopback fetches.
+      // Write requests defer to the operation step (which returns ask), and the
+      // true workspace containment check for writes runs later in
+      // approveWriteWithConsent.
+      if (request.operation.verb !== "read" && request.operation.verb !== "fetch") {
+        return null;
+      }
+      if (request.operation.verb === "fetch") {
+        const fetchTarget = parseFetchTarget(request.operation.target.uri);
+        if (!fetchTarget) {
+          return deny(request, "Fetch target must be a valid HTTP(S) URL.");
+        }
+        if (!isLoopbackFetchTarget(fetchTarget) || request.risk_inputs.data_egress_destination !== "loopback_http") {
+          return deny(request, "Seed policy only allows loopback fetch targets.");
+        }
         return null;
       }
       const boundary = workspaceBoundary(workspaceRoot, request.operation.target.uri.replace("file://", ""));
@@ -165,6 +210,9 @@ export function createOperationPolicyStep(_workspaceRoot: string): PolicyPipelin
     evaluate(request, _prior) {
       if (request.operation.verb === "read") {
         return allowRead(request);
+      }
+      if (request.operation.verb === "fetch") {
+        return allowFetch(request);
       }
       if (request.operation.verb === "write") {
         return ask(request, "Workspace file write requires explicit approval in the seed harness.");
@@ -214,6 +262,27 @@ function allowRead(request: ToolRequest): PolicyDecision {
         tools: ["filesystem.read"],
         paths: [resolvedTarget],
         egress: ["local_response"]
+      }
+    }
+  };
+}
+
+function allowFetch(request: ToolRequest): PolicyDecision {
+  const risk = composeRisk(request);
+  const resolvedTarget = request.operation.target.uri;
+  return {
+    id: `policy_${request.run_id}_allow_fetch`,
+    tool_request_id: request.id,
+    decision: "allow",
+    risk_level: risk.risk_level,
+    reason: "Loopback fetch is allowed under a scoped network lease.",
+    lease: {
+      id: `lease_${request.run_id}_fetch`,
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      scope: {
+        tools: ["network.fetch"],
+        urls: [resolvedTarget],
+        egress: [request.risk_inputs.data_egress_destination]
       }
     }
   };
@@ -285,4 +354,32 @@ function workspaceBoundary(workspaceRoot: string, targetPath: string): {
     resolvedTarget,
     insideWorkspace: relativeTarget !== "" && !relativeTarget.startsWith("..") && !relativeTarget.startsWith("/")
   };
+}
+
+function classifyFetchEgress(url: string): "loopback_http" | "external_http" | "invalid_url" {
+  const parsed = parseFetchTarget(url);
+  if (!parsed) {
+    return "invalid_url";
+  }
+  return isLoopbackFetchTarget(parsed) ? "loopback_http" : "external_http";
+}
+
+function parseFetchTarget(url: string): URL | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackFetchTarget(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  return host === "localhost"
+    || host === "::1"
+    || host === "[::1]"
+    || /^127(?:\.\d{1,3}){3}$/.test(host);
 }

@@ -32,6 +32,12 @@ export function composeRisk(request: ToolRequest): RiskComposition {
   if (request.operation.verb === "read" && request.risk_inputs.side_effect === "none" && request.risk_inputs.data_egress_destination === "local_response") {
     return risk(request, "L1", factors, "allow", "Workspace-local read with local-only response is low risk.");
   }
+  if (request.operation.verb === "fetch") {
+    if (request.risk_inputs.side_effect === "none" && request.risk_inputs.data_egress_destination === "loopback_http") {
+      return risk(request, "L2", factors, "allow", "Loopback fetch with explicit user intent is low to moderate risk.");
+    }
+    return risk(request, "L5", factors, "deny", "Network fetch outside the loopback boundary is denied in the seed policy.");
+  }
   if (request.operation.verb === "write") {
     return risk(request, "L3", factors, "ask", "Workspace write has a definite local side effect and needs explicit approval.");
   }

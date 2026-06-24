@@ -37,6 +37,7 @@ import {
   approveWriteWithConsent,
   createFileReadRequest,
   createFileWriteRequest,
+  createWebFetchRequest,
   evaluateSeedPolicy,
   type ConsentRecord,
   type PolicyDecision,
@@ -44,6 +45,7 @@ import {
 } from "./policy.ts";
 import { composeRisk } from "./risk.ts";
 import { readLocalFileThroughPolicy, writeLocalFileThroughPolicy } from "./local-file.ts";
+import { fetchUrlThroughPolicy } from "./network-fetch.ts";
 import { verifyFileContains } from "./verify.ts";
 import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
 import { diffTrees } from "./vcs/tree-snapshot.ts";
@@ -99,7 +101,7 @@ export type ToolCallProposal = {
   toolName: string;
   arguments: Record<string, unknown>;
   path: string;
-  verb: "read" | "write" | "exec";
+  verb: "read" | "write" | "exec" | "fetch";
   riskLevel: "L0" | "L1" | "L2" | "L3" | "L4" | "L5";
   decisionHint: "allow" | "ask" | "deny" | "sandbox_only";
   policyDecision?: PolicyDecision;
@@ -659,9 +661,6 @@ async function* processToolCall(
     return { kind: "executed", toolName: toolCall.name, path: "", result: resultText, success };
   }
 
-  // Web fetch is a read-only network tool (L2 risk). It does not use the
-  // file-system pipeline — no lease, no approval. The URL is fetched and the
-  // response body returned as truncated text.
   if (definition.verb === "fetch") {
     const args = parseToolArguments(toolCall.arguments);
     if (!args.url) {
@@ -672,15 +671,29 @@ async function* processToolCall(
     }
 
     await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.url}.`, undefined);
+    const toolRequest = createWebFetchRequest(state.runId, args.url);
+    toolRequest.id = `toolreq_${state.runId}_fetch_${depth}_${randomHex(4)}`;
+    const risk = composeRisk(toolRequest);
+    await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
+    const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
+    await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+    if (policyDecision.decision === "deny") {
+      const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+      yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason: policyDecision.reason };
+      return { kind: "policy_denied", toolCallId: toolCall.id, reason: policyDecision.reason };
+    }
+    if (policyDecision.lease) {
+      await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${policyDecision.lease.id} for ${definition.name}.`, undefined);
+    }
     yield { type: "tool_executing", toolName: toolCall.name, path: args.url };
 
     let resultText: string;
     let success = true;
     try {
-      const response = await fetch(args.url, { signal: AbortSignal.timeout(15_000) });
-      const body = await response.text();
-      resultText = `HTTP ${response.status} ${response.statusText}\n\n${truncateForModel(body)}`;
-      await appendLoopEvent(config.repoRoot, state, "tool.result", `Fetched ${args.url}: HTTP ${response.status}, ${body.length} chars.`, undefined);
+      const fetchResult = await fetchUrlThroughPolicy(toolRequest, policyDecision);
+      resultText = `HTTP ${fetchResult.status} ${fetchResult.statusText}\n\n${truncateForModel(fetchResult.body)}`;
+      await appendLoopEvent(config.repoRoot, state, "tool.result", `Fetched ${args.url}: HTTP ${fetchResult.status}, ${fetchResult.body.length} chars.`, undefined);
     } catch (error) {
       success = false;
       resultText = `Fetch failed: ${error instanceof Error ? error.message : String(error)}`;

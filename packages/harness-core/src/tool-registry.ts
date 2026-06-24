@@ -6,11 +6,11 @@
 // functionDeclaration) and maps tool invocations back onto the existing
 // policy-gated ToolRequest builders in policy.ts.
 //
-// Per AGENTS.md the V1 tool surface is limited to local_file_read and
-// local_file_write. Both already have complete support in the policy engine,
-// risk composition, scoped lease, approval card, consent, and verification
-// pipeline; this registry only declares them to the model and routes a model
-// tool call back into createFileReadRequest() / createFileWriteRequest().
+// Per AGENTS.md the V1 tool surface is limited to local file operations plus
+// a narrow read-only fetch path. These already have support in the policy
+// engine, risk composition, scoped lease, approval card, consent, and
+// verification pipeline; this registry only declares them to the model and
+// routes a model tool call back into the corresponding request builders.
 
 // The set of providers resolveModelProvider() accepts. Mirrors the union in
 // the TUI CLI; kept local so harness-core stays self-contained.
@@ -29,7 +29,7 @@ export type ToolDefinition = {
   // matching ToolRequest without re-deriving intent from the model output.
   // "exec" is a sibling target family (AGENTS.md §13) — side-effecting,
   // always approval-gated, same pipeline as write.
-  // "fetch" is a read-only network fetch — no side effects, L2 risk.
+  // "fetch" is a read-only network fetch — no side effects, network lease.
   verb: "read" | "write" | "exec" | "fetch";
 };
 
@@ -93,7 +93,8 @@ export function createToolRegistry(tools: ToolDefinition[]): ToolRegistry {
 }
 
 // The V1 tool surface. local_file_read is L1 allow (workspace-local read,
-// local-response egress); local_file_write is L3 ask (needs approval + lease).
+// local-response egress); local_file_write is L3 ask (needs approval + lease);
+// web_fetch is loopback-only and lease-backed.
 export function createV1ToolRegistry(): ToolRegistry {
   return createToolRegistry([
     {
@@ -204,7 +205,7 @@ export function createV1ToolRegistry(): ToolRegistry {
     {
       name: "web_fetch",
       description:
-        "Fetch the content of a URL and return the response body as text. Read-only, no side effects. Output is truncated to 10000 characters.",
+        "Fetch the content of a loopback HTTP(S) URL and return the response body as text. Read-only, lease-backed, no side effects. Output is truncated to 10000 characters.",
       verb: "fetch",
       parameters: {
         type: "object",
