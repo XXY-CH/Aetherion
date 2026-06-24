@@ -179,3 +179,7 @@ OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durab
 - 旧基线的 `201/201` 测试绿灯已过期；当前 `npm test` 是 `337/347`，失败 10 项。
 - 最大架构风险不是“缺工具”，而是“工具已声明但授权/租约/持久 settlement 没有统一”。
 - 下一轮最小补强应从 P0 选：先修 release/readiness 断链，或先收拢 exec/fetch/spawn 授权路径。
+
+### Phase 05 - VCS GC orphan tree cleanup（P0 readiness）
+
+本轮关闭 P0 release/readiness 断链中的一个现有失败：`gcUnreferencedObjects` 现在删除无效或非规范 SHA-256 tree 文件，同时保留合法 tree snapshot 作为 rollback/diff 目标并继续保护其 blob。验证：`node --test packages/harness-core/test/vcs-gc.test.ts`，7/7 通过；`node --test packages/harness-core/test/*.test.ts`，238/238 通过。

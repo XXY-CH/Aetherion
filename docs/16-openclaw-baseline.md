@@ -179,3 +179,7 @@ This round refreshes the baseline document only. Findings:
 - The old `201/201` green-test snapshot is stale; current `npm test` is `337/347`, with 10 failures.
 - The largest architecture risk is not missing tools; it is that tools are already declared while authorization, leases, and durable settlement are not unified.
 - The next minimal hardening should pick one P0 item: either repair release/readiness breakage or pull exec/fetch/spawn under one authorization path.
+
+### Phase 05 - VCS GC Orphan Tree Cleanup (P0 readiness)
+
+This round closes one existing P0 release/readiness failure: `gcUnreferencedObjects` now deletes invalid or non-canonical SHA-256 tree files while preserving valid tree snapshots as rollback/diff targets and continuing to protect their blobs. Verification: `node --test packages/harness-core/test/vcs-gc.test.ts`, 7/7 passing; `node --test packages/harness-core/test/*.test.ts`, 238/238 passing.
