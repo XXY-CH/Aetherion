@@ -16,8 +16,9 @@ import {
 import { createStubProvider } from "../src/model-provider.ts";
 import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot, readEvents } from "../src/index.ts";
 import type { AgentRuntimeInvocationArtifact } from "../src/agent-runtime.ts";
-import { createWebFetchRequest, evaluateSeedPolicy } from "../src/policy.ts";
+import { createWebFetchRequest, evaluateSeedPolicy, createFileReadRequest } from "../src/policy.ts";
 import { fetchUrlThroughPolicy } from "../src/network-fetch.ts";
+import { readLocalFileThroughPolicy } from "../src/local-file.ts";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const alwaysApprove: ApprovalCallback = async () => ({ approved: true });
@@ -211,4 +212,22 @@ test("list_files returns nested workspace entries without shelling out", async (
   assert.ok(result.success, "list_files should succeed");
   assert.match(result.result, /src\/a\.ts/);
   assert.match(result.result, /src\/nested\/b\.ts/);
+});
+
+test("scan and read both require policy leases", async () => {
+  const { workspaceRoot, invocation } = await freshWorkspace("shared-policy");
+  await mkdir(join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(join(workspaceRoot, "src", "x.txt"), "needle\n", "utf8");
+
+  const scanProvider = createSingleToolProvider("search_files", { pattern: "needle", glob: "src/**" }) as any;
+  const scanToolRegistry = createV1ToolRegistry();
+  const scanState = await startAgentLoopState({ repoRoot, workspaceRoot, provider: scanProvider, modelRef: "stub-deterministic-v1", toolRegistry: scanToolRegistry, invocation, maxLoopDepth: 2 });
+  const scanConfig: AgentLoopConfig = { repoRoot, workspaceRoot, provider: scanProvider, modelRef: "stub-deterministic-v1", toolRegistry: scanToolRegistry, invocation, maxLoopDepth: 2 };
+  const scanEvents = await drainLoop(scanConfig, scanState, "search needle", alwaysApprove);
+  assert.ok(scanEvents.some((event) => event.type === "tool_result" && (event as Extract<LoopEvent, { type: "tool_result" }>).toolName === "search_files"));
+
+  const readRequest = createFileReadRequest("run_shared_policy", join(workspaceRoot, "src", "x.txt"));
+  const readDecision = evaluateSeedPolicy(workspaceRoot, readRequest);
+  const readResult = await readLocalFileThroughPolicy(readRequest, readDecision);
+  assert.match(readResult.contents, /needle/);
 });

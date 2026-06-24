@@ -131,6 +131,21 @@ function createExecutePolicyDecision(request: ReturnType<typeof createShellExecR
   return issueExecuteLease(request, leaseTool, leaseScope);
 }
 
+async function beforeToolCall(
+  config: AgentLoopConfig,
+  state: AgentLoopState,
+  toolName: string,
+  requestedSummary: string,
+  toolRequest: ToolRequest
+): Promise<PolicyDecision> {
+  const risk = composeRisk(toolRequest);
+  await appendLoopEvent(config.repoRoot, state, "tool.requested", requestedSummary, undefined);
+  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${toolName}.`, undefined);
+  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
+  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  return policyDecision;
+}
+
 export type LoopEvent =
   | { type: "loop_started"; runId: string; maxLoopDepth: number }
   | { type: "turn_started"; depth: number }
@@ -212,13 +227,9 @@ async function* processSearchFiles(config: AgentLoopConfig, state: AgentLoopStat
   const pattern = args.pattern ?? "";
   const globFilter = args.glob ?? "";
 
-  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested search_files: /${pattern}/ ${globFilter}.`, undefined);
   const searchRequest = createWorkspaceSearchRequest(state.runId, config.workspaceRoot, pattern, globFilter);
   searchRequest.id = `toolreq_${state.runId}_search_${depth}_${randomHex(4)}`;
-  const risk = composeRisk(searchRequest);
-  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for search_files.`, undefined);
-  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, searchRequest);
-  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  const policyDecision = await beforeToolCall(config, state, toolCall.name, `Model requested search_files: /${pattern}/ ${globFilter}.`, searchRequest);
   if (policyDecision.decision === "deny") {
     const reason = `Policy denied search_files: ${policyDecision.reason}`;
     state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -260,13 +271,9 @@ async function* processListFiles(config: AgentLoopConfig, state: AgentLoopState,
   const recursive = args.recursive ?? false;
   const resolvedDir = resolve(config.workspaceRoot, dirPath);
 
-  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested list_files: ${dirPath} (recursive=${recursive}).`, undefined);
   const listRequest = createWorkspaceListRequest(state.runId, resolvedDir, dirPath, recursive);
   listRequest.id = `toolreq_${state.runId}_list_${depth}_${randomHex(4)}`;
-  const risk = composeRisk(listRequest);
-  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for list_files.`, undefined);
-  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, listRequest);
-  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  const policyDecision = await beforeToolCall(config, state, toolCall.name, `Model requested list_files: ${dirPath} (recursive=${recursive}).`, listRequest);
   if (policyDecision.decision === "deny") {
     const reason = `Policy denied list_files: ${policyDecision.reason}`;
     state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -643,11 +650,7 @@ async function* processToolCall(
 
       const toolRequest = createShellExecRequest(state.runId, args.command);
       toolRequest.id = `toolreq_${state.runId}_exec_${depth}_${randomHex(4)}`;
-      const risk = composeRisk(toolRequest);
-      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
-      await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
-      const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
-      await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+      const policyDecision = await beforeToolCall(config, state, definition.name, `Model requested ${definition.name}: ${args.command}.`, toolRequest);
       if (policyDecision.decision === "deny") {
         const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
         state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -736,11 +739,7 @@ async function* processToolCall(
 
       const toolRequest = createAgentSpawnRequest(state.runId, args.task);
       toolRequest.id = `toolreq_${state.runId}_spawn_${depth}_${randomHex(4)}`;
-      const risk = composeRisk(toolRequest);
-      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested agent_spawn: ${args.task}.`, undefined);
-      await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
-      const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
-      await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+      const policyDecision = await beforeToolCall(config, state, definition.name, `Model requested agent_spawn: ${args.task}.`, toolRequest);
       if (policyDecision.decision === "deny") {
         const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
         state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -873,11 +872,7 @@ async function* processToolCall(
 
     const toolRequest = createWebFetchRequest(state.runId, args.url);
     toolRequest.id = `toolreq_${state.runId}_fetch_${depth}_${randomHex(4)}`;
-    const risk = composeRisk(toolRequest);
-    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.url}.`, undefined);
-    await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
-    const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
-    await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+    const policyDecision = await beforeToolCall(config, state, definition.name, `Model requested ${definition.name}: ${args.url}.`, toolRequest);
     if (policyDecision.decision === "deny") {
       const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
       state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -922,13 +917,7 @@ async function* processToolCall(
     : createFileWriteRequest(state.runId, targetPath);
   // Give each request a unique id per turn so multiple calls don't collide.
   toolRequest.id = `toolreq_${state.runId}_${definition.verb}_${depth}_${randomHex(4)}`;
-
-  await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name} on ${targetPath}.`, undefined);
-  const risk = composeRisk(toolRequest);
-  await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
-
-  const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
-  await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+  const policyDecision = await beforeToolCall(config, state, definition.name, `Model requested ${definition.name} on ${targetPath}.`, toolRequest);
 
   if (policyDecision.decision === "deny") {
     const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
