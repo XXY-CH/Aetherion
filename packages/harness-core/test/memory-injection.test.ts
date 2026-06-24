@@ -20,7 +20,7 @@ async function loadInvocationFixture(): Promise<AgentRuntimeInvocationArtifact> 
   return JSON.parse(raw) as AgentRuntimeInvocationArtifact;
 }
 
-test("default system prompt mentions all five tools when no custom prompt provided", async () => {
+test("default system prompt mirrors the current tool registry when no custom prompt provided", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "aetherion-mem-default-"));
   await mkdir(join(workspaceRoot, ".aetherion"), { recursive: true });
   const workspace = await createWorkspace(workspaceRoot, workspaceIdForRoot(workspaceRoot));
@@ -29,23 +29,23 @@ test("default system prompt mentions all five tools when no custom prompt provid
   invocation.run_id = "run_mem_default";
   invocation.id = "agent_runtime_invocation_run_mem_default";
   const provider = createStubProvider("stub-deterministic-v1");
+  const toolRegistry = createV1ToolRegistry();
   const state = await startAgentLoopState({
     repoRoot,
     workspaceRoot,
     provider,
     modelRef: "stub-deterministic-v1",
-    toolRegistry: createV1ToolRegistry(),
+    toolRegistry,
     invocation,
     maxLoopDepth: 1
   });
   const systemMessage = state.conversation[0];
   assert.equal(systemMessage.role, "system");
   const prompt = systemMessage.content;
-  assert.match(prompt, /local_file_read/);
-  assert.match(prompt, /local_file_write/);
-  assert.match(prompt, /search_files \/ list_files/);
-  assert.match(prompt, /shell_exec/);
-  assert.match(prompt, /web_fetch/);
+  assert.match(prompt, new RegExp(`You have ${toolRegistry.tools.length} tools:`));
+  for (const tool of toolRegistry.tools) {
+    assert.match(prompt, new RegExp(`^- ${tool.name}: ${escapeRegExp(tool.description)}`, "m"));
+  }
 });
 
 test("custom system prompt with memory facts is passed through", async () => {
@@ -104,3 +104,7 @@ test("system prompt without memory section when no custom prompt and no facts", 
   // Default prompt should NOT contain a Persistent Memory section.
   assert.doesNotMatch(systemMessage.content, /## Persistent Memory/);
 });
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

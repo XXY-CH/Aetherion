@@ -29,7 +29,7 @@ Aetherion 目前不是一个成熟后端运行时，而是一个契约密集、�
 | 运行时层 | 当前证据 | 批判结论 |
 | --- | --- | --- |
 | Agent loop | `packages/harness-core/src/agent-loop.ts` 可以多轮调用模型、处理工具调用、写模型请求/响应 artifact、追加 ledger 事件。 | 只是单进程 TypeScript loop。没有产品级 session runner、持久队列、crash recovery、stale call rejection、provider-turn durable admission。 |
-| Tool registry | `createV1ToolRegistry()` 声明 `local_file_read`、`local_file_write`、`shell_exec`、`file_edit`、`search_files`、`list_files`、`web_fetch`、`agent_spawn`。 | 声明面仍然大于授权面。`search_files` 和 `list_files` 不再 shell-out，确实修掉了一个真实注入洞，但它们仍然只是借用 file-read 形态的 seed policy，不是 first-class scan authority。`shell_exec` 和 `agent_spawn` 不再是裸 inline 审批，而且现在已经有轻量共享 `beforeToolCall()`，但 registry 仍不能证明达到 OpenClaw 级单一权威。 |
+| Tool registry | `createV1ToolRegistry()` 声明 `local_file_read`、`local_file_write`、`shell_exec`、`file_edit`、`search_files`、`list_files`、`web_fetch`、`agent_spawn`。 | 声明面仍然大于授权面。`search_files` 和 `list_files` 不再 shell-out，确实修掉了一个真实注入洞，但它们仍然只是借用 file-read 形态的 seed policy，不是 first-class scan authority。`shell_exec` 和 `agent_spawn` 不再是裸 inline 审批，而且默认 system prompt 现在直接从 registry 渲染工具清单，但 registry 仍不能证明达到 OpenClaw 级单一权威。 |
 | Policy | `policy.ts` 有 boundary + operation 两步 seed pipeline，读 allow，写 ask。 | 和 OpenClaw 的多层 profile/provider/global/agent/group/sender policy 相比仍很薄，但 exec/fetch/spawn 至少已经共享同一套 typed request/lease 词汇。 |
 | Lease enforcement | `local-file.ts` 对 read/write 检查 lease active、scope.tools、scope.egress、paths。 | 它本身仍只覆盖文件读写；`web_fetch` 现在有自己的窄网络 lease executor，而 `shell_exec` 和 `agent_spawn` 使用的是 sibling execute-lease 形态，不是统一 executor family。 |
 | Rust supervisor | `crates/supervisor/` 处理 workspace identity、hash ledger、file read/write/status/socket auth POC。 | 还不是通用 authority broker。没有管 shell、network、subagent、provider、vault、scheduler、adapter。 |
@@ -177,7 +177,7 @@ OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durab
 
 - 当前后端比旧基线多了 agent loop、exec/fetch/spawn、skills、proactive、VCS/subagent isolation，以及一条窄的 loopback-only fetch lease 路径，再加上已经去 shell 化的 local search/list 遍历。
 - 旧基线的 `337/347` 测试快照已经过期；当前 `npm test` 是 `354/354`。
-- 最大架构风险不是“缺工具”，而是“工具已声明但仍没有达到 OpenClaw 级单一权威根”，即使 `web_fetch` 已经被收窄、`search_files` / `list_files` 已经去 shell 化，exec/spawn 也已经进入共享 request/lease 词汇，且现在有了一层轻量共享 `beforeToolCall()`。
+- 最大架构风险不是“缺工具”，而是“工具已声明但仍没有达到 OpenClaw 级单一权威根”，即使 `web_fetch` 已经被收窄、`search_files` / `list_files` 已经去 shell 化，exec/spawn 也已经进入共享 request/lease 词汇，且现在有了一层轻量共享 `beforeToolCall()`，并且 system prompt 已经改成从 registry 渲染。
 - 下一轮最小补强应从 P0 选：把现有 shared preflight 继续加厚成真正的权威根，然后把 execute-family 的审批和 lease 发放彻底收拢进去。
 
 ### Phase 05 - VCS GC orphan tree cleanup（P0 readiness）

@@ -183,7 +183,7 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
   const workspace = await createWorkspace(workspaceRoot, workspaceId);
   const runId = input.runId ?? `run_agent_loop_${Date.now()}_${createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 8)}`;
   const manifest = await createRunManifest(input.repoRoot, workspace, runId, `Aetherion agent loop: tool-calling turn sequence.`);
-  const systemPrompt = input.systemPrompt ?? defaultSystemPrompt();
+  const systemPrompt = input.systemPrompt ?? defaultSystemPrompt(input.toolRegistry);
   // Inject personality override if set via env var (from TUI /personality command).
   let promptWithPersonality = systemPrompt;
   const personalityOverride = process.env.AETHERION_PERSONALITY;
@@ -206,16 +206,12 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
   };
 }
 
-function defaultSystemPrompt(): string {
+function defaultSystemPrompt(toolRegistry: ToolRegistry): string {
+  const toolLines = toolRegistry.tools.map((tool) => `- ${tool.name}: ${tool.description}`);
   return [
     "You are Aetherion, a local-first agent harness operating inside a single workspace boundary.",
-    "You have six tools:",
-    "- local_file_read: read a workspace file (allowed directly)",
-    "- local_file_write: write a workspace file (requires human approval)",
-    "- search_files / list_files: scan workspace files and directories (read-only, local response)",
-    "- shell_exec: run a shell command in the workspace (requires human approval, L4 risk)",
-    "- web_fetch: fetch a URL and return the page content (read-only)",
-    "- agent_spawn: delegate a sub-task to a child agent (requires approval, L4 risk)",
+    `You have ${toolLines.length} tools:`,
+    ...toolLines,
     "Never claim authority you do not have. Model output cannot authorize actions.",
     "When you have enough information, answer the user directly without calling a tool."
   ].join("\n");
