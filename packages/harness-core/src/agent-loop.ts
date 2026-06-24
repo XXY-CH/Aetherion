@@ -37,20 +37,29 @@ import {
   approveWriteWithConsent,
   createFileReadRequest,
   createFileWriteRequest,
+  createAgentSpawnRequest,
+  createShellExecRequest,
   createWebFetchRequest,
   evaluateSeedPolicy,
+  issueExecuteLease,
   type ConsentRecord,
   type PolicyDecision,
   type ToolRequest
 } from "./policy.ts";
 import { composeRisk } from "./risk.ts";
+import {
+  assertLeaseActive,
+  assertLeaseScopeIncludesCommand,
+  assertLeaseScopeIncludesEgress,
+  assertLeaseScopeIncludesTask,
+  assertLeaseScopeIncludesTool
+} from "./lease.ts";
 import { readLocalFileThroughPolicy, writeLocalFileThroughPolicy } from "./local-file.ts";
 import { fetchUrlThroughPolicy } from "./network-fetch.ts";
 import { verifyFileContains } from "./verify.ts";
 import { captureTreeSnapshot } from "./vcs/tree-snapshot.ts";
 import { diffTrees } from "./vcs/tree-snapshot.ts";
 import { runSubagentInBranch } from "./vcs/subagent.ts";
-import { branchWorkspace } from "./vcs/branch.ts";
 import {
   asToolCapable,
   isAssistantTurn,
@@ -70,6 +79,7 @@ import {
 import type { AgentRuntimeInvocationArtifact } from "./agent-runtime.ts";
 import { parseToolArguments, type ToolRegistry } from "./tool-registry.ts";
 import { createHash } from "node:crypto";
+import { execSync } from "node:child_process";
 
 export type AgentLoopConfig = {
   repoRoot: string;
@@ -108,6 +118,14 @@ export type ToolCallProposal = {
   // For writes only: the content the model proposed to write.
   proposedContent?: string;
 };
+
+function createExecutePolicyDecision(request: ReturnType<typeof createShellExecRequest> | ReturnType<typeof createAgentSpawnRequest>): PolicyDecision {
+  const leaseTool = request.operation.target.kind === "command" ? "shell.exec" : "agent.spawn";
+  const leaseScope = request.operation.target.kind === "command"
+    ? { commands: [request.operation.target.uri.replace(/^shell:\/\//, "")] }
+    : { tasks: [request.operation.target.uri.replace(/^agent:\/\//, "")] };
+  return issueExecuteLease(request, leaseTool, leaseScope);
+}
 
 export type LoopEvent =
   | { type: "loop_started"; runId: string; maxLoopDepth: number }
@@ -455,13 +473,102 @@ async function* processToolCall(
     return { kind: "policy_denied", toolCallId: toolCall.id, reason };
   }
 
-  // Shell exec is a sibling target family (AGENTS.md §13). It does not use
-  // the file-system ToolRequest pipeline — it has its own approval + execute
-  // path inline below. All other verbs (read/write) flow through the file pipeline.
   if (definition.verb === "exec") {
-    // agent_spawn: delegate a sub-task to a child agent loop.
+    const args = parseToolArguments(toolCall.arguments);
+    if (toolCall.name === "shell_exec") {
+      if (!args.command) {
+        const reason = `Tool '${toolCall.name}' call is missing required 'command' argument.`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
+        return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+      }
+
+      const toolRequest = createShellExecRequest(state.runId, args.command);
+      toolRequest.id = `toolreq_${state.runId}_exec_${depth}_${randomHex(4)}`;
+      await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
+      const risk = composeRisk(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
+      const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+      if (policyDecision.decision === "deny") {
+        const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason: policyDecision.reason };
+        return { kind: "policy_denied", toolCallId: toolCall.id, reason: policyDecision.reason };
+      }
+
+      const approvalCard = createApprovalCard(toolRequest, policyDecision);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", `Approval card ${approvalCard.id} presented for ${definition.name}.`, undefined);
+      const proposal: ToolCallProposal = {
+        proposalId: approvalCard.id,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        arguments: args,
+        path: "",
+        verb: "exec",
+        riskLevel: policyDecision.risk_level,
+        decisionHint: "ask",
+        policyDecision,
+        proposedContent: args.command
+      };
+      yield { type: "tool_proposal", proposal };
+      const decision = await approvalCallback(proposal);
+      if (!decision.approved) {
+        const reason = decision.reason ?? "User denied the shell exec approval.";
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: `Exec denied: ${reason}`, success: false });
+        yield { type: "tool_denied", proposalId: proposal.proposalId, reason };
+        await appendLoopEvent(config.repoRoot, state, "tool.denied", `Exec ${definition.name} denied by user.`, undefined);
+        return { kind: "denied", toolCallId: toolCall.id, reason };
+      }
+
+      yield { type: "tool_approved", proposalId: proposal.proposalId };
+      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Exec approved by user for: ${args.command}.`, undefined);
+      const effectiveDecision = createExecutePolicyDecision(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", effectiveDecision.reason, undefined);
+      await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${effectiveDecision.lease?.id ?? approvalCard.id} for ${definition.name}.`, undefined);
+      yield { type: "tool_executing", toolName: toolCall.name, path: "" };
+
+      assertLeaseActive(effectiveDecision);
+      assertLeaseScopeIncludesTool(effectiveDecision, "shell.exec");
+      assertLeaseScopeIncludesCommand(effectiveDecision, args.command);
+      assertLeaseScopeIncludesEgress(effectiveDecision, "local_response");
+
+      let preExecTreeHash: string | undefined;
+      try {
+        const snap = captureTreeSnapshot(config.workspaceRoot);
+        preExecTreeHash = snap.tree_hash;
+        await appendLoopEvent(config.repoRoot, state, "vcs.snapshot.created", `Pre-exec snapshot: ${preExecTreeHash}.`, preExecTreeHash);
+      } catch { /* best-effort */ }
+
+      const timeoutMs = Math.min(args.timeout_ms ?? 30_000, 60_000);
+      let resultText: string;
+      let success = true;
+      try {
+        const stdout = execSync(args.command, {
+          cwd: config.workspaceRoot,
+          timeout: timeoutMs,
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024
+        }) as string;
+        resultText = truncateForModel(stdout);
+        await appendLoopEvent(config.repoRoot, state, "tool.result", `Exec completed: ${resultText.length} chars output.`, undefined);
+      } catch (error) {
+        success = false;
+        const execError = error as NodeJS.ErrnoException & { stderr?: string; status?: number };
+        const stderr = execError.stderr ?? "";
+        const exitInfo = execError.status !== undefined ? ` (exit ${execError.status})` : "";
+        resultText = truncateForModel(`Command failed${exitInfo}: ${execError.message}${stderr ? `\n${stderr}` : ""}`);
+        await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
+      }
+
+      state.totalToolCalls += 1;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: resultText, success });
+      yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: resultText, success };
+      return { kind: "executed", toolName: toolCall.name, path: "", result: resultText, success };
+    }
+
     if (toolCall.name === "agent_spawn") {
-      const args = parseToolArguments(toolCall.arguments);
       if (!args.task) {
         const reason = `Tool '${toolCall.name}' call is missing required 'task' argument.`;
         state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
@@ -469,22 +576,35 @@ async function* processToolCall(
         return { kind: "policy_denied", toolCallId: toolCall.id, reason };
       }
 
+      const toolRequest = createAgentSpawnRequest(state.runId, args.task);
+      toolRequest.id = `toolreq_${state.runId}_spawn_${depth}_${randomHex(4)}`;
       await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested agent_spawn: ${args.task}.`, undefined);
+      const risk = composeRisk(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "risk.composed", `Composed ${risk.risk_level} risk for ${definition.name}.`, undefined);
+      const policyDecision = evaluateSeedPolicy(config.workspaceRoot, toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", policyDecision.reason, undefined);
+      if (policyDecision.decision === "deny") {
+        const reason = `Policy denied ${definition.name}: ${policyDecision.reason}`;
+        state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+        yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason: policyDecision.reason };
+        return { kind: "policy_denied", toolCallId: toolCall.id, reason: policyDecision.reason };
+      }
 
+      const approvalCard = createApprovalCard(toolRequest, policyDecision);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", `Approval card ${approvalCard.id} presented for ${definition.name}.`, undefined);
       const proposal: ToolCallProposal = {
-        proposalId: `approval_${state.runId}_spawn_${depth}`,
+        proposalId: approvalCard.id,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
         arguments: args,
         path: "",
         verb: "exec",
-        riskLevel: "L4",
+        riskLevel: policyDecision.risk_level,
         decisionHint: "ask",
-        policyDecision: undefined,
+        policyDecision,
         proposedContent: args.task
       };
       yield { type: "tool_proposal", proposal };
-
       const decision = await approvalCallback(proposal);
       if (!decision.approved) {
         const reason = decision.reason ?? "User denied the agent_spawn approval.";
@@ -496,12 +616,16 @@ async function* processToolCall(
 
       yield { type: "tool_approved", proposalId: proposal.proposalId };
       await appendLoopEvent(config.repoRoot, state, "consent.recorded", `agent_spawn approved for: ${args.task}.`, undefined);
+      const effectiveDecision = createExecutePolicyDecision(toolRequest);
+      await appendLoopEvent(config.repoRoot, state, "policy.decided", effectiveDecision.reason, undefined);
+      await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${effectiveDecision.lease?.id ?? approvalCard.id} for ${definition.name}.`, undefined);
       yield { type: "tool_executing", toolName: toolCall.name, path: "" };
 
-      // --- Isolate the child agent in a physical worktree branch ---
-      // The child runs in .aetherion/worktrees/<branchName>/workspace/, so its
-      // file mutations cannot affect the parent workspace. The parent reviews
-      // the diff afterwards and may merge explicitly (merge is NOT automatic).
+      assertLeaseActive(effectiveDecision);
+      assertLeaseScopeIncludesTool(effectiveDecision, "agent.spawn");
+      assertLeaseScopeIncludesTask(effectiveDecision, args.task);
+      assertLeaseScopeIncludesEgress(effectiveDecision, "local_response");
+
       const sourceSnap = captureTreeSnapshot(config.workspaceRoot);
       const branchName = `${state.runId}_spawn_${depth}_${randomHex(4)}`;
       const branch = await runSubagentInBranch({
@@ -512,10 +636,6 @@ async function* processToolCall(
         repoRoot: config.repoRoot
       });
       const wtDir = branch.worktreePath;
-
-      // Run the child agent loop synchronously (nested) IN THE WORKTREE.
-      // Every workspaceRoot read inside the child loop (path resolution, exec
-      // cwd, policy boundary, snapshot root) now targets the worktree dir.
       const childRunId = `${state.runId}_child_${depth}`;
       const childInvocation = {
         ...config.invocation,
@@ -524,9 +644,6 @@ async function* processToolCall(
       };
       const childConfig: AgentLoopConfig = {
         ...config,
-        // repoRoot stays the parent's — schema validation needs the parent
-        // repo's schema files. workspaceRoot is the worktree so child side
-        // effects are isolated.
         workspaceRoot: wtDir,
         invocation: childInvocation,
         maxLoopDepth: Math.min(config.maxLoopDepth, 5)
@@ -549,9 +666,6 @@ async function* processToolCall(
         for await (const childEvent of runAgentLoop(childConfig, childState, args.task, async () => ({ approved: true }))) {
           if (childEvent.type === "assistant_text") {
             const at = childEvent as Extract<LoopEvent, { type: "assistant_text" }>;
-            // The assistant_text payload field is `content`, not `text` (see
-            // LoopEvent definition). Reading `text` yielded undefined, so the
-            // child result always fell back to "(no output)".
             childResult += at.content;
           }
         }
@@ -564,10 +678,6 @@ async function* processToolCall(
         childResult = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
       }
 
-      // --- Capture what the child changed (post-run worktree snapshot) ---
-      // diffTrees against the pre-run snapshot gives the changed-files list.
-      // The parent records this so the operator can review/merge; the branch
-      // is NOT auto-merged (merged stays false).
       const afterSnap = captureTreeSnapshot(wtDir);
       const changes = diffTrees(sourceSnap, afterSnap);
       const changedFiles = changes.map((c) => c.path).sort();
@@ -577,88 +687,12 @@ async function* processToolCall(
 
       const fullResult = `${childResult}\n\n[${diffSummary}]`;
       const truncated = truncateForModel(fullResult);
-
       await appendLoopEvent(config.repoRoot, state, "tool.result", `agent_spawn completed: ${truncated.length} chars. ${diffSummary}`, undefined);
       state.totalToolCalls += 1;
       state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: truncated, success: childSuccess });
       yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
       return { kind: "executed", toolName: toolCall.name, path: "", result: truncated, success: childSuccess };
     }
-
-    const args = parseToolArguments(toolCall.arguments);
-    if (!args.command) {
-      const reason = `Tool '${toolCall.name}' call is missing required 'command' argument.`;
-      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
-      yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
-      return { kind: "policy_denied", toolCallId: toolCall.id, reason };
-    }
-
-    await appendLoopEvent(config.repoRoot, state, "tool.requested", `Model requested ${definition.name}: ${args.command}.`, undefined);
-
-    const proposal: ToolCallProposal = {
-      proposalId: `approval_${state.runId}_exec_${depth}`,
-      toolCallId: toolCall.id,
-      toolName: toolCall.name,
-      arguments: args,
-      path: "",
-      verb: "exec",
-      riskLevel: "L4",
-      decisionHint: "ask",
-      policyDecision: undefined,
-      proposedContent: args.command
-    };
-    yield { type: "tool_proposal", proposal };
-
-    const decision = await approvalCallback(proposal);
-    if (!decision.approved) {
-      const reason = decision.reason ?? "User denied the shell exec approval.";
-      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: `Exec denied: ${reason}`, success: false });
-      yield { type: "tool_denied", proposalId: proposal.proposalId, reason };
-      await appendLoopEvent(config.repoRoot, state, "tool.denied", `Exec ${definition.name} denied by user.`, undefined);
-      return { kind: "denied", toolCallId: toolCall.id, reason };
-    }
-
-    yield { type: "tool_approved", proposalId: proposal.proposalId };
-    await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Exec approved by user for: ${args.command}.`, undefined);
-
-    yield { type: "tool_executing", toolName: toolCall.name, path: "" };
-
-    // Capture pre-exec tree snapshot for VCS rollback. Best-effort.
-    let preExecTreeHash: string | undefined;
-    try {
-      const snap = captureTreeSnapshot(config.workspaceRoot);
-      preExecTreeHash = snap.tree_hash;
-      await appendLoopEvent(config.repoRoot, state, "vcs.snapshot.created",
-        `Pre-exec snapshot: ${preExecTreeHash}.`, preExecTreeHash);
-    } catch { /* best-effort */ }
-
-    const timeoutMs = Math.min(args.timeout_ms ?? 30_000, 60_000);
-    let resultText: string;
-    let success = true;
-    try {
-      const { execSync } = await import("node:child_process");
-      const stdout = execSync(args.command, {
-        cwd: config.workspaceRoot,
-        timeout: timeoutMs,
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-        maxBuffer: 1024 * 1024
-      });
-      resultText = truncateForModel(stdout);
-      await appendLoopEvent(config.repoRoot, state, "tool.result", `Exec completed: ${resultText.length} chars output.`, undefined);
-    } catch (error) {
-      success = false;
-      const execError = error as NodeJS.ErrnoException & { stderr?: string; status?: number };
-      const stderr = execError.stderr ?? "";
-      const exitInfo = execError.status !== undefined ? ` (exit ${execError.status})` : "";
-      resultText = truncateForModel(`Command failed${exitInfo}: ${execError.message}${stderr ? `\n${stderr}` : ""}`);
-      await appendLoopEvent(config.repoRoot, state, "tool.result", resultText, undefined);
-    }
-
-    state.totalToolCalls += 1;
-    state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: resultText, success });
-    yield { type: "tool_result", toolCallId: toolCall.id, toolName: toolCall.name, path: "", result: resultText, success };
-    return { kind: "executed", toolName: toolCall.name, path: "", result: resultText, success };
   }
 
   if (definition.verb === "fetch") {

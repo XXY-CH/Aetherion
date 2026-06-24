@@ -22,3 +22,17 @@ export function assertLeaseScopeIncludesEgress(decision: PolicyDecision, egress:
     throw new Error(`Policy lease does not authorize egress destination ${egress}`);
   }
 }
+
+export function assertLeaseScopeIncludesCommand(decision: PolicyDecision, command: string): void {
+  const scope = decision.lease?.scope as Record<string, unknown> | undefined;
+  if (!scope || !Array.isArray(scope.commands) || !scope.commands.includes(command)) {
+    throw new Error(`Policy lease does not authorize command ${command}`);
+  }
+}
+
+export function assertLeaseScopeIncludesTask(decision: PolicyDecision, task: string): void {
+  const scope = decision.lease?.scope as Record<string, unknown> | undefined;
+  if (!scope || !Array.isArray(scope.tasks) || !scope.tasks.includes(task)) {
+    throw new Error(`Policy lease does not authorize delegated task ${task}`);
+  }
+}

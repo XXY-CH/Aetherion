@@ -13,7 +13,7 @@ import {
   type ApprovalCallback
 } from "../src/agent-loop.ts";
 import { createStubProvider } from "../src/model-provider.ts";
-import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot } from "../src/index.ts";
+import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot, readEvents } from "../src/index.ts";
 import type { AgentRuntimeInvocationArtifact } from "../src/agent-runtime.ts";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -99,11 +99,29 @@ test("processToolCall for shell_exec runs echo and returns stdout", async () => 
   const state = await startAgentLoopState({ repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 });
   const config: AgentLoopConfig = { repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 };
   const events = await drainLoop(config, state, "run echo hello_from_exec", alwaysApprove);
+  const ledgerTypes = (await readEvents(state.workspace)).map((event) => event.event_type);
+  assert.ok(ledgerTypes.includes("tool.requested"));
+  assert.ok(ledgerTypes.includes("risk.composed"));
+  assert.ok(ledgerTypes.includes("policy.decided"));
+  assert.ok(ledgerTypes.includes("lease.issued"));
   const results = events.filter((e) => e.type === "tool_result");
   assert.ok(results.length > 0, "must yield a tool_result");
   const result = results[0] as Extract<LoopEvent, { type: "tool_result" }>;
   assert.ok(result.success, "echo should succeed");
   assert.match(result.result, /hello_from_exec/);
+});
+
+test("shell_exec execution path issues a lease bound to the command", async () => {
+  const { workspaceRoot, invocation } = await freshExecWorkspace("lease");
+  const provider = createStubProvider("stub-deterministic-v1");
+  const toolRegistry = createV1ToolRegistry();
+  const state = await startAgentLoopState({ repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 });
+  const config: AgentLoopConfig = { repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 2 };
+  const events = await drainLoop(config, state, "run echo lease_check", alwaysApprove);
+  const result = events.find((event) => event.type === "tool_result") as Extract<LoopEvent, { type: "tool_result" }>;
+  assert.ok(result.result.includes("lease_check"));
+  const ledgerTypes = (await readEvents(state.workspace)).map((event) => event.event_type);
+  assert.ok(ledgerTypes.includes("lease.issued"));
 });
 
 test("shell_exec denial by user yields tool_denied event", async () => {

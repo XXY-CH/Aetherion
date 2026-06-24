@@ -46,6 +46,27 @@ export type PolicyDecision = {
   };
 };
 
+export function issueExecuteLease(request: ToolRequest, leaseTool: string, leaseScope: Record<string, unknown>): PolicyDecision {
+  return {
+    id: `policy_${request.id}_allow_execute`,
+    tool_request_id: request.id,
+    decision: "allow",
+    risk_level: "L4",
+    reason: request.operation.target.kind === "command"
+      ? "Shell exec is allowed under a scoped execute lease."
+      : "Agent spawn is allowed under a scoped execute lease.",
+    lease: {
+      id: `lease_${request.id}`,
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      scope: {
+        tools: [leaseTool],
+        egress: ["local_response"],
+        ...leaseScope
+      }
+    }
+  };
+}
+
 export type ConsentRecord = {
   id: string;
   user_id: string;
@@ -126,6 +147,74 @@ export function createFileWriteRequest(runId: string, path: string): ToolRequest
   };
 }
 
+export function createShellExecRequest(runId: string, command: string): ToolRequest {
+  return {
+    id: `toolreq_${runId}_exec`,
+    run_id: runId,
+    requested_by: "agent.local",
+    capability_ref: "cap_shell_exec@0.1.0",
+    intent: "Run an approved shell command in the workspace",
+    operation: {
+      verb: "execute",
+      target: {
+        kind: "command",
+        uri: `shell://${command}`,
+        label: "workspace shell command"
+      },
+      expected_effect: "Run a shell command and return stdout/stderr/exit status"
+    },
+    risk_inputs: {
+      action_type: "execute",
+      target_resource: "workspace_shell",
+      data_sensitivity: "private",
+      side_effect: "definite",
+      reversibility: "low",
+      audience: "local_user",
+      credential_scope: "workspace_process",
+      runtime_boundary: "local_workspace",
+      user_intent_strength: "explicit",
+      taint_chain: ["user"],
+      target_confidence: 0.95,
+      blast_radius: "workspace_process",
+      data_egress_destination: "local_response"
+    }
+  };
+}
+
+export function createAgentSpawnRequest(runId: string, task: string): ToolRequest {
+  return {
+    id: `toolreq_${runId}_spawn`,
+    run_id: runId,
+    requested_by: "agent.local",
+    capability_ref: "cap_agent_spawn@0.1.0",
+    intent: "Delegate a sub-task to a child agent",
+    operation: {
+      verb: "execute",
+      target: {
+        kind: "agent_task",
+        uri: `agent://${task}`,
+        label: "child agent task"
+      },
+      expected_effect: "Run a constrained child agent and return its final text"
+    },
+    risk_inputs: {
+      action_type: "execute",
+      target_resource: "subagent",
+      data_sensitivity: "private",
+      side_effect: "definite",
+      reversibility: "low",
+      audience: "local_user",
+      credential_scope: "workspace_process",
+      runtime_boundary: "local_workspace",
+      user_intent_strength: "explicit",
+      taint_chain: ["user"],
+      target_confidence: 0.95,
+      blast_radius: "single_child_agent",
+      data_egress_destination: "local_response"
+    }
+  };
+}
+
 export function createWebFetchRequest(runId: string, url: string): ToolRequest {
   return {
     id: `toolreq_${runId}_fetch`,
@@ -192,6 +281,15 @@ export function createBoundaryPolicyStep(workspaceRoot: string): PolicyPipelineS
         }
         return null;
       }
+      if (request.operation.verb === "execute") {
+        if (request.operation.target.kind === "command") {
+          return null;
+        }
+        if (request.operation.target.kind === "agent_task") {
+          return null;
+        }
+        return deny(request, "Execute requests must target a command or delegated agent task.");
+      }
       const boundary = workspaceBoundary(workspaceRoot, request.operation.target.uri.replace("file://", ""));
       if (!boundary.insideWorkspace) {
         return deny(request, "Target is outside the workspace boundary.");
@@ -213,6 +311,9 @@ export function createOperationPolicyStep(_workspaceRoot: string): PolicyPipelin
       }
       if (request.operation.verb === "fetch") {
         return allowFetch(request);
+      }
+      if (request.operation.verb === "execute") {
+        return ask(request, "Execute requests require explicit approval in the seed harness.", "L4");
       }
       if (request.operation.verb === "write") {
         return ask(request, "Workspace file write requires explicit approval in the seed harness.");
@@ -323,12 +424,12 @@ export function approveWriteWithConsent(workspaceRoot: string, request: ToolRequ
   };
 }
 
-function ask(request: ToolRequest, reason: string): PolicyDecision {
+function ask(request: ToolRequest, reason: string, riskLevel: PolicyDecision["risk_level"] = "L3"): PolicyDecision {
   return {
     id: `policy_${request.run_id}_ask`,
     tool_request_id: request.id,
     decision: "ask",
-    risk_level: "L3",
+    risk_level: riskLevel,
     reason
   };
 }

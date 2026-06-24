@@ -38,6 +38,15 @@ export function composeRisk(request: ToolRequest): RiskComposition {
     }
     return risk(request, "L5", factors, "deny", "Network fetch outside the loopback boundary is denied in the seed policy.");
   }
+  if (request.operation.verb === "execute") {
+    if (request.operation.target.kind === "command") {
+      return risk(request, "L4", factors, "ask", "Shell execution can modify the workspace and must be approved.");
+    }
+    if (request.operation.target.kind === "agent_task") {
+      return risk(request, "L4", factors, "ask", "Child agent delegation can expand authority and must be approved.");
+    }
+    return risk(request, "L5", factors, "deny", "Execute target kind is not recognized by the seed policy.");
+  }
   if (request.operation.verb === "write") {
     return risk(request, "L3", factors, "ask", "Workspace write has a definite local side effect and needs explicit approval.");
   }

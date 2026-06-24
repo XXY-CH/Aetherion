@@ -13,7 +13,7 @@ import {
   type ApprovalCallback
 } from "../src/agent-loop.ts";
 import { createStubProvider } from "../src/model-provider.ts";
-import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot } from "../src/index.ts";
+import { createWorkspace, writeWorkspaceRegistry, workspaceIdForRoot, readEvents } from "../src/index.ts";
 import type { AgentRuntimeInvocationArtifact } from "../src/agent-runtime.ts";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -93,6 +93,11 @@ test("agent_spawn runs child and returns result", async () => {
   const state = await startAgentLoopState({ repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 3 });
   const config: AgentLoopConfig = { repoRoot, workspaceRoot, provider, modelRef: "stub-deterministic-v1", toolRegistry, invocation, maxLoopDepth: 3 };
   const events = await drainLoop(config, state, "spawn agent to summarize the workspace", alwaysApprove);
+  const ledgerTypes = (await readEvents(state.workspace)).map((event) => event.event_type);
+  assert.ok(ledgerTypes.includes("tool.requested"));
+  assert.ok(ledgerTypes.includes("risk.composed"));
+  assert.ok(ledgerTypes.includes("policy.decided"));
+  assert.ok(ledgerTypes.includes("lease.issued"));
   const results = events.filter((e) => e.type === "tool_result");
   assert.ok(results.length > 0, "must yield tool_result");
   const result = results[0] as Extract<LoopEvent, { type: "tool_result" }>;
