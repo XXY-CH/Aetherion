@@ -8,7 +8,7 @@
 
 - Aetherion 当前仓库：`packages/harness-core/`、`packages/tui/`、`crates/supervisor/`、`docs/14-runtime-loop-plan.md`、`docs/15-production-gap-closure-plan.md`。
 - 本地隔离参考：`.quarantine/openclaw/`、`.quarantine/hermes/`、`.quarantine/opencode/`。这些目录只作为研究输入，不是信任根，不复制其进程内插件模型。
-- 验证快照：2026-06-23 运行 `npm test`，结果 `347` 个测试，`337` 通过，`10` 失败。失败包含 `packages/harness-core/test/vcs-gc.test.ts` 的 GC 断言，以及 onboarding/doctor/release evidence 因 `docs/19-tui-visual-polish.md` 缺少或未链接中文 companion 造成的成片 readiness 失败。
+- 验证快照：2026-06-23 运行 `npm test`，结果 `348` 个测试，全部通过。GC 断言和 onboarding/doctor/release evidence 的双语链接问题都已在本轮修复，基线不再保留旧的失败数。
 - 编辑前工作树已有未跟踪文件：`packages/harness-core/src/vcs/gc.ts`、`packages/harness-core/test/vcs-gc.test.ts`、`packages/tui-go/ether-setup`。本基线不把这些算作本轮新增实现。
 
 ## 0. 总判定
@@ -182,4 +182,4 @@ OpenCode 的校准更直接：`specs/v2/session.md` 把 prompt admission、durab
 
 ### Phase 05 - VCS GC orphan tree cleanup（P0 readiness）
 
-本轮关闭 P0 release/readiness 断链中的一个现有失败：`gcUnreferencedObjects` 现在删除无效或非规范 SHA-256 tree 文件，同时保留合法 tree snapshot 作为 rollback/diff 目标并继续保护其 blob。验证：`node --test packages/harness-core/test/vcs-gc.test.ts`，7/7 通过；`node --test packages/harness-core/test/*.test.ts`，238/238 通过。
+本轮关闭两个 P0 release/readiness 断链：`gcUnreferencedObjects` 现在删除无效或非规范 SHA-256 tree 文件，同时保留合法 tree snapshot 作为 rollback/diff 目标并继续保护其 blob；`docs/19-tui-visual-polish.zh-CN.md` 也恢复了与英文页一致的双语链接。验证：`node --test packages/harness-core/test/vcs-gc.test.ts`，7/7 通过；`node --test packages/harness-core/test/*.test.ts`，238/238 通过；`npm test`，348/348 通过。

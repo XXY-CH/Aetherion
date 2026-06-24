@@ -1,6 +1,6 @@
 # TUI 视觉打磨 —— Hermes / OpenCode 差距分析
 
-[English version](19-tui-visual-polish.md)
+[English](19-tui-visual-polish.md)
 
 基于代码级研究：为什么 Hermes 和 OpenCode 的 TUI 像发布产品，而 Ether 像茅草屋。研究来源是隔离仓库（Hermes = TypeScript/React+Ink，OpenCode = TypeScript/Solid+OpenTUI；**两者都不是 Go/lipgloss**，所以 Ether 要移植的是设计模式而非代码）。
 

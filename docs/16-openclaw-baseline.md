@@ -8,7 +8,7 @@ Evidence scope:
 
 - Current Aetherion repo: `packages/harness-core/`, `packages/tui/`, `crates/supervisor/`, `docs/14-runtime-loop-plan.md`, and `docs/15-production-gap-closure-plan.md`.
 - Local quarantined references: `.quarantine/openclaw/`, `.quarantine/hermes/`, and `.quarantine/opencode/`. These are research inputs only, never trust roots, and their in-process plugin model is not copied into Aetherion authority.
-- Verification snapshot: on 2026-06-23, `npm test` reported `347` tests, `337` passing, and `10` failing. Failures include one `packages/harness-core/test/vcs-gc.test.ts` GC assertion and a block of onboarding/doctor/release-evidence failures caused by the missing or unlinked Chinese companion for `docs/19-tui-visual-polish.md`.
+- Verification snapshot: on 2026-06-23, `npm test` reported `348` tests and all passed. The GC assertion and the onboarding/doctor/release-evidence block were fixed in this round by canonical tree GC and by repairing the `docs/19-tui-visual-polish` bilingual link.
 - Pre-document dirty state already included untracked files: `packages/harness-core/src/vcs/gc.ts`, `packages/harness-core/test/vcs-gc.test.ts`, and `packages/tui-go/ether-setup`. This baseline does not treat those as work created by this document refresh.
 
 ## 0. Verdict
@@ -182,4 +182,4 @@ This round refreshes the baseline document only. Findings:
 
 ### Phase 05 - VCS GC Orphan Tree Cleanup (P0 readiness)
 
-This round closes one existing P0 release/readiness failure: `gcUnreferencedObjects` now deletes invalid or non-canonical SHA-256 tree files while preserving valid tree snapshots as rollback/diff targets and continuing to protect their blobs. Verification: `node --test packages/harness-core/test/vcs-gc.test.ts`, 7/7 passing; `node --test packages/harness-core/test/*.test.ts`, 238/238 passing.
+This round closes two existing P0 release/readiness failures: `gcUnreferencedObjects` now deletes invalid or non-canonical SHA-256 tree files while preserving valid tree snapshots as rollback/diff targets and continuing to protect their blobs, and `docs/19-tui-visual-polish.zh-CN.md` now links back to the English page in the same form as the other bilingual docs. Verification: `node --test packages/harness-core/test/vcs-gc.test.ts`, 7/7 passing; `node --test packages/harness-core/test/*.test.ts`, 238/238 passing; `npm test`, 348/348 passing.
