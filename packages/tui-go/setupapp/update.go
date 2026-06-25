@@ -32,12 +32,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Agent-loop stream events ---
 	case loopEventMsg:
+		if msg.gen != m.streamGen {
+			// Stale event from a superseded turn; drop it entirely.
+			return m, tea.Batch(cmds...)
+		}
+		if m.interrupting {
+			// The current turn is being torn down: stop applying its
+			// remaining buffered events, but keep draining the channel so we
+			// still observe its close and reach the completion teardown.
+			cmds = append(cmds, drainStreamEvents(&m))
+			return m, tea.Batch(cmds...)
+		}
 		m.applyLoopEvent(msg.event)
 		m.refreshTranscriptAfterAppend()
 		cmds = append(cmds, drainStreamEvents(&m))
 		return m, tea.Batch(cmds...)
 
 	case chatStreamDoneMsg:
+		if msg.gen != m.streamGen {
+			// Completion from a superseded turn; ignore so it cannot clear the
+			// live turn's busy state.
+			return m, tea.Batch(cmds...)
+		}
 		wasInterrupted := m.interrupting
 		m.chatBusy = false
 		m.activePrompt = ""

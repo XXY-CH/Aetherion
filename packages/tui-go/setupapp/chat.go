@@ -19,6 +19,10 @@ import (
 // stdin (for approvals) and stdout (for JSON-lines events). Returns a tea.Cmd
 // that scans stdout line by line, emitting one loopEventMsg per event.
 func runStreamingChatCommand(m Model, workspaceRoot, task, provider, modelRef string) (Model, tea.Cmd) {
+	// Open a new lifecycle generation for this turn so any late event from a
+	// prior turn is fenced out downstream.
+	m.streamGen++
+	gen := m.streamGen
 	args := []string{
 		"packages/tui/src/cli.ts",
 		"model",
@@ -48,18 +52,18 @@ func runStreamingChatCommand(m Model, workspaceRoot, task, provider, modelRef st
 	if err != nil {
 		m.chatBusy = false
 		m.chatError = err.Error()
-		return m, func() tea.Msg { return chatStreamDoneMsg{err: err} }
+		return m, func() tea.Msg { return chatStreamDoneMsg{gen: gen, err: err} }
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		m.chatBusy = false
 		m.chatError = err.Error()
-		return m, func() tea.Msg { return chatStreamDoneMsg{err: err} }
+		return m, func() tea.Msg { return chatStreamDoneMsg{gen: gen, err: err} }
 	}
 	if startErr := cmd.Start(); startErr != nil {
 		m.chatBusy = false
 		m.chatError = startErr.Error()
-		return m, func() tea.Msg { return chatStreamDoneMsg{err: startErr} }
+		return m, func() tea.Msg { return chatStreamDoneMsg{gen: gen, err: startErr} }
 	}
 	m.stdinWriter = stdin
 	m.streamingCmd = cmd
@@ -92,20 +96,26 @@ func runStreamingChatCommand(m Model, workspaceRoot, task, provider, modelRef st
 
 // drainStreamEvents returns a Cmd that pulls the next event off the stream
 // channel. On channel close it waits for the subprocess and reports completion.
+// The channel, subprocess handle and generation are captured at creation so a
+// re-armed drain keeps reading the turn it was started for and stamps every
+// message with that turn's generation.
 func drainStreamEvents(m *Model) tea.Cmd {
+	gen := m.streamGen
+	ch := m.streamEvents
+	cmd := m.streamingCmd
 	return func() tea.Msg {
-		if m.streamEvents == nil {
-			return chatStreamDoneMsg{}
+		if ch == nil {
+			return chatStreamDoneMsg{gen: gen}
 		}
-		event, open := <-m.streamEvents
+		event, open := <-ch
 		if !open {
-			waitErr := error(nil)
-			if m.streamingCmd != nil {
-				waitErr = m.streamingCmd.Wait()
+			var waitErr error
+			if cmd != nil {
+				waitErr = cmd.Wait()
 			}
-			return chatStreamDoneMsg{err: waitErr}
+			return chatStreamDoneMsg{gen: gen, err: waitErr}
 		}
-		return loopEventMsg{event: event}
+		return loopEventMsg{event: event, gen: gen}
 	}
 }
 

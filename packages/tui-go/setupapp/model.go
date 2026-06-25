@@ -63,6 +63,11 @@ type Model struct {
 	stdinWriter     io.WriteCloser
 	streamingCmd    *exec.Cmd
 	streamEvents    chan LoopEvent
+	// streamGen is a monotonic id for the active streaming turn. Each new
+	// subprocess bumps it; loop events and the completion message are stamped
+	// with the generation that produced them so events from a superseded or
+	// interrupted turn can be fenced out instead of polluting the live turn.
+	streamGen       int
 	assistantBuffer string
 	tokenHistory    []tokenSample
 
@@ -106,10 +111,12 @@ type chatFinishedMsg struct {
 
 type loopEventMsg struct {
 	event LoopEvent
+	gen   int
 }
 
 type chatStreamDoneMsg struct {
 	err error
+	gen int
 }
 
 // CommandResult is the output of a one-shot subprocess run.
