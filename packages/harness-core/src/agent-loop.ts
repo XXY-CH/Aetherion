@@ -83,6 +83,7 @@ import {
 import type { AgentRuntimeInvocationArtifact } from "./agent-runtime.ts";
 import { parseToolArguments, type ToolRegistry } from "./tool-registry.ts";
 import { computeContextEpoch, toolRegistryDigest, type ContextEpoch } from "./context-epoch.ts";
+import { ToolSettlementTracker } from "./tool-settlement.ts";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
@@ -108,6 +109,9 @@ export type AgentLoopState = {
   eventCounter?: number;
   // Hash of the model-visible context baseline captured at admission.
   contextEpoch?: ContextEpoch;
+  // Binds tool calls to the assistant message that requested them and
+  // enforces settle-once semantics.
+  toolSettlement?: ToolSettlementTracker;
 };
 
 // A proposed tool call awaiting a human decision. The approval callback receives
@@ -206,7 +210,8 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
     conversation: [{ role: "system", content: fullSystemPrompt }],
     totalTokens: 0,
     totalToolCalls: 0,
-    contextEpoch: computeContextEpoch(fullSystemPrompt, input.toolRegistry.tools)
+    contextEpoch: computeContextEpoch(fullSystemPrompt, input.toolRegistry.tools),
+    toolSettlement: new ToolSettlementTracker()
   };
 }
 
@@ -481,9 +486,15 @@ export async function* runAgentLoop(
         return;
       }
 
+      // Bind this turn's tool calls to the assistant message that requested
+      // them so each settles exactly once.
+      const assistantMessageId = `asst_${sanitize(state.runId)}_${depth}`;
+      for (const toolCall of streamingResult.tool_calls) {
+        state.toolSettlement?.register(assistantMessageId, toolCall.id);
+      }
       // Process each tool call: policy -> approval -> lease -> execute -> verify.
       for (const toolCall of streamingResult.tool_calls) {
-        const outcome = yield* processToolCall(config, state, toolCall, approvalCallback, depth);
+        const outcome = yield* processToolCall(config, state, toolCall, approvalCallback, depth, assistantMessageId);
         if (outcome.kind === "fatal_error") {
           yield { type: "error", message: outcome.message, code: outcome.code };
           return;
@@ -639,8 +650,20 @@ async function* processToolCall(
   state: AgentLoopState,
   toolCall: ModelToolCall,
   approvalCallback: ApprovalCallback,
-  depth: number
+  depth: number,
+  assistantMessageId: string
 ): AsyncGenerator<LoopEvent, ToolCallOutcome> {
+  if (state.toolSettlement) {
+    const settlement = state.toolSettlement.settle(assistantMessageId, toolCall.id);
+    if (!settlement.ok) {
+      const reason = `Tool call ${toolCall.id} settlement rejected: ${settlement.reason}.`;
+      state.conversation.push({ role: "tool", tool_call_id: toolCall.id, tool_name: toolCall.name, content: reason, success: false });
+      await appendLoopEvent(config.repoRoot, state, "tool.denied", reason, undefined);
+      yield { type: "policy_denied", toolCallId: toolCall.id, toolName: toolCall.name, reason };
+      return { kind: "policy_denied", toolCallId: toolCall.id, reason };
+    }
+    await appendLoopEvent(config.repoRoot, state, "tool.settled", `Tool call ${toolCall.id} settled against assistant message ${assistantMessageId}.`, undefined);
+  }
   const definition = config.toolRegistry.get(toolCall.name);
   if (!definition) {
     // Unknown tool: treat as policy denial, inform the model.
