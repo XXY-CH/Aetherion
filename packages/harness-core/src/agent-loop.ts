@@ -33,7 +33,7 @@ import {
   type RunManifest
 } from "./workspace.ts";
 import { createApprovalCard } from "./approval.ts";
-import { createWriteConsentRecord, writeConsentRecordArtifact } from "./consent.ts";
+import { createExecConsentRecord, createWriteConsentRecord, writeConsentRecordArtifact } from "./consent.ts";
 import {
   approveWriteWithConsent,
   createFileReadRequest,
@@ -679,7 +679,17 @@ async function* processToolCall(
       }
 
       yield { type: "tool_approved", proposalId: proposal.proposalId };
-      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Exec approved by user for: ${args.command}.`, undefined);
+      const execConsent = createExecConsentRecord({
+        runId: state.runId,
+        workspaceId: state.workspace.id,
+        toolRequestId: toolRequest.id,
+        riskLevel: policyDecision.risk_level,
+        kind: "command",
+        target: args.command,
+        depth
+      });
+      await writeConsentRecordArtifact(config.repoRoot, state.workspace, state.runId, execConsent);
+      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Consent ${execConsent.id} recorded for exec: ${args.command}.`, undefined);
       const effectiveDecision = createExecutePolicyDecision(toolRequest);
       await appendLoopEvent(config.repoRoot, state, "policy.decided", effectiveDecision.reason, undefined);
       await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${effectiveDecision.lease?.id ?? approvalCard.id} for ${definition.name}.`, undefined);
@@ -768,7 +778,17 @@ async function* processToolCall(
       }
 
       yield { type: "tool_approved", proposalId: proposal.proposalId };
-      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `agent_spawn approved for: ${args.task}.`, undefined);
+      const spawnConsent = createExecConsentRecord({
+        runId: state.runId,
+        workspaceId: state.workspace.id,
+        toolRequestId: toolRequest.id,
+        riskLevel: policyDecision.risk_level,
+        kind: "task",
+        target: args.task,
+        depth
+      });
+      await writeConsentRecordArtifact(config.repoRoot, state.workspace, state.runId, spawnConsent);
+      await appendLoopEvent(config.repoRoot, state, "consent.recorded", `Consent ${spawnConsent.id} recorded for agent_spawn: ${args.task}.`, undefined);
       const effectiveDecision = createExecutePolicyDecision(toolRequest);
       await appendLoopEvent(config.repoRoot, state, "policy.decided", effectiveDecision.reason, undefined);
       await appendLoopEvent(config.repoRoot, state, "lease.issued", `Issued scoped lease ${effectiveDecision.lease?.id ?? approvalCard.id} for ${definition.name}.`, undefined);

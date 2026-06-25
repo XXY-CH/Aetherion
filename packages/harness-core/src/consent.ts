@@ -32,6 +32,44 @@ export function createWriteConsentRecord(input: {
   };
 }
 
+// createExecConsentRecord synthesizes a durable, schema-valid ConsentRecord for
+// an approved execute-family tool (shell_exec / agent_spawn). Unlike writes
+// (one consent per run), execute calls can recur within a run, so the id is
+// disambiguated by verb and loop depth. The scope is TTL-bounded to mirror the
+// scoped-lease model — an approval authorizes this command/task now, not a
+// standing capability.
+export function createExecConsentRecord(input: {
+  runId: string;
+  workspaceId: string;
+  toolRequestId: string;
+  riskLevel: ConsentRecord["risk_level"];
+  kind: "command" | "task";
+  target: string;
+  depth: number;
+  userId?: string;
+  approvedAt?: string;
+  ttlSeconds?: number;
+}): ConsentRecord {
+  const approvedAt = input.approvedAt ?? new Date().toISOString();
+  const ttlSeconds = input.ttlSeconds ?? 300;
+  const expiresAt = new Date(Date.parse(approvedAt) + ttlSeconds * 1000).toISOString();
+  const verb = input.kind === "command" ? "exec" : "spawn";
+  const scope: Record<string, unknown> = input.kind === "command"
+    ? { actions: ["exec"], commands: [input.target] }
+    : { actions: ["spawn"], tasks: [input.target] };
+  return {
+    id: `consent_${input.runId}_${verb}_${input.depth}`,
+    user_id: input.userId ?? "user_local",
+    workspace_id: input.workspaceId,
+    tool_request_id: input.toolRequestId,
+    decision: "approved",
+    risk_level: input.riskLevel,
+    approved_at: approvedAt,
+    expires_at: expiresAt,
+    scope
+  };
+}
+
 export async function writeConsentRecordArtifact(repoRoot: string, workspace: Workspace, runId: string, consent: ConsentRecord): Promise<string> {
   const result = await validateAgainstSchema(repoRoot, "consent-record.schema.json", consent);
   if (!result.valid) {
