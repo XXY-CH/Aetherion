@@ -45,6 +45,7 @@ type Model struct {
 
 	// Chat / agent-loop state.
 	chatBusy     bool
+	interrupting bool // a mid-turn interrupt was requested; suppress the kill error
 	activePrompt string
 	chatResult   *ChatResult
 	chatError    string

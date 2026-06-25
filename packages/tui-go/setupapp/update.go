@@ -38,12 +38,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case chatStreamDoneMsg:
+		wasInterrupted := m.interrupting
 		m.chatBusy = false
 		m.activePrompt = ""
 		m.pendingApproval = nil
 		m.stdinWriter = nil
 		m.streamingCmd = nil
-		if msg.err != nil {
+		m.interrupting = false
+		if wasInterrupted {
+			// The non-nil Wait error here is just the signal we sent; don't
+			// surface it as a failure.
+			m.statusMsg = "turn interrupted by user"
+		} else if msg.err != nil {
 			m.chatError = msg.err.Error()
 		} else {
 			m.statusMsg = fmt.Sprintf("agent loop complete: turns=%d tools=%d tokens=%d",
@@ -139,7 +145,8 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 	switch {
 	case msg.String() == "ctrl+c":
 		if m.chatBusy {
-			m.statusMsg = "interrupt — press ctrl+c again to quit"
+			m.interruptChat()
+			m.refreshTranscriptAfterAppend()
 			return m, tea.Batch(cmds...)
 		}
 		if strings.TrimSpace(m.composer.Value()) != "" {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -40,6 +41,9 @@ func runStreamingChatCommand(m Model, workspaceRoot, task, provider, modelRef st
 	cmd := exec.Command("node", args...)
 	cmd.Dir = repoRoot
 	cmd.Env = m.env()
+	// Run the agent loop in its own process group so a mid-turn interrupt can
+	// tear down any synchronous child shells it spawned, not just the node PID.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		m.chatBusy = false
@@ -203,6 +207,28 @@ func (m *Model) resolveApproval(approve bool) {
 	if !approve {
 		m.pendingApproval = nil
 	}
+}
+
+// interruptChat aborts the in-flight agent turn by terminating the streaming
+// subprocess and its process group. Killing the process closes its stdout,
+// which ends the scanner goroutine and closes the event channel, so
+// drainStreamEvents resolves to a chatStreamDoneMsg and the regular teardown
+// path clears chatBusy.
+func (m *Model) interruptChat() {
+	if !m.chatBusy || m.streamingCmd == nil || m.streamingCmd.Process == nil {
+		return
+	}
+	m.interrupting = true
+	m.pendingApproval = nil
+	pid := m.streamingCmd.Process.Pid
+	// Signal the whole process group (negative pid); fall back to the lone
+	// process if the group signal fails.
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		_ = m.streamingCmd.Process.Signal(syscall.SIGTERM)
+	}
+	m.transcript = append(m.transcript, transcriptEntry{Role: "error", Text: "⛔ interrupted by user", Meta: "interrupt"})
+	m.statusMsg = "interrupting current turn…"
+	m.persistTranscript()
 }
 
 // startChat is called when the user presses Enter/Submit in the composer.
