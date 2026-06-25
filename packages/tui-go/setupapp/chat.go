@@ -231,6 +231,18 @@ func (m *Model) interruptChat() {
 	m.persistTranscript()
 }
 
+// startNextQueued pops the oldest queued prompt and begins it. Returns false
+// when the queue is empty. Composer is not reset — queued prompts already
+// cleared it when they were enqueued.
+func (m *Model) startNextQueued() (tea.Cmd, bool) {
+	if len(m.queue) == 0 {
+		return nil, false
+	}
+	next := m.queue[0]
+	m.queue = m.queue[1:]
+	return m.beginChat(next.Task, next.Provider, next.Model, false), true
+}
+
 // startChat is called when the user presses Enter/Submit in the composer.
 func (m *Model) startChat() tea.Cmd {
 	task := strings.TrimSpace(m.composer.Value())

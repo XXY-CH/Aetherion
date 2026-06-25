@@ -57,7 +57,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadTreeNodes()
 		m.refreshTranscriptAfterAppend()
-		return m, nil
+		// Drain the next queued prompt once a turn finishes normally. An
+		// interrupt leaves the queue intact so the cancel does not silently
+		// kick off the next prompt.
+		if !wasInterrupted {
+			if cmd, ok := m.startNextQueued(); ok {
+				return m, tea.Batch(append(cmds, cmd)...)
+			}
+		}
+		return m, tea.Batch(cmds...)
 
 	case chatFinishedMsg:
 		m.chatBusy = false
