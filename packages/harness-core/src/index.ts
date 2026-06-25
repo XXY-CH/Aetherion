@@ -7,6 +7,7 @@ export * from "./approval-grants.ts";
 export * from "./agent-runtime.ts";
 export * from "./boundary.ts";
 export * from "./consent.ts";
+export * from "./context-epoch.ts";
 export * from "./lease.ts";
 export * from "./output-summary.ts";
 export * from "./risk.ts";

@@ -82,6 +82,7 @@ import {
 } from "./agent-runtime.ts";
 import type { AgentRuntimeInvocationArtifact } from "./agent-runtime.ts";
 import { parseToolArguments, type ToolRegistry } from "./tool-registry.ts";
+import { computeContextEpoch, toolRegistryDigest, type ContextEpoch } from "./context-epoch.ts";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
@@ -105,6 +106,8 @@ export type AgentLoopState = {
   totalTokens: number;
   totalToolCalls: number;
   eventCounter?: number;
+  // Hash of the model-visible context baseline captured at admission.
+  contextEpoch?: ContextEpoch;
 };
 
 // A proposed tool call awaiting a human decision. The approval callback receives
@@ -202,7 +205,8 @@ export async function startAgentLoopState(input: AgentLoopStarterInput): Promise
     manifest,
     conversation: [{ role: "system", content: fullSystemPrompt }],
     totalTokens: 0,
-    totalToolCalls: 0
+    totalToolCalls: 0,
+    contextEpoch: computeContextEpoch(fullSystemPrompt, input.toolRegistry.tools)
   };
 }
 
@@ -374,6 +378,9 @@ export async function* runAgentLoop(
   } catch { /* best-effort — use raw input */ }
   state.conversation.push({ role: "user", content: expandedInput });
   yield { type: "loop_started", runId: state.runId, maxLoopDepth: config.maxLoopDepth };
+  if (state.contextEpoch) {
+    await appendLoopEvent(config.repoRoot, state, "context.epoch.recorded", `Context epoch ${state.contextEpoch.context_hash.slice(0, 12)} admitted (${state.contextEpoch.tool_count} tools, tools ${state.contextEpoch.tools_hash.slice(0, 12)}).`, undefined);
+  }
 
   let depth = 0;
   let lastAssistantText = "";
@@ -392,6 +399,15 @@ export async function* runAgentLoop(
         verb: tool.verb,
         parameters: tool.parameters
       }));
+      if (state.contextEpoch) {
+        const currentToolsHash = toolRegistryDigest(config.toolRegistry.tools);
+        if (currentToolsHash !== state.contextEpoch.tools_hash) {
+          const reason = `Advertised tool registration drifted from the admitted context epoch (${state.contextEpoch.tools_hash.slice(0, 12)} -> ${currentToolsHash.slice(0, 12)}); rejecting turn.`;
+          await appendLoopEvent(config.repoRoot, state, "context.epoch.violation", reason, undefined);
+          yield { type: "error", message: reason, code: "context_epoch_violation" };
+          return;
+        }
+      }
       const requestId = `agent_model_request_${sanitize(state.runId)}_${depth}_${randomHex(8)}`;
       const requestArtifact = createToolModeModelRequestArtifact({
         invocation: config.invocation,

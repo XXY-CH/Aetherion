@@ -76,7 +76,9 @@
         "vcs.snapshot.created",
         "vcs.rollback.applied",
         "vcs.branch.created",
-        "vcs.branch.merged"
+        "vcs.branch.merged",
+        "context.epoch.recorded",
+        "context.epoch.violation"
       ]
     },
     "actor": {
