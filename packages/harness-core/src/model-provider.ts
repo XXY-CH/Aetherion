@@ -159,6 +159,7 @@ export class ModelProviderError extends Error {
   provider_ref: string | null;
   retryable: boolean;
   http_status?: number;
+  retry_after_ms?: number;
 
   constructor(input: {
     code: ModelProviderErrorCode;
@@ -167,6 +168,7 @@ export class ModelProviderError extends Error {
     retryable: boolean;
     message: string;
     http_status?: number;
+    retry_after_ms?: number;
   }) {
     super(input.message);
     this.name = "ModelProviderError";
@@ -175,6 +177,7 @@ export class ModelProviderError extends Error {
     this.provider_ref = input.provider_ref;
     this.retryable = input.retryable;
     this.http_status = input.http_status;
+    this.retry_after_ms = input.retry_after_ms;
   }
 }
 
@@ -383,6 +386,122 @@ const GEMINI_GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.
 const ANTHROPIC_API_VERSION = "2023-06-01";
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
+
+// Retry policy for transient provider failures (network blips, timeouts, and
+// retryable upstream statuses: 408/409/425/429/5xx). Retries are bounded and
+// use full-jitter exponential backoff so concurrent runs do not synchronize.
+// All knobs are env-overridable; setting AETHERION_MODEL_MAX_RETRIES=0 disables.
+const DEFAULT_PROVIDER_MAX_RETRIES = 2;
+const DEFAULT_PROVIDER_RETRY_BASE_MS = 500;
+const DEFAULT_PROVIDER_RETRY_MAX_MS = 8_000;
+
+export type ProviderRetryConfig = {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+};
+
+function parseNonNegativeIntEnv(raw: string | undefined, fallback: number, providerRef: string, label: string): number {
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) {
+    throw modelProviderError({
+      code: "provider_invalid_timeout",
+      category: "configuration",
+      provider_ref: providerRef,
+      retryable: false,
+      message: `${label} must be a non-negative integer`
+    });
+  }
+  return parsed;
+}
+
+function resolveProviderRetryConfig(env: Record<string, string | undefined>, providerRef: string): ProviderRetryConfig {
+  return {
+    maxRetries: parseNonNegativeIntEnv(env.AETHERION_MODEL_MAX_RETRIES, DEFAULT_PROVIDER_MAX_RETRIES, providerRef, "AETHERION_MODEL_MAX_RETRIES"),
+    baseDelayMs: parseNonNegativeIntEnv(env.AETHERION_MODEL_RETRY_BASE_MS, DEFAULT_PROVIDER_RETRY_BASE_MS, providerRef, "AETHERION_MODEL_RETRY_BASE_MS"),
+    maxDelayMs: parseNonNegativeIntEnv(env.AETHERION_MODEL_RETRY_MAX_MS, DEFAULT_PROVIDER_RETRY_MAX_MS, providerRef, "AETHERION_MODEL_RETRY_MAX_MS")
+  };
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Parses a Retry-After header (delta-seconds or HTTP-date) into milliseconds.
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (!header) {
+    return undefined;
+  }
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.trunc(seconds * 1000);
+  }
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+  return undefined;
+}
+
+function providerRetryDelayMs(retry: ProviderRetryConfig, attempt: number, error: unknown): number {
+  // A server-supplied Retry-After takes precedence (capped to maxDelayMs).
+  if (isModelProviderError(error) && typeof error.retry_after_ms === "number" && error.retry_after_ms >= 0) {
+    return Math.min(error.retry_after_ms, retry.maxDelayMs);
+  }
+  const exponential = retry.baseDelayMs * 2 ** attempt;
+  const capped = Math.min(exponential, retry.maxDelayMs);
+  // Full jitter: a random delay in [0, capped].
+  return Math.floor(Math.random() * (capped + 1));
+}
+
+// Runs `attempt` and retries it while it throws a retryable ModelProviderError,
+// up to retry.maxRetries additional attempts. Only safe for operations that have
+// not yet produced observable side effects (here: a request whose response body
+// has not started streaming).
+async function withProviderRetry<T>(retry: ProviderRetryConfig, attempt: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i <= retry.maxRetries; i++) {
+    try {
+      return await attempt();
+    } catch (error) {
+      lastError = error;
+      const canRetry = isModelProviderError(error) && error.retryable && i < retry.maxRetries;
+      if (!canRetry) {
+        throw error;
+      }
+      await sleepMs(providerRetryDelayMs(retry, i, error));
+    }
+  }
+  throw lastError;
+}
+
+async function postJson<T>(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  providerName: string,
+  providerRef: string,
+  timeoutMs: number,
+  retry: ProviderRetryConfig
+): Promise<T> {
+  return withProviderRetry(retry, () => postJsonOnce<T>(url, headers, body, providerName, providerRef, timeoutMs));
+}
+
+async function postStream(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  providerName: string,
+  providerRef: string,
+  timeoutMs: number,
+  retry: ProviderRetryConfig
+): Promise<Response> {
+  return withProviderRetry(retry, () => postStreamOnce(url, headers, body, providerName, providerRef, timeoutMs));
+}
 
 import { readProviderConfig } from "./provider-config.ts";
 
@@ -689,6 +808,7 @@ function extractStubPath(userText: string): string | null {
 export function createOpenAIResponsesProvider(modelRef: string, env: Record<string, string | undefined>): ToolCapableProvider {
   const providerRef = "provider_openai_responses";
   const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
+  const retryConfig = resolveProviderRetryConfig(env, providerRef);
   return {
     provider_ref: providerRef,
     model_ref: modelRef,
@@ -709,7 +829,7 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
       const payload = await postJson<OpenAIResponsesResponse>(OPENAI_RESPONSES_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_responses", providerRef, timeoutMs);
+      }, body, "openai_responses", providerRef, timeoutMs, retryConfig);
       const result = mapOpenAIResponsesResponse(payload);
       assertNoProviderToolCalls(result, "provider_openai_responses");
       return result;
@@ -736,7 +856,7 @@ export function createOpenAIResponsesProvider(modelRef: string, env: Record<stri
       const payload = await postJson<OpenAIResponsesToolResponse>(OPENAI_RESPONSES_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_responses", providerRef, timeoutMs);
+      }, body, "openai_responses", providerRef, timeoutMs, retryConfig);
 
       const textParts: string[] = [];
       const toolCalls: ModelToolCall[] = [];
@@ -798,6 +918,7 @@ function mapOpenAIResponsesTools(tools: unknown[]): unknown[] {
 export function createOpenAIChatCompletionsProvider(modelRef: string, env: Record<string, string | undefined>): ToolCapableProvider {
   const providerRef = "provider_openai_chat_completions";
   const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
+  const retryConfig = resolveProviderRetryConfig(env, providerRef);
   return {
     provider_ref: providerRef,
     model_ref: modelRef,
@@ -813,7 +934,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
       const payload = await postJson<OpenAIChatCompletionResponse>(OPENAI_CHAT_COMPLETIONS_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_chat_completions", providerRef, timeoutMs);
+      }, body, "openai_chat_completions", providerRef, timeoutMs, retryConfig);
       const result = mapOpenAIChatCompletionResponse(payload);
       assertNoProviderToolCalls(result, "provider_openai_chat_completions");
       return result;
@@ -832,7 +953,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
       const response = await postStream(OPENAI_CHAT_COMPLETIONS_URL, {
         "authorization": `Bearer ${credential.value}`,
         "content-type": "application/json"
-      }, body, "openai_chat_completions", providerRef, timeoutMs);
+      }, body, "openai_chat_completions", providerRef, timeoutMs, retryConfig);
 
       const textParts: string[] = [];
       const toolCallAgg = new Map<number, { id: string; name: string; args: string }>();
@@ -909,6 +1030,7 @@ export function createOpenAIChatCompletionsProvider(modelRef: string, env: Recor
 export function createAnthropicProvider(modelRef: string, env: Record<string, string | undefined>): ToolCapableProvider {
   const providerRef = "provider_anthropic";
   const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
+  const retryConfig = resolveProviderRetryConfig(env, providerRef);
   return {
     provider_ref: providerRef,
     model_ref: modelRef,
@@ -937,7 +1059,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
         "anthropic-version": ANTHROPIC_API_VERSION,
         "x-api-key": apiKey.value
       };
-      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", providerRef, timeoutMs);
+      const payload = await postJson<AnthropicMessagesResponse>(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", providerRef, timeoutMs, retryConfig);
       const result = mapAnthropicResponse(payload);
       assertNoProviderToolCalls(result, "provider_anthropic");
       return result;
@@ -968,7 +1090,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
         "anthropic-version": ANTHROPIC_API_VERSION,
         "x-api-key": apiKey.value
       };
-      const response = await postStream(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", providerRef, timeoutMs);
+      const response = await postStream(ANTHROPIC_MESSAGES_URL, headers, body, "anthropic", providerRef, timeoutMs, retryConfig);
 
       const textParts: string[] = [];
       const toolCalls: ModelToolCall[] = [];
@@ -1040,6 +1162,7 @@ export function createAnthropicProvider(modelRef: string, env: Record<string, st
 export function createGeminiProvider(modelRef: string, env: Record<string, string | undefined>): ToolCapableProvider {
   const providerRef = "provider_gemini";
   const timeoutMs = resolveProviderTimeoutMs(env, providerRef);
+  const retryConfig = resolveProviderRetryConfig(env, providerRef);
   return {
     provider_ref: providerRef,
     model_ref: modelRef,
@@ -1067,7 +1190,8 @@ export function createGeminiProvider(modelRef: string, env: Record<string, strin
         body,
         "gemini",
         providerRef,
-        timeoutMs
+        timeoutMs,
+        retryConfig
       );
       const result = mapGeminiResponse(payload);
       assertNoProviderToolCalls(result, "provider_gemini");
@@ -1102,7 +1226,8 @@ export function createGeminiProvider(modelRef: string, env: Record<string, strin
         body,
         "gemini",
         providerRef,
-        timeoutMs
+        timeoutMs,
+        retryConfig
       );
 
       const textParts: string[] = [];
@@ -1499,7 +1624,7 @@ function firstEnvValue(env: Record<string, string | undefined>, names: string[])
   return null;
 }
 
-async function postJson<T>(
+async function postJsonOnce<T>(
   url: string,
   headers: Record<string, string>,
   body: unknown,
@@ -1552,6 +1677,7 @@ async function postJson<T>(
       provider_ref: providerRef,
       retryable: retryableHttpStatus(response.status),
       http_status: response.status,
+      retry_after_ms: parseRetryAfterMs(response.headers.get("retry-after")),
       message: `${providerName} provider returned HTTP ${response.status}`
     });
   }
@@ -1571,7 +1697,7 @@ async function postJson<T>(
 // Streaming POST variant. Returns the raw Response so the caller can read the
 // SSE body incrementally. Same timeout/error contract as postJson, but the body
 // is never buffered or parsed as JSON here.
-async function postStream(
+async function postStreamOnce(
   url: string,
   headers: Record<string, string>,
   body: unknown,
@@ -1623,6 +1749,7 @@ async function postStream(
       provider_ref: providerRef,
       retryable: retryableHttpStatus(response.status),
       http_status: response.status,
+      retry_after_ms: parseRetryAfterMs(response.headers.get("retry-after")),
       message: `${providerName} provider returned HTTP ${response.status}`
     });
   }
