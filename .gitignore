@@ -66,6 +66,9 @@ target/
 # Go helpers
 bin/
 *.test
+# Compiled Go binaries (local build artifacts)
+packages/tui-go/ether-setup
+packages/tui-go/ether
 
 # Databases, indexes, and local vaults
 *.sqlite
