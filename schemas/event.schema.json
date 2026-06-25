@@ -79,7 +79,8 @@
         "vcs.branch.merged",
         "context.epoch.recorded",
         "context.epoch.violation",
-        "tool.settled"
+        "tool.settled",
+        "input.admitted"
       ]
     },
     "actor": {

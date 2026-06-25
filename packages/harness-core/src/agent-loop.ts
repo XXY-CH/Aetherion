@@ -84,6 +84,7 @@ import type { AgentRuntimeInvocationArtifact } from "./agent-runtime.ts";
 import { parseToolArguments, type ToolRegistry } from "./tool-registry.ts";
 import { computeContextEpoch, toolRegistryDigest, type ContextEpoch } from "./context-epoch.ts";
 import { ToolSettlementTracker } from "./tool-settlement.ts";
+import { admitInput } from "./input-admission.ts";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
@@ -381,6 +382,10 @@ export async function* runAgentLoop(
     const expansion = expandContextReferences(userInput, config.workspaceRoot);
     expandedInput = expansion.text;
   } catch { /* best-effort — use raw input */ }
+  const admission = await admitInput(config.workspaceRoot, state.runId, expandedInput);
+  if (admission.admitted) {
+    await appendLoopEvent(config.repoRoot, state, "input.admitted", `Admitted input ${admission.record.input_id} (${admission.record.content_hash.slice(0, 12)}).`, undefined);
+  }
   state.conversation.push({ role: "user", content: expandedInput });
   yield { type: "loop_started", runId: state.runId, maxLoopDepth: config.maxLoopDepth };
   if (state.contextEpoch) {

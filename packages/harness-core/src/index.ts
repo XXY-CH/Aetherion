@@ -9,6 +9,7 @@ export * from "./boundary.ts";
 export * from "./consent.ts";
 export * from "./context-epoch.ts";
 export * from "./tool-settlement.ts";
+export * from "./input-admission.ts";
 export * from "./lease.ts";
 export * from "./output-summary.ts";
 export * from "./risk.ts";
