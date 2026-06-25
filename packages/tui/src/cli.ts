@@ -5021,6 +5021,8 @@ async function runModel(options: CliOptions): Promise<void> {
 // emitted and the process blocks reading one JSON line from stdin
 // ({"approve":bool,"reason":...}) so a parent process (e.g. the Go TUI) can
 // drive approval. --auto-approve bypasses stdin for L0-L2 reads/writes.
+import { alwaysGrantKey, loadAlwaysGrants, recordAlwaysGrant } from "../../harness-core/src/index.ts";
+
 async function runModelAgentLoop(options: CliOptions): Promise<void> {
   const workspaceRoot = resolve(options.workspace);
   await ensureModelChatWorkspace(workspaceRoot);
@@ -5090,7 +5092,12 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
     }
   };
 
+  const alwaysGrants = new Set<string>((await loadAlwaysGrants(workspaceRoot)).map((g) => g.key));
   const approvalCallback = async (proposal: ToolCallProposal): Promise<{ approved: boolean; reason?: string }> => {
+    const grantKey = alwaysGrantKey(proposal.toolName, proposal.verb);
+    if (alwaysGrants.has(grantKey)) {
+      return { approved: true, reason: "allow-always grant" };
+    }
     if (options.autoApprove) {
       // Auto-approve only low-risk (L0-L2) calls; higher risk still asks.
       const lowRisk = proposal.riskLevel === "L0" || proposal.riskLevel === "L1" || proposal.riskLevel === "L2";
@@ -5104,6 +5111,10 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
     // Emit the proposal event, then block on stdin for a decision line.
     writeEvent({ type: "tool_proposal", proposal });
     const decision = await readApprovalLine(proposal.proposalId);
+    if (decision.approved && decision.scope === "always") {
+      alwaysGrants.add(grantKey);
+      await recordAlwaysGrant(workspaceRoot, proposal.toolName, proposal.verb);
+    }
     return decision;
   };
 
@@ -5133,7 +5144,7 @@ async function runModelAgentLoop(options: CliOptions): Promise<void> {
 
 // Reads a single JSON approval line from stdin. Returns a deny decision on EOF
 // or malformed input so the loop never silently auto-approves.
-function readApprovalLine(proposalId: string): Promise<{ approved: boolean; reason?: string }> {  return new Promise((resolveDecision) => {
+function readApprovalLine(proposalId: string): Promise<{ approved: boolean; reason?: string; scope?: "once" | "always" }> {  return new Promise((resolveDecision) => {
     let buffer = "";
     const onData = (chunk: Buffer): void => {
       buffer += chunk.toString("utf8");
@@ -5143,9 +5154,10 @@ function readApprovalLine(proposalId: string): Promise<{ approved: boolean; reas
         process.stdin.removeListener("data", onData);
         process.stdin.removeListener("end", onEnd);
         try {
-          const parsed = JSON.parse(line) as { approve?: boolean; approved?: boolean; reason?: string };
+          const parsed = JSON.parse(line) as { approve?: boolean; approved?: boolean; reason?: string; scope?: string };
           const approved = Boolean(parsed.approve ?? parsed.approved);
-          resolveDecision({ approved, reason: parsed.reason });
+          const scope = parsed.scope === "always" ? "always" : "once";
+          resolveDecision({ approved, reason: parsed.reason, scope });
         } catch {
           resolveDecision({ approved: false, reason: `Malformed approval response for ${proposalId}` });
         }

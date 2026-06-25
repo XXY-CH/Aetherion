@@ -164,7 +164,7 @@ func (m *Model) applyLoopEvent(event LoopEvent) {
 		m.wm.open(winPolicy, "APPROVAL", m.renderPolicyWindow(), 56, 28)
 		m.transcript = append(m.transcript, transcriptEntry{
 			Role: "approval",
-			Text: fmt.Sprintf("⚠️ Approve %s on %s? [%s] [y/n]\n(Diff shown in policy window — press y/n)", event.Proposal.ToolName, shortPath(event.Proposal.Path), event.Proposal.RiskLevel),
+			Text: fmt.Sprintf("⚠️ Approve %s on %s? [%s]\n[y] allow once · [a] allow always · [n] deny (diff in policy window)", event.Proposal.ToolName, shortPath(event.Proposal.Path), event.Proposal.RiskLevel),
 			Meta: "awaiting approval",
 		})
 	case "tool_approved":
@@ -190,14 +190,20 @@ func (m *Model) applyLoopEvent(event LoopEvent) {
 	m.persistTranscript()
 }
 
-// resolveApproval writes the y/n decision to the subprocess stdin.
-func (m *Model) resolveApproval(approve bool) {
+// resolveApproval writes the approval decision to the subprocess stdin. scope
+// is "once" or "always"; an "always" approval asks the backend to persist a
+// standing grant for the tool+verb so it stops re-prompting.
+func (m *Model) resolveApproval(approve bool, scope string) {
 	if m.pendingApproval == nil || m.stdinWriter == nil {
 		return
+	}
+	if scope != "always" {
+		scope = "once"
 	}
 	decision := ApprovalDecision{
 		Approve:    approve,
 		ProposalID: m.pendingApproval.ProposalID,
+		Scope:      scope,
 	}
 	if !approve {
 		decision.Reason = "user denied in TUI"

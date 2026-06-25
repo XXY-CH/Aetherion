@@ -3,6 +3,7 @@ export * from "./local-file.ts";
 export * from "./model-provider.ts";
 export * from "./policy.ts";
 export * from "./approval.ts";
+export * from "./approval-grants.ts";
 export * from "./agent-runtime.ts";
 export * from "./boundary.ts";
 export * from "./consent.ts";

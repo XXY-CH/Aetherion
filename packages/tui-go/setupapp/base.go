@@ -667,7 +667,7 @@ func (m Model) renderFooter(width int) string {
 	var text string
 	switch {
 	case m.pendingApproval != nil:
-		text = "⚠ approve? [y] yes · [n] no · esc cancel"
+		text = "⚠ approve? [y] once · [a] always · [n] deny"
 	case m.chatBusy:
 		text = fmt.Sprintf("⏺ running turn %d/%d · tools %d · tokens %d · ctrl+c interrupt",
 			m.loopDepth, m.loopMaxDepth, m.loopToolCalls, m.loopTokens)

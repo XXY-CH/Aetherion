@@ -134,16 +134,21 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, t
 		}
 	}
 
-	// Approval y/n takes priority.
+	// Rich approval keys take priority: allow once / allow always / deny.
 	if m.pendingApproval != nil {
 		switch msg.String() {
 		case "y", "Y":
-			m.resolveApproval(true)
-			m.statusMsg = "approval: approved"
+			m.resolveApproval(true, "once")
+			m.statusMsg = "approval: allowed once"
+			m.refreshTranscriptAfterAppend()
+			return m, tea.Batch(cmds...)
+		case "a", "A":
+			m.resolveApproval(true, "always")
+			m.statusMsg = "approval: allowed always — won't re-prompt this tool"
 			m.refreshTranscriptAfterAppend()
 			return m, tea.Batch(cmds...)
 		case "n", "N":
-			m.resolveApproval(false)
+			m.resolveApproval(false, "once")
 			m.statusMsg = "approval: denied"
 			m.refreshTranscriptAfterAppend()
 			return m, tea.Batch(cmds...)
@@ -351,11 +356,11 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg, cmds []tea.Cmd) (tea.Mode
 		if win.kind == winModal {
 			// Click on modal: check for button hit (y/n, etc.)
 			if strings.Contains(win.content, "[y]") && msg.Y >= win.y+win.height-3 {
-				m.resolveApproval(true)
+				m.resolveApproval(true, "once")
 				return m, tea.Batch(cmds...)
 			}
 			if strings.Contains(win.content, "[n]") && msg.Y >= win.y+win.height-3 {
-				m.resolveApproval(false)
+				m.resolveApproval(false, "once")
 				return m, tea.Batch(cmds...)
 			}
 		}

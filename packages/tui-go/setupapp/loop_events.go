@@ -70,6 +70,10 @@ type ApprovalDecision struct {
 	Approve    bool   `json:"approve"`
 	ProposalID string `json:"proposalId"`
 	Reason     string `json:"reason,omitempty"`
+	// Scope is "once" (default) or "always". An "always" approval asks the
+	// backend to persist a standing grant for the tool+verb so future
+	// matching proposals are auto-approved without re-prompting.
+	Scope string `json:"scope,omitempty"`
 }
 
 // EncodeApprovalDecision serializes an approval decision to a single JSON line
