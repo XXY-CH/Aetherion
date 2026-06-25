@@ -22,6 +22,7 @@ function makeRunManifest(runId: string, eventIds: string[]): RunManifest {
     completed_at: "2026-01-01T00:01:00.000Z",
     status: "completed",
     entry_surface: "tui",
+    generation: 0,
     event_ids: eventIds
   };
 }

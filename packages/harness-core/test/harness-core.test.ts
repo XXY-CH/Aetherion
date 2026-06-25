@@ -52,6 +52,7 @@ import {
   loadRunManifest,
   loadWorkspaceFromRegistry,
   readEvents,
+  recordRunEventFromCurrentState,
   readAgentModelRequestArtifact,
   readAgentModelResponseArtifact,
   readAgentResponseAuditArtifact,
@@ -2764,6 +2765,7 @@ test("run manifest event ids are recorded as the next Ledger event projection", 
   const workspace = await createWorkspace(root, "ws_run_projection");
   const runId = "run_projection_guard";
   const manifest = await createRunManifest(repoRoot, workspace, runId, "Run manifest projection guard");
+  const manifestPath = join(root, ".aetherion", "runs", `${runId}.json`);
 
   await assert.rejects(
     recordRunEvent(repoRoot, workspace, manifest, "evt_projection_missing"),
@@ -2800,7 +2802,7 @@ test("run manifest event ids are recorded as the next Ledger event projection", 
     /expected next Ledger event evt_projection_requested, got evt_projection_started/
   );
 
-  manifest.event_ids[0] = "evt_projection_tampered";
+  await writeFile(manifestPath, `${JSON.stringify({ ...manifest, event_ids: ["evt_projection_tampered"] }, null, 2)}\n`);
   await assert.rejects(
     recordRunEvent(repoRoot, workspace, manifest, requested.id),
     /event ids do not match Ledger prefix/
@@ -2834,10 +2836,12 @@ test("terminal run manifests must project every Ledger event for the run", async
 
   await recordRunEvent(repoRoot, workspace, manifest, started.id);
   await completeRunManifest(repoRoot, workspace, manifest, "completed");
-  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { status: string; completed_at: string | null; event_ids: string[] };
+  const completed = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { status: string; completed_at: string | null; event_ids: string[]; generation: number };
   assert.equal(completed.status, "completed");
   assert.ok(completed.completed_at);
   assert.deepEqual(completed.event_ids, [started.id]);
+  assert.equal(completed.generation, 2);
+  assert.equal(manifest.generation, 2);
 });
 
 test("run manifest creation refuses to overwrite an existing projection", async () => {
@@ -2853,6 +2857,42 @@ test("run manifest creation refuses to overwrite an existing projection", async 
   const persisted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { summary: string; event_ids: string[] };
   assert.equal(persisted.summary, "Original manifest summary");
   assert.deepEqual(persisted.event_ids, []);
+});
+
+test("run manifest updates reject stale generation and leave persisted projection unchanged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aetherion-run-manifest-generation-"));
+  const workspace = await createWorkspace(root, "ws_run_manifest_generation");
+  const runId = "run_manifest_generation_guard";
+  const manifest = await createRunManifest(repoRoot, workspace, runId, "Generation guard");
+  const started = eventRecord({
+    id: "evt_generation_started",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "run.started",
+    actor: { type: "system", id: "test" },
+    summary: "Started generation-guarded run."
+  });
+  await appendEvent(repoRoot, workspace, started);
+  await recordRunEventFromCurrentState(repoRoot, workspace, manifest, started.id);
+
+  const extra = eventRecord({
+    id: "evt_generation_extra",
+    workspace_id: workspace.id,
+    run_id: runId,
+    event_type: "tool.requested",
+    actor: { type: "agent", id: "test" },
+    summary: "Requested a stale-guarded action."
+  });
+  await appendEvent(repoRoot, workspace, extra);
+  const staleManifest = { ...manifest, generation: manifest.generation - 1 };
+  await assert.rejects(
+    recordRunEventFromCurrentState(repoRoot, workspace, staleManifest, extra.id),
+    /stale generation/
+  );
+
+  const persisted = JSON.parse(await readFile(join(root, ".aetherion", "runs", `${runId}.json`), "utf8")) as { generation: number; event_ids: string[] };
+  assert.equal(persisted.generation, 1);
+  assert.deepEqual(persisted.event_ids, [started.id]);
 });
 
 test("loaded run manifests must match the requested run and workspace", async () => {
@@ -2979,7 +3019,7 @@ test("run manifest event projection rejects workspace-mismatched Ledger entries"
   manifest.workspace_id = "ws_other_workspace";
   await assert.rejects(
     recordRunEvent(repoRoot, workspace, manifest, mismatchedWorkspaceEvent.id),
-    /Run manifest run_workspace_guard belongs to workspace ws_other_workspace, not ws_run_workspace_guard/
+    /belongs to workspace ws_other_workspace, not ws_run_workspace_guard/
   );
 });
 

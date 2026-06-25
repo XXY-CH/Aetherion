@@ -18,7 +18,8 @@ import {
   kernelFileRunApprovedEventSequence,
   kernelFileRunBlockedEventSequence,
   loadWorkspaceFromRegistry,
-  recordRunEvent,
+  recordRunEventFromCurrentState,
+  withRunManifestLock,
   workspaceIdForRoot,
   type RunManifest,
   type WorkspaceRegistry
@@ -233,20 +234,22 @@ async function appendSupervisorEvent(
   payloadRef?: string,
   options?: Parameters<typeof callSupervisorRpc>[2]
 ): Promise<void> {
-  const appendResult = await supervisorCall(repoRoot, {
-    id: `rpc_${event_type}_${randomUUID()}`,
-    method: "event.append",
-    workspace_root: workspace.root,
-    workspace_id: workspace.id,
-    run_id: runId,
-    event_type,
-    summary,
-    payload_ref: payloadRef
-  }, options);
-  if (typeof appendResult.event_id !== "string" || !appendResult.event_id) {
-    throw new Error(`Rust supervisor event.append returned no event id for ${event_type}`);
-  }
-  await recordRunEvent(repoRoot, workspace, manifest, appendResult.event_id);
+  await withRunManifestLock(workspace, manifest.id, async () => {
+    const appendResult = await supervisorCall(repoRoot, {
+      id: `rpc_${event_type}_${randomUUID()}`,
+      method: "event.append",
+      workspace_root: workspace.root,
+      workspace_id: workspace.id,
+      run_id: runId,
+      event_type,
+      summary,
+      payload_ref: payloadRef
+    }, options);
+    if (typeof appendResult.event_id !== "string" || !appendResult.event_id) {
+      throw new Error(`Rust supervisor event.append returned no event id for ${event_type}`);
+    }
+    await recordRunEventFromCurrentState(repoRoot, workspace, manifest, appendResult.event_id);
+  });
 }
 
 async function recordSupervisorEventIds(
@@ -264,7 +267,7 @@ async function recordSupervisorEventIds(
     if (typeof eventId !== "string") {
       throw new Error(`Rust supervisor traced action returned no ${key}`);
     }
-    await recordRunEvent(repoRoot, workspace, manifest, eventId);
+    await withRunManifestLock(workspace, manifest.id, async () => recordRunEventFromCurrentState(repoRoot, workspace, manifest, eventId));
   }
 }
 

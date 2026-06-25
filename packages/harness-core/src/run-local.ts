@@ -34,7 +34,8 @@ import {
   assertWorkspaceIdForRoot,
   kernelFileRunApprovedEventSequence,
   kernelFileRunBlockedEventSequence,
-  recordRunEvent,
+  recordRunEventFromCurrentState,
+  withRunManifestLock,
   workspaceIdForRoot,
   writeWorkspaceRegistry,
   type RunManifest,
@@ -331,8 +332,10 @@ export async function runLocalKernelLoop(input: LocalKernelRunInput): Promise<Lo
 }
 
 async function appendRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, event: ReturnType<typeof eventRecord>): Promise<void> {
-  await appendEvent(repoRoot, workspace, event);
-  await recordRunEvent(repoRoot, workspace, manifest, event.id);
+  await withRunManifestLock(workspace, manifest.id, async () => {
+    await appendEvent(repoRoot, workspace, event);
+    await recordRunEventFromCurrentState(repoRoot, workspace, manifest, event.id);
+  });
 }
 
 async function assertValid(repoRoot: string, schemaName: string, value: unknown): Promise<void> {

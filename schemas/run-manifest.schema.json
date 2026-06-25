@@ -3,7 +3,7 @@
   "$id": "https://aetherion.local/schemas/run-manifest.schema.json",
   "title": "RunManifest",
   "type": "object",
-  "required": ["id", "workspace_id", "started_at", "status", "entry_surface", "event_ids"],
+  "required": ["id", "workspace_id", "started_at", "status", "entry_surface", "generation", "event_ids"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^run_[A-Za-z0-9_-]+$" },
@@ -12,6 +12,7 @@
     "completed_at": { "type": ["string", "null"] },
     "status": { "type": "string", "enum": ["running", "completed", "blocked", "failed"] },
     "entry_surface": { "type": "string", "enum": ["tui", "gui", "im", "browser", "api", "system"] },
+    "generation": { "type": "integer", "minimum": 0 },
     "event_ids": { "type": "array", "items": { "type": "string" } },
     "summary": { "type": "string" }
   }

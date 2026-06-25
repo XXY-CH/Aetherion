@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { readEvents, type EventRecord, type Workspace } from "./ledger.ts";
 import { validateAgainstSchema } from "./schema.ts";
@@ -20,6 +20,7 @@ export type RunManifest = {
   completed_at: string | null;
   status: "running" | "completed" | "blocked" | "failed";
   entry_surface: "tui" | "gui" | "im" | "browser" | "api" | "system";
+  generation: number;
   event_ids: string[];
   summary?: string;
 };
@@ -300,6 +301,7 @@ export async function createRunManifest(repoRoot: string, workspace: Workspace, 
     completed_at: null,
     status: "running",
     entry_surface: "tui",
+    generation: 0,
     event_ids: [],
     summary
   };
@@ -324,8 +326,19 @@ export async function loadRunManifest(workspace: Workspace, runId: string): Prom
   if (manifest.id !== runId) {
     throw new Error(`Run manifest file ${runId} contains manifest ${manifest.id}`);
   }
+  if (!Number.isInteger(manifest.generation) || manifest.generation < 0) {
+    throw new Error(`Run manifest ${runId} generation missing or invalid`);
+  }
   assertManifestWorkspace(workspace, manifest);
   return manifest;
+}
+
+export async function loadCurrentRunManifest(workspace: Workspace, manifest: Pick<RunManifest, "id" | "generation">): Promise<RunManifest> {
+  const currentManifest = await loadRunManifest(workspace, manifest.id);
+  if (currentManifest.generation !== manifest.generation) {
+    throw new Error(`Run manifest ${manifest.id} has stale generation: expected ${currentManifest.generation}, got ${manifest.generation}`);
+  }
+  return currentManifest;
 }
 
 export async function loadWorkspaceFromRegistry(root: string): Promise<{ workspace: Workspace; registry: WorkspaceRegistry }> {
@@ -378,8 +391,34 @@ function assertWorkspaceRegistryForRoot(registry: unknown, root: string): assert
 }
 
 export async function recordRunEvent(repoRoot: string, workspace: Workspace, manifest: RunManifest, eventId: string): Promise<RunManifest> {
-  assertManifestWorkspace(workspace, manifest);
-  const nextEvent = await nextLedgerEventForManifest(workspace, manifest);
+  return withRunManifestLock(workspace, manifest.id, async () => recordRunEventFromCurrentState(repoRoot, workspace, manifest, eventId));
+}
+
+export async function completeRunManifest(repoRoot: string, workspace: Workspace, manifest: RunManifest, status: RunManifest["status"]): Promise<RunManifest> {
+  return withRunManifestLock(workspace, manifest.id, async () => {
+    const currentManifest = await loadCurrentRunManifest(workspace, manifest);
+    if (manifest.generation !== currentManifest.generation) {
+      throw new Error(`Run manifest ${manifest.id} has stale generation: expected ${currentManifest.generation}, got ${manifest.generation}`);
+    }
+    await manifestEventsInLedgerOrder(workspace, currentManifest);
+    const updatedManifest: RunManifest = {
+      ...currentManifest,
+      generation: currentManifest.generation + 1,
+      status,
+      completed_at: new Date().toISOString()
+    };
+    await saveRunManifest(repoRoot, workspace, updatedManifest, currentManifest.generation);
+    Object.assign(manifest, updatedManifest);
+    return manifest;
+  });
+}
+
+export async function recordRunEventFromCurrentState(repoRoot: string, workspace: Workspace, manifest: RunManifest, eventId: string): Promise<RunManifest> {
+  const currentManifest = await loadCurrentRunManifest(workspace, manifest);
+  if (manifest.generation !== currentManifest.generation) {
+    throw new Error(`Run manifest ${manifest.id} has stale generation: expected ${currentManifest.generation}, got ${manifest.generation}`);
+  }
+  const nextEvent = await nextLedgerEventForManifest(workspace, currentManifest);
   if (!nextEvent) {
     throw new Error(`Run manifest ${manifest.id} has no unrecorded Ledger event ${eventId}`);
   }
@@ -389,19 +428,16 @@ export async function recordRunEvent(repoRoot: string, workspace: Workspace, man
   if (nextEvent.workspace_id !== workspace.id) {
     throw new Error(`Run manifest ${manifest.id} event ${eventId} belongs to workspace ${nextEvent.workspace_id}, not ${workspace.id}`);
   }
-  if (nextEvent.run_id !== manifest.id) {
+  if (nextEvent.run_id !== currentManifest.id) {
     throw new Error(`Run manifest ${manifest.id} event ${eventId} belongs to run ${nextEvent.run_id}`);
   }
-  manifest.event_ids.push(eventId);
-  await saveRunManifest(repoRoot, workspace, manifest);
-  return manifest;
-}
-
-export async function completeRunManifest(repoRoot: string, workspace: Workspace, manifest: RunManifest, status: RunManifest["status"]): Promise<RunManifest> {
-  await manifestEventsInLedgerOrder(workspace, manifest);
-  manifest.status = status;
-  manifest.completed_at = new Date().toISOString();
-  await saveRunManifest(repoRoot, workspace, manifest);
+  const updatedManifest: RunManifest = {
+    ...currentManifest,
+    generation: currentManifest.generation + 1,
+    event_ids: [...currentManifest.event_ids, eventId]
+  };
+  await saveRunManifest(repoRoot, workspace, updatedManifest, currentManifest.generation);
+  Object.assign(manifest, updatedManifest);
   return manifest;
 }
 
@@ -412,7 +448,8 @@ export async function completeRunManifestWithEventSequence(
   status: RunManifest["status"],
   expectedEvents: readonly RunEventExpectation[]
 ): Promise<RunManifest> {
-  const manifestEvents = await manifestEventsInLedgerOrder(workspace, manifest);
+  const currentManifest = await loadCurrentRunManifest(workspace, manifest);
+  const manifestEvents = await manifestEventsInLedgerOrder(workspace, currentManifest);
   const actualEventTypes = manifestEvents.map((event) => event.event_type);
   const expectedEventTypes = expectedEvents.map(expectedEventType);
   if (!stringArraysEqual(actualEventTypes, expectedEventTypes)) {
@@ -420,8 +457,10 @@ export async function completeRunManifestWithEventSequence(
       `Run manifest ${manifest.id} cannot complete as ${status}: expected lifecycle ${expectedEventTypes.join(" -> ")}, got ${actualEventTypes.join(" -> ")}`
     );
   }
-  assertExpectedPayloadRefs(manifest, manifestEvents, expectedEvents);
-  return completeRunManifest(repoRoot, workspace, manifest, status);
+  assertExpectedPayloadRefs(currentManifest, manifestEvents, expectedEvents);
+  const completedManifest = await completeRunManifest(repoRoot, workspace, currentManifest, status);
+  Object.assign(manifest, completedManifest);
+  return manifest;
 }
 
 async function manifestEventsInLedgerOrder(workspace: Workspace, manifest: RunManifest): Promise<EventRecord[]> {
@@ -501,10 +540,37 @@ function assertExpectedPayloadRefs(manifest: RunManifest, events: readonly Event
   });
 }
 
-async function saveRunManifest(repoRoot: string, workspace: Workspace, manifest: RunManifest): Promise<void> {
+async function saveRunManifest(repoRoot: string, workspace: Workspace, manifest: RunManifest, expectedGeneration?: number): Promise<void> {
   assertManifestWorkspace(workspace, manifest);
+  if (expectedGeneration !== undefined) {
+    const currentManifest = await loadRunManifest(workspace, manifest.id);
+    if (currentManifest.generation !== expectedGeneration) {
+      throw new Error(`Run manifest ${manifest.id} has stale generation: expected ${expectedGeneration}, got ${currentManifest.generation}`);
+    }
+  }
   await assertValid(repoRoot, "run-manifest.schema.json", manifest);
   await writeJson(runManifestPath(workspace, manifest.id), manifest);
+}
+
+export async function withRunManifestLock<T>(workspace: Workspace, runId: string, run: () => Promise<T>): Promise<T> {
+  const lockPath = runManifestLockPath(workspace, runId);
+  try {
+    await mkdir(lockPath);
+  } catch (error) {
+    if (isMissingOrBusyLockError(error)) {
+      throw new Error(`Run manifest ${runId} is already being updated`);
+    }
+    throw error;
+  }
+  try {
+    return await run();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
+}
+
+function runManifestLockPath(workspace: Workspace, runId: string): string {
+  return join(workspace.runtimeDir, "runs", `${runId}.lock`);
 }
 
 function assertManifestWorkspace(workspace: Workspace, manifest: RunManifest): void {
@@ -518,6 +584,13 @@ function isMissingFileError(error: unknown): boolean {
     && error !== null
     && "code" in error
     && (error as { code?: unknown }).code === "ENOENT";
+}
+
+function isMissingOrBusyLockError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && ((error as { code?: unknown }).code === "EEXIST" || (error as { code?: unknown }).code === "ENOENT");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -5,6 +5,7 @@
   "completed_at": null,
   "status": "running",
   "entry_surface": "tui",
+  "generation": 0,
   "event_ids": ["evt_run_example_user_message"],
   "summary": "Example TUI kernel run."
 }
